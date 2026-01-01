@@ -10,7 +10,7 @@ interface DAGTabProps {
 }
 
 const PAGE_SIZE = 20;
-const NEW_TX_DURATION = 3000;
+const NEW_TX_DURATION = 8000;
 
 export function DAGTab({ nodes, merkleRoot }: DAGTabProps) {
   const [page, setPage] = useState(0);
