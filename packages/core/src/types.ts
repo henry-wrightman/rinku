@@ -217,6 +217,13 @@ export interface ValidatorSignature {
   timestamp: number;
 }
 
+/** A validator entry for checkpoint authentication */
+export interface ValidatorEntry {
+  address: string;
+  publicKey: number[];
+  weight: number;
+}
+
 /** A checkpoint representing network consensus at a point in time */
 export interface Checkpoint {
   checkpointId: string;
@@ -226,6 +233,8 @@ export interface Checkpoint {
   totalTransactions: number;
   totalWeight: number;
   validatorSetHash: string;
+  previousCheckpointId: string | null;
+  validators: ValidatorEntry[];
   timestamp: number;
   signatures: ValidatorSignature[];
 }
@@ -239,7 +248,17 @@ export interface CheckpointProof {
   totalValidatorWeight: number;
   totalNetworkWeight: number;
   validatorSetHash: string;
+  previousCheckpointId: string | null;
+  validators: ValidatorEntry[];
   signatures: ValidatorSignature[];
+}
+
+/** Genesis configuration for bootstrapping trust */
+export interface GenesisConfig {
+  chainId: string;
+  genesisTime: number;
+  initialValidators: ValidatorEntry[];
+  genesisCheckpointId: string;
 }
 
 /** Extended transaction URL with embedded finality proof */

@@ -2,13 +2,16 @@ import {
   type Checkpoint,
   type CheckpointProof,
   type ValidatorSignature,
+  type ValidatorEntry,
   type CheckpointConfig,
-  type AccountState,
-  type DAGNode,
+  type GenesisConfig,
   createCheckpoint,
+  createGenesisCheckpoint,
   createCheckpointProof,
   getCheckpointSigningData,
+  computeValidatorSetHash,
   DEFAULT_CHECKPOINT_CONFIG,
+  GENESIS_CHECKPOINT_ID,
   sign,
   verify
 } from '@rinku/core';
@@ -17,7 +20,7 @@ export interface CheckpointServiceDeps {
   getMerkleRoot: () => string;
   getTipUrls: () => string[];
   getTotalTransactions: () => number;
-  getValidators: () => { address: string; weight: number }[];
+  getValidatorEntries: () => ValidatorEntry[];
   getTotalWeight: () => number;
   getPublicKey: (address: string) => Uint8Array | undefined;
   getPrivateKey: () => Uint8Array | undefined;
@@ -27,23 +30,63 @@ export interface CheckpointServiceDeps {
 export class CheckpointService {
   private checkpoints: Map<string, Checkpoint> = new Map();
   private latestCheckpoint: Checkpoint | null = null;
+  private genesisCheckpoint: Checkpoint | null = null;
   private checkpointHeight = 0;
   private config: CheckpointConfig;
   private intervalId: NodeJS.Timeout | null = null;
+  private chainId: string;
 
   constructor(
     private deps: CheckpointServiceDeps,
+    chainId: string = 'rinku-testnet',
     config?: Partial<CheckpointConfig>
   ) {
     this.config = { ...DEFAULT_CHECKPOINT_CONFIG, ...config };
+    this.chainId = chainId;
   }
 
   getConfig(): CheckpointConfig {
     return { ...this.config };
   }
 
+  getChainId(): string {
+    return this.chainId;
+  }
+
+  async initializeGenesis(): Promise<Checkpoint> {
+    const validators = this.deps.getValidatorEntries();
+    const genesis = await createGenesisCheckpoint(this.chainId, validators);
+    
+    this.checkpoints.set(genesis.checkpointId, genesis);
+    this.genesisCheckpoint = genesis;
+    this.latestCheckpoint = genesis;
+    this.checkpointHeight = 0;
+
+    console.log(`Genesis checkpoint created: ${genesis.checkpointId}`);
+    console.log(`Initial validators: ${validators.length}`);
+    
+    return genesis;
+  }
+
+  getGenesisCheckpoint(): Checkpoint | null {
+    return this.genesisCheckpoint;
+  }
+
+  getGenesisConfig(): GenesisConfig | null {
+    if (!this.genesisCheckpoint) return null;
+    return {
+      chainId: this.chainId,
+      genesisTime: this.genesisCheckpoint.timestamp,
+      initialValidators: this.genesisCheckpoint.validators,
+      genesisCheckpointId: this.genesisCheckpoint.checkpointId
+    };
+  }
+
   async createCheckpoint(): Promise<Checkpoint> {
     this.checkpointHeight++;
+
+    const previousCheckpointId = this.latestCheckpoint?.checkpointId || null;
+    const validators = this.deps.getValidatorEntries();
 
     const checkpoint = await createCheckpoint(
       this.checkpointHeight,
@@ -51,7 +94,8 @@ export class CheckpointService {
       this.deps.getTipUrls(),
       this.deps.getTotalTransactions(),
       this.deps.getTotalWeight(),
-      this.deps.getValidators()
+      validators,
+      previousCheckpointId
     );
 
     this.checkpoints.set(checkpoint.checkpointId, checkpoint);
@@ -69,7 +113,7 @@ export class CheckpointService {
     const checkpoint = this.checkpoints.get(checkpointId);
     if (!checkpoint) return null;
 
-    const validators = this.deps.getValidators();
+    const validators = this.deps.getValidatorEntries();
     const validator = validators.find(v => v.address === validatorAddress);
     const validatorWeight = validator?.weight || 0;
 
@@ -96,7 +140,7 @@ export class CheckpointService {
     const checkpoint = this.checkpoints.get(checkpointId);
     if (!checkpoint) return false;
 
-    const validators = this.deps.getValidators();
+    const validators = this.deps.getValidatorEntries();
     const knownValidator = validators.find(v => v.address === signature.validator);
     if (!knownValidator) {
       console.log(`Rejected signature: unknown validator ${signature.validator}`);
@@ -142,7 +186,7 @@ export class CheckpointService {
 
     if (!checkpoint) return null;
 
-    const validators = this.deps.getValidators();
+    const validators = this.deps.getValidatorEntries();
     const totalWeight = validators.reduce((sum, v) => sum + v.weight, 0);
 
     const signerWeight = checkpoint.signatures.reduce((sum, sig) => {
@@ -155,6 +199,18 @@ export class CheckpointService {
       : 0;
 
     return createCheckpointProof(checkpoint, weightPercent);
+  }
+
+  getCheckpointChain(): CheckpointProof[] {
+    const chain: CheckpointProof[] = [];
+    const allCheckpoints = this.getAllCheckpoints();
+    
+    for (const checkpoint of allCheckpoints) {
+      const proof = this.getCheckpointProof(checkpoint.checkpointId);
+      if (proof) chain.push(proof);
+    }
+    
+    return chain.sort((a, b) => a.checkpointHeight - b.checkpointHeight);
   }
 
   isCheckpointFinalized(checkpointId: string): boolean {
@@ -216,7 +272,9 @@ export class CheckpointService {
     return {
       checkpoints: Array.from(this.checkpoints.entries()),
       latestCheckpointId: this.latestCheckpoint?.checkpointId || null,
+      genesisCheckpointId: this.genesisCheckpoint?.checkpointId || null,
       checkpointHeight: this.checkpointHeight,
+      chainId: this.chainId,
       config: this.config
     };
   }
@@ -225,7 +283,7 @@ export class CheckpointService {
     data: any,
     deps: CheckpointServiceDeps
   ): CheckpointService {
-    const service = new CheckpointService(deps, data.config);
+    const service = new CheckpointService(deps, data.chainId, data.config);
 
     if (data.checkpoints) {
       for (const [id, checkpoint] of data.checkpoints) {
@@ -235,6 +293,10 @@ export class CheckpointService {
 
     if (data.latestCheckpointId) {
       service.latestCheckpoint = service.checkpoints.get(data.latestCheckpointId) || null;
+    }
+
+    if (data.genesisCheckpointId) {
+      service.genesisCheckpoint = service.checkpoints.get(data.genesisCheckpointId) || null;
     }
 
     service.checkpointHeight = data.checkpointHeight || 0;

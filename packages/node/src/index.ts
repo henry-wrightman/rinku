@@ -75,10 +75,14 @@ async function main() {
     getMerkleRoot: () => state.getMerkleRoot(),
     getTipUrls: () => consensus.getTipUrls(),
     getTotalTransactions: () => consensus.getAllNodes().length,
-    getValidators: () => rewardsService.getActiveValidators().map(v => ({
-      address: v.staker,
-      weight: v.amount
-    })),
+    getValidatorEntries: () => rewardsService.getActiveValidators().map(v => {
+      const pubKey = consensus.getPublicKeys().get(v.staker);
+      return {
+        address: v.staker,
+        publicKey: pubKey ? Array.from(pubKey) : [],
+        weight: v.amount
+      };
+    }),
     getTotalWeight: () => rewardsService.getTotalStaked(),
     getPublicKey: (address: string) => consensus.getPublicKeys().get(address),
     getPrivateKey: () => undefined,
@@ -88,9 +92,13 @@ async function main() {
   let checkpointService: CheckpointService;
   if (snapshot?.checkpoints) {
     checkpointService = CheckpointService.fromJSON(snapshot.checkpoints, checkpointDeps);
+    if (!checkpointService.getGenesisCheckpoint()) {
+      await checkpointService.initializeGenesis();
+    }
     console.log('Restored checkpoint data from snapshot');
   } else {
-    checkpointService = new CheckpointService(checkpointDeps);
+    checkpointService = new CheckpointService(checkpointDeps, 'rinku-testnet');
+    await checkpointService.initializeGenesis();
   }
   
   peers.forEach(peer => {

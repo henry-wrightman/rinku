@@ -632,6 +632,28 @@ export function createAPI(
     });
   });
 
+  app.get('/api/checkpoints/genesis', (_req, res) => {
+    if (!checkpointService) {
+      res.status(501).json({ error: 'Checkpoints not enabled' });
+      return;
+    }
+    const genesisConfig = checkpointService.getGenesisConfig();
+    if (!genesisConfig) {
+      res.status(404).json({ error: 'Genesis not initialized' });
+      return;
+    }
+    res.json(genesisConfig);
+  });
+
+  app.get('/api/checkpoints/chain', (_req, res) => {
+    if (!checkpointService) {
+      res.status(501).json({ error: 'Checkpoints not enabled' });
+      return;
+    }
+    const chain = checkpointService.getCheckpointChain();
+    res.json({ chain, length: chain.length });
+  });
+
   app.get('/api/checkpoints/latest', (_req, res) => {
     if (!checkpointService) {
       res.status(501).json({ error: 'Checkpoints not enabled' });

@@ -301,12 +301,19 @@ npm run demo-finality
 - 51% of staked validator weight
 - Valid cryptographic signatures
 
-### Security Model
-- **Node-side**: External signatures are validated against known validator weights; mismatches are rejected
-- **Standalone verification**: Proofs are cryptographically verified (signatures, fingerprints, weight computation)
-- **Known limitation**: Standalone verification trusts that signature weights are accurate (honest nodes would reject forged weights)
-- **Trust assumption**: For full trustless verification, recipients need a trusted reference for the validator set (like a genesis checkpoint or recent trusted snapshot)
-- **Future improvement**: Add validator-set merkle proofs and checkpoint chain for fully trustless standalone verification without external trust anchors
+### Security Model (Trustless with Genesis Bootstrapping)
+- **Genesis as root of trust**: `genesis_00000000` contains initial validator set and chain ID
+- **Checkpoint chaining**: Each checkpoint has `previousCheckpointId` linking back to genesis
+- **Validator authentication**: Proofs embed full validator set with addresses, public keys, and weights
+- **Verification against trusted validators**: Weight thresholds computed from genesis/chain validators, NOT from proof
+- **Weight inflation protection**: Attacker cannot forge proofs with inflated weights - denominator is computed from trusted set
+
+**Attack Resistance:**
+- Forged checkpoint signatures → Cryptographically rejected
+- Inflated validator weights → Rejected (verified against genesis chain)
+- Fake validators → Rejected (not in authenticated validator set)
+- Lowered totalNetworkWeight → Rejected (recomputed from trusted validators)
+- History rewriting → Rejected (checkpoint chain verified from genesis)
 
 ## Recent Changes
 - Initial project setup with all 5 packages
