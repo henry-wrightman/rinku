@@ -37,11 +37,17 @@ payload = base64url(deflate({
   to: fingerprint,
   amount: number,
   nonce: number,
-  tips: [tx_hash, tx_hash],
+  tipUrls: ["/tx/...", "/tx/..."],  # Full parent URLs - self-crawlable!
   sig: signature,
   ts: timestamp
 }))
 ```
+
+### Self-Crawlable Ledger
+Each transaction embeds the **full URLs** of its parent transactions. This means:
+- Anyone with a single tip URL can reconstruct the entire ledger
+- No node infrastructure needed - just the URLs themselves
+- Complete cryptographic validation from any transaction URL
 
 ## Running the Project
 
@@ -94,6 +100,18 @@ NODE_PORT=3002 NODE_ID=node2 NODE_PEERS=https://your-replit-url.repl.co npm run 
 - `RINKU_NODE_URL`: Node API URL (default: http://localhost:3001)
 - `RINKU_FAUCET_URL`: Faucet API URL (default: http://localhost:3002)
 
+### Network Simulation
+```bash
+# Generate 100 wallets and validate the entire ledger from a single tip URL
+cd packages/node
+WALLET_COUNT=100 npm run simulate
+
+# Results show:
+# - All transactions crawled from a single URL
+# - Complete account balance reconstruction
+# - Chain depth and linking structure
+```
+
 ### Stress Testing
 ```bash
 # Generate 500 faucet transactions
@@ -118,3 +136,7 @@ NODE_PORT=3003 NODE_PEERS=https://your-replit-url npm run dev:node
 - Fixed cold-start bootstrap (sync from peers before creating genesis)
 - Added stress test script for load testing (npm run stress-test)
 - Added configurable env vars for wallet CLI (RINKU_NODE_URL, RINKU_FAUCET_URL)
+- **URL-Native Transactions**: Changed from hash-based tips to URL-based tipUrls
+- **Self-Crawlable Ledger**: Entire ledger can be reconstructed from any single tip URL
+- **Stateless Validator**: Added @rinku/stateless package for validating from URLs
+- **Network Simulation**: Added `npm run simulate` to generate and validate large networks
