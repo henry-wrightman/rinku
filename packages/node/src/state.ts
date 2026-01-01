@@ -81,11 +81,12 @@ export class StateManager {
     this.accounts.set(fingerprint, account);
   }
 
-  updateBalance(fingerprint: string, delta: number): boolean {
+  async updateBalance(fingerprint: string, delta: number): Promise<boolean> {
     const account = this.accounts.get(fingerprint);
     if (!account) {
       if (delta > 0) {
         this.createAccount(fingerprint, delta);
+        await this.updateMerkleRoot();
         return true;
       }
       return false;
@@ -97,6 +98,7 @@ export class StateManager {
     }
 
     account.balance = newBalance;
+    await this.updateMerkleRoot();
     return true;
   }
 

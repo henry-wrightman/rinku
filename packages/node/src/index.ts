@@ -56,7 +56,7 @@ async function main() {
   const rewardsDeps = {
     getDAGNodeByUrl: (url: string) => consensus.getNodeByUrl(url),
     getAccount: (address: string) => state.getAccount(address),
-    updateBalance: (address: string, delta: number) => state.updateBalance(address, delta)
+    updateBalance: async (address: string, delta: number) => state.updateBalance(address, delta)
   };
 
   let rewardsService: RewardsService;

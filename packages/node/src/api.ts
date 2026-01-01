@@ -548,12 +548,12 @@ export function createAPI(
     res.json(summary);
   });
 
-  app.post('/api/rewards/:address/claim', (req, res) => {
+  app.post('/api/rewards/:address/claim', async (req, res) => {
     if (!rewardsService) {
       res.status(501).json({ error: 'Rewards not enabled' });
       return;
     }
-    const result = rewardsService.claimRewards(req.params.address);
+    const result = await rewardsService.claimRewards(req.params.address);
     res.json(result);
   });
 
@@ -579,7 +579,7 @@ export function createAPI(
     res.json(status);
   });
 
-  app.post('/api/staking/stake', (req, res) => {
+  app.post('/api/staking/stake', async (req, res) => {
     if (!rewardsService) {
       res.status(501).json({ error: 'Rewards not enabled' });
       return;
@@ -591,11 +591,11 @@ export function createAPI(
       return;
     }
 
-    const result = rewardsService.stake(address, amount);
+    const result = await rewardsService.stake(address, amount);
     res.json(result);
   });
 
-  app.post('/api/staking/unstake', (req, res) => {
+  app.post('/api/staking/unstake', async (req, res) => {
     if (!rewardsService) {
       res.status(501).json({ error: 'Rewards not enabled' });
       return;
@@ -607,7 +607,7 @@ export function createAPI(
       return;
     }
 
-    const result = rewardsService.unstake(address);
+    const result = await rewardsService.unstake(address);
     res.json(result);
   });
 

@@ -24,7 +24,7 @@ import {
 export interface RewardsServiceDeps {
   getDAGNodeByUrl: (url: string) => DAGNode | undefined;
   getAccount: (address: string) => AccountState | undefined;
-  updateBalance: (address: string, delta: number) => boolean;
+  updateBalance: (address: string, delta: number) => Promise<boolean>;
 }
 
 export class RewardsService {
@@ -134,7 +134,7 @@ export class RewardsService {
     return { tipRewards, stakeRewards, witnessRewards };
   }
 
-  stake(address: string, amount: number): { success: boolean; error?: string; position?: StakePosition } {
+  async stake(address: string, amount: number): Promise<{ success: boolean; error?: string; position?: StakePosition }> {
     if (amount < this.config.minStakeAmount) {
       return {
         success: false,
@@ -147,7 +147,7 @@ export class RewardsService {
       return { success: false, error: 'Insufficient balance' };
     }
 
-    const debited = this.deps.updateBalance(address, -amount);
+    const debited = await this.deps.updateBalance(address, -amount);
     if (!debited) {
       return { success: false, error: 'Failed to debit balance' };
     }
@@ -165,7 +165,7 @@ export class RewardsService {
     return { success: true, position };
   }
 
-  unstake(address: string): { success: boolean; error?: string; amount?: number } {
+  async unstake(address: string): Promise<{ success: boolean; error?: string; amount?: number }> {
     const position = this.stakes.get(address);
     if (!position) {
       return { success: false, error: 'No stake found' };
@@ -183,7 +183,7 @@ export class RewardsService {
 
     const amount = position.amount;
     
-    const credited = this.deps.updateBalance(address, amount);
+    const credited = await this.deps.updateBalance(address, amount);
     if (!credited) {
       return { success: false, error: 'Failed to credit balance' };
     }
@@ -224,13 +224,13 @@ export class RewardsService {
       .slice(0, limit);
   }
 
-  claimRewards(address: string): { success: boolean; amount: number } {
+  async claimRewards(address: string): Promise<{ success: boolean; amount: number }> {
     const pending = this.pendingRewards.get(address) || 0;
     if (pending <= 0) {
       return { success: false, amount: 0 };
     }
 
-    const credited = this.deps.updateBalance(address, pending);
+    const credited = await this.deps.updateBalance(address, pending);
     if (!credited) {
       return { success: false, amount: 0 };
     }
