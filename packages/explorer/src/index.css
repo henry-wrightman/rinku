@@ -233,3 +233,172 @@ input[type="text"]::placeholder {
 .footer a {
   color: #666;
 }
+
+.tx-detail {
+  border: 1px solid #333;
+  padding: 20px;
+}
+
+.tx-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.tx-header h2 {
+  font-size: 14px;
+  font-weight: normal;
+  color: #fff;
+}
+
+.btn-small {
+  color: #b48ead;
+  background: none;
+  border: 1px solid #333;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.btn-small:hover {
+  border-color: #b48ead;
+}
+
+.tx-amount {
+  font-size: 32px;
+  color: #a3be8c;
+  margin-bottom: 20px;
+}
+
+.tx-amount .unit {
+  font-size: 14px;
+  color: #666;
+}
+
+.tx-flow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #1a1a1a;
+}
+
+.tx-flow .address {
+  flex: 1;
+}
+
+.tx-flow .address .label {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.tx-flow .address .value {
+  color: #b48ead;
+  word-break: break-all;
+}
+
+.tx-flow .arrow {
+  color: #444;
+  font-size: 20px;
+}
+
+.tx-meta {
+  margin-bottom: 24px;
+}
+
+.meta-row {
+  display: flex;
+  padding: 8px 0;
+  border-bottom: 1px solid #222;
+}
+
+.meta-row .label {
+  width: 120px;
+  color: #666;
+  font-size: 12px;
+}
+
+.meta-row .value {
+  flex: 1;
+  word-break: break-all;
+}
+
+.meta-row .value.mono {
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.tx-parents {
+  margin-bottom: 24px;
+}
+
+.tx-parents h3 {
+  font-size: 13px;
+  font-weight: normal;
+  color: #fff;
+  margin-bottom: 12px;
+}
+
+.parent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.parent-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  text-decoration: none;
+  color: #c0c0c0;
+}
+
+.parent-link:hover {
+  border-color: #b48ead;
+  color: #c0c0c0;
+}
+
+.parent-link .index {
+  color: #666;
+  font-size: 12px;
+}
+
+.parent-link .parent-info {
+  flex: 1;
+  color: #b48ead;
+}
+
+.parent-link .parent-amount {
+  color: #a3be8c;
+  font-size: 12px;
+  margin-left: 12px;
+}
+
+.parent-link .parent-url {
+  color: #666;
+  font-size: 12px;
+}
+
+.tx-note {
+  padding: 12px;
+  background: #1a1a1a;
+  border-left: 2px solid #b48ead;
+  margin-bottom: 20px;
+}
+
+.tx-note p {
+  color: #666;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.error {
+  color: #bf616a;
+}

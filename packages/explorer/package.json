@@ -7,9 +7,10 @@
     "dev": "vite --host 0.0.0.0 --port 5000"
   },
   "dependencies": {
+    "@rinku/core": "*",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@rinku/core": "*"
+    "react-router-dom": "^7.11.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.48",

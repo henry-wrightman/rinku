@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 
 interface Account {
   fingerprint: string;
@@ -69,7 +70,8 @@ function App() {
         tipUrls: dagData.tipUrls || [],
         merkleRoot: dagData.merkleRoot,
       });
-    } catch {
+    } catch (e) {
+      console.error('Failed to fetch state:', e);
     } finally {
       setLoading(false);
     }
@@ -207,9 +209,7 @@ function App() {
                     navigator.clipboard.writeText(fullUrl);
                     alert('Transaction URL copied!');
                   }}>copy url</span>
-                  <span className="link" onClick={() => {
-                    window.open(node.url, '_blank');
-                  }}>view</span>
+                  <Link to={node.url} className="link">view</Link>
                 </div>
               </div>
             ))
