@@ -1,7 +1,7 @@
 import { Wallet } from './index.js';
 
-const NODE_URL = 'http://localhost:3001';
-const FAUCET_URL = 'http://localhost:3002';
+const NODE_URL = process.env.RINKU_NODE_URL || 'http://localhost:3001';
+const FAUCET_URL = process.env.RINKU_FAUCET_URL || 'http://localhost:3002';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -20,10 +20,17 @@ commands:
   tips                   show current DAG tips
   dag                    show full DAG state
 
+environment variables:
+  RINKU_NODE_URL         node api url (default: http://localhost:3001)
+  RINKU_FAUCET_URL       faucet api url (default: http://localhost:3002)
+
 examples:
   npx tsx src/cli.ts new
   npx tsx src/cli.ts faucet abc123...
   npx tsx src/cli.ts send "exported-key-json" def456... 50
+
+  # connect to remote node:
+  RINKU_NODE_URL=https://your-node.replit.dev RINKU_FAUCET_URL=https://your-node.replit.dev npx tsx src/cli.ts faucet abc123...
 `);
     return;
   }
