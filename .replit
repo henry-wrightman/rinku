@@ -40,3 +40,8 @@ externalPort = 80
 
 [nix]
 channel = "stable-25_05"
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "-c", "cd packages/node && node dist/index.js & cd packages/faucet && node dist/index.js & cd packages/explorer && npx vite preview --host 0.0.0.0 --port 5000"]
+build = ["bash", "-c", "npm run build -w @rinku/core && npm run build -w @rinku/node && npm run build -w @rinku/faucet && npm run build -w @rinku/explorer"]
