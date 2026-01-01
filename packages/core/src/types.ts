@@ -52,6 +52,21 @@ export interface TransactionURL {
   payload: string;
 }
 
+export interface TransactionV2 {
+  v: 2;
+  from: string;
+  to: string;
+  amount: number;
+  nonce: number;
+  tipUrls: string[];
+  sig: string;
+  ts: number;
+}
+
+export interface SignedTransactionV2 extends TransactionV2 {
+  hash: string;
+}
+
 export type Weight = {
   accountAge: number;
   balance: number;
