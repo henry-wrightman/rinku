@@ -90,6 +90,21 @@ NODE_PORT=3001 NODE_ID=node1 npm run dev:node
 NODE_PORT=3002 NODE_ID=node2 NODE_PEERS=https://your-replit-url.repl.co npm run dev:node
 ```
 
+### Wallet CLI Environment Variables
+- `RINKU_NODE_URL`: Node API URL (default: http://localhost:3001)
+- `RINKU_FAUCET_URL`: Faucet API URL (default: http://localhost:3002)
+
+### Stress Testing
+```bash
+# Generate 500 faucet transactions
+cd packages/node
+TX_COUNT=500 npm run stress-test
+
+# Test bootstrap on another machine
+rm -rf .rinku-data
+NODE_PORT=3003 NODE_PEERS=https://your-replit-url npm run dev:node
+```
+
 ## Recent Changes
 - Initial project setup with all 5 packages
 - Core library with types, crypto, encoding, merkle, dag, weight modules
@@ -100,3 +115,6 @@ NODE_PORT=3002 NODE_ID=node2 NODE_PEERS=https://your-replit-url.repl.co npm run 
 - Added persistence layer for state/DAG snapshots
 - Added peer sync service for multi-node networking
 - Added sync API endpoints for node-to-node communication
+- Fixed cold-start bootstrap (sync from peers before creating genesis)
+- Added stress test script for load testing (npm run stress-test)
+- Added configurable env vars for wallet CLI (RINKU_NODE_URL, RINKU_FAUCET_URL)
