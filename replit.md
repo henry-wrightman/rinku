@@ -123,6 +123,35 @@ rm -rf .rinku-data
 NODE_PORT=3003 NODE_PEERS=https://your-replit-url npm run dev:node
 ```
 
+## Testnet Deployment Strategy
+
+### Recommended Domain Structure
+```
+explorer.testnet.rinku.xyz  → Port 5000 (Frontend)
+node.testnet.rinku.xyz      → Port 3001 (Node API)
+faucet.testnet.rinku.xyz    → Port 3002 (Faucet API)
+
+# Future multi-node:
+node-1.testnet.rinku.xyz
+node-2.testnet.rinku.xyz
+```
+
+### Deployment Type
+- **Use VM deployment** (not autoscale) - nodes need persistent storage and always-on uptime
+- Autoscale instances sleep between requests, causing ledger drift and broken peer sync
+
+### Multi-Node Setup
+1. Deploy first node as canonical source
+2. Additional nodes set `NODE_PEERS=https://node.testnet.rinku.xyz`
+3. Use `/api/sync/peers` endpoint for peer discovery
+4. Consider a git-tracked peers manifest for production
+
+### Steps to Deploy
+1. Configure VM deployment with environment variables (NODE_PORT, NODE_ID, NODE_PEERS)
+2. Purchase domain and create DNS records for subdomains
+3. Set up TLS certificates (wildcard cert recommended for *.testnet.rinku.xyz)
+4. Configure reverse proxy to route subdomains to correct ports
+
 ## Recent Changes
 - Initial project setup with all 5 packages
 - Core library with types, crypto, encoding, merkle, dag, weight modules

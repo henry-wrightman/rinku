@@ -45,6 +45,9 @@ function App() {
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const [dagPage, setDagPage] = useState(0);
+  const [accountsPage, setAccountsPage] = useState(0);
+  const PAGE_SIZE = 20;
 
   const fetchState = async () => {
     try {
@@ -191,28 +194,50 @@ function App() {
           {state?.nodes.length === 0 ? (
             <div className="empty">no transactions yet</div>
           ) : (
-            state?.nodes.map((node, i) => (
-              <div key={node.tx.hash} className="dag-node">
-                <div className="hash">{truncate(node.tx.hash, 12)}</div>
-                <div className="amount">
-                  {node.tx.amount.toLocaleString()} coins
+            <>
+              {state?.nodes
+                .slice()
+                .reverse()
+                .slice(dagPage * PAGE_SIZE, (dagPage + 1) * PAGE_SIZE)
+                .map((node) => (
+                <div key={node.tx.hash} className="dag-node">
+                  <div className="hash">{truncate(node.tx.hash, 12)}</div>
+                  <div className="amount">
+                    {node.tx.amount.toLocaleString()} coins
+                  </div>
+                  <div className="meta">
+                    {node.tx.from === "genesis"
+                      ? "genesis"
+                      : truncate(node.tx.from, 6)}{" "}
+                    → {truncate(node.tx.to, 6)} · {timeAgo(node.tx.ts)} · refs {(node.tx.tipUrls || []).length} parent(s)
+                  </div>
+                  <div className="actions">
+                    <span className="link" onClick={() => {
+                      const fullUrl = window.location.origin + node.url;
+                      navigator.clipboard.writeText(fullUrl);
+                      alert('Transaction URL copied!');
+                    }}>copy url</span>
+                    <Link to={node.url} className="link">view</Link>
+                  </div>
                 </div>
-                <div className="meta">
-                  {node.tx.from === "genesis"
-                    ? "genesis"
-                    : truncate(node.tx.from, 6)}{" "}
-                  → {truncate(node.tx.to, 6)} · {timeAgo(node.tx.ts)} · refs {(node.tx.tipUrls || []).length} parent(s)
+              ))}
+              
+              {state && state.nodes.length > PAGE_SIZE && (
+                <div className="pagination">
+                  <span 
+                    className={`page-btn ${dagPage === 0 ? 'disabled' : ''}`}
+                    onClick={() => dagPage > 0 && setDagPage(dagPage - 1)}
+                  >← prev</span>
+                  <span className="page-info">
+                    page {dagPage + 1} of {Math.ceil(state.nodes.length / PAGE_SIZE)}
+                  </span>
+                  <span 
+                    className={`page-btn ${(dagPage + 1) * PAGE_SIZE >= state.nodes.length ? 'disabled' : ''}`}
+                    onClick={() => (dagPage + 1) * PAGE_SIZE < state.nodes.length && setDagPage(dagPage + 1)}
+                  >next →</span>
                 </div>
-                <div className="actions">
-                  <span className="link" onClick={() => {
-                    const fullUrl = window.location.origin + node.url;
-                    navigator.clipboard.writeText(fullUrl);
-                    alert('Transaction URL copied!');
-                  }}>copy url</span>
-                  <Link to={node.url} className="link">view</Link>
-                </div>
-              </div>
-            ))
+              )}
+            </>
           )}
 
           {state && state.merkleRoot && (
@@ -228,28 +253,48 @@ function App() {
           {state?.accounts.length === 0 ? (
             <div className="empty">no accounts yet</div>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>address</th>
-                  <th>balance</th>
-                  <th>nonce</th>
-                </tr>
-              </thead>
-              <tbody>
-                {state?.accounts.map((account) => (
-                  <tr key={account.fingerprint}>
-                    <td className="hash">
-                      {truncate(account.fingerprint, 12)}
-                    </td>
-                    <td className="amount">
-                      {account.balance.toLocaleString()}
-                    </td>
-                    <td>{account.nonce}</td>
+            <>
+              <table>
+                <thead>
+                  <tr>
+                    <th>address</th>
+                    <th>balance</th>
+                    <th>nonce</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {state?.accounts
+                    .slice(accountsPage * PAGE_SIZE, (accountsPage + 1) * PAGE_SIZE)
+                    .map((account) => (
+                    <tr key={account.fingerprint}>
+                      <td className="hash">
+                        {truncate(account.fingerprint, 12)}
+                      </td>
+                      <td className="amount">
+                        {account.balance.toLocaleString()}
+                      </td>
+                      <td>{account.nonce}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              
+              {state && state.accounts.length > PAGE_SIZE && (
+                <div className="pagination">
+                  <span 
+                    className={`page-btn ${accountsPage === 0 ? 'disabled' : ''}`}
+                    onClick={() => accountsPage > 0 && setAccountsPage(accountsPage - 1)}
+                  >← prev</span>
+                  <span className="page-info">
+                    page {accountsPage + 1} of {Math.ceil(state.accounts.length / PAGE_SIZE)}
+                  </span>
+                  <span 
+                    className={`page-btn ${(accountsPage + 1) * PAGE_SIZE >= state.accounts.length ? 'disabled' : ''}`}
+                    onClick={() => (accountsPage + 1) * PAGE_SIZE < state.accounts.length && setAccountsPage(accountsPage + 1)}
+                  >next →</span>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

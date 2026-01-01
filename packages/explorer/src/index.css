@@ -402,3 +402,34 @@ input[type="text"]::placeholder {
 .error {
   color: #bf616a;
 }
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 12px 0;
+  border-top: 1px solid #222;
+}
+
+.page-btn {
+  color: #b48ead;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.page-btn:hover {
+  color: #d0a6c8;
+}
+
+.page-btn.disabled {
+  color: #444;
+  cursor: default;
+  text-decoration: none;
+}
+
+.page-info {
+  color: #666;
+  font-size: 12px;
+}
