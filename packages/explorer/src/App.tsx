@@ -34,11 +34,9 @@ interface State {
 const NODE_URL = '/api';
 
 function App() {
-  const [tab, setTab] = useState<'dag' | 'accounts' | 'wallet' | 'faucet'>('dag');
+  const [tab, setTab] = useState<'dag' | 'accounts' | 'faucet'>('dag');
   const [state, setState] = useState<State | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [walletAddress, setWalletAddress] = useState('');
   const [faucetAddress, setFaucetAddress] = useState('');
   const [faucetMessage, setFaucetMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -58,9 +56,7 @@ function App() {
         tips: dagData.tips,
         merkleRoot: dagData.merkleRoot
       });
-      setError(null);
-    } catch (err: any) {
-      setError('Failed to connect to Rinku Node');
+    } catch {
     } finally {
       setLoading(false);
     }
@@ -74,7 +70,7 @@ function App() {
 
   const requestFaucet = async () => {
     if (!faucetAddress) {
-      setFaucetMessage({ type: 'error', text: 'Please enter an address' });
+      setFaucetMessage({ type: 'error', text: 'address required' });
       return;
     }
 
@@ -88,32 +84,39 @@ function App() {
       const data = await res.json() as { amount?: number; txHash?: string; error?: string };
 
       if (res.ok && data.amount && data.txHash) {
-        setFaucetMessage({ type: 'success', text: `Received ${data.amount} coins! TX: ${data.txHash.slice(0, 16)}...` });
+        setFaucetMessage({ type: 'success', text: `received ${data.amount} coins. tx: ${data.txHash.slice(0, 8)}...` });
         fetchState();
       } else {
-        setFaucetMessage({ type: 'error', text: data.error || 'Unknown error' });
+        setFaucetMessage({ type: 'error', text: data.error || 'request failed' });
       }
-    } catch (err) {
-      setFaucetMessage({ type: 'error', text: 'Failed to connect to faucet' });
+    } catch {
+      setFaucetMessage({ type: 'error', text: 'failed to connect to faucet' });
     }
   };
 
-  const truncateHash = (hash: string, len = 8) => {
-    if (hash.length <= len * 2) return hash;
-    return `${hash.slice(0, len)}...${hash.slice(-len)}`;
+  const truncate = (s: string, len = 8) => {
+    if (!s || s.length <= len) return s;
+    return `${s.slice(0, len)}...`;
+  };
+
+  const timeAgo = (ts: number) => {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
   };
 
   if (loading) {
     return (
       <div className="container">
         <header>
-          <h1>Rinku Explorer</h1>
-          <p>URL-Native Distributed Ledger</p>
+          <h1>rinku explorer</h1>
+          <p>url-native distributed ledger</p>
         </header>
-        <div className="loading">
-          <div className="spinner"></div>
-          Loading...
-        </div>
+        <div className="loading">loading...</div>
       </div>
     );
   }
@@ -121,90 +124,73 @@ function App() {
   return (
     <div className="container">
       <header>
-        <h1>Rinku Explorer</h1>
-        <p>URL-Native Distributed Ledger</p>
+        <h1>rinku explorer</h1>
+        <p>url-native distributed ledger</p>
       </header>
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="value">{state?.nodes.length || 0}</div>
-          <div className="label">Transactions</div>
-        </div>
-        <div className="stat-card">
-          <div className="value">{state?.accounts.length || 0}</div>
-          <div className="label">Accounts</div>
-        </div>
-        <div className="stat-card">
-          <div className="value">{state?.tips.length || 0}</div>
-          <div className="label">Active Tips</div>
-        </div>
-        <div className="stat-card">
-          <div className="value">{truncateHash(state?.merkleRoot || '---', 6)}</div>
-          <div className="label">Merkle Root</div>
-        </div>
+      <div className="stats">
+        <span><span className="value">{state?.nodes.length || 0}</span> transactions</span>
+        <span><span className="value">{state?.accounts.length || 0}</span> accounts</span>
+        <span><span className="value">{state?.tips.length || 0}</span> tips</span>
       </div>
 
-      <div className="tabs">
-        <button className={`tab ${tab === 'dag' ? 'active' : ''}`} onClick={() => setTab('dag')}>
-          DAG View
-        </button>
-        <button className={`tab ${tab === 'accounts' ? 'active' : ''}`} onClick={() => setTab('accounts')}>
-          Accounts
-        </button>
-        <button className={`tab ${tab === 'faucet' ? 'active' : ''}`} onClick={() => setTab('faucet')}>
-          Faucet
-        </button>
+      <div className="nav">
+        <span className={tab === 'dag' ? 'active' : ''} onClick={() => setTab('dag')}>dag</span>
+        <span className={tab === 'accounts' ? 'active' : ''} onClick={() => setTab('accounts')}>accounts</span>
+        <span className={tab === 'faucet' ? 'active' : ''} onClick={() => setTab('faucet')}>faucet</span>
       </div>
-
-      {error && (
-        <div className="alert alert-error">{error}</div>
-      )}
 
       {tab === 'dag' && (
         <div className="section">
-          <h2>Transaction DAG</h2>
-          <div className="dag-container">
-            {state?.nodes.length === 0 ? (
-              <div className="empty-state">
-                No transactions yet. Use the faucet to get started!
-              </div>
-            ) : (
-              state?.nodes.map((node) => (
-                <div key={node.tx.hash} className="dag-node">
-                  <span className="tx-hash">{truncateHash(node.tx.hash)}</span>
-                  <span className="tx-amount">{node.tx.amount} coins</span>
-                  <span style={{ fontSize: '0.7rem', color: '#888' }}>
-                    {node.tx.from === 'faucet' ? 'Faucet' : truncateHash(node.tx.from, 4)} → {truncateHash(node.tx.to, 4)}
-                  </span>
-                </div>
-              ))
-            )}
+          <div className="hint">
+            tip: transactions reference previous tips to form a dag
           </div>
+          
+          {state?.nodes.length === 0 ? (
+            <div className="empty">no transactions yet</div>
+          ) : (
+            state?.nodes.map((node, i) => (
+              <div key={node.tx.hash} className="dag-node">
+                <div className="hash">{truncate(node.tx.hash, 12)}</div>
+                <div className="amount">{node.tx.amount.toLocaleString()} coins</div>
+                <div className="meta">
+                  {node.tx.from === 'genesis' ? 'genesis' : truncate(node.tx.from, 6)} → {truncate(node.tx.to, 6)} · {timeAgo(node.tx.ts)} · node {i}
+                </div>
+                <div className="actions">
+                  <span className="link">view</span>
+                  <span className="link">reply</span>
+                </div>
+              </div>
+            ))
+          )}
+          
+          {state && state.merkleRoot && (
+            <div style={{ marginTop: 20, color: '#555', fontSize: 12 }}>
+              merkle root: {truncate(state.merkleRoot, 16)}
+            </div>
+          )}
         </div>
       )}
 
       {tab === 'accounts' && (
         <div className="section">
-          <h2>Accounts</h2>
           {state?.accounts.length === 0 ? (
-            <div className="empty-state">No accounts yet</div>
+            <div className="empty">no accounts yet</div>
           ) : (
             <table>
               <thead>
                 <tr>
-                  <th>Address</th>
-                  <th>Balance</th>
-                  <th>Nonce</th>
-                  <th>Created</th>
+                  <th>address</th>
+                  <th>balance</th>
+                  <th>nonce</th>
                 </tr>
               </thead>
               <tbody>
                 {state?.accounts.map((account) => (
                   <tr key={account.fingerprint}>
-                    <td className="hash">{truncateHash(account.fingerprint, 10)}</td>
+                    <td className="hash">{truncate(account.fingerprint, 12)}</td>
                     <td className="amount">{account.balance.toLocaleString()}</td>
                     <td>{account.nonce}</td>
-                    <td>{new Date(account.firstTxTimestamp).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -215,37 +201,37 @@ function App() {
 
       {tab === 'faucet' && (
         <div className="section">
-          <h2>Testnet Faucet</h2>
-          <p style={{ color: '#888', marginBottom: '20px' }}>
-            Get free testnet coins to try out Rinku. Each address can request coins once per minute.
-          </p>
+          <div className="hint">
+            get testnet coins. rate limited to once per minute.
+          </div>
 
           {faucetMessage && (
-            <div className={`alert alert-${faucetMessage.type}`}>
+            <div className={`message ${faucetMessage.type}`}>
               {faucetMessage.text}
             </div>
           )}
 
-          <div className="wallet-form">
-            <div className="form-group">
-              <label>Your Address (Fingerprint)</label>
-              <input
-                type="text"
-                placeholder="Enter your wallet fingerprint..."
-                value={faucetAddress}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFaucetAddress(e.target.value)}
-              />
-            </div>
-            <button className="btn btn-primary" onClick={requestFaucet}>
-              Request 100 Coins
-            </button>
-          </div>
+          <input
+            type="text"
+            placeholder="paste your address (fingerprint)"
+            value={faucetAddress}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFaucetAddress(e.target.value)}
+          />
+          
+          <button className="btn" onClick={requestFaucet}>
+            request coins
+          </button>
 
-          <p style={{ color: '#666', marginTop: '20px', fontSize: '0.9rem' }}>
-            Tip: Generate a wallet fingerprint using the @rinku/wallet package or enter any 40-character hex string.
-          </p>
+          <div style={{ marginTop: 24, color: '#444', fontSize: 12 }}>
+            tip: use @rinku/wallet to generate an address
+          </div>
         </div>
       )}
+
+      <div className="footer">
+        <span>hello fren</span>
+        <span>data lives in the links</span>
+      </div>
     </div>
   );
 }
