@@ -53,7 +53,9 @@ export function DAGTab({ nodes, merkleRoot }: DAGTabProps) {
           className={`dag-node ${newHashes.has(node.tx.hash) ? "new-tx" : ""}`}
         >
           <div className="hash">
-            {/* {newHashes.has(node.tx.hash) && <span className="new-badge">NEW</span>} */}
+            {/* {newHashes.has(node.tx.hash) && (
+              <span className="new-badge">NEW</span>
+            )} */}
             <span className={newHashes.has(node.tx.hash) ? "typewriter" : ""}>
               {truncate(node.tx.hash, 12)}
             </span>
