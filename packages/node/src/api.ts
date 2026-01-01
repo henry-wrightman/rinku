@@ -4,7 +4,7 @@ import { StateManager } from './state.js';
 import { Consensus } from './consensus.js';
 import { Mempool } from './mempool.js';
 import { PeerSyncService } from './peerSync.js';
-import { parseTransactionURL, type SignedTransaction } from '@rinku/core';
+import { parseTransactionURL, createTransactionURL, type SignedTransaction } from '@rinku/core';
 
 export function createAPI(
   state: StateManager,
@@ -110,7 +110,10 @@ export function createAPI(
   });
 
   app.get('/api/dag', (_req, res) => {
-    const nodes = consensus.getAllNodes();
+    const nodes = consensus.getAllNodes().map(node => ({
+      ...node,
+      url: createTransactionURL(node.tx).path
+    }));
     const tips = consensus.getTips();
     res.json({ nodes, tips, merkleRoot: state.getMerkleRoot() });
   });
@@ -123,14 +126,113 @@ export function createAPI(
     });
   });
 
-  app.get('/tx/:payload', (req, res) => {
+  app.get('/tx/:payload', async (req, res) => {
     const url = `/tx/${req.params.payload}`;
-    const tx = parseTransactionURL(url);
+    const tx = parseTransactionURL(url) as SignedTransaction | null;
     if (!tx) {
       res.status(400).json({ error: 'Invalid transaction URL' });
       return;
     }
-    res.json(tx);
+
+    const existingNode = consensus.getNode(tx.hash);
+    if (existingNode) {
+      res.json({
+        status: 'exists',
+        message: 'Transaction already in DAG',
+        tx: existingNode.tx,
+        url
+      });
+      return;
+    }
+
+    const submit = req.query.submit === 'true' || req.query.submit === '1';
+    
+    if (!submit) {
+      res.json({
+        status: 'preview',
+        message: 'Add ?submit=true&pubkey=<base64> to submit this transaction',
+        tx,
+        url
+      });
+      return;
+    }
+
+    try {
+      let pubKeyArray: Uint8Array | undefined;
+      
+      if (typeof req.query.pubkey === 'string') {
+        try {
+          const pubkeyB64 = req.query.pubkey.replace(/-/g, '+').replace(/_/g, '/');
+          pubKeyArray = new Uint8Array(Buffer.from(pubkeyB64, 'base64'));
+          consensus.registerPublicKey(tx.from, pubKeyArray);
+        } catch {
+        }
+      }
+
+      const skipValidation = tx.from === 'genesis' || tx.from === 'faucet';
+      
+      if (!skipValidation) {
+        if (!pubKeyArray) {
+          res.status(400).json({ 
+            status: 'invalid',
+            error: 'Public key required for signature verification. Add &pubkey=<base64url> to the URL.',
+            tx,
+            url
+          });
+          return;
+        }
+        
+        const validation = await consensus.validateTransaction(
+          tx,
+          state.getAllAccounts(),
+          pubKeyArray
+        );
+
+        if (!validation.valid) {
+          res.status(400).json({ 
+            status: 'invalid',
+            error: validation.error,
+            tx,
+            url
+          });
+          return;
+        }
+      }
+
+      const applied = await state.applyTransaction(tx, { skipChecks: skipValidation });
+      if (!applied) {
+        res.status(400).json({ 
+          status: 'failed',
+          error: 'Failed to apply transaction',
+          tx,
+          url
+        });
+        return;
+      }
+
+      await consensus.addTransaction(tx);
+      consensus.updateWeights(state.getAllAccounts());
+
+      if (onTransaction) {
+        await onTransaction();
+      }
+
+      res.json({
+        status: 'submitted',
+        message: 'Transaction added to DAG',
+        hash: tx.hash,
+        merkleRoot: state.getMerkleRoot(),
+        tx,
+        url
+      });
+    } catch (error: any) {
+      res.status(500).json({ 
+        status: 'error',
+        error: error.message,
+        tx,
+        url
+      });
+    }
   });
 
   app.get('/api/sync/status', (_req, res) => {

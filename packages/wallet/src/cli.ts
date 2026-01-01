@@ -126,12 +126,18 @@ examples:
       await wallet.import(exportedKey);
       console.log('\nsending', amount, 'coins to', to.slice(0, 8) + '...');
       
-      const tx = await wallet.send(to, amount);
+      const { tx, url } = await wallet.send(to, amount);
+      const pubkeyB64 = Buffer.from(wallet.getPublicKey()).toString('base64url');
+      
       console.log('\ntransaction sent!');
       console.log('tx hash:', tx.hash);
       console.log('from:', tx.from.slice(0, 8) + '...');
       console.log('to:', tx.to.slice(0, 8) + '...');
       console.log('amount:', tx.amount);
+      console.log('\ntransaction url (view):');
+      console.log(NODE_URL + url);
+      console.log('\ntransaction url (submit):');
+      console.log(NODE_URL + url + '?submit=true&pubkey=' + pubkeyB64);
     } catch (err: any) {
       console.log('\nerror:', err.message);
     }

@@ -22,6 +22,7 @@ interface DAGNode {
   children: string[];
   weight: number;
   confirmed: boolean;
+  url: string;
 }
 
 interface State {
@@ -202,8 +203,14 @@ function App() {
                   → {truncate(node.tx.to, 6)} · {timeAgo(node.tx.ts)} · node {i}
                 </div>
                 <div className="actions">
-                  <span className="link">view</span>
-                  <span className="link">reply</span>
+                  <span className="link" onClick={() => {
+                    const fullUrl = window.location.origin + node.url;
+                    navigator.clipboard.writeText(fullUrl);
+                    alert('Transaction URL copied!');
+                  }}>copy url</span>
+                  <span className="link" onClick={() => {
+                    window.open(node.url, '_blank');
+                  }}>view</span>
                 </div>
               </div>
             ))

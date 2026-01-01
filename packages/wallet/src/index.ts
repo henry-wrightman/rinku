@@ -75,7 +75,7 @@ export class Wallet {
     return state.balance;
   }
 
-  async send(to: string, amount: number): Promise<SignedTransaction> {
+  async send(to: string, amount: number): Promise<{ tx: SignedTransaction; url: string }> {
     await this.refresh();
     
     if (!this.state) {
@@ -118,7 +118,7 @@ export class Wallet {
       throw new Error(error.error || 'Transaction failed');
     }
 
-    return tx;
+    return { tx, url: url.path };
   }
 }
 
