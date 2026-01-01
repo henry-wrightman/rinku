@@ -98,39 +98,6 @@ a:hover, .link:hover {
   padding: 12px;
   margin-bottom: 8px;
   margin-left: 0;
-  transition: border-color 0.5s ease, box-shadow 0.5s ease, transform 0.3s ease, opacity 0.3s ease;
-}
-
-.dag-node.new-tx {
-  border-color: #a3be8c;
-  box-shadow: 0 0 12px rgba(163, 190, 140, 0.4);
-  animation: popIn 0.4s ease-out, glowPulse 2s ease-out;
-}
-
-@keyframes popIn {
-  0% {
-    opacity: 0;
-    transform: translateY(-20px) scale(0.95);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes glowPulse {
-  0% {
-    border-color: #a3be8c;
-    box-shadow: 0 0 20px rgba(163, 190, 140, 0.6);
-  }
-  50% {
-    border-color: #a3be8c;
-    box-shadow: 0 0 8px rgba(163, 190, 140, 0.3);
-  }
-  100% {
-    border-color: #333;
-    box-shadow: none;
-  }
 }
 
 .dag-node.nested {
