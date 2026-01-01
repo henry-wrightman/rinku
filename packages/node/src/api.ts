@@ -4,13 +4,25 @@ import { StateManager } from './state.js';
 import { Consensus } from './consensus.js';
 import { Mempool } from './mempool.js';
 import { PeerSyncService } from './peerSync.js';
-import { parseTransactionURL, createTransactionURL, type SignedTransaction } from '@rinku/core';
+import { ContractService } from './contracts.js';
+import { 
+  parseTransactionURL, 
+  createTransactionURL, 
+  parseContractURL,
+  createContractURL,
+  createContractId,
+  computeStateHash,
+  type SignedTransaction,
+  type ContractDeploy,
+  type ContractTransaction
+} from '@rinku/core';
 
 export function createAPI(
   state: StateManager,
   consensus: Consensus,
   mempool: Mempool,
   peerSync?: PeerSyncService,
+  contractService?: ContractService,
   onTransaction?: () => Promise<void>
 ) {
   const app = express();
@@ -240,6 +252,234 @@ export function createAPI(
       });
     }
   });
+
+  // ============================================
+  // Smart Contract Endpoints
+  // ============================================
+
+  app.get('/api/contracts', (_req, res) => {
+    if (!contractService) {
+      res.status(501).json({ error: 'Contract service not enabled' });
+      return;
+    }
+    const contracts = contractService.getAllContracts().map(c => ({
+      contractId: c.contractId,
+      creator: c.creator,
+      deployUrl: c.deployUrl,
+      stateHash: c.stateHash,
+      height: c.height,
+      createdAt: c.createdAt
+    }));
+    res.json({ contracts });
+  });
+
+  app.get('/api/contracts/:contractId', (req, res) => {
+    if (!contractService) {
+      res.status(501).json({ error: 'Contract service not enabled' });
+      return;
+    }
+    const contract = contractService.getContract(req.params.contractId);
+    if (!contract) {
+      res.status(404).json({ error: 'Contract not found' });
+      return;
+    }
+    res.json(contract);
+  });
+
+  app.get('/api/contracts/:contractId/state', (req, res) => {
+    if (!contractService) {
+      res.status(501).json({ error: 'Contract service not enabled' });
+      return;
+    }
+    const contractState = contractService.getContractState(req.params.contractId);
+    if (!contractState) {
+      res.status(404).json({ error: 'Contract not found' });
+      return;
+    }
+    res.json({ state: contractState, stateHash: computeStateHash(contractState) });
+  });
+
+  app.get('/api/contracts/:contractId/history', (req, res) => {
+    if (!contractService) {
+      res.status(501).json({ error: 'Contract service not enabled' });
+      return;
+    }
+    const history = contractService.getExecutionHistory(req.params.contractId);
+    res.json({ history });
+  });
+
+  app.post('/api/contracts/deploy', async (req, res) => {
+    if (!contractService) {
+      res.status(501).json({ error: 'Contract service not enabled' });
+      return;
+    }
+
+    try {
+      const { creator, wasmBase64, initState, tipUrls, sig } = req.body;
+      
+      if (!creator || !wasmBase64) {
+        res.status(400).json({ error: 'creator and wasmBase64 required' });
+        return;
+      }
+
+      const creatorAccount = state.getAccount(creator);
+      const nonce = creatorAccount ? creatorAccount.nonce + 1 : 1;
+      const contractId = createContractId(creator, nonce);
+
+      const deploy: ContractDeploy = {
+        type: 'deploy',
+        contractId,
+        creator,
+        wasmBase64,
+        initState: initState || {},
+        tipUrls: tipUrls || consensus.getTipUrls(),
+        sig: sig || '',
+        ts: Date.now()
+      };
+
+      const result = await contractService.deployContract(deploy);
+      
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+
+      res.json({
+        success: true,
+        contractId: result.contractId,
+        deployUrl: result.deployUrl
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/contracts/:contractId/call', async (req, res) => {
+    if (!contractService) {
+      res.status(501).json({ error: 'Contract service not enabled' });
+      return;
+    }
+
+    try {
+      const { contractId } = req.params;
+      const { entrypoint, input, caller } = req.body;
+
+      if (!entrypoint) {
+        res.status(400).json({ error: 'entrypoint required' });
+        return;
+      }
+
+      const contract = contractService.getContract(contractId);
+      if (!contract) {
+        res.status(404).json({ error: 'Contract not found' });
+        return;
+      }
+
+      const simulation = contractService.simulateCall(contractId, entrypoint, input || {});
+      
+      if (!simulation.success) {
+        res.status(400).json({ 
+          error: simulation.error,
+          logs: simulation.logs,
+          gasUsed: simulation.gasUsed
+        });
+        return;
+      }
+
+      const postStateHash = simulation.stateDiff?.postHash || contract.stateHash;
+
+      const contractTx: ContractTransaction = {
+        from: caller || 'contract-caller',
+        to: contractId,
+        amount: 0,
+        nonce: Date.now(),
+        tipUrls: consensus.getTipUrls(),
+        sig: '',
+        ts: Date.now(),
+        hash: '',
+        contract: {
+          action: 'call',
+          contractId,
+          entrypoint,
+          input: input || {},
+          preStateHash: contract.stateHash,
+          postStateHash
+        }
+      };
+
+      const result = await contractService.executeCall(contractTx);
+
+      res.json({
+        success: result.success,
+        stateDiff: result.stateDiff,
+        gasUsed: result.gasUsed,
+        logs: result.logs,
+        error: result.error,
+        newStateHash: result.stateDiff?.postHash
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/contracts/:contractId/simulate', (req, res) => {
+    if (!contractService) {
+      res.status(501).json({ error: 'Contract service not enabled' });
+      return;
+    }
+
+    const { contractId } = req.params;
+    const { entrypoint, input } = req.body;
+
+    if (!entrypoint) {
+      res.status(400).json({ error: 'entrypoint required' });
+      return;
+    }
+
+    const result = contractService.simulateCall(contractId, entrypoint, input || {});
+    res.json(result);
+  });
+
+  app.get('/sc/:payload', (req, res) => {
+    const url = `/sc/${req.params.payload}`;
+    const deploy = parseContractURL(url);
+    
+    if (!deploy) {
+      res.status(400).json({ error: 'Invalid contract URL' });
+      return;
+    }
+
+    if (!contractService) {
+      res.json({
+        status: 'preview',
+        message: 'Contract service not enabled',
+        deploy,
+        url
+      });
+      return;
+    }
+
+    const existing = contractService.getContract(deploy.contractId);
+    if (existing) {
+      res.json({
+        status: 'deployed',
+        contract: existing,
+        url
+      });
+      return;
+    }
+
+    res.json({
+      status: 'preview',
+      message: 'Contract not yet deployed. POST to /api/contracts/deploy to deploy.',
+      deploy,
+      url
+    });
+  });
+
+  // ============================================
+  // Sync Endpoints
+  // ============================================
 
   app.get('/api/sync/status', (_req, res) => {
     if (!peerSync) {

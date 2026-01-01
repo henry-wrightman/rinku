@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "stress-test": "tsx src/stress-test.ts",
     "simulate": "tsx src/simulate-network.ts",
-    "activity-bot": "tsx src/activity-bot.ts"
+    "activity-bot": "tsx src/activity-bot.ts",
+    "demo-contract": "tsx src/demo-contract.ts"
   },
   "dependencies": {
     "@rinku/core": "*",

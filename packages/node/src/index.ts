@@ -4,6 +4,7 @@ import { Consensus } from './consensus.js';
 import { Mempool } from './mempool.js';
 import { Storage, type NodeSnapshot } from './storage.js';
 import { PeerSyncService } from './peerSync.js';
+import { ContractService } from './contracts.js';
 import { hashTransaction, type SignedTransaction } from '@rinku/core';
 import { randomBytes } from 'crypto';
 
@@ -55,6 +56,7 @@ async function main() {
   }
 
   const peerSync = new PeerSyncService(state, consensus, NODE_ID);
+  const contractService = new ContractService(state);
   
   peers.forEach(peer => {
     peerSync.addPeer(peer);
@@ -65,9 +67,11 @@ async function main() {
     await saveSnapshot(storage, state, consensus);
   });
 
-  const app = createAPI(state, consensus, mempool, peerSync, async () => {
+  const app = createAPI(state, consensus, mempool, peerSync, contractService, async () => {
     await saveSnapshot(storage, state, consensus);
   });
+  
+  console.log('Smart contract service enabled');
 
   if (peers.length > 0) {
     peerSync.start(5000);
@@ -167,4 +171,5 @@ export { Consensus } from './consensus.js';
 export { Mempool } from './mempool.js';
 export { Storage } from './storage.js';
 export { PeerSyncService } from './peerSync.js';
+export { ContractService } from './contracts.js';
 export { createAPI } from './api.js';

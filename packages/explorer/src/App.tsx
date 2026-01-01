@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import type { State } from "./types";
-import { Header, DAGTab, AccountsTab, FaucetTab } from "./components";
+import { Header, DAGTab, AccountsTab, FaucetTab, ContractsTab } from "./components";
 
 const NODE_URL = "/api";
 
 function App() {
-  const [tab, setTab] = useState<"dag" | "accounts" | "faucet">("dag");
+  const [tab, setTab] = useState<"dag" | "accounts" | "faucet" | "contracts">("dag");
   const [state, setState] = useState<State | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -93,6 +93,9 @@ function App() {
         <span className={tab === "faucet" ? "active" : ""} onClick={() => setTab("faucet")}>
           faucet
         </span>
+        <span className={tab === "contracts" ? "active" : ""} onClick={() => setTab("contracts")}>
+          contracts
+        </span>
       </div>
 
       {tab === "dag" && state && (
@@ -102,6 +105,8 @@ function App() {
       {tab === "accounts" && state && <AccountsTab accounts={state.accounts} />}
 
       {tab === "faucet" && <FaucetTab onSuccess={fetchState} />}
+
+      {tab === "contracts" && <ContractsTab />}
     </div>
   );
 }

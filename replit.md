@@ -152,6 +152,68 @@ node-2.testnet.rinku.xyz
 3. Set up TLS certificates (wildcard cert recommended for *.testnet.rinku.xyz)
 4. Configure reverse proxy to route subdomains to correct ports
 
+## Smart Contracts (URL-Native)
+
+### Overview
+Rinku supports URL-native smart contracts where contract code and state are encoded in URLs, maintaining the self-crawlable property.
+
+### Contract URL Format
+```
+/sc/{payload}
+payload = base64url(deflate({
+  type: "deploy",
+  contractId: string,
+  creator: fingerprint,
+  wasmBase64: string,     // WASM bytecode (or mock for now)
+  initState: {},
+  tipUrls: [...],
+  sig, ts
+}))
+```
+
+### Contract Call (Embedded in Transaction)
+```typescript
+{
+  ...transaction,
+  contract: {
+    action: "call",
+    contractId: string,
+    entrypoint: "mint" | "transfer" | "get_balance",
+    input: { to: "...", amount: 100 },
+    preStateHash: string,
+    postStateHash: string
+  }
+}
+```
+
+### API Endpoints
+- `GET /api/contracts` - List all deployed contracts
+- `GET /api/contracts/:id` - Get contract details
+- `GET /api/contracts/:id/state` - Get current state
+- `GET /api/contracts/:id/history` - Get execution history
+- `POST /api/contracts/deploy` - Deploy new contract
+- `POST /api/contracts/:id/call` - Execute contract method
+- `POST /api/contracts/:id/simulate` - Dry-run without state change
+
+### Demo Script
+```bash
+cd packages/node
+npm run demo-contract
+```
+
+### Supported Entrypoints (Mock Runtime)
+- `init` - Initialize contract
+- `mint` - Create tokens for an address
+- `transfer` - Move tokens between addresses
+- `get_balance` - Query balance (read-only)
+
+### Future: Real WASM Execution
+Currently uses a mock runtime that simulates token operations. Future versions will integrate:
+- Deterministic WASM runtime (Wasmer/WasmTime)
+- Gas metering with fuel limits
+- Host bindings for ledger queries
+- State Merkle commitments
+
 ## Recent Changes
 - Initial project setup with all 5 packages
 - Core library with types, crypto, encoding, merkle, dag, weight modules
@@ -169,3 +231,7 @@ node-2.testnet.rinku.xyz
 - **Self-Crawlable Ledger**: Entire ledger can be reconstructed from any single tip URL
 - **Stateless Validator**: Added @rinku/stateless package for validating from URLs
 - **Network Simulation**: Added `npm run simulate` to generate and validate large networks
+- **Smart Contracts**: URL-native contract system with mock WASM runtime
+- **Contract API**: Deploy, call, simulate, and view contract state endpoints
+- **Explorer Contracts Tab**: UI for deploying and interacting with contracts
+- **Token Contract Demo**: Example script for testing contract operations
