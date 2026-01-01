@@ -16,7 +16,8 @@ describe('Crypto Module', () => {
       
       expect(publicKey).toBeInstanceOf(Uint8Array);
       expect(privateKey).toBeInstanceOf(Uint8Array);
-      expect(publicKey.length).toBeGreaterThan(0);
+      expect(publicKey.length).toBe(65);
+      expect(privateKey.length).toBe(138);
     });
 
     it('should generate unique key pairs', async () => {
@@ -54,7 +55,7 @@ describe('Crypto Module', () => {
       const fp2 = await computeFingerprint(publicKey);
       
       expect(fp1).toBe(fp2);
-      expect(fp1.length).toBeGreaterThan(0);
+      expect(fp1.length).toBe(40);
     });
 
     it('should produce different fingerprints for different keys', async () => {

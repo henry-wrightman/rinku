@@ -61,7 +61,16 @@ Each transaction embeds the **full URLs** of its parent transactions. This means
 npm run dev:explorer  # Start explorer frontend
 npm run dev:node      # Start node server
 npm run dev:faucet    # Start faucet server
+npm run test          # Run all tests (core + node)
+npm run test:core     # Run core package tests
+npm run test:node     # Run node package tests
 ```
+
+### Testing
+The project has comprehensive test coverage using vitest:
+- **Core tests (66 tests)**: Crypto, encoding, merkle, DAG, weight, checkpoint
+- **Node tests (22 tests)**: State management, mempool operations
+- **Security tests**: Weight inflation attack prevention, forged proof rejection, validator authentication
 
 ## Technology Stack
 - TypeScript with npm workspaces
