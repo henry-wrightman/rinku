@@ -80,7 +80,7 @@ export async function hashTransaction(tx: Transaction): Promise<string> {
     to: tx.to,
     amount: tx.amount,
     nonce: tx.nonce,
-    tips: tx.tips,
+    tipUrls: tx.tipUrls,
     ts: tx.ts
   });
   return hash(txData);

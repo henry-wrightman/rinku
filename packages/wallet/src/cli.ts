@@ -146,12 +146,13 @@ examples:
 
   if (command === 'tips') {
     try {
-      const res = await fetch(`${NODE_URL}/api/tips`);
-      const data = await res.json() as { tips: string[] };
-      console.log('\ncurrent tips:');
-      data.tips.forEach((tip, i) => {
-        console.log(`  ${i}: ${tip.slice(0, 16)}...`);
+      const res = await fetch(`${NODE_URL}/api/tipUrls`);
+      const data = await res.json() as { tipUrls: string[] };
+      console.log('\ncurrent tip URLs (the ledger heads):');
+      data.tipUrls.forEach((url, i) => {
+        console.log(`  ${i}: ${url.slice(0, 40)}...`);
       });
+      console.log('\nthese URLs contain the full transaction data - shareable and self-validating');
     } catch {
       console.log('error: could not connect to node');
     }
@@ -161,7 +162,7 @@ examples:
   if (command === 'dag') {
     try {
       const res = await fetch(`${NODE_URL}/api/dag`);
-      const data = await res.json() as { nodes: any[]; tips: string[]; merkleRoot: string };
+      const data = await res.json() as { nodes: any[]; tips: string[]; tipUrls: string[]; merkleRoot: string };
       console.log('\ndag state:');
       console.log('total nodes:', data.nodes.length);
       console.log('active tips:', data.tips.length);
@@ -171,10 +172,18 @@ examples:
         console.log(`\n  [${i}] ${node.tx.hash.slice(0, 12)}...`);
         console.log(`      ${node.tx.from === 'genesis' ? 'genesis' : node.tx.from.slice(0, 8) + '...'} → ${node.tx.to.slice(0, 8)}...`);
         console.log(`      amount: ${node.tx.amount}, weight: ${node.weight}`);
-        if (node.parents.length > 0) {
-          console.log(`      refs: ${node.parents.map((p: string) => p.slice(0, 8) + '...').join(', ')}`);
+        const parentUrls = node.parentUrls || node.parents || [];
+        if (parentUrls.length > 0) {
+          console.log(`      refs: ${parentUrls.length} parent URL(s)`);
         }
       });
+      
+      if (data.tipUrls && data.tipUrls.length > 0) {
+        console.log('\n\ncurrent tip URLs (share these to replicate the ledger):');
+        data.tipUrls.slice(0, 3).forEach((url: string) => {
+          console.log(`  ${url.slice(0, 50)}...`);
+        });
+      }
     } catch {
       console.log('error: could not connect to node');
     }

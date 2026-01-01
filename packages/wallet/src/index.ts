@@ -86,12 +86,12 @@ export class Wallet {
       throw new Error('Insufficient balance');
     }
 
-    const tipsResponse = await fetch(`${this.nodeUrl}/api/tips`);
-    const tipsData = await tipsResponse.json() as { tips: string[] };
-    const tips = tipsData.tips.slice(0, 2);
+    const tipsResponse = await fetch(`${this.nodeUrl}/api/tipUrls`);
+    const tipsData = await tipsResponse.json() as { tipUrls: string[] };
+    let tipUrls = tipsData.tipUrls.slice(0, 2);
 
-    if (tips.length === 0) {
-      tips.push('genesis');
+    if (tipUrls.length === 0) {
+      tipUrls = [];
     }
 
     const { tx, url } = await createAndSignTransaction(
@@ -100,7 +100,7 @@ export class Wallet {
         to,
         amount,
         nonce: this.state.nonce + 1,
-        tips
+        tipUrls
       }
     );
 

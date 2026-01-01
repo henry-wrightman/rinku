@@ -13,12 +13,12 @@ interface DAGNode {
     to: string;
     amount: number;
     nonce: number;
-    tips: string[];
+    tipUrls: string[];
     sig: string;
     ts: number;
     hash: string;
   };
-  parents: string[];
+  parentUrls: string[];
   children: string[];
   weight: number;
   confirmed: boolean;
@@ -29,6 +29,7 @@ interface State {
   accounts: Account[];
   nodes: DAGNode[];
   tips: string[];
+  tipUrls: string[];
   merkleRoot: string;
 }
 
@@ -54,6 +55,7 @@ function App() {
       const dagData = (await dagRes.json()) as {
         nodes: DAGNode[];
         tips: string[];
+        tipUrls: string[];
         merkleRoot: string;
       };
       const accountsData = (await accountsRes.json()) as {
@@ -64,6 +66,7 @@ function App() {
         accounts: accountsData.accounts,
         nodes: dagData.nodes,
         tips: dagData.tips,
+        tipUrls: dagData.tipUrls || [],
         merkleRoot: dagData.merkleRoot,
       });
     } catch {
@@ -183,10 +186,6 @@ function App() {
 
       {tab === "dag" && (
         <div className="section">
-          {/* <div className="hint">
-            tip: transactions reference previous tips to form a dag
-          </div> */}
-
           {state?.nodes.length === 0 ? (
             <div className="empty">no transactions yet</div>
           ) : (
@@ -200,7 +199,7 @@ function App() {
                   {node.tx.from === "genesis"
                     ? "genesis"
                     : truncate(node.tx.from, 6)}{" "}
-                  → {truncate(node.tx.to, 6)} · {timeAgo(node.tx.ts)} · node {i}
+                  → {truncate(node.tx.to, 6)} · {timeAgo(node.tx.ts)} · refs {(node.tx.tipUrls || []).length} parent(s)
                 </div>
                 <div className="actions">
                   <span className="link" onClick={() => {
@@ -285,11 +284,6 @@ function App() {
           </div>
         </div>
       )}
-
-      {/* <div className="footer">
-        <span>hello fren</span>
-        <span>data lives in the links</span>
-      </div> */}
     </div>
   );
 }

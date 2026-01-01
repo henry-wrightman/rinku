@@ -7,6 +7,7 @@ export interface SyncStatus {
   merkleRoot: string;
   dagSize: number;
   tips: string[];
+  tipUrls: string[];
   latestTs: number;
 }
 
@@ -58,6 +59,7 @@ export class PeerSyncService {
       merkleRoot: this.state.getMerkleRoot(),
       dagSize: nodes.length,
       tips: this.consensus.getTips(),
+      tipUrls: this.consensus.getTipUrls(),
       latestTs
     };
   }
@@ -204,8 +206,12 @@ export class PeerSyncService {
 
       visiting.add(hash);
 
-      for (const parentHash of item.tx.tips) {
-        visit(parentHash);
+      for (const parentUrl of item.tx.tipUrls) {
+        for (const [h, t] of txMap) {
+          if (t.tx.tipUrls.some(u => u === parentUrl) || existingHashes.has(h)) {
+            visit(h);
+          }
+        }
       }
 
       visiting.delete(hash);

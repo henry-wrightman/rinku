@@ -85,7 +85,7 @@ async function createGenesis(state: StateManager, consensus: Consensus): Promise
     to: 'faucet',
     amount: FAUCET_BALANCE,
     nonce: 0,
-    tips: [],
+    tipUrls: [],
     sig: 'genesis-signature',
     ts: Date.now(),
     hash: ''

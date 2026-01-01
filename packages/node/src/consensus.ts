@@ -38,13 +38,14 @@ export class Consensus {
     }
 
     const dagTips = this.dag.getTips();
-    if (tx.tips.length < 1 && dagTips.length > 0 && tx.from !== 'genesis') {
+    if (tx.tipUrls.length < 1 && dagTips.length > 0 && tx.from !== 'genesis') {
       return { valid: false, error: 'Must reference at least one tip' };
     }
 
-    for (const tip of tx.tips) {
-      if (!this.dag.getNode(tip)) {
-        return { valid: false, error: `Invalid tip reference: ${tip}` };
+    for (const tipUrl of tx.tipUrls) {
+      const tipHash = this.dag.resolveUrlToHash(tipUrl);
+      if (!tipHash || !this.dag.getNode(tipHash)) {
+        return { valid: false, error: `Invalid tip URL reference: ${tipUrl.slice(0, 30)}...` };
       }
     }
 
@@ -81,7 +82,12 @@ export class Consensus {
 
   selectTips(count: number = 2): string[] {
     const tips = this.dag.selectTips(count);
-    return tips.length > 0 ? tips : ['genesis'];
+    return tips.length > 0 ? tips : [];
+  }
+
+  selectTipUrls(count: number = 2): string[] {
+    const tipUrls = this.dag.selectTipUrls(count);
+    return tipUrls;
   }
 
   updateWeights(accounts: Map<string, AccountState>): void {
@@ -99,6 +105,10 @@ export class Consensus {
 
   getTips(): string[] {
     return this.dag.getTips();
+  }
+
+  getTipUrls(): string[] {
+    return this.dag.getTipUrls();
   }
 
   getNode(hash: string) {

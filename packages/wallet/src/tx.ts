@@ -12,7 +12,7 @@ export interface CreateTransactionOptions {
   to: string;
   amount: number;
   nonce: number;
-  tips: string[];
+  tipUrls: string[];
 }
 
 export async function createTransaction(
@@ -24,7 +24,7 @@ export async function createTransaction(
     to: options.to,
     amount: options.amount,
     nonce: options.nonce,
-    tips: options.tips,
+    tipUrls: options.tipUrls,
     sig: '',
     ts: Date.now()
   };

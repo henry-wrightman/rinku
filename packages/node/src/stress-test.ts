@@ -10,6 +10,7 @@ interface SyncStatus {
   merkleRoot: string;
   dagSize: number;
   tips: string[];
+  tipUrls: string[];
 }
 
 async function getStatus(url: string): Promise<SyncStatus> {
@@ -40,10 +41,10 @@ async function submitTx(tx: SignedTransaction): Promise<{ success: boolean; erro
   return res.json() as Promise<{ success: boolean; error?: string }>;
 }
 
-async function getTips(): Promise<string[]> {
-  const res = await fetch(`${NODE_URL}/api/tips`);
-  const data = await res.json() as { tips: string[] };
-  return data.tips;
+async function getTipUrls(): Promise<string[]> {
+  const res = await fetch(`${NODE_URL}/api/tipUrls`);
+  const data = await res.json() as { tipUrls: string[] };
+  return data.tipUrls;
 }
 
 function randomAddress(): string {
@@ -89,6 +90,7 @@ async function validateState(): Promise<void> {
   const status = await getStatus(NODE_URL);
   console.log(`  DAG size: ${status.dagSize} transactions`);
   console.log(`  Active tips: ${status.tips.length}`);
+  console.log(`  Tip URLs: ${status.tipUrls.length}`);
   console.log(`  Merkle root: ${status.merkleRoot.slice(0, 16)}...`);
   
   const accountsRes = await fetch(`${NODE_URL}/api/accounts`);

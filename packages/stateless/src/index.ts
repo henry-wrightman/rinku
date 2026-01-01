@@ -4,7 +4,7 @@ import {
   hashTransaction,
   type SignedTransaction,
   type AccountState,
-  type DAGNode
+  type Transaction
 } from '@rinku/core';
 
 export interface ValidationResult {
@@ -12,6 +12,7 @@ export interface ValidationResult {
   accounts: Map<string, AccountState>;
   transactions: Map<string, SignedTransaction>;
   tips: string[];
+  tipUrls: string[];
   errors: string[];
   stats: {
     totalTransactions: number;
@@ -52,13 +53,14 @@ export class StatelessValidator {
       this.applyTransaction(tx);
     }
 
-    const tips = this.findTips();
+    const { tips, tipUrls } = this.findTips();
 
     return {
       valid: this.errors.length === 0,
       accounts: this.accounts,
       transactions: this.transactions,
       tips,
+      tipUrls,
       errors: this.errors,
       stats: {
         totalTransactions: this.transactions.size,
@@ -92,7 +94,7 @@ export class StatelessValidator {
       
       this.transactions.set(hash, signedTx);
 
-      for (const tipUrl of tx.tips) {
+      for (const tipUrl of tx.tipUrls) {
         if (tipUrl.startsWith('/tx/') || tipUrl.startsWith('http')) {
           await this.crawlAndValidate(tipUrl, options, depth + 1);
         }
@@ -106,7 +108,7 @@ export class StatelessValidator {
   private async fetchTransaction(
     url: string, 
     options: CrawlOptions
-  ): Promise<any | null> {
+  ): Promise<Transaction | null> {
     if (url.startsWith('/tx/')) {
       return parseTransactionURL(url);
     }
@@ -128,7 +130,7 @@ export class StatelessValidator {
           return null;
         }
 
-        const data = await response.json() as { tx?: any };
+        const data = await response.json() as { tx?: Transaction };
         return data.tx || parseTransactionURL(url);
       } catch {
         return null;
@@ -148,10 +150,15 @@ export class StatelessValidator {
 
       const tx = this.transactions.get(hash);
       if (tx) {
-        for (const tipUrl of tx.tips) {
-          const tipHash = this.urlToHash(tipUrl);
-          if (tipHash && this.transactions.has(tipHash)) {
-            visit(tipHash);
+        for (const tipUrl of tx.tipUrls) {
+          const tipTx = parseTransactionURL(tipUrl);
+          if (tipTx) {
+            for (const [h, t] of this.transactions) {
+              if (t.from === tipTx.from && t.nonce === tipTx.nonce && t.ts === tipTx.ts) {
+                visit(h);
+                break;
+              }
+            }
           }
         }
       }
@@ -164,12 +171,6 @@ export class StatelessValidator {
     }
 
     return result;
-  }
-
-  private urlToHash(url: string): string | null {
-    const tx = parseTransactionURL(url) as SignedTransaction | null;
-    if (!tx) return null;
-    return (tx as any).hash || null;
   }
 
   private applyTransaction(tx: SignedTransaction): void {
@@ -203,26 +204,42 @@ export class StatelessValidator {
     toAccount.balance += tx.amount;
   }
 
-  private findTips(): string[] {
+  private findTips(): { tips: string[]; tipUrls: string[] } {
     const referenced = new Set<string>();
     
     for (const tx of this.transactions.values()) {
-      for (const tipUrl of tx.tips) {
-        const tipHash = this.urlToHash(tipUrl);
-        if (tipHash) {
-          referenced.add(tipHash);
+      for (const tipUrl of tx.tipUrls) {
+        const tipTx = parseTransactionURL(tipUrl);
+        if (tipTx) {
+          for (const [hash, t] of this.transactions) {
+            if (t.from === tipTx.from && t.nonce === tipTx.nonce && t.ts === tipTx.ts) {
+              referenced.add(hash);
+              break;
+            }
+          }
         }
       }
     }
 
     const tips: string[] = [];
-    for (const hash of this.transactions.keys()) {
+    const tipUrls: string[] = [];
+    
+    for (const [hash, tx] of this.transactions) {
       if (!referenced.has(hash)) {
         tips.push(hash);
+        for (const url of this.visited) {
+          if (url.startsWith('/tx/')) {
+            const parsed = parseTransactionURL(url);
+            if (parsed && parsed.from === tx.from && parsed.nonce === tx.nonce && parsed.ts === tx.ts) {
+              tipUrls.push(url);
+              break;
+            }
+          }
+        }
       }
     }
 
-    return tips;
+    return { tips, tipUrls };
   }
 
   static async validateUrls(urls: string[], options?: CrawlOptions): Promise<ValidationResult> {

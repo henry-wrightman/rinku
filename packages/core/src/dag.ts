@@ -1,36 +1,67 @@
 import type { DAGNode, SignedTransaction } from './types.js';
 import { hashTransaction } from './crypto.js';
+import { parseTransactionURL, createTransactionURL } from './encoding.js';
 
 export class DAG {
   private nodes: Map<string, DAGNode> = new Map();
-  private tips: Set<string> = new Set();
+  private tipHashes: Set<string> = new Set();
+  private urlToHash: Map<string, string> = new Map();
 
   constructor() {
     this.nodes = new Map();
-    this.tips = new Set();
+    this.tipHashes = new Set();
+    this.urlToHash = new Map();
   }
 
   async addTransaction(tx: SignedTransaction): Promise<DAGNode> {
+    const txUrl = createTransactionURL(tx).path;
+    this.urlToHash.set(txUrl, tx.hash);
+
     const node: DAGNode = {
       tx,
-      parents: tx.tips,
+      parentUrls: tx.tipUrls,
       children: [],
       weight: 0,
       confirmed: false
     };
 
-    for (const parentHash of tx.tips) {
-      const parent = this.nodes.get(parentHash);
-      if (parent) {
-        parent.children.push(tx.hash);
-        this.tips.delete(parentHash);
+    for (const parentUrl of tx.tipUrls) {
+      const parentHash = this.resolveUrlToHash(parentUrl);
+      if (parentHash) {
+        const parent = this.nodes.get(parentHash);
+        if (parent) {
+          parent.children.push(tx.hash);
+          this.tipHashes.delete(parentHash);
+        }
       }
     }
 
     this.nodes.set(tx.hash, node);
-    this.tips.add(tx.hash);
+    this.tipHashes.add(tx.hash);
 
     return node;
+  }
+
+  resolveUrlToHash(url: string): string | null {
+    if (this.urlToHash.has(url)) {
+      return this.urlToHash.get(url)!;
+    }
+    
+    const tx = parseTransactionURL(url);
+    if (tx) {
+      for (const [hash, node] of this.nodes) {
+        if (node.tx.from === tx.from && 
+            node.tx.to === tx.to && 
+            node.tx.amount === tx.amount &&
+            node.tx.nonce === tx.nonce &&
+            node.tx.ts === tx.ts) {
+          this.urlToHash.set(url, hash);
+          return hash;
+        }
+      }
+    }
+    
+    return null;
   }
 
   getNode(hash: string): DAGNode | undefined {
@@ -38,7 +69,14 @@ export class DAG {
   }
 
   getTips(): string[] {
-    return Array.from(this.tips);
+    return Array.from(this.tipHashes);
+  }
+
+  getTipUrls(): string[] {
+    return this.getTips().map(hash => {
+      const node = this.nodes.get(hash);
+      return node ? createTransactionURL(node.tx).path : '';
+    }).filter(url => url !== '');
   }
 
   getAllNodes(): DAGNode[] {
@@ -81,6 +119,14 @@ export class DAG {
     return selected;
   }
 
+  selectTipUrls(count: number = 2): string[] {
+    const tipHashes = this.selectTips(count);
+    return tipHashes.map(hash => {
+      const node = this.nodes.get(hash);
+      return node ? createTransactionURL(node.tx).path : '';
+    }).filter(url => url !== '');
+  }
+
   updateWeights(accountWeights: Map<string, number>): void {
     for (const [hash, node] of this.nodes) {
       const accountWeight = accountWeights.get(node.tx.from) || 0;
@@ -109,8 +155,11 @@ export class DAG {
 
       const node = this.nodes.get(hash);
       if (node) {
-        for (const parentHash of node.parents) {
-          visit(parentHash);
+        for (const parentUrl of node.parentUrls) {
+          const parentHash = this.resolveUrlToHash(parentUrl);
+          if (parentHash) {
+            visit(parentHash);
+          }
         }
       }
 
@@ -159,10 +208,11 @@ export class DAG {
       const node = this.nodes.get(current);
 
       if (node) {
-        for (const parent of node.parents) {
-          if (!ancestors.has(parent)) {
-            ancestors.add(parent);
-            queue.push(parent);
+        for (const parentUrl of node.parentUrls) {
+          const parentHash = this.resolveUrlToHash(parentUrl);
+          if (parentHash && !ancestors.has(parentHash)) {
+            ancestors.add(parentHash);
+            queue.push(parentHash);
           }
         }
       }
@@ -198,7 +248,8 @@ export class DAG {
         hash,
         ...node
       })),
-      tips: Array.from(this.tips)
+      tipHashes: Array.from(this.tipHashes),
+      urlToHash: Array.from(this.urlToHash.entries())
     };
   }
 
@@ -207,10 +258,19 @@ export class DAG {
     
     for (const nodeData of data.nodes) {
       const { hash, ...node } = nodeData;
+      if (node.parents && !node.parentUrls) {
+        node.parentUrls = node.parents;
+        delete node.parents;
+      }
       dag.nodes.set(hash, node);
     }
 
-    dag.tips = new Set(data.tips);
+    dag.tipHashes = new Set(data.tipHashes || data.tips || []);
+    
+    if (data.urlToHash) {
+      dag.urlToHash = new Map(data.urlToHash);
+    }
+    
     return dag;
   }
 }

@@ -46,9 +46,9 @@ async function main() {
         return;
       }
 
-      const tipsResponse = await fetch(`${NODE_URL}/api/tips`);
-      const tipsData = await tipsResponse.json() as { tips: string[] };
-      const tips = tipsData.tips.length > 0 ? tipsData.tips.slice(0, 2) : ['genesis'];
+      const tipUrlsResponse = await fetch(`${NODE_URL}/api/tipUrls`);
+      const tipUrlsData = await tipUrlsResponse.json() as { tipUrls: string[] };
+      const tipUrls = tipUrlsData.tipUrls.length > 0 ? tipUrlsData.tipUrls.slice(0, 2) : [];
 
       const faucetResponse = await fetch(`${NODE_URL}/api/account/faucet`);
       const faucetAccount = await faucetResponse.json() as { nonce?: number };
@@ -58,7 +58,7 @@ async function main() {
         to: address,
         amount: FAUCET_AMOUNT,
         nonce: (faucetAccount.nonce || 0) + 1,
-        tips,
+        tipUrls,
         sig: 'faucet-signature',
         ts: now,
         hash: ''

@@ -27,6 +27,11 @@ export function createAPI(
     res.json({ tips });
   });
 
+  app.get('/api/tipUrls', (_req, res) => {
+    const tipUrls = consensus.getTipUrls();
+    res.json({ tipUrls });
+  });
+
   app.get('/api/account/:fingerprint', (req, res) => {
     const account = state.getAccount(req.params.fingerprint);
     if (!account) {
@@ -115,7 +120,8 @@ export function createAPI(
       url: createTransactionURL(node.tx).path
     }));
     const tips = consensus.getTips();
-    res.json({ nodes, tips, merkleRoot: state.getMerkleRoot() });
+    const tipUrls = consensus.getTipUrls();
+    res.json({ nodes, tips, tipUrls, merkleRoot: state.getMerkleRoot() });
   });
 
   app.get('/api/state', (_req, res) => {

@@ -10,7 +10,7 @@ export interface Transaction {
   to: string;
   amount: number;
   nonce: number;
-  tips: string[];
+  tipUrls: string[];
   sig: string;
   ts: number;
 }
@@ -21,7 +21,7 @@ export interface SignedTransaction extends Transaction {
 
 export interface DAGNode {
   tx: SignedTransaction;
-  parents: string[];
+  parentUrls: string[];
   children: string[];
   weight: number;
   confirmed: boolean;
@@ -43,28 +43,13 @@ export interface KeyPair {
 export interface NodeState {
   accounts: Map<string, AccountState>;
   dag: Map<string, DAGNode>;
-  tips: Set<string>;
+  tipUrls: Set<string>;
   merkleRoot: string;
 }
 
 export interface TransactionURL {
   path: string;
   payload: string;
-}
-
-export interface TransactionV2 {
-  v: 2;
-  from: string;
-  to: string;
-  amount: number;
-  nonce: number;
-  tipUrls: string[];
-  sig: string;
-  ts: number;
-}
-
-export interface SignedTransactionV2 extends TransactionV2 {
-  hash: string;
 }
 
 export type Weight = {
