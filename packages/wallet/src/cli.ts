@@ -92,7 +92,7 @@ examples:
       return;
     }
     try {
-      const res = await fetch(`${FAUCET_URL}/api/request`, {
+      const res = await fetch(`${FAUCET_URL}/api/faucet/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address })

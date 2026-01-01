@@ -8,14 +8,14 @@ export default defineConfig({
     port: 5000,
     allowedHosts: true,
     proxy: {
+      '/api/faucet': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/faucet/, '/api')
+      },
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true
-      },
-      '/faucet': {
-        target: 'http://localhost:3002',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/faucet/, '/api')
       }
     }
   }
