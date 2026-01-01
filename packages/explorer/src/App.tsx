@@ -75,7 +75,7 @@ function App() {
     }
 
     try {
-      const res = await fetch('http://localhost:3002/api/request', {
+      const res = await fetch('/faucet/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: faucetAddress })
