@@ -15,6 +15,8 @@ const FAUCET_BALANCE = 1000000;
 const DATA_DIR = process.env.RINKU_DATA_DIR || '.rinku-data';
 const NODE_PEERS = process.env.NODE_PEERS || '';
 const NODE_ID = process.env.NODE_ID || randomBytes(8).toString('hex');
+const MAX_DAG_NODES = parseInt(process.env.MAX_DAG_NODES || '50000', 10);
+const PRUNE_INTERVAL_MS = parseInt(process.env.PRUNE_INTERVAL_MS || '300000', 10);
 
 async function main() {
   console.log('Starting Rinku Node...');
@@ -121,6 +123,21 @@ async function main() {
   console.log('Smart contract service enabled');
   console.log('Rewards & staking service enabled');
   console.log('Checkpoint service enabled (60s interval)');
+
+  setInterval(() => {
+    const dagSize = consensus.getDAGSize();
+    if (dagSize > MAX_DAG_NODES) {
+      const pruned = consensus.pruneDAG(MAX_DAG_NODES);
+      if (pruned > 0) {
+        console.log(`[Pruning] Removed ${pruned} old DAG nodes. Size: ${dagSize} -> ${consensus.getDAGSize()}`);
+      }
+    }
+    
+    const memUsage = process.memoryUsage();
+    const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+    console.log(`[Stats] DAG: ${consensus.getDAGSize()} nodes, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB`);
+  }, PRUNE_INTERVAL_MS);
+  console.log(`DAG pruning enabled (max: ${MAX_DAG_NODES} nodes, interval: ${PRUNE_INTERVAL_MS / 1000}s)`);
 
   if (peers.length > 0) {
     peerSync.start(5000);

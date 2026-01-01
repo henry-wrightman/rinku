@@ -129,6 +129,14 @@ export class Consensus {
     return this.dag.getNode(hash) !== undefined;
   }
 
+  getDAGSize(): number {
+    return this.dag.size();
+  }
+
+  pruneDAG(maxNodes: number): number {
+    return this.dag.pruneOldNodes(maxNodes);
+  }
+
   getPublicKeys(): Map<string, Uint8Array> {
     return new Map(this.publicKeys);
   }

@@ -7,6 +7,8 @@ const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || '30000');
 const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || '15000');
 const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || '50');
 const FAUCET_COOLDOWN_MS = 61000;
+const FETCH_TIMEOUT_MS = 15000;
+const CONCURRENT_LIMIT = 3;
 
 interface BotWallet {
   wallet: Wallet;
@@ -18,71 +20,97 @@ const wallets: BotWallet[] = [];
 let totalFaucetHits = 0;
 let totalTransactions = 0;
 let errors = 0;
+let pendingOperations = 0;
 
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs: number = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timeout));
+}
+
 async function faucetRequest(fingerprint: string): Promise<boolean> {
   try {
-    const res = await fetch(`${FAUCET_URL}/api/request`, {
+    const res = await fetchWithTimeout(`${FAUCET_URL}/api/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ address: fingerprint })
     });
     return res.ok;
-  } catch {
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      log(`Faucet timeout for ${fingerprint.slice(0, 8)}...`);
+    }
     return false;
   }
 }
 
 async function createNewWallet(): Promise<void> {
   if (wallets.length >= MAX_WALLETS) return;
+  if (pendingOperations >= CONCURRENT_LIMIT) return;
   
-  const wallet = new Wallet(NODE_URL);
-  const fingerprint = await wallet.create();
-  
-  const success = await faucetRequest(fingerprint);
-  
-  if (success) {
-    wallets.push({
-      wallet,
-      fingerprint,
-      lastFaucetHit: Date.now()
-    });
-    totalFaucetHits++;
-    log(`New wallet: ${fingerprint.slice(0, 16)}... (${wallets.length} total)`);
-  } else {
-    errors++;
+  pendingOperations++;
+  try {
+    const wallet = new Wallet(NODE_URL);
+    const fingerprint = await wallet.create();
+    
+    const success = await faucetRequest(fingerprint);
+    
+    if (success) {
+      wallets.push({
+        wallet,
+        fingerprint,
+        lastFaucetHit: Date.now()
+      });
+      totalFaucetHits++;
+      log(`New wallet: ${fingerprint.slice(0, 16)}... (${wallets.length} total)`);
+    } else {
+      errors++;
+    }
+  } finally {
+    pendingOperations--;
   }
 }
 
 async function doRandomFaucetDrop(): Promise<void> {
   if (wallets.length === 0) return;
+  if (pendingOperations >= CONCURRENT_LIMIT) return;
   
   const now = Date.now();
   const eligible = wallets.filter(w => now - w.lastFaucetHit >= FAUCET_COOLDOWN_MS);
   
   if (eligible.length === 0) return;
   
-  const recipient = pickRandom(eligible);
-  const success = await faucetRequest(recipient.fingerprint);
-  
-  if (success) {
-    recipient.lastFaucetHit = now;
-    totalFaucetHits++;
-    log(`Faucet drop: ${recipient.fingerprint.slice(0, 16)}... (+100 coins)`);
-  } else {
-    errors++;
+  pendingOperations++;
+  try {
+    const recipient = pickRandom(eligible);
+    const success = await faucetRequest(recipient.fingerprint);
+    
+    if (success) {
+      recipient.lastFaucetHit = now;
+      totalFaucetHits++;
+      log(`Faucet drop: ${recipient.fingerprint.slice(0, 16)}... (+100 coins)`);
+    } else {
+      errors++;
+    }
+  } finally {
+    pendingOperations--;
   }
 }
 
 async function doRandomTransaction(): Promise<void> {
   if (wallets.length < 2) return;
+  if (pendingOperations >= CONCURRENT_LIMIT) return;
   
-  const sender = pickRandom(wallets);
-  
+  pendingOperations++;
   try {
+    const sender = pickRandom(wallets);
+    
     const balance = await sender.wallet.getBalance();
     if (balance < 10) return;
     
@@ -92,11 +120,13 @@ async function doRandomTransaction(): Promise<void> {
     const recipient = pickRandom(recipients);
     const amount = Math.floor(Math.random() * Math.min(balance - 1, 20)) + 1;
     
-    const result = await sender.wallet.send(recipient.fingerprint, amount);
+    await sender.wallet.send(recipient.fingerprint, amount);
     totalTransactions++;
     log(`TX: ${sender.fingerprint.slice(0, 12)} -> ${recipient.fingerprint.slice(0, 12)} : ${amount} coins`);
   } catch (err: any) {
     errors++;
+  } finally {
+    pendingOperations--;
   }
 }
 
@@ -106,6 +136,9 @@ function log(msg: string): void {
 }
 
 function printStats(): void {
+  const memUsage = process.memoryUsage();
+  const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+  
   console.log('\n' + '-'.repeat(50));
   console.log(`ACTIVITY BOT STATS`);
   console.log('-'.repeat(50));
@@ -113,6 +146,8 @@ function printStats(): void {
   console.log(`  Faucet hits: ${totalFaucetHits}`);
   console.log(`  Transactions: ${totalTransactions}`);
   console.log(`  Errors: ${errors}`);
+  console.log(`  Pending ops: ${pendingOperations}/${CONCURRENT_LIMIT}`);
+  console.log(`  Heap memory: ${heapMB} MB`);
   console.log(`  Faucet interval: ${FAUCET_INTERVAL_MS / 1000}s`);
   console.log(`  TX interval: ${TX_INTERVAL_MS / 1000}s`);
   console.log('-'.repeat(50) + '\n');
@@ -127,6 +162,8 @@ async function main() {
   console.log(`Faucet interval: ${FAUCET_INTERVAL_MS / 1000}s`);
   console.log(`TX interval: ${TX_INTERVAL_MS / 1000}s`);
   console.log(`Max wallets: ${MAX_WALLETS}`);
+  console.log(`Concurrent limit: ${CONCURRENT_LIMIT}`);
+  console.log(`Fetch timeout: ${FETCH_TIMEOUT_MS}ms`);
   console.log('='.repeat(50) + '\n');
   
   log('Starting activity simulation...');
@@ -134,7 +171,7 @@ async function main() {
   
   for (let i = 0; i < 5; i++) {
     await createNewWallet();
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 1000));
   }
   
   setInterval(async () => {

@@ -242,6 +242,48 @@ export class DAG {
     return descendants;
   }
 
+  size(): number {
+    return this.nodes.size;
+  }
+
+  pruneOldNodes(maxNodes: number): number {
+    if (this.nodes.size <= maxNodes) return 0;
+
+    const nodesToKeep = new Set<string>();
+    
+    for (const tipHash of this.tipHashes) {
+      nodesToKeep.add(tipHash);
+      const ancestors = this.getAncestors(tipHash);
+      for (const ancestor of ancestors) {
+        nodesToKeep.add(ancestor);
+        if (nodesToKeep.size >= maxNodes) break;
+      }
+      if (nodesToKeep.size >= maxNodes) break;
+    }
+
+    const toRemove: string[] = [];
+    for (const hash of this.nodes.keys()) {
+      if (!nodesToKeep.has(hash)) {
+        toRemove.push(hash);
+      }
+    }
+
+    for (const hash of toRemove) {
+      const node = this.nodes.get(hash);
+      if (node) {
+        for (const [url, h] of this.urlToHash) {
+          if (h === hash) {
+            this.urlToHash.delete(url);
+          }
+        }
+      }
+      this.nodes.delete(hash);
+      this.tipHashes.delete(hash);
+    }
+
+    return toRemove.length;
+  }
+
   toJSON(): object {
     return {
       nodes: Array.from(this.nodes.entries()).map(([hash, node]) => ({

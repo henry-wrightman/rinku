@@ -39,6 +39,22 @@ export function createAPI(
     res.json({ status: 'ok', timestamp: Date.now() });
   });
 
+  app.get('/api/stats', (_req, res) => {
+    const memUsage = process.memoryUsage();
+    res.json({
+      dagSize: consensus.getAllNodes().length,
+      tipCount: consensus.getTips().length,
+      accountCount: state.getAllAccounts().size,
+      mempoolSize: mempool.size(),
+      memoryMB: {
+        heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+        rss: Math.round(memUsage.rss / 1024 / 1024)
+      },
+      uptime: Math.round(process.uptime())
+    });
+  });
+
   app.get('/api/tips', (_req, res) => {
     const tips = consensus.getTips();
     res.json({ tips });
