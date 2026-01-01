@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 interface Account {
@@ -47,8 +47,9 @@ function App() {
   } | null>(null);
   const [dagPage, setDagPage] = useState(0);
   const [accountsPage, setAccountsPage] = useState(0);
-  const [seenHashes, setSeenHashes] = useState<Set<string>>(new Set());
+  const seenHashesRef = useRef<Set<string>>(new Set());
   const [newHashes, setNewHashes] = useState<Set<string>>(new Set());
+  const isFirstLoad = useRef(true);
   const PAGE_SIZE = 20;
 
   const fetchState = async () => {
@@ -68,22 +69,28 @@ function App() {
         accounts: Account[];
       };
 
-      const currentHashes = new Set(dagData.nodes.map(n => n.tx.hash));
-      const freshHashes = new Set<string>();
+      const currentHashes = dagData.nodes.map(n => n.tx.hash);
       
-      currentHashes.forEach(hash => {
-        if (!seenHashes.has(hash)) {
-          freshHashes.add(hash);
-        }
-      });
-      
-      if (freshHashes.size > 0) {
-        setNewHashes(freshHashes);
-        setSeenHashes(prev => new Set([...prev, ...freshHashes]));
+      if (isFirstLoad.current) {
+        currentHashes.forEach(hash => seenHashesRef.current.add(hash));
+        isFirstLoad.current = false;
+      } else {
+        const freshHashes = new Set<string>();
         
-        setTimeout(() => {
-          setNewHashes(new Set());
-        }, 2000);
+        currentHashes.forEach(hash => {
+          if (!seenHashesRef.current.has(hash)) {
+            freshHashes.add(hash);
+            seenHashesRef.current.add(hash);
+          }
+        });
+        
+        if (freshHashes.size > 0) {
+          setNewHashes(freshHashes);
+          
+          setTimeout(() => {
+            setNewHashes(new Set());
+          }, 2000);
+        }
       }
 
       setState({
