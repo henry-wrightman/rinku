@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import type { DAGNode } from "../types";
 import { truncate, timeAgo } from "../utils";
@@ -10,9 +10,30 @@ interface DAGTabProps {
 }
 
 const PAGE_SIZE = 20;
+const NEW_TX_DURATION = 3000;
 
 export function DAGTab({ nodes, merkleRoot }: DAGTabProps) {
   const [page, setPage] = useState(0);
+  const [newHashes, setNewHashes] = useState<Set<string>>(new Set());
+  const prevHashesRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const currentHashes = new Set(nodes.map((n) => n.tx.hash));
+    const freshHashes = new Set<string>();
+
+    currentHashes.forEach((hash) => {
+      if (!prevHashesRef.current.has(hash)) {
+        freshHashes.add(hash);
+      }
+    });
+
+    if (freshHashes.size > 0 && prevHashesRef.current.size > 0) {
+      setNewHashes(freshHashes);
+      setTimeout(() => setNewHashes(new Set()), NEW_TX_DURATION);
+    }
+
+    prevHashesRef.current = currentHashes;
+  }, [nodes]);
 
   if (nodes.length === 0) {
     return <div className="empty">no transactions yet</div>;
@@ -24,8 +45,16 @@ export function DAGTab({ nodes, merkleRoot }: DAGTabProps) {
   return (
     <div className="section">
       {pageNodes.map((node) => (
-        <div key={node.tx.hash} className="dag-node">
-          <div className="hash">{truncate(node.tx.hash, 12)}</div>
+        <div
+          key={node.tx.hash}
+          className={`dag-node ${newHashes.has(node.tx.hash) ? "new-tx" : ""}`}
+        >
+          <div className="hash">
+            {newHashes.has(node.tx.hash) && <span className="new-badge">NEW</span>}
+            <span className={newHashes.has(node.tx.hash) ? "typewriter" : ""}>
+              {truncate(node.tx.hash, 12)}
+            </span>
+          </div>
           <div className="amount">{node.tx.amount.toLocaleString()} coins</div>
           <div className="meta">
             {node.tx.from === "genesis" ? "genesis" : truncate(node.tx.from, 6)} →{" "}
