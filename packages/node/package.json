@@ -11,7 +11,8 @@
     "simulate": "tsx src/simulate-network.ts",
     "activity-bot": "tsx src/activity-bot.ts",
     "demo-contract": "tsx src/demo-contract.ts",
-    "demo-rewards": "tsx src/demo-rewards.ts"
+    "demo-rewards": "tsx src/demo-rewards.ts",
+    "demo-finality": "tsx src/demo-finality.ts"
   },
   "dependencies": {
     "@rinku/core": "*",
