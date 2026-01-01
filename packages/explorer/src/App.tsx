@@ -59,6 +59,11 @@ function App() {
         fetch(`${NODE_URL}/accounts`),
       ]);
 
+      if (!dagRes.ok || !accountsRes.ok) {
+        console.error('API error:', dagRes.status, accountsRes.status);
+        return;
+      }
+
       const dagData = (await dagRes.json()) as {
         nodes: DAGNode[];
         tips: string[];
@@ -68,6 +73,11 @@ function App() {
       const accountsData = (await accountsRes.json()) as {
         accounts: Account[];
       };
+      
+      if (!dagData.nodes || !accountsData.accounts) {
+        console.error('Invalid API response');
+        return;
+      }
 
       const currentHashes = dagData.nodes.map(n => n.tx.hash);
       
