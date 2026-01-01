@@ -353,3 +353,5 @@ npm run demo-finality
 - **Finality Proofs**: URL-embedded proofs for trustless verification
 - **Cryptographic Verification**: Proof verification validates ed25519 signatures standalone
 - **Demo Script**: `npm run demo-finality` shows URL-only finality verification
+- **Production Stability**: Memory leak fixes, fetch timeouts, DAG pruning for high-volume operation
+- **Stats Endpoint**: `GET /api/stats` for monitoring DAG size, memory usage, account count
