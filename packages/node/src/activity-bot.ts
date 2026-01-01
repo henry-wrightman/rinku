@@ -1,4 +1,3 @@
-import { createTransactionURL, parseTransactionURL, hashTransaction, type SignedTransaction, type Transaction } from '@rinku/core';
 
 const NODE_URL = process.env.RINKU_NODE_URL || 'http://localhost:3001';
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || 'http://localhost:3002';
@@ -50,18 +49,6 @@ async function faucetRequest(fingerprint: string): Promise<boolean> {
   }
 }
 
-async function submitTransaction(tx: SignedTransaction): Promise<boolean> {
-  try {
-    const res = await fetch(`${NODE_URL}/api/transactions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(tx)
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 
 async function createNewWallet(): Promise<void> {
   if (wallets.length >= MAX_WALLETS) return;
@@ -83,43 +70,16 @@ async function createNewWallet(): Promise<void> {
   }
 }
 
-async function doRandomTransaction(): Promise<void> {
-  const fundedWallets = wallets.filter(w => w.balance >= 10);
-  if (fundedWallets.length < 2) return;
+async function doRandomFaucetDrop(): Promise<void> {
+  if (wallets.length === 0) return;
   
-  const sender = pickRandom(fundedWallets);
-  const recipients = wallets.filter(w => w.fingerprint !== sender.fingerprint);
-  if (recipients.length === 0) return;
-  
-  const recipient = pickRandom(recipients);
-  const amount = Math.floor(Math.random() * Math.min(sender.balance - 1, 20)) + 1;
-  
-  const tipUrls = await getTipUrls();
-  if (tipUrls.length === 0) return;
-  
-  const tx: Transaction = {
-    from: sender.fingerprint,
-    to: recipient.fingerprint,
-    amount,
-    nonce: sender.nonce + 1,
-    tipUrls: tipUrls.slice(0, 2),
-    sig: `bot_sig_${Date.now()}`,
-    ts: Date.now()
-  };
-  
-  const signedTx: SignedTransaction = {
-    ...tx,
-    hash: await hashTransaction(tx)
-  };
-  
-  const success = await submitTransaction(signedTx);
+  const recipient = pickRandom(wallets);
+  const success = await faucetRequest(recipient.fingerprint);
   
   if (success) {
-    sender.balance -= amount;
-    sender.nonce++;
-    recipient.balance += amount;
+    recipient.balance += 100;
     totalTransactions++;
-    log(`TX: ${sender.fingerprint.slice(0, 12)} -> ${recipient.fingerprint.slice(0, 12)} : ${amount} coins`);
+    log(`Faucet drop: ${recipient.fingerprint.slice(0, 20)}... (+100 coins)`);
   } else {
     errors++;
   }
@@ -168,7 +128,7 @@ async function main() {
   }, FAUCET_INTERVAL_MS);
   
   setInterval(async () => {
-    await doRandomTransaction();
+    await doRandomFaucetDrop();
   }, TX_INTERVAL_MS);
   
   setInterval(printStats, 60000);
