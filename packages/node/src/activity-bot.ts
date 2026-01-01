@@ -11,6 +11,7 @@ interface WalletState {
   balance: number;
   nonce: number;
   createdAt: number;
+  lastFaucetHit: number;
 }
 
 const wallets: WalletState[] = [];
@@ -61,7 +62,8 @@ async function createNewWallet(): Promise<void> {
       fingerprint,
       balance: 100,
       nonce: 0,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      lastFaucetHit: Date.now()
     });
     totalFaucetHits++;
     log(`New wallet: ${fingerprint.slice(0, 20)}... (${wallets.length} total)`);
@@ -70,14 +72,24 @@ async function createNewWallet(): Promise<void> {
   }
 }
 
+const FAUCET_COOLDOWN_MS = 61000;
+
 async function doRandomFaucetDrop(): Promise<void> {
   if (wallets.length === 0) return;
   
-  const recipient = pickRandom(wallets);
+  const now = Date.now();
+  const eligible = wallets.filter(w => now - w.lastFaucetHit >= FAUCET_COOLDOWN_MS);
+  
+  if (eligible.length === 0) {
+    return;
+  }
+  
+  const recipient = pickRandom(eligible);
   const success = await faucetRequest(recipient.fingerprint);
   
   if (success) {
     recipient.balance += 100;
+    recipient.lastFaucetHit = now;
     totalTransactions++;
     log(`Faucet drop: ${recipient.fingerprint.slice(0, 20)}... (+100 coins)`);
   } else {
