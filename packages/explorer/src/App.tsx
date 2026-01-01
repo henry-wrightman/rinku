@@ -47,6 +47,8 @@ function App() {
   } | null>(null);
   const [dagPage, setDagPage] = useState(0);
   const [accountsPage, setAccountsPage] = useState(0);
+  const [seenHashes, setSeenHashes] = useState<Set<string>>(new Set());
+  const [newHashes, setNewHashes] = useState<Set<string>>(new Set());
   const PAGE_SIZE = 20;
 
   const fetchState = async () => {
@@ -65,6 +67,24 @@ function App() {
       const accountsData = (await accountsRes.json()) as {
         accounts: Account[];
       };
+
+      const currentHashes = new Set(dagData.nodes.map(n => n.tx.hash));
+      const freshHashes = new Set<string>();
+      
+      currentHashes.forEach(hash => {
+        if (!seenHashes.has(hash)) {
+          freshHashes.add(hash);
+        }
+      });
+      
+      if (freshHashes.size > 0) {
+        setNewHashes(freshHashes);
+        setSeenHashes(prev => new Set([...prev, ...freshHashes]));
+        
+        setTimeout(() => {
+          setNewHashes(new Set());
+        }, 2000);
+      }
 
       setState({
         accounts: accountsData.accounts,
@@ -200,7 +220,7 @@ function App() {
                 .reverse()
                 .slice(dagPage * PAGE_SIZE, (dagPage + 1) * PAGE_SIZE)
                 .map((node) => (
-                <div key={node.tx.hash} className="dag-node">
+                <div key={node.tx.hash} className={`dag-node ${newHashes.has(node.tx.hash) ? 'new-tx' : ''}`}>
                   <div className="hash">{truncate(node.tx.hash, 12)}</div>
                   <div className="amount">
                     {node.tx.amount.toLocaleString()} coins
