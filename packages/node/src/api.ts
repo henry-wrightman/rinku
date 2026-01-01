@@ -35,9 +35,11 @@ export function createAPI(
 
   app.get('/api/accounts', (_req, res) => {
     const accounts = Array.from(state.getAllAccounts().entries()).map(
-      ([fingerprint, account]) => ({
-        fingerprint,
-        ...account
+      ([fp, account]) => ({
+        fingerprint: fp,
+        balance: account.balance,
+        nonce: account.nonce,
+        firstTxTimestamp: account.firstTxTimestamp
       })
     );
     res.json({ accounts });

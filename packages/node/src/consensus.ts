@@ -37,12 +37,13 @@ export class Consensus {
       return { valid: false, error: 'Invalid addresses' };
     }
 
-    if (tx.tips.length < 1 && this.dag.getTips().length > 0) {
+    const dagTips = this.dag.getTips();
+    if (tx.tips.length < 1 && dagTips.length > 0 && tx.from !== 'genesis') {
       return { valid: false, error: 'Must reference at least one tip' };
     }
 
     for (const tip of tx.tips) {
-      if (tip !== 'genesis' && !this.dag.getNode(tip)) {
+      if (!this.dag.getNode(tip)) {
         return { valid: false, error: `Invalid tip reference: ${tip}` };
       }
     }

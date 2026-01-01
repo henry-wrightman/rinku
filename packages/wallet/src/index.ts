@@ -46,7 +46,7 @@ export class Wallet {
     try {
       const response = await fetch(`${this.nodeUrl}/api/account/${fingerprint}`);
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as { balance: number; nonce: number };
         this.state = {
           fingerprint,
           balance: data.balance,
@@ -87,7 +87,7 @@ export class Wallet {
     }
 
     const tipsResponse = await fetch(`${this.nodeUrl}/api/tips`);
-    const tipsData = await tipsResponse.json();
+    const tipsData = await tipsResponse.json() as { tips: string[] };
     const tips = tipsData.tips.slice(0, 2);
 
     if (tips.length === 0) {
@@ -114,7 +114,7 @@ export class Wallet {
     });
 
     if (!submitResponse.ok) {
-      const error = await submitResponse.json();
+      const error = await submitResponse.json() as { error?: string };
       throw new Error(error.error || 'Transaction failed');
     }
 

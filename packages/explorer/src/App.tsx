@@ -49,8 +49,8 @@ function App() {
         fetch(`${NODE_URL}/accounts`)
       ]);
 
-      const dagData = await dagRes.json();
-      const accountsData = await accountsRes.json();
+      const dagData = await dagRes.json() as { nodes: DAGNode[]; tips: string[]; merkleRoot: string };
+      const accountsData = await accountsRes.json() as { accounts: Account[] };
 
       setState({
         accounts: accountsData.accounts,
@@ -85,13 +85,13 @@ function App() {
         body: JSON.stringify({ address: faucetAddress })
       });
 
-      const data = await res.json();
+      const data = await res.json() as { amount?: number; txHash?: string; error?: string };
 
-      if (res.ok) {
+      if (res.ok && data.amount && data.txHash) {
         setFaucetMessage({ type: 'success', text: `Received ${data.amount} coins! TX: ${data.txHash.slice(0, 16)}...` });
         fetchState();
       } else {
-        setFaucetMessage({ type: 'error', text: data.error });
+        setFaucetMessage({ type: 'error', text: data.error || 'Unknown error' });
       }
     } catch (err) {
       setFaucetMessage({ type: 'error', text: 'Failed to connect to faucet' });
@@ -233,7 +233,7 @@ function App() {
                 type="text"
                 placeholder="Enter your wallet fingerprint..."
                 value={faucetAddress}
-                onChange={(e) => setFaucetAddress(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFaucetAddress(e.target.value)}
               />
             </div>
             <button className="btn btn-primary" onClick={requestFaucet}>

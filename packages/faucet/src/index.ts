@@ -47,11 +47,11 @@ async function main() {
       }
 
       const tipsResponse = await fetch(`${NODE_URL}/api/tips`);
-      const tipsData = await tipsResponse.json();
+      const tipsData = await tipsResponse.json() as { tips: string[] };
       const tips = tipsData.tips.length > 0 ? tipsData.tips.slice(0, 2) : ['genesis'];
 
       const faucetResponse = await fetch(`${NODE_URL}/api/account/faucet`);
-      const faucetAccount = await faucetResponse.json();
+      const faucetAccount = await faucetResponse.json() as { nonce?: number };
 
       const tx: SignedTransaction = {
         from: 'faucet',
@@ -73,7 +73,7 @@ async function main() {
       });
 
       if (!submitResponse.ok) {
-        const error = await submitResponse.json();
+        const error = await submitResponse.json() as { error?: string };
         res.status(400).json({ error: error.error || 'Faucet request failed' });
         return;
       }
