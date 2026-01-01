@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 
 interface Account {
   fingerprint: string;
@@ -31,30 +31,39 @@ interface State {
   merkleRoot: string;
 }
 
-const NODE_URL = '/api';
+const NODE_URL = "/api";
 
 function App() {
-  const [tab, setTab] = useState<'dag' | 'accounts' | 'faucet'>('dag');
+  const [tab, setTab] = useState<"dag" | "accounts" | "faucet">("dag");
   const [state, setState] = useState<State | null>(null);
   const [loading, setLoading] = useState(true);
-  const [faucetAddress, setFaucetAddress] = useState('');
-  const [faucetMessage, setFaucetMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [faucetAddress, setFaucetAddress] = useState("");
+  const [faucetMessage, setFaucetMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
 
   const fetchState = async () => {
     try {
       const [dagRes, accountsRes] = await Promise.all([
         fetch(`${NODE_URL}/dag`),
-        fetch(`${NODE_URL}/accounts`)
+        fetch(`${NODE_URL}/accounts`),
       ]);
 
-      const dagData = await dagRes.json() as { nodes: DAGNode[]; tips: string[]; merkleRoot: string };
-      const accountsData = await accountsRes.json() as { accounts: Account[] };
+      const dagData = (await dagRes.json()) as {
+        nodes: DAGNode[];
+        tips: string[];
+        merkleRoot: string;
+      };
+      const accountsData = (await accountsRes.json()) as {
+        accounts: Account[];
+      };
 
       setState({
         accounts: accountsData.accounts,
         nodes: dagData.nodes,
         tips: dagData.tips,
-        merkleRoot: dagData.merkleRoot
+        merkleRoot: dagData.merkleRoot,
       });
     } catch {
     } finally {
@@ -70,27 +79,37 @@ function App() {
 
   const requestFaucet = async () => {
     if (!faucetAddress) {
-      setFaucetMessage({ type: 'error', text: 'address required' });
+      setFaucetMessage({ type: "error", text: "address required" });
       return;
     }
 
     try {
-      const res = await fetch('/faucet/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: faucetAddress })
+      const res = await fetch("/faucet/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: faucetAddress }),
       });
 
-      const data = await res.json() as { amount?: number; txHash?: string; error?: string };
+      const data = (await res.json()) as {
+        amount?: number;
+        txHash?: string;
+        error?: string;
+      };
 
       if (res.ok && data.amount && data.txHash) {
-        setFaucetMessage({ type: 'success', text: `received ${data.amount} coins. tx: ${data.txHash.slice(0, 8)}...` });
+        setFaucetMessage({
+          type: "success",
+          text: `received ${data.amount} coins. tx: ${data.txHash.slice(0, 8)}...`,
+        });
         fetchState();
       } else {
-        setFaucetMessage({ type: 'error', text: data.error || 'request failed' });
+        setFaucetMessage({
+          type: "error",
+          text: data.error || "request failed",
+        });
       }
     } catch {
-      setFaucetMessage({ type: 'error', text: 'failed to connect to faucet' });
+      setFaucetMessage({ type: "error", text: "failed to connect to faucet" });
     }
   };
 
@@ -102,7 +121,7 @@ function App() {
   const timeAgo = (ts: number) => {
     const diff = Date.now() - ts;
     const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'just now';
+    if (mins < 1) return "just now";
     if (mins < 60) return `${mins}m ago`;
     const hours = Math.floor(mins / 60);
     if (hours < 24) return `${hours}h ago`;
@@ -129,32 +148,58 @@ function App() {
       </header>
 
       <div className="stats">
-        <span><span className="value">{state?.nodes.length || 0}</span> transactions</span>
-        <span><span className="value">{state?.accounts.length || 0}</span> accounts</span>
-        <span><span className="value">{state?.tips.length || 0}</span> tips</span>
+        <span>
+          <span className="value">{state?.nodes.length || 0}</span> transactions
+        </span>
+        <span>
+          <span className="value">{state?.accounts.length || 0}</span> accounts
+        </span>
+        <span>
+          <span className="value">{state?.tips.length || 0}</span> tips
+        </span>
       </div>
 
       <div className="nav">
-        <span className={tab === 'dag' ? 'active' : ''} onClick={() => setTab('dag')}>dag</span>
-        <span className={tab === 'accounts' ? 'active' : ''} onClick={() => setTab('accounts')}>accounts</span>
-        <span className={tab === 'faucet' ? 'active' : ''} onClick={() => setTab('faucet')}>faucet</span>
+        <span
+          className={tab === "dag" ? "active" : ""}
+          onClick={() => setTab("dag")}
+        >
+          dag
+        </span>
+        <span
+          className={tab === "accounts" ? "active" : ""}
+          onClick={() => setTab("accounts")}
+        >
+          accounts
+        </span>
+        <span
+          className={tab === "faucet" ? "active" : ""}
+          onClick={() => setTab("faucet")}
+        >
+          faucet
+        </span>
       </div>
 
-      {tab === 'dag' && (
+      {tab === "dag" && (
         <div className="section">
-          <div className="hint">
+          {/* <div className="hint">
             tip: transactions reference previous tips to form a dag
-          </div>
-          
+          </div> */}
+
           {state?.nodes.length === 0 ? (
             <div className="empty">no transactions yet</div>
           ) : (
             state?.nodes.map((node, i) => (
               <div key={node.tx.hash} className="dag-node">
                 <div className="hash">{truncate(node.tx.hash, 12)}</div>
-                <div className="amount">{node.tx.amount.toLocaleString()} coins</div>
+                <div className="amount">
+                  {node.tx.amount.toLocaleString()} coins
+                </div>
                 <div className="meta">
-                  {node.tx.from === 'genesis' ? 'genesis' : truncate(node.tx.from, 6)} → {truncate(node.tx.to, 6)} · {timeAgo(node.tx.ts)} · node {i}
+                  {node.tx.from === "genesis"
+                    ? "genesis"
+                    : truncate(node.tx.from, 6)}{" "}
+                  → {truncate(node.tx.to, 6)} · {timeAgo(node.tx.ts)} · node {i}
                 </div>
                 <div className="actions">
                   <span className="link">view</span>
@@ -163,16 +208,16 @@ function App() {
               </div>
             ))
           )}
-          
+
           {state && state.merkleRoot && (
-            <div style={{ marginTop: 20, color: '#555', fontSize: 12 }}>
+            <div style={{ marginTop: 20, color: "#555", fontSize: 12 }}>
               merkle root: {truncate(state.merkleRoot, 16)}
             </div>
           )}
         </div>
       )}
 
-      {tab === 'accounts' && (
+      {tab === "accounts" && (
         <div className="section">
           {state?.accounts.length === 0 ? (
             <div className="empty">no accounts yet</div>
@@ -188,8 +233,12 @@ function App() {
               <tbody>
                 {state?.accounts.map((account) => (
                   <tr key={account.fingerprint}>
-                    <td className="hash">{truncate(account.fingerprint, 12)}</td>
-                    <td className="amount">{account.balance.toLocaleString()}</td>
+                    <td className="hash">
+                      {truncate(account.fingerprint, 12)}
+                    </td>
+                    <td className="amount">
+                      {account.balance.toLocaleString()}
+                    </td>
                     <td>{account.nonce}</td>
                   </tr>
                 ))}
@@ -199,7 +248,7 @@ function App() {
         </div>
       )}
 
-      {tab === 'faucet' && (
+      {tab === "faucet" && (
         <div className="section">
           <div className="hint">
             get testnet coins. rate limited to once per minute.
@@ -215,23 +264,25 @@ function App() {
             type="text"
             placeholder="paste your address (fingerprint)"
             value={faucetAddress}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFaucetAddress(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setFaucetAddress(e.target.value)
+            }
           />
-          
+
           <button className="btn" onClick={requestFaucet}>
             request coins
           </button>
 
-          <div style={{ marginTop: 24, color: '#444', fontSize: 12 }}>
+          <div style={{ marginTop: 24, color: "#444", fontSize: 12 }}>
             tip: use @rinku/wallet to generate an address
           </div>
         </div>
       )}
 
-      <div className="footer">
+      {/* <div className="footer">
         <span>hello fren</span>
         <span>data lives in the links</span>
-      </div>
+      </div> */}
     </div>
   );
 }

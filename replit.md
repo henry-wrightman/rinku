@@ -64,6 +64,32 @@ npm run dev:faucet    # Start faucet server
 - Web Crypto API for cryptography
 - pako for DEFLATE compression
 
+## Multi-Node Networking
+
+### Environment Variables
+- `NODE_PORT`: Port for node API (default: 3001)
+- `NODE_ID`: Unique node identifier (auto-generated if not set)
+- `NODE_PEERS`: Comma-separated list of peer URLs (e.g., "http://peer1:3001,http://peer2:3001")
+- `RINKU_DATA_DIR`: Directory for persistence (default: .rinku-data)
+
+### Persistence
+State and DAG are persisted to JSON files in the data directory. On restart, nodes restore from the snapshot automatically.
+
+### Peer Sync Protocol
+- `GET /api/sync/status`: Node status (merkleRoot, dagSize, tips)
+- `GET /api/sync/transactions`: All transactions with public keys
+- `GET /api/sync/peers`: List of configured peers
+- `POST /api/sync/force`: Force sync with all peers
+
+### Running Multiple Nodes
+```bash
+# Node 1 (Replit)
+NODE_PORT=3001 NODE_ID=node1 npm run dev:node
+
+# Node 2 (local, syncs from Node 1)
+NODE_PORT=3002 NODE_ID=node2 NODE_PEERS=https://your-replit-url.repl.co npm run dev:node
+```
+
 ## Recent Changes
 - Initial project setup with all 5 packages
 - Core library with types, crypto, encoding, merkle, dag, weight modules
@@ -71,3 +97,6 @@ npm run dev:faucet    # Start faucet server
 - Wallet library for key management and transaction creation
 - Faucet for testnet coin distribution
 - Explorer with DAG visualization, accounts view, and faucet integration
+- Added persistence layer for state/DAG snapshots
+- Added peer sync service for multi-node networking
+- Added sync API endpoints for node-to-node communication

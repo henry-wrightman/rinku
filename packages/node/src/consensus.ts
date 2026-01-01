@@ -108,4 +108,28 @@ export class Consensus {
   getAllNodes() {
     return this.dag.getAllNodes();
   }
+
+  hasTransaction(hash: string): boolean {
+    return this.dag.getNode(hash) !== undefined;
+  }
+
+  getPublicKeys(): Map<string, Uint8Array> {
+    return new Map(this.publicKeys);
+  }
+
+  toJSON(): { dag: object; publicKeys: [string, number[]][] } {
+    return {
+      dag: this.dag.toJSON(),
+      publicKeys: Array.from(this.publicKeys.entries()).map(([k, v]) => [k, Array.from(v)])
+    };
+  }
+
+  static fromJSON(data: { dag: any; publicKeys: [string, number[]][] }): Consensus {
+    const consensus = new Consensus();
+    consensus.dag = DAG.fromJSON(data.dag);
+    consensus.publicKeys = new Map(
+      data.publicKeys.map(([k, v]) => [k, new Uint8Array(v)])
+    );
+    return consensus;
+  }
 }

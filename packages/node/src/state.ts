@@ -28,14 +28,15 @@ export class StateManager {
     return account;
   }
 
-  async applyTransaction(tx: SignedTransaction): Promise<boolean> {
+  async applyTransaction(tx: SignedTransaction, opts?: { skipChecks?: boolean }): Promise<boolean> {
+    const skipChecks = opts?.skipChecks || false;
     const sender = this.accounts.get(tx.from);
     
     if (!sender && tx.from !== 'genesis' && tx.from !== 'faucet') {
-      return false;
+      if (!skipChecks) return false;
     }
 
-    if (sender) {
+    if (sender && !skipChecks) {
       if (sender.balance < tx.amount) {
         return false;
       }
@@ -43,7 +44,9 @@ export class StateManager {
       if (tx.nonce !== sender.nonce + 1) {
         return false;
       }
+    }
 
+    if (sender) {
       sender.balance -= tx.amount;
       sender.nonce = tx.nonce;
     }
