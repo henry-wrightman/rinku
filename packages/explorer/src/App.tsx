@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 
 interface Account {
@@ -47,9 +47,8 @@ function App() {
   } | null>(null);
   const [dagPage, setDagPage] = useState(0);
   const [accountsPage, setAccountsPage] = useState(0);
-  const seenHashesRef = useRef<Set<string>>(new Set());
+  const [seenHashes, setSeenHashes] = useState<Set<string>>(new Set());
   const [newHashes, setNewHashes] = useState<Set<string>>(new Set());
-  const isFirstLoad = useRef(true);
   const PAGE_SIZE = 20;
 
   const fetchState = async () => {
@@ -58,11 +57,6 @@ function App() {
         fetch(`${NODE_URL}/dag`),
         fetch(`${NODE_URL}/accounts`),
       ]);
-
-      if (!dagRes.ok || !accountsRes.ok) {
-        console.error('API error:', dagRes.status, accountsRes.status);
-        return;
-      }
 
       const dagData = (await dagRes.json()) as {
         nodes: DAGNode[];
@@ -73,34 +67,23 @@ function App() {
       const accountsData = (await accountsRes.json()) as {
         accounts: Account[];
       };
-      
-      if (!dagData.nodes || !accountsData.accounts) {
-        console.error('Invalid API response');
-        return;
-      }
 
-      const currentHashes = dagData.nodes.map(n => n.tx.hash);
+      const currentHashes = new Set(dagData.nodes.map(n => n.tx.hash));
+      const freshHashes = new Set<string>();
       
-      if (isFirstLoad.current) {
-        currentHashes.forEach(hash => seenHashesRef.current.add(hash));
-        isFirstLoad.current = false;
-      } else {
-        const freshHashes = new Set<string>();
-        
-        currentHashes.forEach(hash => {
-          if (!seenHashesRef.current.has(hash)) {
-            freshHashes.add(hash);
-            seenHashesRef.current.add(hash);
-          }
-        });
-        
-        if (freshHashes.size > 0) {
-          setNewHashes(freshHashes);
-          
-          setTimeout(() => {
-            setNewHashes(new Set());
-          }, 2000);
+      currentHashes.forEach(hash => {
+        if (!seenHashes.has(hash)) {
+          freshHashes.add(hash);
         }
+      });
+      
+      if (freshHashes.size > 0) {
+        setNewHashes(freshHashes);
+        setSeenHashes(prev => new Set([...prev, ...freshHashes]));
+        
+        setTimeout(() => {
+          setNewHashes(new Set());
+        }, 2000);
       }
 
       setState({
