@@ -1,0 +1,112 @@
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+at process.processTimers (node:internal/timers:519:7) {
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+at node:internal/deps/undici/undici:13510:13
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+at async file:///home/runner/workspace/packages/faucet/dist/index.js:33:37 {
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+Faucet error: TypeError: fetch failed
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+}
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+code: 'UND_ERR_HEADERS_TIMEOUT'
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+at FastTimer.onParserTimeout [as _onTimeout] (node:internal/deps/undici/undici:6249:32)
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+at Timeout.onTick [as _onTimeout] (node:internal/deps/undici/undici:2210:17)
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+[cause]: HeadersTimeoutError: Headers Timeout Error
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+at listOnTimeout (node:internal/timers:581:17)
+2026-01-01 17:56:47.16
+4d73ee3d
+User
+}
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+[cause]: HeadersTimeoutError: Headers Timeout Error
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+code: 'UND_ERR_HEADERS_TIMEOUT'
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+at Timeout.onTick [as _onTimeout] (node:internal/deps/undici/undici:2210:17)
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+at process.processTimers (node:internal/timers:519:7) {
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+at FastTimer.onParserTimeout [as _onTimeout] (node:internal/deps/undici/undici:6249:32)
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+at async file:///home/runner/workspace/packages/faucet/dist/index.js:33:37 {
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+}
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+at listOnTimeout (node:internal/timers:581:17)
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+at node:internal/deps/undici/undici:13510:13
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+}
+2026-01-01 17:57:16.88
+4d73ee3d
+User
+Faucet error: TypeError: fetch failed
+2026-01-01 17:57:47.16
+4d73ee3d
+User
+}
+2026-01-01 17:57:47.16
+4d73ee3d
+User
+at FastTimer.onParserTimeout [as _onTimeout] (node:internal/deps/undici/undici:6249:32)
+2026-01-01 17:57:47.16
+4d73ee3d
+User
+at node:internal/deps/undici/undici:13510:13
+2026-01-01 17:57:47.16
+4d73ee3d
+User
+at Timeout.onTick [as _onTimeout] (node:internal/deps/undici/undici:2210:17)
+2026-01-01 17:57:47.16
+4d73ee3d
+User
+at process.processTimers (node:internal/timers:519:7) {
+2026-01-01 17:57:47.16
+4d73ee3d
+User
+}
