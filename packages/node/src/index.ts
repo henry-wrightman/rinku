@@ -24,48 +24,42 @@ async function main() {
   const mempool = new Mempool();
 
   const snapshot = await storage.load();
+  const peers = NODE_PEERS ? NODE_PEERS.split(',').map(p => p.trim()).filter(p => p) : [];
   
   if (snapshot) {
     console.log('Restoring from snapshot...');
     state = StateManager.fromJSON(snapshot.state);
     consensus = Consensus.fromJSON({ dag: snapshot.dag, publicKeys: snapshot.publicKeys });
     console.log(`Restored: ${snapshot.dag.nodes.length} transactions, ${snapshot.state.accounts.length} accounts`);
+  } else if (peers.length > 0) {
+    console.log('Cold start with peers - attempting to bootstrap from network...');
+    state = new StateManager();
+    consensus = new Consensus();
+    
+    const bootstrapped = await bootstrapFromPeers(peers, state, consensus);
+    
+    if (bootstrapped) {
+      console.log('Successfully bootstrapped from peer network');
+      await saveSnapshot(storage, state, consensus);
+    } else {
+      console.log('No peers available, creating local genesis...');
+      await createGenesis(state, consensus);
+      await saveSnapshot(storage, state, consensus);
+    }
   } else {
     console.log('Cold start - initializing genesis...');
     state = new StateManager();
     consensus = new Consensus();
-
-    const genesisTx: SignedTransaction = {
-      from: 'genesis',
-      to: 'faucet',
-      amount: FAUCET_BALANCE,
-      nonce: 0,
-      tips: [],
-      sig: 'genesis-signature',
-      ts: Date.now(),
-      hash: ''
-    };
-    genesisTx.hash = await hashTransaction(genesisTx);
-    
-    await state.applyTransaction(genesisTx);
-    await consensus.addTransaction(genesisTx);
-    consensus.updateWeights(state.getAllAccounts());
-    
-    console.log(`Genesis transaction created: ${genesisTx.hash.slice(0, 16)}...`);
-    console.log(`Faucet account initialized with ${FAUCET_BALANCE} coins`);
-
+    await createGenesis(state, consensus);
     await saveSnapshot(storage, state, consensus);
   }
 
   const peerSync = new PeerSyncService(state, consensus, NODE_ID);
   
-  if (NODE_PEERS) {
-    const peers = NODE_PEERS.split(',').map(p => p.trim()).filter(p => p);
-    peers.forEach(peer => {
-      peerSync.addPeer(peer);
-      console.log(`Added peer: ${peer}`);
-    });
-  }
+  peers.forEach(peer => {
+    peerSync.addPeer(peer);
+    console.log(`Added peer: ${peer}`);
+  });
 
   peerSync.onSyncComplete(async () => {
     await saveSnapshot(storage, state, consensus);
@@ -75,7 +69,7 @@ async function main() {
     await saveSnapshot(storage, state, consensus);
   });
 
-  if (NODE_PEERS) {
+  if (peers.length > 0) {
     peerSync.start(5000);
   }
 
@@ -83,6 +77,68 @@ async function main() {
     console.log(`Rinku Node running on port ${PORT}`);
     console.log(`API available at http://0.0.0.0:${PORT}/api`);
   });
+}
+
+async function createGenesis(state: StateManager, consensus: Consensus): Promise<void> {
+  const genesisTx: SignedTransaction = {
+    from: 'genesis',
+    to: 'faucet',
+    amount: FAUCET_BALANCE,
+    nonce: 0,
+    tips: [],
+    sig: 'genesis-signature',
+    ts: Date.now(),
+    hash: ''
+  };
+  genesisTx.hash = await hashTransaction(genesisTx);
+  
+  await state.applyTransaction(genesisTx);
+  await consensus.addTransaction(genesisTx);
+  consensus.updateWeights(state.getAllAccounts());
+  
+  console.log(`Genesis transaction created: ${genesisTx.hash.slice(0, 16)}...`);
+  console.log(`Faucet account initialized with ${FAUCET_BALANCE} coins`);
+}
+
+async function bootstrapFromPeers(
+  peers: string[],
+  state: StateManager,
+  consensus: Consensus
+): Promise<boolean> {
+  for (const peer of peers) {
+    try {
+      console.log(`Attempting bootstrap from ${peer}...`);
+      
+      const response = await fetch(`${peer}/api/sync/transactions`, {
+        signal: AbortSignal.timeout(10000)
+      });
+      
+      if (!response.ok) continue;
+      
+      const data = await response.json() as {
+        transactions: { tx: SignedTransaction; publicKey?: number[] }[]
+      };
+      
+      if (data.transactions.length === 0) continue;
+      
+      const sorted = data.transactions.sort((a, b) => a.tx.ts - b.tx.ts);
+      
+      for (const { tx, publicKey } of sorted) {
+        if (publicKey) {
+          consensus.registerPublicKey(tx.from, new Uint8Array(publicKey));
+        }
+        await state.applyTransaction(tx, { skipChecks: true });
+        await consensus.addTransaction(tx);
+      }
+      
+      consensus.updateWeights(state.getAllAccounts());
+      console.log(`Bootstrapped ${data.transactions.length} transactions from ${peer}`);
+      return true;
+    } catch (err) {
+      console.log(`Failed to bootstrap from ${peer}: ${err}`);
+    }
+  }
+  return false;
 }
 
 async function saveSnapshot(
