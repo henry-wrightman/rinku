@@ -213,6 +213,7 @@ export interface ValidatorSignature {
   validator: string;
   signature: string;
   publicKey: number[];
+  weight: number;
   timestamp: number;
 }
 
@@ -224,6 +225,7 @@ export interface Checkpoint {
   tipUrls: string[];
   totalTransactions: number;
   totalWeight: number;
+  validatorSetHash: string;
   timestamp: number;
   signatures: ValidatorSignature[];
 }
@@ -235,6 +237,8 @@ export interface CheckpointProof {
   merkleRoot: string;
   signatureCount: number;
   totalValidatorWeight: number;
+  totalNetworkWeight: number;
+  validatorSetHash: string;
   signatures: ValidatorSignature[];
 }
 

@@ -4,7 +4,7 @@ import type {
   CheckpointConfig,
   CheckpointVerification
 } from './types.js';
-import { hash } from './crypto.js';
+import { hash, verify, computeFingerprint } from './crypto.js';
 
 export const DEFAULT_CHECKPOINT_CONFIG: CheckpointConfig = {
   checkpointIntervalMs: 60000,
@@ -22,12 +22,21 @@ export async function createCheckpointId(
   return fullHash.slice(0, 16);
 }
 
+export async function computeValidatorSetHash(
+  validators: { address: string; weight: number }[]
+): Promise<string> {
+  const sorted = [...validators].sort((a, b) => a.address.localeCompare(b.address));
+  const data = sorted.map(v => `${v.address}:${v.weight}`).join(',');
+  return await hash(data);
+}
+
 export async function createCheckpoint(
   height: number,
   merkleRoot: string,
   tipUrls: string[],
   totalTransactions: number,
-  totalWeight: number
+  totalWeight: number,
+  validators: { address: string; weight: number }[]
 ): Promise<Checkpoint> {
   const timestamp = Date.now();
   return {
@@ -37,61 +46,102 @@ export async function createCheckpoint(
     tipUrls,
     totalTransactions,
     totalWeight,
+    validatorSetHash: await computeValidatorSetHash(validators),
     timestamp,
     signatures: []
   };
 }
 
-export function getCheckpointSigningData(checkpoint: Checkpoint): string {
+export function getCheckpointSigningData(checkpoint: Checkpoint | CheckpointProof): string {
+  const height = 'height' in checkpoint ? (checkpoint as Checkpoint).height : (checkpoint as CheckpointProof).checkpointHeight;
+  const totalWeight = 'totalWeight' in checkpoint ? (checkpoint as Checkpoint).totalWeight : (checkpoint as CheckpointProof).totalNetworkWeight;
   return JSON.stringify({
     checkpointId: checkpoint.checkpointId,
-    height: checkpoint.height,
+    height,
     merkleRoot: checkpoint.merkleRoot,
-    tipUrls: checkpoint.tipUrls.sort(),
-    totalTransactions: checkpoint.totalTransactions,
-    totalWeight: checkpoint.totalWeight,
-    timestamp: checkpoint.timestamp
+    totalWeight,
+    validatorSetHash: checkpoint.validatorSetHash
   });
 }
 
 export function createCheckpointProof(
   checkpoint: Checkpoint,
-  totalValidatorWeight: number
+  validatorWeightPercent: number
 ): CheckpointProof {
   return {
     checkpointId: checkpoint.checkpointId,
     checkpointHeight: checkpoint.height,
     merkleRoot: checkpoint.merkleRoot,
     signatureCount: checkpoint.signatures.length,
-    totalValidatorWeight,
+    totalValidatorWeight: validatorWeightPercent,
+    totalNetworkWeight: checkpoint.totalWeight,
+    validatorSetHash: checkpoint.validatorSetHash,
     signatures: checkpoint.signatures
   };
 }
 
-export function verifyCheckpointProof(
+export async function verifyCheckpointProof(
   proof: CheckpointProof,
   config: CheckpointConfig = DEFAULT_CHECKPOINT_CONFIG
-): CheckpointVerification {
+): Promise<CheckpointVerification> {
   const errors: string[] = [];
+  let validSignatures = 0;
+  let verifiedWeight = 0;
 
-  if (proof.signatureCount < config.minSignaturesRequired) {
+  const validatorWeights: { address: string; weight: number }[] = proof.signatures.map(s => ({
+    address: s.validator,
+    weight: s.weight
+  }));
+  const computedSetHash = await computeValidatorSetHash(validatorWeights);
+  
+  const signingData = getCheckpointSigningData(proof);
+
+  for (const sig of proof.signatures) {
+    try {
+      const publicKeyBytes = new Uint8Array(sig.publicKey);
+      
+      const expectedFingerprint = await computeFingerprint(publicKeyBytes);
+      if (expectedFingerprint !== sig.validator) {
+        errors.push(`Signature from ${sig.validator.slice(0, 8)}... has mismatched public key`);
+        continue;
+      }
+
+      const signerSigningData = signingData + `:${sig.weight}`;
+      const isValid = await verify(signerSigningData, sig.signature, publicKeyBytes);
+      if (isValid) {
+        validSignatures++;
+        verifiedWeight += sig.weight || 0;
+      } else {
+        errors.push(`Invalid signature from ${sig.validator.slice(0, 8)}...`);
+      }
+    } catch (err) {
+      errors.push(`Failed to verify signature from ${sig.validator.slice(0, 8)}...`);
+    }
+  }
+
+  if (validSignatures < config.minSignaturesRequired) {
     errors.push(
-      `Insufficient signatures: ${proof.signatureCount} < ${config.minSignaturesRequired} required`
+      `Insufficient valid signatures: ${validSignatures} < ${config.minSignaturesRequired} required`
     );
   }
 
-  const weightPercent = proof.totalValidatorWeight;
-  if (weightPercent < config.minValidatorWeightPercent) {
+  const totalNetworkWeight = proof.totalNetworkWeight || 0;
+  const computedWeightPercent = totalNetworkWeight > 0 
+    ? (verifiedWeight / totalNetworkWeight) * 100 
+    : 0;
+    
+  if (computedWeightPercent < config.minValidatorWeightPercent) {
     errors.push(
-      `Insufficient validator weight: ${weightPercent.toFixed(1)}% < ${config.minValidatorWeightPercent}% required`
+      `Insufficient verified weight: ${computedWeightPercent.toFixed(1)}% < ${config.minValidatorWeightPercent}% required`
     );
   }
 
   return {
-    valid: errors.length === 0,
+    valid: validSignatures >= config.minSignaturesRequired && 
+           computedWeightPercent >= config.minValidatorWeightPercent,
     checkpointId: proof.checkpointId,
-    signatureCount: proof.signatureCount,
-    validatorWeightPercent: weightPercent,
+    signatureCount: validSignatures,
+    validatorWeightPercent: computedWeightPercent,
     errors
   };
 }
@@ -103,10 +153,13 @@ export function encodeCheckpointProof(proof: CheckpointProof): string {
     m: proof.merkleRoot,
     n: proof.signatureCount,
     w: proof.totalValidatorWeight,
+    t: proof.totalNetworkWeight,
+    v: proof.validatorSetHash,
     s: proof.signatures.map(sig => ({
       v: sig.validator,
       g: sig.signature,
       p: sig.publicKey,
+      w: sig.weight || 0,
       t: sig.timestamp
     }))
   };
@@ -123,10 +176,13 @@ export function decodeCheckpointProof(encoded: string): CheckpointProof | null {
       merkleRoot: compact.m,
       signatureCount: compact.n,
       totalValidatorWeight: compact.w,
+      totalNetworkWeight: compact.t || 0,
+      validatorSetHash: compact.v || '',
       signatures: compact.s.map((sig: any) => ({
         validator: sig.v,
         signature: sig.g,
         publicKey: sig.p,
+        weight: sig.w || 0,
         timestamp: sig.t
       }))
     };

@@ -50,7 +50,8 @@ export class CheckpointService {
       this.deps.getMerkleRoot(),
       this.deps.getTipUrls(),
       this.deps.getTotalTransactions(),
-      this.deps.getTotalWeight()
+      this.deps.getTotalWeight(),
+      this.deps.getValidators()
     );
 
     this.checkpoints.set(checkpoint.checkpointId, checkpoint);
@@ -68,13 +69,19 @@ export class CheckpointService {
     const checkpoint = this.checkpoints.get(checkpointId);
     if (!checkpoint) return null;
 
-    const signingData = getCheckpointSigningData(checkpoint);
-    const signature = await sign(signingData, privateKey);
+    const validators = this.deps.getValidators();
+    const validator = validators.find(v => v.address === validatorAddress);
+    const validatorWeight = validator?.weight || 0;
+
+    const baseSigningData = getCheckpointSigningData(checkpoint);
+    const signerSigningData = baseSigningData + `:${validatorWeight}`;
+    const signature = await sign(signerSigningData, privateKey);
 
     const validatorSig: ValidatorSignature = {
       validator: validatorAddress,
       signature,
       publicKey: Array.from(publicKey),
+      weight: validatorWeight,
       timestamp: Date.now()
     };
 
@@ -89,9 +96,22 @@ export class CheckpointService {
     const checkpoint = this.checkpoints.get(checkpointId);
     if (!checkpoint) return false;
 
-    const signingData = getCheckpointSigningData(checkpoint);
+    const validators = this.deps.getValidators();
+    const knownValidator = validators.find(v => v.address === signature.validator);
+    if (!knownValidator) {
+      console.log(`Rejected signature: unknown validator ${signature.validator}`);
+      return false;
+    }
+
+    if (Math.abs(knownValidator.weight - signature.weight) > 0.001) {
+      console.log(`Rejected signature: weight mismatch for ${signature.validator} (claimed ${signature.weight}, actual ${knownValidator.weight})`);
+      return false;
+    }
+
+    const baseSigningData = getCheckpointSigningData(checkpoint);
+    const signerSigningData = baseSigningData + `:${signature.weight}`;
     const isValid = await verify(
-      signingData,
+      signerSigningData,
       signature.signature,
       new Uint8Array(signature.publicKey)
     );

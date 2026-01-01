@@ -80,7 +80,7 @@ async function main() {
   console.log(`   - Validator Weight: ${proof.totalValidatorWeight.toFixed(1)}%\n`);
 
   console.log('5. Verifying checkpoint proof...');
-  const verification = verifyCheckpointProof(proof);
+  const verification = await verifyCheckpointProof(proof);
   
   console.log(`   Valid: ${verification.valid}`);
   console.log(`   Signature Count: ${verification.signatureCount}`);

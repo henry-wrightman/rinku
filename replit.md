@@ -252,6 +252,62 @@ cd packages/node
 npm run demo-rewards
 ```
 
+## Checkpoint & Finality Proofs
+
+### Overview
+Rinku implements checkpoint-based finality proofs that enable truly trustless verification from URLs alone. When validators create and sign checkpoints, finality proofs can be embedded in transaction URLs.
+
+### How It Works
+1. **Checkpoint Creation**: Periodic snapshots of network state (60s intervals)
+2. **Validator Signatures**: Staked validators sign checkpoints with their keys
+3. **Proof Embedding**: Finality proofs added as URL query parameters
+4. **Standalone Verification**: Recipients verify signatures cryptographically without nodes
+
+### Finalized URL Format
+```
+/tx/{payload}?proof={encodedProof}
+
+proof = base64url({
+  c: checkpointId,
+  h: checkpointHeight,
+  m: merkleRoot,
+  n: signatureCount,
+  w: totalValidatorWeight,
+  s: [{ v: validator, g: signature, p: publicKey, w: weight, t: timestamp }]
+})
+```
+
+### Verification Process (No Nodes Required)
+1. Extract proof from URL query parameter
+2. Recompute signing data from proof fields
+3. Verify each signature against public key
+4. Confirm validator fingerprint matches public key
+5. Check weight threshold (51% of validator weight)
+
+### Checkpoint API Endpoints
+- `GET /api/checkpoints` - List all checkpoints
+- `GET /api/checkpoints/:id` - Get specific checkpoint
+- `POST /api/checkpoints/create` - Trigger new checkpoint
+- `GET /api/tx/:hash/finalized` - Get transaction URL with proof
+
+### Demo Script
+```bash
+cd packages/node
+npm run demo-finality
+```
+
+### Finality Requirements
+- Minimum 1 validator signature
+- 51% of staked validator weight
+- Valid cryptographic signatures
+
+### Security Model
+- **Node-side**: External signatures are validated against known validator weights; mismatches are rejected
+- **Standalone verification**: Proofs are cryptographically verified (signatures, fingerprints, weight computation)
+- **Known limitation**: Standalone verification trusts that signature weights are accurate (honest nodes would reject forged weights)
+- **Trust assumption**: For full trustless verification, recipients need a trusted reference for the validator set (like a genesis checkpoint or recent trusted snapshot)
+- **Future improvement**: Add validator-set merkle proofs and checkpoint chain for fully trustless standalone verification without external trust anchors
+
 ## Recent Changes
 - Initial project setup with all 5 packages
 - Core library with types, crypto, encoding, merkle, dag, weight modules
@@ -277,3 +333,7 @@ npm run demo-rewards
 - **Staking API**: Stake/unstake endpoints with cooldown periods
 - **Rewards API**: Claim rewards, view summaries, check configuration
 - **Explorer Rewards Tab**: UI for viewing rewards and staking
+- **Checkpoint System**: Periodic checkpoints with validator signatures
+- **Finality Proofs**: URL-embedded proofs for trustless verification
+- **Cryptographic Verification**: Proof verification validates ed25519 signatures standalone
+- **Demo Script**: `npm run demo-finality` shows URL-only finality verification
