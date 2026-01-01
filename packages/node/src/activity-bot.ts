@@ -1,4 +1,4 @@
-import { createTransaction, hashTransaction, type SignedTransaction } from '@rinku/core';
+import { createTransactionURL, parseTransactionURL, hashTransaction, type SignedTransaction, type Transaction } from '@rinku/core';
 
 const NODE_URL = process.env.RINKU_NODE_URL || 'http://localhost:3001';
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || 'http://localhost:3002';
@@ -97,7 +97,7 @@ async function doRandomTransaction(): Promise<void> {
   const tipUrls = await getTipUrls();
   if (tipUrls.length === 0) return;
   
-  const tx = createTransaction({
+  const tx: Transaction = {
     from: sender.fingerprint,
     to: recipient.fingerprint,
     amount,
@@ -105,7 +105,7 @@ async function doRandomTransaction(): Promise<void> {
     tipUrls: tipUrls.slice(0, 2),
     sig: `bot_sig_${Date.now()}`,
     ts: Date.now()
-  });
+  };
   
   const signedTx: SignedTransaction = {
     ...tx,
