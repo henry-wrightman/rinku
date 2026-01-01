@@ -1,0 +1,19 @@
+{
+  "name": "rinku",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A URL-native distributed ledger with DAG-based consensus",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev:node": "npm run dev -w @rinku/node",
+    "dev:explorer": "npm run dev -w @rinku/explorer",
+    "dev:faucet": "npm run dev -w @rinku/faucet"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.10.0"
+  }
+}

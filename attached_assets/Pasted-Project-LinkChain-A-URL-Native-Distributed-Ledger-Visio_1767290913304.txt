@@ -1,0 +1,124 @@
+Project: LinkChain - A URL-Native Distributed Ledger
+Vision
+A fully independent, URL-native distributed ledger where the entire state exists as cryptographically-linked URLs. No external L1 dependency. DAG-based consensus with weight-based Sybil resistance.
+
+Core Architecture
+Ledger Model: DAG (Directed Acyclic Graph)
+
+Each account maintains its own micro-chain of transactions
+Transactions reference 2+ prior "tips" from other accounts
+Conflicts resolved by cumulative weight
+No single coordinator - consensus emerges from weighted votes
+Weight Calculation (Sybil Resistance)
+
+weight = (account_age_days * 0.3) + (balance * 0.7)
+Account age: days since first transaction
+Balance: coins held
+Future: may add protocol-specific factors (links validated, uptime, etc.)
+Transaction Format (URL-encoded)
+
+/tx/{payload}
+payload = base64url(deflate({
+  from: fingerprint,
+  to: fingerprint,
+  amount: number,
+  nonce: number,
+  tips: [tx_hash, tx_hash],  // references to 2+ prior transactions
+  sig: signature,
+  ts: timestamp
+}))
+State Model
+
+Global state = Merkle root of all account balances
+State sharded across "state links" (each containing Merkle branch)
+Any node can reconstruct full state from DAG history
+Conflict Resolution
+
+When two transactions conflict (double-spend), weight wins
+Weight = sum of all descendant transaction weights
+Heavier branch becomes canonical
+Lighter branch orphaned
+Monorepo Structure
+linkchain/
+├── packages/
+│   ├── core/                 # Shared library
+│   │   ├── src/
+│   │   │   ├── dag.ts        # DAG node structure, tip selection
+│   │   │   ├── merkle.ts     # Merkle tree implementation
+│   │   │   ├── encoding.ts   # URL encode/decode (DEFLATE + base64url)
+│   │   │   ├── crypto.ts     # Signatures, hashing
+│   │   │   ├── weight.ts     # Weight calculation
+│   │   │   └── types.ts      # Shared types
+│   │   └── package.json
+│   │
+│   ├── node/                 # Validator/Node
+│   │   ├── src/
+│   │   │   ├── index.ts      # Node entry point
+│   │   │   ├── mempool.ts    # Pending transaction pool
+│   │   │   ├── consensus.ts  # Tip selection, conflict resolution
+│   │   │   ├── state.ts      # State management, Merkle updates
+│   │   │   ├── p2p.ts        # Peer discovery, gossip
+│   │   │   └── api.ts        # HTTP API for tx submission
+│   │   └── package.json
+│   │
+│   ├── explorer/             # Block explorer / indexer
+│   │   ├── src/
+│   │   │   ├── index.ts      # Web server
+│   │   │   ├── indexer.ts    # DAG traversal, state indexing
+│   │   │   └── pages/        # React frontend
+│   │   └── package.json
+│   │
+│   ├── wallet/               # Client wallet library
+│   │   ├── src/
+│   │   │   ├── index.ts      # Wallet operations
+│   │   │   ├── keys.ts       # Key generation/management
+│   │   │   └── tx.ts         # Transaction creation/signing
+│   │   └── package.json
+│   │
+│   └── faucet/               # Testnet faucet
+│       ├── src/
+│       │   └── index.ts      # Simple faucet server
+│       └── package.json
+│
+├── package.json              # Workspace root
+└── README.md
+Phase 1: Proof of Concept
+Goal: Demonstrate URL-encoded DAG transactions with weight-based consensus
+
+Deliverables:
+
+ @linkchain/core: Encoding, crypto, Merkle tree, DAG node structure
+ @linkchain/node: Single-node validator that accepts transactions, maintains state
+ @linkchain/wallet: Create keypairs, sign transactions, check balance
+ @linkchain/faucet: Dispense testnet coins to new accounts
+ @linkchain/explorer: View DAG, transactions, account balances
+Success Criteria:
+
+Create transaction URL, submit to node
+Node validates signature, tips, balance
+Node updates DAG and Merkle state
+Explorer shows transaction in DAG
+Conflict resolution works (heavier branch wins)
+Phase 2: Multi-Node Network
+P2P gossip between nodes
+Tip synchronization
+Consistent state across nodes
+Network partition handling
+Phase 3: Smart Contracts (Future)
+WASM modules encoded in URL manifests
+Deterministic execution with metering
+Contract state as Merkle-sharded URLs
+Technical Stack
+Language: TypeScript
+Monorepo: npm workspaces or turborepo
+Encoding: pako (DEFLATE) + custom base64url
+Crypto: Web Crypto API (Ed25519 signatures)
+Merkle: Custom implementation
+P2P: libp2p or simple WebSocket gossip
+Explorer: React + Express
+Philosophy
+URLs ARE the data layer
+No external dependencies (fully independent)
+Lightweight nodes (can run in browser eventually)
+Weight-based consensus (no staking complexity initially)
+Eventual consistency with deterministic conflict resolution
