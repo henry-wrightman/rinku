@@ -203,3 +203,60 @@ export interface StakingStatus {
   earnedRewards: number;
   canUnstakeAt: number | null;
 }
+
+// ============================================
+// Checkpoint & Finality Types
+// ============================================
+
+/** A validator's signature on a checkpoint */
+export interface ValidatorSignature {
+  validator: string;
+  signature: string;
+  publicKey: number[];
+  timestamp: number;
+}
+
+/** A checkpoint representing network consensus at a point in time */
+export interface Checkpoint {
+  checkpointId: string;
+  height: number;
+  merkleRoot: string;
+  tipUrls: string[];
+  totalTransactions: number;
+  totalWeight: number;
+  timestamp: number;
+  signatures: ValidatorSignature[];
+}
+
+/** Compact proof that a transaction is part of canonical history */
+export interface CheckpointProof {
+  checkpointId: string;
+  checkpointHeight: number;
+  merkleRoot: string;
+  signatureCount: number;
+  totalValidatorWeight: number;
+  signatures: ValidatorSignature[];
+}
+
+/** Extended transaction URL with embedded finality proof */
+export interface FinalizedTransactionURL {
+  path: string;
+  payload: string;
+  proof?: CheckpointProof;
+}
+
+/** Configuration for checkpoint system */
+export interface CheckpointConfig {
+  checkpointIntervalMs: number;
+  minSignaturesRequired: number;
+  minValidatorWeightPercent: number;
+}
+
+/** Checkpoint verification result */
+export interface CheckpointVerification {
+  valid: boolean;
+  checkpointId: string;
+  signatureCount: number;
+  validatorWeightPercent: number;
+  errors: string[];
+}
