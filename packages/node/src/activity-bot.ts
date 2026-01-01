@@ -1,3 +1,4 @@
+import { Wallet } from '@rinku/wallet';
 
 const NODE_URL = process.env.RINKU_NODE_URL || 'http://localhost:3001';
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || 'http://localhost:3002';
@@ -5,36 +6,21 @@ const FAUCET_URL = process.env.RINKU_FAUCET_URL || 'http://localhost:3002';
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || '30000');
 const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || '15000');
 const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || '50');
+const FAUCET_COOLDOWN_MS = 61000;
 
-interface WalletState {
+interface BotWallet {
+  wallet: Wallet;
   fingerprint: string;
-  balance: number;
-  nonce: number;
-  createdAt: number;
   lastFaucetHit: number;
 }
 
-const wallets: WalletState[] = [];
+const wallets: BotWallet[] = [];
 let totalFaucetHits = 0;
 let totalTransactions = 0;
 let errors = 0;
 
-function randomId(): string {
-  return `bot_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
-}
-
-async function getTipUrls(): Promise<string[]> {
-  try {
-    const res = await fetch(`${NODE_URL}/api/tipUrls`);
-    const data = await res.json() as { tipUrls?: string[] };
-    return data.tipUrls || [];
-  } catch {
-    return [];
-  }
 }
 
 async function faucetRequest(fingerprint: string): Promise<boolean> {
@@ -50,29 +36,26 @@ async function faucetRequest(fingerprint: string): Promise<boolean> {
   }
 }
 
-
 async function createNewWallet(): Promise<void> {
   if (wallets.length >= MAX_WALLETS) return;
   
-  const fingerprint = randomId();
+  const wallet = new Wallet(NODE_URL);
+  const fingerprint = await wallet.create();
+  
   const success = await faucetRequest(fingerprint);
   
   if (success) {
     wallets.push({
+      wallet,
       fingerprint,
-      balance: 100,
-      nonce: 0,
-      createdAt: Date.now(),
       lastFaucetHit: Date.now()
     });
     totalFaucetHits++;
-    log(`New wallet: ${fingerprint.slice(0, 20)}... (${wallets.length} total)`);
+    log(`New wallet: ${fingerprint.slice(0, 16)}... (${wallets.length} total)`);
   } else {
     errors++;
   }
 }
-
-const FAUCET_COOLDOWN_MS = 61000;
 
 async function doRandomFaucetDrop(): Promise<void> {
   if (wallets.length === 0) return;
@@ -80,19 +63,39 @@ async function doRandomFaucetDrop(): Promise<void> {
   const now = Date.now();
   const eligible = wallets.filter(w => now - w.lastFaucetHit >= FAUCET_COOLDOWN_MS);
   
-  if (eligible.length === 0) {
-    return;
-  }
+  if (eligible.length === 0) return;
   
   const recipient = pickRandom(eligible);
   const success = await faucetRequest(recipient.fingerprint);
   
   if (success) {
-    recipient.balance += 100;
     recipient.lastFaucetHit = now;
-    totalTransactions++;
-    log(`Faucet drop: ${recipient.fingerprint.slice(0, 20)}... (+100 coins)`);
+    totalFaucetHits++;
+    log(`Faucet drop: ${recipient.fingerprint.slice(0, 16)}... (+100 coins)`);
   } else {
+    errors++;
+  }
+}
+
+async function doRandomTransaction(): Promise<void> {
+  if (wallets.length < 2) return;
+  
+  const sender = pickRandom(wallets);
+  
+  try {
+    const balance = await sender.wallet.getBalance();
+    if (balance < 10) return;
+    
+    const recipients = wallets.filter(w => w.fingerprint !== sender.fingerprint);
+    if (recipients.length === 0) return;
+    
+    const recipient = pickRandom(recipients);
+    const amount = Math.floor(Math.random() * Math.min(balance - 1, 20)) + 1;
+    
+    const result = await sender.wallet.send(recipient.fingerprint, amount);
+    totalTransactions++;
+    log(`TX: ${sender.fingerprint.slice(0, 12)} -> ${recipient.fingerprint.slice(0, 12)} : ${amount} coins`);
+  } catch (err: any) {
     errors++;
   }
 }
@@ -127,6 +130,7 @@ async function main() {
   console.log('='.repeat(50) + '\n');
   
   log('Starting activity simulation...');
+  log('Creating initial wallets with real keypairs...');
   
   for (let i = 0; i < 5; i++) {
     await createNewWallet();
@@ -136,16 +140,19 @@ async function main() {
   setInterval(async () => {
     if (Math.random() < 0.7 && wallets.length < MAX_WALLETS) {
       await createNewWallet();
+    } else {
+      await doRandomFaucetDrop();
     }
   }, FAUCET_INTERVAL_MS);
   
   setInterval(async () => {
-    await doRandomFaucetDrop();
+    await doRandomTransaction();
   }, TX_INTERVAL_MS);
   
   setInterval(printStats, 60000);
   
-  log('Bot running. Press Ctrl+C to stop.');
+  log('Bot running with real wallet-to-wallet transactions!');
+  log('Press Ctrl+C to stop.');
 }
 
 main().catch(console.error);
