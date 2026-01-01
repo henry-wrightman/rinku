@@ -40,6 +40,7 @@ function App() {
   const [tab, setTab] = useState<"dag" | "accounts" | "faucet">("dag");
   const [state, setState] = useState<State | null>(null);
   const [loading, setLoading] = useState(true);
+  const [connected, setConnected] = useState(false);
   const [faucetAddress, setFaucetAddress] = useState("");
   const [faucetMessage, setFaucetMessage] = useState<{
     type: "success" | "error";
@@ -73,8 +74,10 @@ function App() {
         tipUrls: dagData.tipUrls || [],
         merkleRoot: dagData.merkleRoot,
       });
+      setConnected(true);
     } catch (e) {
       console.error('Failed to fetch state:', e);
+      setConnected(false);
     } finally {
       setLoading(false);
     }
@@ -154,6 +157,10 @@ function App() {
       <header>
         <h1>rinku explorer</h1>
         <p>url-native distributed ledger</p>
+        <div className="status-indicator">
+          <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`}></span>
+          <span className="status-text">{connected ? 'connected' : 'disconnected'}</span>
+        </div>
       </header>
 
       <div className="stats">

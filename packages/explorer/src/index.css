@@ -433,3 +433,44 @@ input[type="text"]::placeholder {
   color: #666;
   font-size: 12px;
 }
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.connected {
+  background: #a3be8c;
+  box-shadow: 0 0 8px #a3be8c;
+  animation: pulse 2s infinite;
+}
+
+.status-dot.disconnected {
+  background: #bf616a;
+  box-shadow: 0 0 8px #bf616a;
+}
+
+.status-text {
+  font-size: 11px;
+  color: #666;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 8px #a3be8c;
+  }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 4px #a3be8c;
+  }
+}
