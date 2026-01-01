@@ -6,6 +6,7 @@ import { Mempool } from './mempool.js';
 import { PeerSyncService } from './peerSync.js';
 import { ContractService } from './contracts.js';
 import { RewardsService } from './rewards.js';
+import { CheckpointService } from './checkpoint.js';
 import { 
   parseTransactionURL, 
   createTransactionURL, 
@@ -13,6 +14,7 @@ import {
   createContractURL,
   createContractId,
   computeStateHash,
+  embedProofInUrl,
   type SignedTransaction,
   type ContractDeploy,
   type ContractTransaction
@@ -25,6 +27,7 @@ export function createAPI(
   peerSync?: PeerSyncService,
   contractService?: ContractService,
   rewardsService?: RewardsService,
+  checkpointService?: CheckpointService,
   onTransaction?: () => Promise<void>
 ) {
   const app = express();
@@ -609,6 +612,93 @@ export function createAPI(
 
     const result = await rewardsService.unstake(address);
     res.json(result);
+  });
+
+  // ============================================
+  // Checkpoint & Finality Endpoints
+  // ============================================
+
+  app.get('/api/checkpoints', (_req, res) => {
+    if (!checkpointService) {
+      res.status(501).json({ error: 'Checkpoints not enabled' });
+      return;
+    }
+    const checkpoints = checkpointService.getAllCheckpoints();
+    const latest = checkpointService.getLatestCheckpoint();
+    res.json({
+      checkpoints: checkpoints.slice(0, 20),
+      latest: latest?.checkpointId || null,
+      totalCount: checkpoints.length
+    });
+  });
+
+  app.get('/api/checkpoints/latest', (_req, res) => {
+    if (!checkpointService) {
+      res.status(501).json({ error: 'Checkpoints not enabled' });
+      return;
+    }
+    const latest = checkpointService.getLatestCheckpoint();
+    if (!latest) {
+      res.status(404).json({ error: 'No checkpoints yet' });
+      return;
+    }
+    const proof = checkpointService.getCheckpointProof();
+    const finalized = checkpointService.isCheckpointFinalized(latest.checkpointId);
+    res.json({ checkpoint: latest, proof, finalized });
+  });
+
+  app.get('/api/checkpoints/:id', (req, res) => {
+    if (!checkpointService) {
+      res.status(501).json({ error: 'Checkpoints not enabled' });
+      return;
+    }
+    const checkpoint = checkpointService.getCheckpoint(req.params.id);
+    if (!checkpoint) {
+      res.status(404).json({ error: 'Checkpoint not found' });
+      return;
+    }
+    const proof = checkpointService.getCheckpointProof(req.params.id);
+    const finalized = checkpointService.isCheckpointFinalized(req.params.id);
+    res.json({ checkpoint, proof, finalized });
+  });
+
+  app.post('/api/checkpoints/create', async (_req, res) => {
+    if (!checkpointService) {
+      res.status(501).json({ error: 'Checkpoints not enabled' });
+      return;
+    }
+    try {
+      const checkpoint = await checkpointService.createCheckpoint();
+      res.json({ success: true, checkpoint });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/tx/:hash/finalized', (req, res) => {
+    if (!checkpointService) {
+      res.status(501).json({ error: 'Checkpoints not enabled' });
+      return;
+    }
+    const node = consensus.getNode(req.params.hash);
+    if (!node) {
+      res.status(404).json({ error: 'Transaction not found' });
+      return;
+    }
+    const proof = checkpointService.getCheckpointProof();
+    if (!proof) {
+      res.json({ finalized: false, reason: 'No checkpoints yet' });
+      return;
+    }
+    const txUrlObj = createTransactionURL(node.tx);
+    const txUrl = txUrlObj.path;
+    const finalizedUrl = embedProofInUrl(txUrl, proof);
+    res.json({
+      finalized: true,
+      txUrl,
+      finalizedUrl,
+      proof
+    });
   });
 
   return app;

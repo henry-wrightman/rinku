@@ -6,6 +6,7 @@ import { Storage, type NodeSnapshot } from './storage.js';
 import { PeerSyncService } from './peerSync.js';
 import { ContractService } from './contracts.js';
 import { RewardsService } from './rewards.js';
+import { CheckpointService } from './checkpoint.js';
 import { hashTransaction, type SignedTransaction } from '@rinku/core';
 import { randomBytes } from 'crypto';
 
@@ -69,6 +70,28 @@ async function main() {
 
   const peerSync = new PeerSyncService(state, consensus, NODE_ID);
   const contractService = new ContractService(state);
+
+  const checkpointDeps = {
+    getMerkleRoot: () => state.getMerkleRoot(),
+    getTipUrls: () => consensus.getTipUrls(),
+    getTotalTransactions: () => consensus.getAllNodes().length,
+    getValidators: () => rewardsService.getActiveValidators().map(v => ({
+      address: v.staker,
+      weight: v.amount
+    })),
+    getTotalWeight: () => rewardsService.getTotalStaked(),
+    getPublicKey: (address: string) => consensus.getPublicKeys().get(address),
+    getPrivateKey: () => undefined,
+    getNodeAddress: () => NODE_ID
+  };
+
+  let checkpointService: CheckpointService;
+  if (snapshot?.checkpoints) {
+    checkpointService = CheckpointService.fromJSON(snapshot.checkpoints, checkpointDeps);
+    console.log('Restored checkpoint data from snapshot');
+  } else {
+    checkpointService = new CheckpointService(checkpointDeps);
+  }
   
   peers.forEach(peer => {
     peerSync.addPeer(peer);
@@ -76,17 +99,20 @@ async function main() {
   });
 
   peerSync.onSyncComplete(async () => {
-    await saveSnapshot(storage, state, consensus, rewardsService);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
   });
 
-  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, async () => {
-    await saveSnapshot(storage, state, consensus, rewardsService);
+  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, async () => {
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
   });
   
-  await saveSnapshot(storage, state, consensus, rewardsService);
+  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
+
+  checkpointService.start(60000);
   
   console.log('Smart contract service enabled');
   console.log('Rewards & staking service enabled');
+  console.log('Checkpoint service enabled (60s interval)');
 
   if (peers.length > 0) {
     peerSync.start(5000);
@@ -164,7 +190,8 @@ async function saveSnapshot(
   storage: Storage,
   state: StateManager,
   consensus: Consensus,
-  rewardsService?: RewardsService
+  rewardsService?: RewardsService,
+  checkpointService?: CheckpointService
 ): Promise<void> {
   const stateJson = state.toJSON() as { accounts: [string, any][]; merkleRoot: string };
   const consensusJson = consensus.toJSON();
@@ -175,7 +202,8 @@ async function saveSnapshot(
     state: stateJson,
     dag: consensusJson.dag as { nodes: any[]; tips: string[] },
     publicKeys: consensusJson.publicKeys,
-    rewards: rewardsService?.toJSON()
+    rewards: rewardsService?.toJSON(),
+    checkpoints: checkpointService?.toJSON()
   };
 
   await storage.save(snapshot);
@@ -190,4 +218,5 @@ export { Storage } from './storage.js';
 export { PeerSyncService } from './peerSync.js';
 export { ContractService } from './contracts.js';
 export { RewardsService } from './rewards.js';
+export { CheckpointService } from './checkpoint.js';
 export { createAPI } from './api.js';
