@@ -256,9 +256,11 @@ export class DAG {
       const ancestors = this.getAncestors(tipHash);
       for (const ancestor of ancestors) {
         nodesToKeep.add(ancestor);
-        if (nodesToKeep.size >= maxNodes) break;
       }
-      if (nodesToKeep.size >= maxNodes) break;
+    }
+
+    if (nodesToKeep.size >= this.nodes.size) {
+      return 0;
     }
 
     const toRemove: string[] = [];
@@ -274,6 +276,15 @@ export class DAG {
         for (const [url, h] of this.urlToHash) {
           if (h === hash) {
             this.urlToHash.delete(url);
+          }
+        }
+        for (const childHash of node.children) {
+          const child = this.nodes.get(childHash);
+          if (child && child.parentUrls) {
+            child.parentUrls = child.parentUrls.filter(pUrl => {
+              const parentHash = this.urlToHash.get(pUrl);
+              return parentHash !== hash;
+            });
           }
         }
       }
