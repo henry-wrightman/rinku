@@ -449,28 +449,146 @@ input[type="text"]::placeholder {
 }
 
 .status-dot.connected {
-  background: #a3be8c;
-  box-shadow: 0 0 8px #a3be8c;
-  animation: pulse 2s infinite;
+  background: #39ff14;
+  animation: blink 1.5s steps(1) infinite;
 }
 
 .status-dot.disconnected {
-  background: #bf616a;
-  box-shadow: 0 0 8px #bf616a;
+  background: #ff3131;
 }
 
 .status-text {
   font-size: 11px;
   color: #666;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-    box-shadow: 0 0 8px #a3be8c;
-  }
-  50% {
-    opacity: 0.6;
-    box-shadow: 0 0 4px #a3be8c;
-  }
+.status-text.connected {
+  color: #39ff14;
+}
+
+.status-text.disconnected {
+  color: #ff3131;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.theme-toggle {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: none;
+  border: 1px solid #444;
+  color: #888;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.theme-toggle:hover {
+  border-color: #888;
+  color: #ccc;
+}
+
+body.light {
+  background: #e8e8e8;
+  color: #222;
+}
+
+body.light .container {
+  background: #e8e8e8;
+}
+
+body.light header h1 {
+  color: #111;
+}
+
+body.light header p {
+  color: #666;
+}
+
+body.light .nav span {
+  color: #888;
+}
+
+body.light .nav span.active {
+  color: #111;
+}
+
+body.light .stats {
+  color: #666;
+}
+
+body.light .stats .value {
+  color: #222;
+}
+
+body.light .dag-node {
+  border-color: #ccc;
+  background: #fff;
+}
+
+body.light .dag-node .meta {
+  color: #888;
+}
+
+body.light table th {
+  color: #666;
+}
+
+body.light table td {
+  border-color: #ddd;
+}
+
+body.light input[type="text"] {
+  background: #fff;
+  border-color: #ccc;
+  color: #222;
+}
+
+body.light .hint {
+  color: #888;
+}
+
+body.light .theme-toggle {
+  border-color: #ccc;
+  color: #666;
+}
+
+body.light .theme-toggle:hover {
+  border-color: #888;
+  color: #333;
+}
+
+body.light .status-text {
+  color: #888;
+}
+
+body.light .status-text.connected {
+  color: #228b22;
+}
+
+body.light .status-dot.connected {
+  background: #228b22;
+}
+
+body.light .tx-detail,
+body.light .tx-flow,
+body.light .tx-note,
+body.light .parent-link {
+  background: #fff;
+  border-color: #ccc;
+}
+
+body.light .pagination {
+  border-color: #ddd;
+}
+
+body.light .page-info {
+  color: #888;
 }

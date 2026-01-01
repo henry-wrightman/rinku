@@ -48,7 +48,12 @@ function App() {
   } | null>(null);
   const [dagPage, setDagPage] = useState(0);
   const [accountsPage, setAccountsPage] = useState(0);
+  const [darkMode, setDarkMode] = useState(true);
   const PAGE_SIZE = 20;
+
+  useEffect(() => {
+    document.body.classList.toggle('light', !darkMode);
+  }, [darkMode]);
 
   const fetchState = async () => {
     try {
@@ -159,9 +164,13 @@ function App() {
         <p>url-native distributed ledger</p>
         <div className="status-indicator">
           <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`}></span>
-          <span className="status-text">{connected ? 'connected' : 'disconnected'}</span>
+          <span className={`status-text ${connected ? 'connected' : 'disconnected'}`}>{connected ? 'connected' : 'disconnected'}</span>
         </div>
       </header>
+
+      <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
+        {darkMode ? '☀' : '☾'}
+      </button>
 
       <div className="stats">
         <span>
