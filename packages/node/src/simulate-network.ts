@@ -7,7 +7,7 @@ const WALLET_COUNT = parseInt(process.env.WALLET_COUNT || '20');
 
 async function getTipUrls(): Promise<string[]> {
   const res = await fetch(`${NODE_URL}/api/tipUrls`);
-  const data = await res.json();
+  const data = await res.json() as { tipUrls?: string[] };
   return data.tipUrls || [];
 }
 
@@ -18,7 +18,7 @@ async function fundWallet(fingerprint: string): Promise<{ ok: boolean; txHash?: 
     body: JSON.stringify({ address: fingerprint })
   });
   if (res.ok) {
-    const data = await res.json();
+    const data = await res.json() as { txHash?: string };
     return { ok: true, txHash: data.txHash };
   }
   return { ok: false };
@@ -105,7 +105,7 @@ async function main() {
 
       const signedTx: SignedTransaction = {
         ...tx,
-        hash: hashTransaction(tx)
+        hash: await hashTransaction(tx)
       };
       transactions.push(signedTx);
 
@@ -182,14 +182,14 @@ async function main() {
   }
 
   const dagRes = await fetch(`${NODE_URL}/api/dag`);
-  const dag = await dagRes.json();
+  const dag = await dagRes.json() as { nodes?: unknown[]; transactions?: unknown[]; tips?: unknown[] };
   console.log('NODE STATE VERIFICATION:');
   console.log('-'.repeat(40));
   console.log(`  Total transactions in DAG: ${dag.nodes?.length || dag.transactions?.length || 0}`);
   console.log(`  Current tips: ${dag.tips?.length || 0}`);
   
   const accountsRes = await fetch(`${NODE_URL}/api/accounts`);
-  const accountsData = await accountsRes.json();
+  const accountsData = await accountsRes.json() as { accounts?: unknown[] };
   console.log(`  Accounts tracked: ${accountsData.accounts?.length || 0}`);
   console.log();
 }
