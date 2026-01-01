@@ -130,3 +130,76 @@ export interface ExecutionResult {
   error?: string;
   logs: string[];
 }
+
+// ============================================
+// Rewards & Staking Types
+// ============================================
+
+/** Reward earned for validating a tip (referencing an orphaned transaction) */
+export interface TipReward {
+  type: 'tip';
+  recipient: string;
+  amount: number;
+  txUrl: string;
+  tipUrl: string;
+  timestamp: number;
+}
+
+/** Reward earned for staking tokens and validating transactions */
+export interface StakeReward {
+  type: 'stake';
+  recipient: string;
+  amount: number;
+  validatedTxUrl: string;
+  timestamp: number;
+}
+
+/** Reward earned when your transaction is referenced by others */
+export interface WitnessReward {
+  type: 'witness';
+  recipient: string;
+  amount: number;
+  witnessedTxUrl: string;
+  referencedByUrl: string;
+  timestamp: number;
+}
+
+export type Reward = TipReward | StakeReward | WitnessReward;
+
+/** Staking position for a validator */
+export interface StakePosition {
+  staker: string;
+  amount: number;
+  stakedAt: number;
+  lastRewardAt: number;
+}
+
+/** Configuration for reward rates */
+export interface RewardConfig {
+  tipRewardRate: number;
+  stakeRewardRate: number;
+  witnessRewardRate: number;
+  minStakeAmount: number;
+  unstakeCooldownMs: number;
+}
+
+/** Account rewards summary */
+export interface RewardsSummary {
+  address: string;
+  tipRewards: number;
+  stakeRewards: number;
+  witnessRewards: number;
+  totalRewards: number;
+  pendingRewards: number;
+  rewardHistory: Reward[];
+}
+
+/** Staking status for an account */
+export interface StakingStatus {
+  address: string;
+  stakedAmount: number;
+  isValidator: boolean;
+  stakedAt: number | null;
+  earnedRewards: number;
+  canUnstakeAt: number | null;
+}

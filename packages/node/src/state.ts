@@ -81,6 +81,25 @@ export class StateManager {
     this.accounts.set(fingerprint, account);
   }
 
+  updateBalance(fingerprint: string, delta: number): boolean {
+    const account = this.accounts.get(fingerprint);
+    if (!account) {
+      if (delta > 0) {
+        this.createAccount(fingerprint, delta);
+        return true;
+      }
+      return false;
+    }
+
+    const newBalance = account.balance + delta;
+    if (newBalance < 0) {
+      return false;
+    }
+
+    account.balance = newBalance;
+    return true;
+  }
+
   toJSON(): object {
     return {
       accounts: Array.from(this.accounts.entries()),

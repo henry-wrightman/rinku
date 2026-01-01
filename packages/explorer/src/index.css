@@ -833,3 +833,270 @@ body.light .success-msg {
   border-color: #228b22;
   color: #228b22;
 }
+
+/* ============================================
+   Rewards Tab Styles
+   ============================================ */
+
+.rewards-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.rewards-tab .section {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  padding: 20px;
+}
+
+.rewards-tab h3 {
+  font-size: 14px;
+  font-weight: normal;
+  color: #b48ead;
+  margin: 0 0 16px 0;
+}
+
+.rewards-tab h4 {
+  font-size: 12px;
+  font-weight: normal;
+  color: #888;
+  margin: 16px 0 8px 0;
+}
+
+.staking-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.stat-row .value {
+  color: #a3be8c;
+}
+
+.stat-row .value.active {
+  color: #39ff14;
+}
+
+.top-stakers {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #333;
+}
+
+.staker-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.staker-row .mono {
+  color: #b48ead;
+}
+
+.rewards-tab .form-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.rewards-tab .form-row input {
+  flex: 1;
+  background: #000;
+  border: 1px solid #333;
+  padding: 8px 12px;
+  color: #0f0;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+}
+
+.rewards-tab .form-row input:focus {
+  outline: none;
+  border-color: #b48ead;
+}
+
+.rewards-tab .form-row input[type="number"] {
+  width: 120px;
+  flex: none;
+}
+
+.rewards-tab button {
+  background: none;
+  border: 1px solid #b48ead;
+  color: #b48ead;
+  padding: 8px 16px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rewards-tab button:hover:not(:disabled) {
+  background: #b48ead;
+  color: #000;
+}
+
+.rewards-tab button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rewards-tab button.secondary {
+  border-color: #666;
+  color: #666;
+}
+
+.rewards-tab button.secondary:hover:not(:disabled) {
+  background: #666;
+  color: #000;
+}
+
+.rewards-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rewards-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.reward-type {
+  background: #000;
+  border: 1px solid #333;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reward-type .label {
+  font-size: 11px;
+  color: #666;
+}
+
+.reward-type .amount {
+  font-size: 18px;
+  color: #a3be8c;
+}
+
+.reward-type.total {
+  border-color: #b48ead;
+}
+
+.reward-type.total .amount {
+  color: #b48ead;
+}
+
+.reward-type.pending {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.reward-type.pending .amount {
+  color: #ebcb8b;
+}
+
+.claim-btn {
+  padding: 4px 8px !important;
+  font-size: 11px !important;
+  border-color: #a3be8c !important;
+  color: #a3be8c !important;
+}
+
+.claim-btn:hover {
+  background: #a3be8c !important;
+  color: #000 !important;
+}
+
+.reward-history {
+  border-top: 1px solid #333;
+  padding-top: 16px;
+}
+
+.history-row {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid #222;
+}
+
+.history-row .type {
+  width: 60px;
+  color: #b48ead;
+}
+
+.history-row .amount {
+  width: 60px;
+  color: #a3be8c;
+}
+
+.history-row .time {
+  color: #666;
+  flex: 1;
+  text-align: right;
+}
+
+.staking-status {
+  margin-bottom: 16px;
+}
+
+.stake-form {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #333;
+}
+
+.rewards-tab .error {
+  color: #bf616a;
+  padding: 12px;
+  border: 1px solid #bf616a;
+  font-size: 13px;
+}
+
+.rewards-tab .success {
+  color: #a3be8c;
+  padding: 12px;
+  border: 1px solid #a3be8c;
+  font-size: 13px;
+}
+
+/* Light mode for rewards */
+body.light .rewards-tab .section {
+  background: #f5f5f5;
+  border-color: #ddd;
+}
+
+body.light .rewards-tab .form-row input {
+  background: #fff;
+  border-color: #ccc;
+  color: #228b22;
+}
+
+body.light .reward-type {
+  background: #fff;
+  border-color: #ddd;
+}
+
+body.light .history-row {
+  border-color: #eee;
+}
+
+body.light .stat-row .value {
+  color: #228b22;
+}
+
+body.light .reward-type .amount {
+  color: #228b22;
+}

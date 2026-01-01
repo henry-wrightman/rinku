@@ -214,6 +214,44 @@ Currently uses a mock runtime that simulates token operations. Future versions w
 - Host bindings for ledger queries
 - State Merkle commitments
 
+## Rewards & Staking System
+
+### Overview
+Rinku implements a multi-mechanism reward system to incentivize network participation without traditional proof-of-work mining.
+
+### Reward Types
+1. **Tip Rewards** - Earned for validating orphaned transactions (referencing tips)
+2. **Stake Rewards** - Earned by validators who stake tokens
+3. **Witness Rewards** - Earned when your transactions are referenced by others
+
+### Reward Configuration (Default)
+```typescript
+{
+  tipRewardRate: 0.01,      // 1% of tx amount
+  stakeRewardRate: 0.005,   // 0.5% per staked amount
+  witnessRewardRate: 0.002, // 0.2% when witnessed
+  minStakeAmount: 100,      // Minimum to become validator
+  unstakeCooldownMs: 86400000 // 24 hour cooldown
+}
+```
+
+### Staking API Endpoints
+- `GET /api/staking` - Network staking overview
+- `GET /api/staking/:address` - Individual staking status
+- `POST /api/staking/stake` - Stake tokens
+- `POST /api/staking/unstake` - Unstake tokens (after cooldown)
+
+### Rewards API Endpoints
+- `GET /api/rewards/config` - Reward configuration
+- `GET /api/rewards/:address` - Rewards summary
+- `POST /api/rewards/:address/claim` - Claim pending rewards
+
+### Demo Script
+```bash
+cd packages/node
+npm run demo-rewards
+```
+
 ## Recent Changes
 - Initial project setup with all 5 packages
 - Core library with types, crypto, encoding, merkle, dag, weight modules
@@ -235,3 +273,7 @@ Currently uses a mock runtime that simulates token operations. Future versions w
 - **Contract API**: Deploy, call, simulate, and view contract state endpoints
 - **Explorer Contracts Tab**: UI for deploying and interacting with contracts
 - **Token Contract Demo**: Example script for testing contract operations
+- **Rewards & Staking System**: Multi-mechanism rewards (tip, stake, witness)
+- **Staking API**: Stake/unstake endpoints with cooldown periods
+- **Rewards API**: Claim rewards, view summaries, check configuration
+- **Explorer Rewards Tab**: UI for viewing rewards and staking

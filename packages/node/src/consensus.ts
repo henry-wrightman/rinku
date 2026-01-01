@@ -115,6 +115,12 @@ export class Consensus {
     return this.dag.getNode(hash);
   }
 
+  getNodeByUrl(url: string) {
+    const hash = this.dag.resolveUrlToHash(url);
+    if (!hash) return undefined;
+    return this.dag.getNode(hash);
+  }
+
   getAllNodes() {
     return this.dag.getAllNodes();
   }

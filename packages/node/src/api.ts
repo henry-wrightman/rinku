@@ -5,6 +5,7 @@ import { Consensus } from './consensus.js';
 import { Mempool } from './mempool.js';
 import { PeerSyncService } from './peerSync.js';
 import { ContractService } from './contracts.js';
+import { RewardsService } from './rewards.js';
 import { 
   parseTransactionURL, 
   createTransactionURL, 
@@ -23,6 +24,7 @@ export function createAPI(
   mempool: Mempool,
   peerSync?: PeerSyncService,
   contractService?: ContractService,
+  rewardsService?: RewardsService,
   onTransaction?: () => Promise<void>
 ) {
   const app = express();
@@ -523,6 +525,90 @@ export function createAPI(
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // ============================================
+  // Rewards & Staking Endpoints
+  // ============================================
+
+  app.get('/api/rewards/config', (_req, res) => {
+    if (!rewardsService) {
+      res.status(501).json({ error: 'Rewards not enabled' });
+      return;
+    }
+    res.json(rewardsService.getConfig());
+  });
+
+  app.get('/api/rewards/:address', (req, res) => {
+    if (!rewardsService) {
+      res.status(501).json({ error: 'Rewards not enabled' });
+      return;
+    }
+    const summary = rewardsService.getRewardsSummary(req.params.address);
+    res.json(summary);
+  });
+
+  app.post('/api/rewards/:address/claim', (req, res) => {
+    if (!rewardsService) {
+      res.status(501).json({ error: 'Rewards not enabled' });
+      return;
+    }
+    const result = rewardsService.claimRewards(req.params.address);
+    res.json(result);
+  });
+
+  app.get('/api/staking', (_req, res) => {
+    if (!rewardsService) {
+      res.status(501).json({ error: 'Rewards not enabled' });
+      return;
+    }
+    res.json({
+      totalStaked: rewardsService.getTotalStaked(),
+      validators: rewardsService.getActiveValidators(),
+      topStakers: rewardsService.getTopStakers(10),
+      config: rewardsService.getConfig()
+    });
+  });
+
+  app.get('/api/staking/:address', (req, res) => {
+    if (!rewardsService) {
+      res.status(501).json({ error: 'Rewards not enabled' });
+      return;
+    }
+    const status = rewardsService.getStakingStatus(req.params.address);
+    res.json(status);
+  });
+
+  app.post('/api/staking/stake', (req, res) => {
+    if (!rewardsService) {
+      res.status(501).json({ error: 'Rewards not enabled' });
+      return;
+    }
+
+    const { address, amount } = req.body as { address: string; amount: number };
+    if (!address || !amount) {
+      res.status(400).json({ error: 'Address and amount required' });
+      return;
+    }
+
+    const result = rewardsService.stake(address, amount);
+    res.json(result);
+  });
+
+  app.post('/api/staking/unstake', (req, res) => {
+    if (!rewardsService) {
+      res.status(501).json({ error: 'Rewards not enabled' });
+      return;
+    }
+
+    const { address } = req.body as { address: string };
+    if (!address) {
+      res.status(400).json({ error: 'Address required' });
+      return;
+    }
+
+    const result = rewardsService.unstake(address);
+    res.json(result);
   });
 
   return app;

@@ -4,3 +4,4 @@ export { DAGTab } from "./DAGTab";
 export { AccountsTab } from "./AccountsTab";
 export { FaucetTab } from "./FaucetTab";
 export { ContractsTab } from "./ContractsTab";
+export { RewardsTab } from "./RewardsTab";

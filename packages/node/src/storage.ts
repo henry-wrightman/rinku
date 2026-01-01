@@ -14,6 +14,7 @@ export interface NodeSnapshot {
     tips: string[];
   };
   publicKeys: [string, number[]][];
+  rewards?: object;
 }
 
 export class Storage {

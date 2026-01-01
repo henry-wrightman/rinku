@@ -5,6 +5,7 @@ import { Mempool } from './mempool.js';
 import { Storage, type NodeSnapshot } from './storage.js';
 import { PeerSyncService } from './peerSync.js';
 import { ContractService } from './contracts.js';
+import { RewardsService } from './rewards.js';
 import { hashTransaction, type SignedTransaction } from '@rinku/core';
 import { randomBytes } from 'crypto';
 
@@ -39,20 +40,31 @@ async function main() {
     
     const bootstrapped = await bootstrapFromPeers(peers, state, consensus);
     
-    if (bootstrapped) {
-      console.log('Successfully bootstrapped from peer network');
-      await saveSnapshot(storage, state, consensus);
-    } else {
+    if (!bootstrapped) {
       console.log('No peers available, creating local genesis...');
       await createGenesis(state, consensus);
-      await saveSnapshot(storage, state, consensus);
+    } else {
+      console.log('Successfully bootstrapped from peer network');
     }
   } else {
     console.log('Cold start - initializing genesis...');
     state = new StateManager();
     consensus = new Consensus();
     await createGenesis(state, consensus);
-    await saveSnapshot(storage, state, consensus);
+  }
+
+  const rewardsDeps = {
+    getDAGNodeByUrl: (url: string) => consensus.getNodeByUrl(url),
+    getAccount: (address: string) => state.getAccount(address),
+    updateBalance: (address: string, delta: number) => state.updateBalance(address, delta)
+  };
+
+  let rewardsService: RewardsService;
+  if (snapshot?.rewards) {
+    rewardsService = RewardsService.fromJSON(snapshot.rewards, rewardsDeps);
+    console.log('Restored rewards/staking data from snapshot');
+  } else {
+    rewardsService = new RewardsService(rewardsDeps);
   }
 
   const peerSync = new PeerSyncService(state, consensus, NODE_ID);
@@ -64,14 +76,17 @@ async function main() {
   });
 
   peerSync.onSyncComplete(async () => {
-    await saveSnapshot(storage, state, consensus);
+    await saveSnapshot(storage, state, consensus, rewardsService);
   });
 
-  const app = createAPI(state, consensus, mempool, peerSync, contractService, async () => {
-    await saveSnapshot(storage, state, consensus);
+  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, async () => {
+    await saveSnapshot(storage, state, consensus, rewardsService);
   });
   
+  await saveSnapshot(storage, state, consensus, rewardsService);
+  
   console.log('Smart contract service enabled');
+  console.log('Rewards & staking service enabled');
 
   if (peers.length > 0) {
     peerSync.start(5000);
@@ -148,7 +163,8 @@ async function bootstrapFromPeers(
 async function saveSnapshot(
   storage: Storage,
   state: StateManager,
-  consensus: Consensus
+  consensus: Consensus,
+  rewardsService?: RewardsService
 ): Promise<void> {
   const stateJson = state.toJSON() as { accounts: [string, any][]; merkleRoot: string };
   const consensusJson = consensus.toJSON();
@@ -158,7 +174,8 @@ async function saveSnapshot(
     timestamp: Date.now(),
     state: stateJson,
     dag: consensusJson.dag as { nodes: any[]; tips: string[] },
-    publicKeys: consensusJson.publicKeys
+    publicKeys: consensusJson.publicKeys,
+    rewards: rewardsService?.toJSON()
   };
 
   await storage.save(snapshot);
@@ -172,4 +189,5 @@ export { Mempool } from './mempool.js';
 export { Storage } from './storage.js';
 export { PeerSyncService } from './peerSync.js';
 export { ContractService } from './contracts.js';
+export { RewardsService } from './rewards.js';
 export { createAPI } from './api.js';
