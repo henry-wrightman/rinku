@@ -42,6 +42,26 @@ let pendingOperations = 0;
 let maxPendingOps = 5;
 const MAX_CONTRACTS = 3;
 
+let currentGasPrice = 0.01;
+const GAS_PRICE_CACHE_MS = 5000;
+let lastGasPriceFetch = 0;
+
+async function fetchGasPrice(): Promise<number> {
+  const now = Date.now();
+  if (now - lastGasPriceFetch < GAS_PRICE_CACHE_MS) {
+    return currentGasPrice;
+  }
+  try {
+    const res = await fetchWithTimeout(`${NODE_URL}/api/gas/price`, {}, 3000);
+    if (res.ok) {
+      const data = await res.json() as { currentPrice: number };
+      currentGasPrice = data.currentPrice;
+      lastGasPriceFetch = now;
+    }
+  } catch {}
+  return currentGasPrice;
+}
+
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -138,9 +158,10 @@ async function doSingleTransaction(
   sender: BotWallet,
   recipient: BotWallet,
   amount: number,
+  fee: number,
 ): Promise<boolean> {
   try {
-    await sender.wallet.send(recipient.fingerprint, amount);
+    await sender.wallet.send(recipient.fingerprint, amount, fee);
     totalTransactions++;
     return true;
   } catch (err: any) {
@@ -155,6 +176,7 @@ async function doConcurrentTransactions(): Promise<void> {
 
   pendingOperations++;
   try {
+    const gasPrice = await fetchGasPrice();
     const txPromises: Promise<boolean>[] = [];
     const txCount = Math.min(
       CONCURRENT_TX_COUNT,
@@ -180,13 +202,12 @@ async function doConcurrentTransactions(): Promise<void> {
       const recipient = pickRandom(recipients);
       const amount = Math.floor(Math.random() * 5) + 1;
 
-      const GAS_FEE = 0.01;
       txPromises.push(
         sender.wallet
           .getBalance()
           .then(async (balance) => {
-            if (balance < amount + GAS_FEE + 5) return false;
-            return doSingleTransaction(sender, recipient, amount);
+            if (balance < amount + gasPrice + 5) return false;
+            return doSingleTransaction(sender, recipient, amount, gasPrice);
           })
           .catch(() => false),
       );
@@ -430,6 +451,7 @@ function printStats(): void {
     `  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps}`,
   );
   console.log(`  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT}`);
+  console.log(`  Gas Price: ${currentGasPrice.toFixed(4)}`);
   console.log("=".repeat(55) + "\n");
 }
 

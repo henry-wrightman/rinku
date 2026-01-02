@@ -75,15 +75,26 @@ export class Wallet {
     return state.balance;
   }
 
-  async send(to: string, amount: number): Promise<{ tx: SignedTransaction; url: string }> {
+  async getGasPrice(): Promise<number> {
+    try {
+      const response = await fetch(`${this.nodeUrl}/api/gas/price`);
+      if (response.ok) {
+        const data = await response.json() as { currentPrice: number };
+        return data.currentPrice;
+      }
+    } catch {}
+    return 0.01; // fallback default
+  }
+
+  async send(to: string, amount: number, fee?: number): Promise<{ tx: SignedTransaction; url: string }> {
     await this.refresh();
     
     if (!this.state) {
       throw new Error('Wallet not initialized');
     }
 
-    const fee = 0.01;
-    if (this.state.balance < amount + fee) {
+    const actualFee = fee ?? 0.01;
+    if (this.state.balance < amount + actualFee) {
       throw new Error('Insufficient balance for amount + fee');
     }
 
@@ -100,6 +111,7 @@ export class Wallet {
       {
         to,
         amount,
+        fee: actualFee,
         nonce: this.state.nonce + 1,
         tipUrls
       }

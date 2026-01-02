@@ -61,13 +61,14 @@ function App() {
 
   const fetchSummary = useCallback(async () => {
     try {
-      const [summaryRes, accountsRes, networkRes, gasPriceRes, gasStatsRes] = await Promise.all([
-        fetch(`${NODE_URL}/dag/summary`),
-        fetch(`${NODE_URL}/accounts`),
-        fetch(`${NODE_URL}/stats/network`),
-        fetch(`${NODE_URL}/gas/price`),
-        fetch(`${NODE_URL}/gas/stats`),
-      ]);
+      const [summaryRes, accountsRes, networkRes, gasPriceRes, gasStatsRes] =
+        await Promise.all([
+          fetch(`${NODE_URL}/dag/summary`),
+          fetch(`${NODE_URL}/accounts`),
+          fetch(`${NODE_URL}/stats/network`),
+          fetch(`${NODE_URL}/gas/price`),
+          fetch(`${NODE_URL}/gas/stats`),
+        ]);
 
       const summaryData = await summaryRes.json();
       const accountsData = await accountsRes.json();
@@ -89,7 +90,7 @@ function App() {
           min: gasPriceData.min,
           max: gasPriceData.max,
           avgLast100: gasPriceData.avgLast100,
-          totalBurned: gasStatsData.totalBurned
+          totalBurned: gasStatsData.totalBurned,
         });
       }
     } catch (e) {
@@ -152,7 +153,7 @@ function App() {
           <span className="stat-value">
             {formatNumber(summary?.totalNodes || 0)}
           </span>
-          <span className="stat-label">transactions</span>
+          <span className="stat-label">nodes</span>
         </div>
         {/* <div className="stat-item">
           <span className="stat-value">{formatNumber(summary?.accountCount || accounts.length || 0)}</span>
