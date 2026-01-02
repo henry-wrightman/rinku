@@ -98,10 +98,11 @@ For full SSRF protection in production, combine with network-level egress restri
 **Memory Management:**
 - `MAX_DAG_NODES`: Maximum in-memory transactions (default: 300). Configurable via environment variable.
 - `PRUNE_INTERVAL_MS`: How often to check for pruning (default: 30000ms).
-- Time-based pruning keeps the N most recent transactions by timestamp.
+- Time-based pruning keeps the N most recent transactions by timestamp, enforcing hard cap regardless of tip count.
 - Account state (balances, nonces) is always preserved regardless of pruning.
 - Checkpoints provide historical verification for pruned transactions.
 - **Witness tracking**: Uses TTL-based Map with O(1) head-pointer queue (1-hour window) to prevent duplicate rewards. Pruning advances a pointer instead of shifting, with periodic compaction at 10k entries.
+- **Tip Explosion Fix (Jan 2026):** Removed unconditional tip protection from pruning to prevent DAG growth beyond MAX_DAG_NODES when parent URLs fail to resolve.
 
 **Snapshot Optimizations (Jan 2026):**
 - DAG nodes store compact hash-based URLs (`/tx/h/{hash}`) instead of full self-crawlable URLs.
