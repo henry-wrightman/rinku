@@ -300,7 +300,20 @@ export class DAG {
     return {
       nodes: Array.from(this.nodes.entries()).map(([hash, node]) => ({
         hash,
-        ...node
+        tx: {
+          from: node.tx.from,
+          to: node.tx.to,
+          amount: node.tx.amount,
+          nonce: node.tx.nonce,
+          sig: node.tx.sig,
+          ts: node.tx.ts,
+          hash: node.tx.hash,
+          parentHashes: node.tx.tipUrls.map(url => this.urlToHash.get(url) || url.slice(0, 20))
+        },
+        children: node.children,
+        weight: node.weight,
+        confirmed: node.confirmed,
+        url: node.url
       })),
       tipHashes: Array.from(this.tipHashes)
     };
@@ -310,17 +323,43 @@ export class DAG {
     const dag = new DAG();
     
     for (const nodeData of data.nodes) {
-      const { hash, ...node } = nodeData;
-      if (node.parents && !node.parentUrls) {
-        node.parentUrls = node.parents;
-        delete node.parents;
-      }
+      const { hash, tx, children, weight, confirmed, url } = nodeData;
+      
+      const restoredTx = {
+        from: tx.from,
+        to: tx.to,
+        amount: tx.amount,
+        nonce: tx.nonce,
+        sig: tx.sig,
+        ts: tx.ts,
+        hash: tx.hash,
+        tipUrls: tx.tipUrls || []
+      };
+      
+      const node = {
+        tx: restoredTx,
+        parentUrls: tx.tipUrls || [],
+        children: children || [],
+        weight: weight || 0,
+        confirmed: confirmed || false,
+        url: url
+      };
+      
       dag.nodes.set(hash, node);
       
-      if (node.url) {
-        dag.urlToHash.set(node.url, hash);
-      } else if (node.tx?.url) {
-        dag.urlToHash.set(node.tx.url, hash);
+      if (url) {
+        dag.urlToHash.set(url, hash);
+      }
+    }
+
+    for (const nodeData of data.nodes) {
+      const node = dag.nodes.get(nodeData.hash);
+      if (node && nodeData.tx.parentHashes) {
+        node.tx.tipUrls = nodeData.tx.parentHashes.map((parentHash: string) => {
+          const parentNode = dag.nodes.get(parentHash);
+          return parentNode?.url || '';
+        }).filter((url: string) => url !== '');
+        node.parentUrls = node.tx.tipUrls;
       }
     }
 

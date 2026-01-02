@@ -7,13 +7,16 @@ import { Pagination } from "./Pagination";
 interface DAGTabProps {
   nodes: DAGNode[];
   merkleRoot: string;
+  page: number;
+  totalNodes: number;
+  hasMore: boolean;
+  onPageChange: (page: number) => void;
 }
 
 const PAGE_SIZE = 20;
 const NEW_TX_DURATION = 3000;
 
-export function DAGTab({ nodes, merkleRoot }: DAGTabProps) {
-  const [page, setPage] = useState(0);
+export function DAGTab({ nodes, merkleRoot, page, totalNodes, hasMore, onPageChange }: DAGTabProps) {
   const [newHashes, setNewHashes] = useState<Set<string>>(new Set());
   const prevHashesRef = useRef<Set<string>>(new Set());
 
@@ -39,15 +42,9 @@ export function DAGTab({ nodes, merkleRoot }: DAGTabProps) {
     return <div className="empty">no transactions yet</div>;
   }
 
-  const reversedNodes = nodes.slice().reverse();
-  const pageNodes = reversedNodes.slice(
-    page * PAGE_SIZE,
-    (page + 1) * PAGE_SIZE,
-  );
-
   return (
     <div className="section">
-      {pageNodes.map((node) => (
+      {nodes.map((node) => (
         <div
           key={node.hash}
           className={`dag-node ${newHashes.has(node.hash) ? "new-tx" : ""}`}
@@ -82,9 +79,9 @@ export function DAGTab({ nodes, merkleRoot }: DAGTabProps) {
 
       <Pagination
         page={page}
-        totalItems={nodes.length}
+        totalItems={totalNodes}
         pageSize={PAGE_SIZE}
-        onPageChange={setPage}
+        onPageChange={onPageChange}
       />
 
       {merkleRoot && (

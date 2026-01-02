@@ -153,21 +153,18 @@ export function createAPI(
     res.json(node);
   });
 
-  let dagCache: { nodes: any[]; tips: string[]; merkleRoot: string; timestamp: number } | null = null;
-  const DAG_CACHE_TTL = 1000;
+  let lightNodesCache: { nodes: any[]; merkleRoot: string; timestamp: number } | null = null;
+  const CACHE_TTL = 2000;
 
-  app.get('/api/dag', (_req, res) => {
+  const getLightNodes = () => {
     const now = Date.now();
     const currentMerkle = state.getMerkleRoot();
     
-    if (dagCache && (now - dagCache.timestamp) < DAG_CACHE_TTL && dagCache.merkleRoot === currentMerkle) {
-      res.json({ nodes: dagCache.nodes, tips: dagCache.tips, tipCount: dagCache.tips.length, merkleRoot: currentMerkle });
-      return;
+    if (lightNodesCache && (now - lightNodesCache.timestamp) < CACHE_TTL && lightNodesCache.merkleRoot === currentMerkle) {
+      return lightNodesCache.nodes;
     }
     
     const allNodes = consensus.getAllNodes();
-    const tips = consensus.getTips();
-    
     const lightNodes = allNodes.map(node => ({
       hash: node.tx.hash,
       from: node.tx.from,
@@ -180,9 +177,41 @@ export function createAPI(
       confirmed: node.confirmed
     }));
     
-    dagCache = { nodes: lightNodes, tips, merkleRoot: currentMerkle, timestamp: now };
+    lightNodesCache = { nodes: lightNodes, merkleRoot: currentMerkle, timestamp: now };
+    return lightNodes;
+  };
+
+  app.get('/api/dag/summary', (_req, res) => {
+    const tips = consensus.getTips();
+    res.json({
+      totalNodes: consensus.getDAGSize(),
+      tipCount: tips.length,
+      tips,
+      merkleRoot: state.getMerkleRoot(),
+      accountCount: state.getAllAccounts().size
+    });
+  });
+
+  app.get('/api/dag', (req, res) => {
+    const page = parseInt(req.query.page as string) || 0;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
     
-    res.json({ nodes: lightNodes, tips, tipCount: tips.length, merkleRoot: currentMerkle });
+    const lightNodes = getLightNodes();
+    const tips = consensus.getTips();
+    
+    const sorted = lightNodes.slice().sort((a, b) => b.ts - a.ts);
+    const pageNodes = sorted.slice(page * limit, (page + 1) * limit);
+    
+    res.json({
+      nodes: pageNodes,
+      tips,
+      tipCount: tips.length,
+      totalNodes: lightNodes.length,
+      page,
+      limit,
+      hasMore: (page + 1) * limit < lightNodes.length,
+      merkleRoot: state.getMerkleRoot()
+    });
   });
 
   app.get('/api/state', (_req, res) => {

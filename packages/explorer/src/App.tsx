@@ -1,58 +1,73 @@
-import { useState, useEffect } from "react";
-import type { State } from "./types";
+import { useState, useEffect, useCallback } from "react";
+import type { State, DAGNode } from "./types";
 import { Header, DAGTab, AccountsTab, FaucetTab, ContractsTab, RewardsTab } from "./components";
 
 const NODE_URL = "/api";
+const PAGE_SIZE = 20;
 
 function App() {
   const [tab, setTab] = useState<"dag" | "accounts" | "faucet" | "contracts" | "rewards">("dag");
-  const [state, setState] = useState<State | null>(null);
+  const [nodes, setNodes] = useState<DAGNode[]>([]);
+  const [accounts, setAccounts] = useState<State["accounts"]>([]);
+  const [summary, setSummary] = useState<{ totalNodes: number; tipCount: number; tips: string[]; merkleRoot: string; accountCount: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
   useEffect(() => {
     document.body.classList.toggle("light", !darkMode);
   }, [darkMode]);
 
-  const fetchState = async () => {
+  const fetchSummary = useCallback(async () => {
     try {
-      const [dagRes, accountsRes] = await Promise.all([
-        fetch(`${NODE_URL}/dag`),
+      const [summaryRes, accountsRes] = await Promise.all([
+        fetch(`${NODE_URL}/dag/summary`),
         fetch(`${NODE_URL}/accounts`),
       ]);
 
-      const dagData = (await dagRes.json()) as {
-        nodes: State["nodes"];
-        tips: string[];
-        tipUrls: string[];
-        merkleRoot: string;
-      };
-      const accountsData = (await accountsRes.json()) as {
-        accounts: State["accounts"];
-      };
+      const summaryData = await summaryRes.json();
+      const accountsData = await accountsRes.json();
 
-      setState({
-        accounts: accountsData.accounts,
-        nodes: dagData.nodes,
-        tips: dagData.tips,
-        tipUrls: dagData.tipUrls || [],
-        merkleRoot: dagData.merkleRoot,
-      });
+      setSummary(summaryData);
+      setAccounts(accountsData.accounts);
       setConnected(true);
     } catch (e) {
-      console.error("Failed to fetch state:", e);
+      console.error("Failed to fetch summary:", e);
+      setConnected(false);
+    }
+  }, []);
+
+  const fetchPage = useCallback(async (pageNum: number) => {
+    try {
+      const res = await fetch(`${NODE_URL}/dag?page=${pageNum}&limit=${PAGE_SIZE}`);
+      const data = await res.json();
+      setNodes(data.nodes);
+      setHasMore(data.hasMore);
+      setConnected(true);
+    } catch (e) {
+      console.error("Failed to fetch page:", e);
       setConnected(false);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchState();
-    const interval = setInterval(fetchState, 5000);
+    fetchSummary();
+    fetchPage(page);
+    const interval = setInterval(() => {
+      fetchSummary();
+      fetchPage(page);
+    }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [page, fetchSummary, fetchPage]);
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    fetchPage(newPage);
+  };
 
   if (loading) {
     return (
@@ -73,15 +88,15 @@ function App() {
 
       <div className="stats">
         <div className="stat-item">
-          <span className="stat-value">{state?.nodes.length || 0}</span>
+          <span className="stat-value">{summary?.totalNodes || 0}</span>
           <span className="stat-label">transactions</span>
         </div>
         <div className="stat-item">
-          <span className="stat-value">{state?.accounts.length || 0}</span>
+          <span className="stat-value">{summary?.accountCount || accounts.length || 0}</span>
           <span className="stat-label">accounts</span>
         </div>
         <div className="stat-item">
-          <span className="stat-value">{state?.tips.length || 0}</span>
+          <span className="stat-value">{summary?.tipCount || 0}</span>
           <span className="stat-label">tips</span>
         </div>
       </div>
@@ -104,16 +119,19 @@ function App() {
         </span>
       </div>
 
-      {tab === "dag" && state && (
-        <DAGTab nodes={state.nodes} merkleRoot={state.merkleRoot} />
+      {tab === "dag" && (
+        <DAGTab
+          nodes={nodes}
+          merkleRoot={summary?.merkleRoot || ""}
+          page={page}
+          totalNodes={summary?.totalNodes || 0}
+          hasMore={hasMore}
+          onPageChange={handlePageChange}
+        />
       )}
-
-      {tab === "accounts" && state && <AccountsTab accounts={state.accounts} />}
-
-      {tab === "faucet" && <FaucetTab onSuccess={fetchState} />}
-
+      {tab === "accounts" && <AccountsTab accounts={accounts} />}
+      {tab === "faucet" && <FaucetTab />}
       {tab === "contracts" && <ContractsTab />}
-
       {tab === "rewards" && <RewardsTab />}
     </div>
   );
