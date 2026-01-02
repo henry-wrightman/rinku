@@ -152,7 +152,7 @@ describe('StateManager', () => {
     it('should update merkle root', async () => {
       state.createAccount('alice', 1000);
       
-      const root = await state.updateMerkleRoot();
+      const root = await state.updateMerkleRootIfNeeded();
       
       expect(root).toBeDefined();
       expect(typeof root).toBe('string');

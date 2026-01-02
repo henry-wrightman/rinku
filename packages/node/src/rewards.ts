@@ -27,11 +27,13 @@ export interface RewardsServiceDeps {
   updateBalance: (address: string, delta: number) => Promise<boolean>;
 }
 
+const WITNESS_TTL_MS = 3600000;
+
 export class RewardsService {
   private rewards: Map<string, Reward[]> = new Map();
   private stakes: Map<string, StakePosition> = new Map();
   private pendingRewards: Map<string, number> = new Map();
-  private witnessedTxs: Set<string> = new Set();
+  private witnessedTxs: Map<string, number> = new Map();
   private config: RewardConfig;
 
   constructor(
@@ -112,7 +114,7 @@ export class RewardsService {
     );
 
     this.addReward(recipient, reward);
-    this.witnessedTxs.add(key);
+    this.witnessedTxs.set(key, Date.now());
 
     return reward;
   }
@@ -242,10 +244,36 @@ export class RewardsService {
   private addReward(address: string, reward: Reward): void {
     const existing = this.rewards.get(address) || [];
     existing.push(reward);
+    if (existing.length > 100) {
+      existing.splice(0, existing.length - 100);
+    }
     this.rewards.set(address, existing);
 
     const pending = this.pendingRewards.get(address) || 0;
     this.pendingRewards.set(address, pending + reward.amount);
+  }
+
+  pruneOldData(): number {
+    const now = Date.now();
+    const cutoff = now - WITNESS_TTL_MS;
+    let pruned = 0;
+    
+    for (const [key, timestamp] of this.witnessedTxs) {
+      if (timestamp < cutoff) {
+        this.witnessedTxs.delete(key);
+        pruned++;
+      }
+    }
+    
+    return pruned;
+  }
+
+  getStats(): { rewardsCount: number; stakesCount: number; witnessedCount: number } {
+    return {
+      rewardsCount: Array.from(this.rewards.values()).reduce((sum, arr) => sum + arr.length, 0),
+      stakesCount: this.stakes.size,
+      witnessedCount: this.witnessedTxs.size
+    };
   }
 
   toJSON(): object {
@@ -253,7 +281,7 @@ export class RewardsService {
       rewards: Array.from(this.rewards.entries()),
       stakes: Array.from(this.stakes.entries()),
       pendingRewards: Array.from(this.pendingRewards.entries()),
-      witnessedTxs: Array.from(this.witnessedTxs),
+      witnessedTxs: Array.from(this.witnessedTxs.entries()),
       config: this.config
     };
   }
@@ -280,8 +308,12 @@ export class RewardsService {
     }
 
     if (data.witnessedTxs) {
-      for (const key of data.witnessedTxs) {
-        service.witnessedTxs.add(key);
+      for (const entry of data.witnessedTxs) {
+        if (Array.isArray(entry) && entry.length === 2) {
+          service.witnessedTxs.set(entry[0], entry[1]);
+        } else if (typeof entry === 'string') {
+          service.witnessedTxs.set(entry, Date.now());
+        }
       }
     }
 

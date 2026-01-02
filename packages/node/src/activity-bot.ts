@@ -3,24 +3,41 @@ import { Wallet } from "@rinku/wallet";
 const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3002";
 
-const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "30000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "2000");
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "100");
+const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "45000");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "4000");
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "30");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_LIMIT = 3;
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "3");
+const CONTRACT_INTERVAL_MS = parseInt(process.env.CONTRACT_INTERVAL || "60000");
+const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "90000");
+const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "180000");
 
 interface BotWallet {
   wallet: Wallet;
   fingerprint: string;
   lastFaucetHit: number;
+  isStaking: boolean;
+  hasContract: boolean;
+}
+
+interface DeployedContract {
+  contractId: string;
+  ownerFingerprint: string;
+  deployedAt: number;
 }
 
 const wallets: BotWallet[] = [];
+const deployedContracts: DeployedContract[] = [];
 let totalFaucetHits = 0;
 let totalTransactions = 0;
+let totalContractDeploys = 0;
+let totalContractCalls = 0;
+let totalStakes = 0;
+let totalRewardsClaimed = 0;
 let errors = 0;
 let pendingOperations = 0;
+let maxPendingOps = 10;
 
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -57,7 +74,7 @@ async function faucetRequest(fingerprint: string): Promise<boolean> {
 
 async function createNewWallet(): Promise<void> {
   if (wallets.length >= MAX_WALLETS) return;
-  if (pendingOperations >= CONCURRENT_LIMIT) return;
+  if (pendingOperations >= maxPendingOps) return;
 
   pendingOperations++;
   try {
@@ -71,11 +88,11 @@ async function createNewWallet(): Promise<void> {
         wallet,
         fingerprint,
         lastFaucetHit: Date.now(),
+        isStaking: false,
+        hasContract: false,
       });
       totalFaucetHits++;
-      log(
-        `New wallet: ${fingerprint.slice(0, 16)}... (${wallets.length} total)`,
-      );
+      log(`New wallet: ${fingerprint.slice(0, 16)}... (${wallets.length} total)`);
     } else {
       errors++;
     }
@@ -86,7 +103,7 @@ async function createNewWallet(): Promise<void> {
 
 async function doRandomFaucetDrop(): Promise<void> {
   if (wallets.length === 0) return;
-  if (pendingOperations >= CONCURRENT_LIMIT) return;
+  if (pendingOperations >= maxPendingOps) return;
 
   const now = Date.now();
   const eligible = wallets.filter(
@@ -103,7 +120,7 @@ async function doRandomFaucetDrop(): Promise<void> {
     if (success) {
       recipient.lastFaucetHit = now;
       totalFaucetHits++;
-      log(`Faucet drop: ${recipient.fingerprint.slice(0, 16)}... (+100 coins)`);
+      log(`Faucet drop: ${recipient.fingerprint.slice(0, 16)}...`);
     } else {
       errors++;
     }
@@ -112,32 +129,230 @@ async function doRandomFaucetDrop(): Promise<void> {
   }
 }
 
-async function doRandomTransaction(): Promise<void> {
+async function doSingleTransaction(sender: BotWallet, recipient: BotWallet, amount: number): Promise<boolean> {
+  try {
+    await sender.wallet.send(recipient.fingerprint, amount);
+    totalTransactions++;
+    return true;
+  } catch (err: any) {
+    errors++;
+    return false;
+  }
+}
+
+async function doConcurrentTransactions(): Promise<void> {
   if (wallets.length < 2) return;
-  if (pendingOperations >= CONCURRENT_LIMIT) return;
+  if (pendingOperations >= maxPendingOps) return;
 
   pendingOperations++;
   try {
-    const sender = pickRandom(wallets);
+    const txPromises: Promise<boolean>[] = [];
+    const txCount = Math.min(CONCURRENT_TX_COUNT, Math.floor(wallets.length / 2));
+    
+    const usedSenders = new Set<string>();
+    
+    for (let i = 0; i < txCount; i++) {
+      const availableSenders = wallets.filter(
+        w => !usedSenders.has(w.fingerprint)
+      );
+      if (availableSenders.length < 1) break;
+      
+      const sender = pickRandom(availableSenders);
+      usedSenders.add(sender.fingerprint);
+      
+      const recipients = wallets.filter(w => w.fingerprint !== sender.fingerprint);
+      if (recipients.length === 0) continue;
+      
+      const recipient = pickRandom(recipients);
+      const amount = Math.floor(Math.random() * 5) + 1;
+      
+      txPromises.push(
+        sender.wallet.getBalance().then(async balance => {
+          if (balance < amount + 5) return false;
+          return doSingleTransaction(sender, recipient, amount);
+        }).catch(() => false)
+      );
+    }
+    
+    if (txPromises.length > 0) {
+      const results = await Promise.all(txPromises);
+      const successCount = results.filter(r => r).length;
+      if (successCount > 0) {
+        log(`Concurrent TX batch: ${successCount}/${txPromises.length} succeeded (creating ${successCount} potential tips)`);
+      }
+    }
+  } finally {
+    pendingOperations--;
+  }
+}
 
-    const balance = await sender.wallet.getBalance();
-    if (balance < 10) return;
+async function deployContract(): Promise<void> {
+  if (wallets.length < 3) return;
+  if (pendingOperations >= maxPendingOps) return;
+  
+  const eligible = wallets.filter(w => !w.hasContract);
+  if (eligible.length === 0) return;
 
-    const recipients = wallets.filter(
-      (w) => w.fingerprint !== sender.fingerprint,
-    );
-    if (recipients.length === 0) return;
+  pendingOperations++;
+  try {
+    const creator = pickRandom(eligible);
+    const balance = await creator.wallet.getBalance();
+    if (balance < 50) {
+      return;
+    }
 
-    const recipient = pickRandom(recipients);
-    const amount = Math.floor(Math.random() * Math.min(balance - 1, 20)) + 1;
+    const wasmBase64 = btoa("mock-token-contract-v1");
 
-    await sender.wallet.send(recipient.fingerprint, amount);
-    totalTransactions++;
-    log(
-      `TX: ${sender.fingerprint.slice(0, 12)} -> ${recipient.fingerprint.slice(0, 12)} : ${amount} coins`,
-    );
+    const res = await fetchWithTimeout(`${NODE_URL}/api/contracts/deploy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        creator: creator.fingerprint,
+        wasmBase64,
+        initState: { balances: {}, totalSupply: 0 }
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json() as { contractId: string };
+      deployedContracts.push({
+        contractId: data.contractId,
+        ownerFingerprint: creator.fingerprint,
+        deployedAt: Date.now()
+      });
+      creator.hasContract = true;
+      totalContractDeploys++;
+      log(`Contract deployed: ${data.contractId.slice(0, 16)}... by ${creator.fingerprint.slice(0, 12)}`);
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      log(`Contract deploy failed: ${JSON.stringify(errData).slice(0, 50)}`);
+      errors++;
+    }
   } catch (err: any) {
     errors++;
+  } finally {
+    pendingOperations--;
+  }
+}
+
+async function callContract(): Promise<void> {
+  if (deployedContracts.length === 0) return;
+  if (wallets.length < 2) return;
+  if (pendingOperations >= maxPendingOps) return;
+
+  pendingOperations++;
+  try {
+    const contract = pickRandom(deployedContracts);
+    const caller = pickRandom(wallets);
+    
+    const action = Math.random();
+    let entrypoint: string;
+    let input: object;
+    
+    if (action < 0.4) {
+      entrypoint = "mint";
+      input = { to: caller.fingerprint, amount: Math.floor(Math.random() * 50) + 10 };
+    } else if (action < 0.7) {
+      entrypoint = "transfer";
+      const recipient = pickRandom(wallets.filter(w => w.fingerprint !== caller.fingerprint));
+      input = { 
+        from: caller.fingerprint,
+        to: recipient?.fingerprint || caller.fingerprint, 
+        amount: Math.floor(Math.random() * 10) + 1 
+      };
+    } else {
+      entrypoint = "get_balance";
+      input = { address: caller.fingerprint };
+    }
+
+    const res = await fetchWithTimeout(`${NODE_URL}/api/contracts/${contract.contractId}/call`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        caller: caller.fingerprint,
+        entrypoint,
+        input
+      }),
+    });
+
+    if (res.ok) {
+      totalContractCalls++;
+      log(`Contract call: ${entrypoint}() on ${contract.contractId.slice(0, 12)}...`);
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      if (entrypoint !== "get_balance") {
+        log(`Contract call failed: ${JSON.stringify(errData).slice(0, 40)}`);
+      }
+    }
+  } catch (err: any) {
+    errors++;
+  } finally {
+    pendingOperations--;
+  }
+}
+
+async function doStaking(): Promise<void> {
+  if (wallets.length < 5) return;
+  if (pendingOperations >= maxPendingOps) return;
+
+  const nonStakers = wallets.filter(w => !w.isStaking);
+  if (nonStakers.length === 0) return;
+
+  pendingOperations++;
+  try {
+    const staker = pickRandom(nonStakers);
+    const balance = await staker.wallet.getBalance();
+    
+    if (balance < 200) return;
+    
+    const stakeAmount = Math.floor(balance * 0.3);
+
+    const res = await fetchWithTimeout(`${NODE_URL}/api/staking/stake`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        address: staker.fingerprint,
+        amount: stakeAmount
+      }),
+    });
+
+    if (res.ok) {
+      staker.isStaking = true;
+      totalStakes++;
+      log(`Staked: ${staker.fingerprint.slice(0, 16)}... staked ${stakeAmount} coins`);
+    }
+  } catch (err: any) {
+    errors++;
+  } finally {
+    pendingOperations--;
+  }
+}
+
+async function claimRewards(): Promise<void> {
+  if (wallets.length === 0) return;
+  if (pendingOperations >= maxPendingOps) return;
+
+  pendingOperations++;
+  try {
+    const claimer = pickRandom(wallets);
+
+    const summaryRes = await fetchWithTimeout(`${NODE_URL}/api/rewards/${claimer.fingerprint}`);
+    if (!summaryRes.ok) return;
+    
+    const summary = await summaryRes.json() as { pending: number };
+    if (summary.pending < 1) return;
+
+    const res = await fetchWithTimeout(`${NODE_URL}/api/rewards/${claimer.fingerprint}/claim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (res.ok) {
+      const result = await res.json() as { claimed: number };
+      totalRewardsClaimed += result.claimed || 0;
+      log(`Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.claimed} coins`);
+    }
+  } catch (err: any) {
   } finally {
     pendingOperations--;
   }
@@ -151,44 +366,55 @@ function log(msg: string): void {
 function printStats(): void {
   const memUsage = process.memoryUsage();
   const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+  const stakingWallets = wallets.filter(w => w.isStaking).length;
+  const contractOwners = wallets.filter(w => w.hasContract).length;
 
-  console.log("\n" + "-".repeat(50));
-  console.log(`ACTIVITY BOT STATS`);
-  console.log("-".repeat(50));
-  console.log(`  Wallets: ${wallets.length}/${MAX_WALLETS}`);
-  console.log(`  Faucet hits: ${totalFaucetHits}`);
-  console.log(`  Transactions: ${totalTransactions}`);
-  console.log(`  Errors: ${errors}`);
-  console.log(`  Pending ops: ${pendingOperations}/${CONCURRENT_LIMIT}`);
-  console.log(`  Heap memory: ${heapMB} MB`);
-  console.log(`  Faucet interval: ${FAUCET_INTERVAL_MS / 1000}s`);
-  console.log(`  TX interval: ${TX_INTERVAL_MS / 1000}s`);
-  console.log("-".repeat(50) + "\n");
+  console.log("\n" + "=".repeat(55));
+  console.log("RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION");
+  console.log("=".repeat(55));
+  console.log(`  Wallets: ${wallets.length}/${MAX_WALLETS} (${stakingWallets} staking, ${contractOwners} w/contracts)`);
+  console.log(`  Transactions: ${totalTransactions} | Faucet: ${totalFaucetHits}`);
+  console.log(`  Contracts: ${totalContractDeploys} deployed, ${totalContractCalls} calls`);
+  console.log(`  Staking: ${totalStakes} stakes, ${totalRewardsClaimed} rewards claimed`);
+  console.log(`  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps}`);
+  console.log(`  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT}`);
+  console.log("=".repeat(55) + "\n");
+}
+
+async function checkTipCount(): Promise<void> {
+  try {
+    const res = await fetchWithTimeout(`${NODE_URL}/api/dag/summary`);
+    if (res.ok) {
+      const data = await res.json() as { tipCount: number; totalNodes: number };
+      log(`DAG Status: ${data.totalNodes} nodes, ${data.tipCount} tips`);
+    }
+  } catch {}
 }
 
 async function main() {
-  console.log("=".repeat(50));
-  console.log("RINKU ACTIVITY BOT");
-  console.log("=".repeat(50));
+  console.log("=".repeat(55));
+  console.log("RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION");
+  console.log("=".repeat(55));
   console.log(`Node: ${NODE_URL}`);
   console.log(`Faucet: ${FAUCET_URL}`);
-  console.log(`Faucet interval: ${FAUCET_INTERVAL_MS / 1000}s`);
+  console.log(`Concurrent transactions: ${CONCURRENT_TX_COUNT}`);
   console.log(`TX interval: ${TX_INTERVAL_MS / 1000}s`);
+  console.log(`Contract interval: ${CONTRACT_INTERVAL_MS / 1000}s`);
+  console.log(`Staking interval: ${STAKING_INTERVAL_MS / 1000}s`);
+  console.log(`Rewards interval: ${REWARDS_INTERVAL_MS / 1000}s`);
   console.log(`Max wallets: ${MAX_WALLETS}`);
-  console.log(`Concurrent limit: ${CONCURRENT_LIMIT}`);
-  console.log(`Fetch timeout: ${FETCH_TIMEOUT_MS}ms`);
-  console.log("=".repeat(50) + "\n");
+  console.log("=".repeat(55) + "\n");
 
-  log("Starting activity simulation...");
-  log("Creating initial wallets with real keypairs...");
+  log("Starting enhanced activity simulation...");
+  log("Creating initial wallets...");
 
   for (let i = 0; i < 5; i++) {
     await createNewWallet();
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 500));
   }
 
   setInterval(async () => {
-    if (Math.random() < 0.7 && wallets.length < MAX_WALLETS) {
+    if (Math.random() < 0.6 && wallets.length < MAX_WALLETS) {
       await createNewWallet();
     } else {
       await doRandomFaucetDrop();
@@ -196,12 +422,30 @@ async function main() {
   }, FAUCET_INTERVAL_MS);
 
   setInterval(async () => {
-    await doRandomTransaction();
+    await doConcurrentTransactions();
   }, TX_INTERVAL_MS);
 
-  setInterval(printStats, 60000);
+  setInterval(async () => {
+    if (Math.random() < 0.3) {
+      await deployContract();
+    } else {
+      await callContract();
+    }
+  }, CONTRACT_INTERVAL_MS);
 
-  log("Bot running with real wallet-to-wallet transactions!");
+  setInterval(async () => {
+    await doStaking();
+  }, STAKING_INTERVAL_MS);
+
+  setInterval(async () => {
+    await claimRewards();
+  }, REWARDS_INTERVAL_MS);
+
+  setInterval(printStats, 60000);
+  setInterval(checkTipCount, 30000);
+
+  log("Enhanced bot running!");
+  log("Features: Concurrent TX, Contracts, Staking, Rewards");
   log("Press Ctrl+C to stop.");
 }
 

@@ -175,17 +175,22 @@ async function main() {
       const pruned = consensus.pruneDAG(MAX_DAG_NODES);
       if (pruned > 0) {
         console.log(`[Pruning] Removed ${pruned} old DAG nodes. Size: ${dagSize} -> ${consensus.getDAGSize()}`);
-        if (global.gc) {
-          global.gc();
-        }
+      }
+    }
+    
+    if (rewardsService) {
+      const rewardsPruned = rewardsService.pruneOldData();
+      if (rewardsPruned > 0) {
+        console.log(`[Pruning] Removed ${rewardsPruned} expired witness entries`);
       }
     }
     
     const memUsage = process.memoryUsage();
     const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
-    console.log(`[Stats] DAG: ${consensus.getDAGSize()} nodes, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB`);
+    const rewardsStats = rewardsService?.getStats();
+    console.log(`[Stats] DAG: ${consensus.getDAGSize()} nodes, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB, Witnessed: ${rewardsStats?.witnessedCount || 0}`);
     
-    if (heapMB > 300 && global.gc) {
+    if (heapMB > 300 && typeof global.gc === 'function') {
       console.log('[GC] Forcing garbage collection...');
       global.gc();
     }
