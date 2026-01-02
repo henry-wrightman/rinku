@@ -85,7 +85,23 @@ async function validateTransactionHashes(transactions: any[]) {
   
   for (const node of transactions) {
     const tx = node.tx || node;
-    const txForHash = {
+    const actualHash = tx.hash || node.hash;
+    
+    // Try with fee first (new transactions)
+    const txWithFee: any = {
+      from: tx.from,
+      to: tx.to,
+      amount: tx.amount,
+      fee: tx.fee,
+      nonce: tx.nonce,
+      tipUrls: tx.tipUrls || [],
+      sig: tx.sig,
+      ts: tx.ts
+    };
+    const hashWithFee = await hashTransaction(txWithFee);
+    
+    // Try without fee (old transactions before gas feature)
+    const txWithoutFee: any = {
       from: tx.from,
       to: tx.to,
       amount: tx.amount,
@@ -94,14 +110,14 @@ async function validateTransactionHashes(transactions: any[]) {
       sig: tx.sig,
       ts: tx.ts
     };
-    const expectedHash = await hashTransaction(txForHash);
-    const actualHash = tx.hash || node.hash;
+    const hashWithoutFee = await hashTransaction(txWithoutFee);
     
-    if (expectedHash !== actualHash) {
+    // Accept either hash (backwards compatible)
+    if (hashWithFee !== actualHash && hashWithoutFee !== actualHash) {
       hashErrors++;
       if (hashErrors <= 10) {
         record('hashes', `Hash for ${actualHash?.slice(0, 8) || 'unknown'}...`, false, 
-          `Expected ${expectedHash.slice(0, 8)}...`);
+          `Expected ${hashWithFee.slice(0, 8)}... or ${hashWithoutFee.slice(0, 8)}...`);
       }
     }
   }
@@ -132,7 +148,21 @@ async function validateSignatures(transactions: any[], publicKeys: Map<string, U
     }
     
     try {
-      const txForHash = {
+      // Try with fee first (new transactions)
+      const txWithFee: any = {
+        from: tx.from,
+        to: tx.to,
+        amount: tx.amount,
+        fee: tx.fee,
+        nonce: tx.nonce,
+        tipUrls: tx.tipUrls || [],
+        sig: '',
+        ts: tx.ts
+      };
+      const hashWithFee = await hashTransaction(txWithFee);
+      
+      // Try without fee (old transactions before gas feature)
+      const txWithoutFee: any = {
         from: tx.from,
         to: tx.to,
         amount: tx.amount,
@@ -141,8 +171,12 @@ async function validateSignatures(transactions: any[], publicKeys: Map<string, U
         sig: '',
         ts: tx.ts
       };
-      const txHash = await hashTransaction(txForHash);
-      const isValid = await verify(txHash, tx.sig, pubKey);
+      const hashWithoutFee = await hashTransaction(txWithoutFee);
+      
+      // Verify against either hash (backwards compatible)
+      const isValidWithFee = await verify(hashWithFee, tx.sig, pubKey);
+      const isValidWithoutFee = await verify(hashWithoutFee, tx.sig, pubKey);
+      const isValid = isValidWithFee || isValidWithoutFee;
       
       if (!isValid) {
         sigErrors++;
@@ -518,9 +552,10 @@ async function validateBalanceConsistency(transactions: any[]) {
     
     for (const node of sorted) {
       const tx = node.tx || node;
+      const fee = tx.fee || 0;
       
       const fromBal = computed.get(tx.from) || 0;
-      computed.set(tx.from, fromBal - tx.amount);
+      computed.set(tx.from, fromBal - tx.amount - fee);
       
       const toBal = computed.get(tx.to) || 0;
       computed.set(tx.to, toBal + tx.amount);
