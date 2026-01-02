@@ -149,9 +149,9 @@ function App() {
         </div>
         <div className="stat-item">
           <span className="stat-value">
-            {formatNumber(networkStats?.checkpointCount || 0)}
+            {formatNumber(networkStats?.latestCheckpointHeight || 0)}
           </span>
-          <span className="stat-label">checkpoints</span>
+          <span className="stat-label">checkpoint height</span>
         </div>
         <div className="stat-item">
           <span className="stat-value">
