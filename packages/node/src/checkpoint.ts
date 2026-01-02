@@ -36,6 +36,7 @@ export class CheckpointService {
   private config: CheckpointConfig;
   private intervalId: NodeJS.Timeout | null = null;
   private chainId: string;
+  private onCheckpointCallback?: (checkpointId: string, height: number) => void;
 
   constructor(
     private deps: CheckpointServiceDeps,
@@ -44,6 +45,10 @@ export class CheckpointService {
   ) {
     this.config = { ...DEFAULT_CHECKPOINT_CONFIG, ...config };
     this.chainId = chainId;
+  }
+
+  onCheckpoint(callback: (checkpointId: string, height: number) => void): void {
+    this.onCheckpointCallback = callback;
   }
 
   getConfig(): CheckpointConfig {
@@ -103,6 +108,10 @@ export class CheckpointService {
     this.latestCheckpoint = checkpoint;
 
     this.pruneOldCheckpoints();
+
+    if (this.onCheckpointCallback) {
+      this.onCheckpointCallback(checkpoint.checkpointId, checkpoint.height);
+    }
 
     return checkpoint;
   }

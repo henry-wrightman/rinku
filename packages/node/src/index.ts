@@ -160,6 +160,13 @@ async function main() {
     }
   }, SNAPSHOT_DEBOUNCE_MS);
 
+  checkpointService.onCheckpoint((checkpointId, height) => {
+    const count = consensus.stampFinalityForAll(checkpointId, height);
+    if (count > 0) {
+      console.log(`[Finality] Stamped ${count} transactions with checkpoint ${checkpointId.slice(0, 8)}... at height ${height}`);
+    }
+  });
+
   checkpointService.start(60000);
   
   console.log('Smart contract service enabled');

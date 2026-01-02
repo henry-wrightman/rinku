@@ -144,18 +144,24 @@ export class Consensus {
 
   getSelfCrawlableBundle(
     hash: string,
-    isConfirmed: (hash: string) => boolean,
-    getCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+    getLatestCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
   ): SelfCrawlableBundle | null {
-    return this.dag.buildSelfCrawlableBundle(hash, isConfirmed, getCheckpoint);
+    return this.dag.buildSelfCrawlableBundle(hash, getLatestCheckpoint);
   }
 
   getSelfCrawlableUrl(
     hash: string,
-    isConfirmed: (hash: string) => boolean,
-    getCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+    getLatestCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
   ): string | null {
-    return this.dag.getSelfCrawlableUrl(hash, isConfirmed, getCheckpoint);
+    return this.dag.getSelfCrawlableUrl(hash, getLatestCheckpoint);
+  }
+
+  stampFinalityForAll(checkpointId: string, checkpointHeight: number): number {
+    return this.dag.stampFinalityForAll(checkpointId, checkpointHeight);
+  }
+
+  hasFinality(hash: string): boolean {
+    return this.dag.hasFinality(hash);
   }
 
   toJSON(): { dag: object; publicKeys: [string, number[]][] } {

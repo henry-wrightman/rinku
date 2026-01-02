@@ -160,12 +160,7 @@ export function createAPI(
       return;
     }
 
-    const isConfirmed = (txHash: string) => {
-      const n = consensus.getNode(txHash);
-      return n?.confirmed || false;
-    };
-
-    const getCheckpoint = checkpointService 
+    const getLatestCheckpoint = checkpointService 
       ? () => {
           const latest = checkpointService.getLatestCheckpoint();
           if (!latest) return null;
@@ -178,16 +173,20 @@ export function createAPI(
         }
       : undefined;
 
-    const proofUrl = consensus.getSelfCrawlableUrl(hash, isConfirmed, getCheckpoint);
+    const proofUrl = consensus.getSelfCrawlableUrl(hash, getLatestCheckpoint);
     if (!proofUrl) {
       res.status(500).json({ error: 'Failed to generate proof URL' });
       return;
     }
 
+    const bundle = consensus.getSelfCrawlableBundle(hash, getLatestCheckpoint);
+
     res.json({
       hash,
       proofUrl,
-      bundle: consensus.getSelfCrawlableBundle(hash, isConfirmed, getCheckpoint)
+      bundle,
+      hasFinality: consensus.hasFinality(hash),
+      finality: node.finality
     });
   });
 

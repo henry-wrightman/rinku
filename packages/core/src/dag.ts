@@ -1,4 +1,4 @@
-import type { DAGNode, SignedTransaction, SelfCrawlableBundle, Checkpoint } from './types.js';
+import type { DAGNode, SignedTransaction, SelfCrawlableBundle, Checkpoint, FinalityMetadata } from './types.js';
 import { hashTransaction } from './crypto.js';
 import { parseTransactionURL, createTransactionURL, createSelfCrawlableURL } from './encoding.js';
 
@@ -143,8 +143,7 @@ export class DAG {
 
   buildSelfCrawlableBundle(
     hash: string,
-    isConfirmed: (hash: string) => boolean,
-    getCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+    getLatestCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
   ): SelfCrawlableBundle | null {
     const node = this.nodes.get(hash);
     if (!node) return null;
@@ -156,12 +155,13 @@ export class DAG {
       const parentHash = this.resolveUrlToHash(parentUrl);
       if (!parentHash) continue;
       
-      if (isConfirmed(parentHash)) {
+      const parentNode = this.nodes.get(parentHash);
+      if (parentNode?.finality) {
         ancestryTruncated = true;
         continue;
       }
       
-      const parentBundle = this.buildSelfCrawlableBundle(parentHash, isConfirmed, getCheckpoint);
+      const parentBundle = this.buildSelfCrawlableBundle(parentHash, getLatestCheckpoint);
       if (parentBundle) {
         parents.push(parentBundle);
         if (parentBundle.checkpointAnchor) {
@@ -184,8 +184,8 @@ export class DAG {
       parents
     };
 
-    if (getCheckpoint && ancestryTruncated) {
-      const checkpoint = getCheckpoint();
+    if (getLatestCheckpoint && ancestryTruncated) {
+      const checkpoint = getLatestCheckpoint();
       if (checkpoint) {
         bundle.checkpointAnchor = checkpoint;
       }
@@ -196,10 +196,9 @@ export class DAG {
 
   getSelfCrawlableUrl(
     hash: string,
-    isConfirmed: (hash: string) => boolean,
-    getCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+    getLatestCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
   ): string | null {
-    const bundle = this.buildSelfCrawlableBundle(hash, isConfirmed, getCheckpoint);
+    const bundle = this.buildSelfCrawlableBundle(hash, getLatestCheckpoint);
     if (!bundle) return null;
     return createSelfCrawlableURL(bundle).path;
   }
@@ -209,6 +208,47 @@ export class DAG {
       const accountWeight = accountWeights.get(node.tx.from) || 0;
       node.weight = accountWeight;
     }
+  }
+
+  setFinality(hash: string, checkpointId: string, checkpointHeight: number): boolean {
+    const node = this.nodes.get(hash);
+    if (!node) return false;
+    
+    if (node.finality) return false;
+    
+    node.finality = {
+      checkpointId,
+      checkpointHeight,
+      finalizedAt: Date.now()
+    };
+    node.confirmed = true;
+    return true;
+  }
+
+  stampFinalityForAll(checkpointId: string, checkpointHeight: number): number {
+    let count = 0;
+    for (const [hash, node] of this.nodes) {
+      if (!node.finality) {
+        node.finality = {
+          checkpointId,
+          checkpointHeight,
+          finalizedAt: Date.now()
+        };
+        node.confirmed = true;
+        count++;
+      }
+    }
+    return count;
+  }
+
+  hasFinality(hash: string): boolean {
+    const node = this.nodes.get(hash);
+    return !!node?.finality;
+  }
+
+  getFinality(hash: string): FinalityMetadata | undefined {
+    const node = this.nodes.get(hash);
+    return node?.finality;
   }
 
   resolveConflict(tx1Hash: string, tx2Hash: string): string {
@@ -347,7 +387,8 @@ export class DAG {
         },
         children: node.children,
         weight: node.weight,
-        confirmed: node.confirmed
+        confirmed: node.confirmed,
+        finality: node.finality
       })),
       tipHashes: Array.from(this.tipHashes)
     };
@@ -357,7 +398,7 @@ export class DAG {
     const dag = new DAG();
     
     for (const nodeData of data.nodes) {
-      const { hash, tx, children, weight, confirmed } = nodeData;
+      const { hash, tx, children, weight, confirmed, finality } = nodeData;
       
       const compactUrl = `/tx/h/${hash}`;
       
@@ -372,13 +413,14 @@ export class DAG {
         tipUrls: [] as string[]
       };
       
-      const node = {
+      const node: DAGNode = {
         tx: restoredTx,
         parentUrls: [] as string[],
         children: children || [],
         weight: weight || 0,
         confirmed: confirmed || false,
-        url: compactUrl
+        url: compactUrl,
+        finality: finality
       };
       
       dag.nodes.set(hash, node);

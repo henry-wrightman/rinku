@@ -19,6 +19,13 @@ export interface SignedTransaction extends Transaction {
   hash: string;
 }
 
+/** Finality metadata stamped when transaction is included in a finalized checkpoint */
+export interface FinalityMetadata {
+  checkpointId: string;
+  checkpointHeight: number;
+  finalizedAt: number;
+}
+
 export interface DAGNode {
   tx: SignedTransaction;
   parentUrls: string[];
@@ -26,6 +33,7 @@ export interface DAGNode {
   weight: number;
   confirmed: boolean;
   url?: string;
+  finality?: FinalityMetadata;
 }
 
 export interface MerkleNode {
