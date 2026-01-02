@@ -65,8 +65,10 @@ a:hover, .link:hover {
 
 .stats {
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 16px;
   margin-bottom: 24px;
+  justify-content: center;
 }
 
 .stats .stat-item {
@@ -78,6 +80,23 @@ a:hover, .link:hover {
   border: 1px solid #333;
   border-radius: 6px;
   min-width: 80px;
+  flex: 0 1 auto;
+}
+
+@media (max-width: 700px) {
+  .stats {
+    gap: 10px;
+  }
+  .stats .stat-item {
+    min-width: 70px;
+    padding: 10px 12px;
+  }
+  .stats .stat-value {
+    font-size: 18px;
+  }
+  .stats .stat-label {
+    font-size: 9px;
+  }
 }
 
 .stats .stat-value {
