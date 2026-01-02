@@ -180,11 +180,12 @@ async function doConcurrentTransactions(): Promise<void> {
       const recipient = pickRandom(recipients);
       const amount = Math.floor(Math.random() * 5) + 1;
 
+      const GAS_FEE = 0.01;
       txPromises.push(
         sender.wallet
           .getBalance()
           .then(async (balance) => {
-            if (balance < amount + 5) return false;
+            if (balance < amount + GAS_FEE + 5) return false;
             return doSingleTransaction(sender, recipient, amount);
           })
           .catch(() => false),

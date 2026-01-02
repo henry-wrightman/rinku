@@ -305,7 +305,7 @@ export function createAPI(
     });
   });
 
-  type LightNode = { hash: string; from: string; to: string; amount: number; ts: number; parentCount: number; url: string; weight: number; confirmed: boolean };
+  type LightNode = { hash: string; from: string; to: string; amount: number; fee: number; ts: number; parentCount: number; url: string; weight: number; confirmed: boolean };
   let sortedNodesCache: { nodes: LightNode[]; lastSize: number; timestamp: number } | null = null;
   const CACHE_TTL = 5000;
 
@@ -325,6 +325,7 @@ export function createAPI(
       from: node.tx.from,
       to: node.tx.to,
       amount: node.tx.amount,
+      fee: node.tx.fee || 0,
       ts: node.tx.ts,
       parentCount: node.tx.tipUrls?.length || 0,
       url: node.url || '',

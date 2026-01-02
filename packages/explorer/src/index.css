@@ -152,6 +152,11 @@ a:hover, .link:hover {
   margin-top: 4px;
 }
 
+.dag-node .amount .fee {
+  color: #ebcb8b;
+  font-size: 12px;
+}
+
 .dag-node .meta {
   color: #555;
   font-size: 12px;

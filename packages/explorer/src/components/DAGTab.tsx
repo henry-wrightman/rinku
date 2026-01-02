@@ -54,7 +54,10 @@ export function DAGTab({ nodes, merkleRoot, page, totalNodes, hasMore, onPageCha
               {truncate(node.hash, 12)}
             </span>
           </div>
-          <div className="amount">{node.amount.toLocaleString()} coins</div>
+          <div className="amount">
+            {node.amount.toLocaleString()} coins
+            {node.fee > 0 && <span className="fee"> (+{node.fee} fee)</span>}
+          </div>
           <div className="meta">
             {node.from === "genesis" ? "genesis" : truncate(node.from, 6)}{" "}
             → {truncate(node.to, 6)} · {timeAgo(node.ts)} · refs{" "}

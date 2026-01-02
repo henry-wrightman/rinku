@@ -13,7 +13,10 @@ export interface CreateTransactionOptions {
   amount: number;
   nonce: number;
   tipUrls: string[];
+  fee?: number;
 }
+
+const DEFAULT_FEE = 0.01;
 
 export async function createTransaction(
   keyPair: KeyPair,
@@ -23,6 +26,7 @@ export async function createTransaction(
     from: keyPair.fingerprint,
     to: options.to,
     amount: options.amount,
+    fee: options.fee ?? DEFAULT_FEE,
     nonce: options.nonce,
     tipUrls: options.tipUrls,
     sig: '',

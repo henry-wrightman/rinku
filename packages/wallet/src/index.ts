@@ -82,8 +82,9 @@ export class Wallet {
       throw new Error('Wallet not initialized');
     }
 
-    if (this.state.balance < amount) {
-      throw new Error('Insufficient balance');
+    const fee = 0.01;
+    if (this.state.balance < amount + fee) {
+      throw new Error('Insufficient balance for amount + fee');
     }
 
     const tipsResponse = await fetch(`${this.nodeUrl}/api/tipUrls`);

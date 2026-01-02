@@ -10,6 +10,7 @@ export interface DAGNode {
   from: string;
   to: string;
   amount: number;
+  fee: number;
   ts: number;
   parentCount: number;
   url: string;
