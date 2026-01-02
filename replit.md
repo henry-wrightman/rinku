@@ -3,6 +3,8 @@
 ## Overview
 Rinku (Japanese for "link") is a URL-native distributed ledger with DAG-based consensus and weight-based Sybil resistance. The entire state exists as cryptographically-linked URLs.
 
+**Security Documentation**: See [SECURITY.md](./SECURITY.md) for comprehensive security analysis and attack vector defenses.
+
 ## Project Structure
 ```
 rinku/
