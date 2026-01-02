@@ -13,13 +13,15 @@
     "test:node": "npm run test -w @rinku/node",
     "dev:node": "npm run dev -w @rinku/node",
     "dev:explorer": "npm run dev -w @rinku/explorer",
-    "dev:faucet": "npm run dev -w @rinku/faucet"
+    "dev:faucet": "npm run dev -w @rinku/faucet",
+    "validate": "npx tsx scripts/validate-testnet.ts"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "tsx": "^4.21.0",
     "vitest": "^4.0.16"
   }
 }
