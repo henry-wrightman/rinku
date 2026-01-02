@@ -238,6 +238,8 @@ export interface Checkpoint {
   checkpointId: string;
   height: number;
   merkleRoot: string;
+  txMerkleRoot?: string;
+  txHashes?: string[];
   tipCount: number;
   totalTransactions: number;
   totalWeight: number;
@@ -253,6 +255,7 @@ export interface CheckpointProof {
   checkpointId: string;
   checkpointHeight: number;
   merkleRoot: string;
+  txMerkleRoot?: string;
   signatureCount: number;
   totalValidatorWeight: number;
   totalNetworkWeight: number;
@@ -281,14 +284,24 @@ export interface FinalizedTransactionURL {
 export interface CheckpointAnchor {
   checkpointId: string;
   merkleRoot: string;
+  txMerkleRoot?: string;
   height: number;
   signatureCount: number;
 }
 
-/** Reference to a truncated (finalized) parent with its checkpoint anchor */
+/** Merkle inclusion proof for a transaction */
+export interface TransactionMerkleProof {
+  proof: string[];
+  index: number;
+  txMerkleRoot: string;
+}
+
+/** Reference to a truncated (finalized) parent with self-contained verification data */
 export interface TruncatedParentRef {
   hash: string;
+  tx: Transaction;
   checkpointAnchor: CheckpointAnchor;
+  merkleProof?: TransactionMerkleProof;
 }
 
 /** Self-crawlable transaction bundle - contains full ancestry back to checkpoint(s) */

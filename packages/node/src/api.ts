@@ -152,7 +152,7 @@ export function createAPI(
     res.json(node);
   });
 
-  app.get('/api/tx/:hash/proof', (req, res) => {
+  app.get('/api/tx/:hash/proof', async (req, res) => {
     const hash = req.params.hash;
     const node = consensus.getNode(hash);
     if (!node) {
@@ -167,19 +167,26 @@ export function createAPI(
           return {
             checkpointId: checkpoint.checkpointId,
             merkleRoot: checkpoint.merkleRoot,
+            txMerkleRoot: checkpoint.txMerkleRoot,
             height: checkpoint.height,
             signatureCount: checkpoint.signatures.length
           };
         }
       : undefined;
 
-    const proofUrl = consensus.getSelfCrawlableUrl(hash, getCheckpoint);
+    const getMerkleProof = checkpointService
+      ? async (txHash: string, checkpointId: string) => {
+          return checkpointService.getTransactionMerkleProof(txHash, checkpointId);
+        }
+      : undefined;
+
+    const proofUrl = await consensus.getSelfCrawlableUrl(hash, getCheckpoint, getMerkleProof);
     if (!proofUrl) {
       res.status(500).json({ error: 'Failed to generate proof URL' });
       return;
     }
 
-    const bundle = consensus.getSelfCrawlableBundle(hash, getCheckpoint);
+    const bundle = await consensus.getSelfCrawlableBundle(hash, getCheckpoint, getMerkleProof);
 
     res.json({
       hash,

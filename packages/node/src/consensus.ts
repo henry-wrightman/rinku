@@ -142,18 +142,20 @@ export class Consensus {
     return new Map(this.publicKeys);
   }
 
-  getSelfCrawlableBundle(
+  async getSelfCrawlableBundle(
     hash: string,
-    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
-  ): SelfCrawlableBundle | null {
-    return this.dag.buildSelfCrawlableBundle(hash, getCheckpoint);
+    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
+    getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>
+  ): Promise<SelfCrawlableBundle | null> {
+    return this.dag.buildSelfCrawlableBundle(hash, getCheckpoint, getMerkleProof);
   }
 
-  getSelfCrawlableUrl(
+  async getSelfCrawlableUrl(
     hash: string,
-    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
-  ): string | null {
-    return this.dag.getSelfCrawlableUrl(hash, getCheckpoint);
+    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
+    getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>
+  ): Promise<string | null> {
+    return this.dag.getSelfCrawlableUrl(hash, getCheckpoint, getMerkleProof);
   }
 
   stampFinalityForAll(checkpointId: string, checkpointHeight: number): number {

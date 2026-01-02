@@ -1,4 +1,4 @@
-import type { DAGNode, SignedTransaction, SelfCrawlableBundle, Checkpoint, FinalityMetadata } from './types.js';
+import type { DAGNode, SignedTransaction, SelfCrawlableBundle, Checkpoint, FinalityMetadata, TruncatedParentRef } from './types.js';
 import { hashTransaction } from './crypto.js';
 import { parseTransactionURL, createTransactionURL, createSelfCrawlableURL } from './encoding.js';
 
@@ -141,15 +141,16 @@ export class DAG {
     }).filter(url => url !== '');
   }
 
-  buildSelfCrawlableBundle(
+  async buildSelfCrawlableBundle(
     hash: string,
-    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
-  ): SelfCrawlableBundle | null {
+    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
+    getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>
+  ): Promise<SelfCrawlableBundle | null> {
     const node = this.nodes.get(hash);
     if (!node) return null;
 
     const parents: SelfCrawlableBundle[] = [];
-    const truncatedParents: { hash: string; checkpointAnchor: { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } }[] = [];
+    const truncatedParents: TruncatedParentRef[] = [];
 
     for (const parentUrl of node.tx.tipUrls) {
       const parentHash = this.resolveUrlToHash(parentUrl);
@@ -159,15 +160,35 @@ export class DAG {
       if (parentNode?.finality && getCheckpoint) {
         const checkpoint = getCheckpoint(parentNode.finality.checkpointId);
         if (checkpoint) {
-          truncatedParents.push({
+          const truncatedRef: TruncatedParentRef = {
             hash: parentHash,
+            tx: {
+              from: parentNode.tx.from,
+              to: parentNode.tx.to,
+              amount: parentNode.tx.amount,
+              nonce: parentNode.tx.nonce,
+              tipUrls: parentNode.tx.tipUrls,
+              sig: parentNode.tx.sig,
+              ts: parentNode.tx.ts
+            },
             checkpointAnchor: checkpoint
-          });
+          };
+          if (getMerkleProof && checkpoint.txMerkleRoot) {
+            const proofResult = await getMerkleProof(parentHash, parentNode.finality.checkpointId);
+            if (proofResult) {
+              truncatedRef.merkleProof = {
+                proof: proofResult.proof,
+                index: proofResult.index,
+                txMerkleRoot: proofResult.txMerkleRoot
+              };
+            }
+          }
+          truncatedParents.push(truncatedRef);
         }
         continue;
       }
       
-      const parentBundle = this.buildSelfCrawlableBundle(parentHash, getCheckpoint);
+      const parentBundle = await this.buildSelfCrawlableBundle(parentHash, getCheckpoint, getMerkleProof);
       if (parentBundle) {
         parents.push(parentBundle);
       }
@@ -194,11 +215,12 @@ export class DAG {
     return bundle;
   }
 
-  getSelfCrawlableUrl(
+  async getSelfCrawlableUrl(
     hash: string,
-    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
-  ): string | null {
-    const bundle = this.buildSelfCrawlableBundle(hash, getCheckpoint);
+    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
+    getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>
+  ): Promise<string | null> {
+    const bundle = await this.buildSelfCrawlableBundle(hash, getCheckpoint, getMerkleProof);
     if (!bundle) return null;
     return createSelfCrawlableURL(bundle).path;
   }

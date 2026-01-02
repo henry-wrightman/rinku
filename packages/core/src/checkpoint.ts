@@ -61,13 +61,17 @@ export async function createCheckpoint(
   totalTransactions: number,
   totalWeight: number,
   validators: ValidatorEntry[],
-  previousCheckpointId: string | null
+  previousCheckpointId: string | null,
+  txMerkleRoot?: string,
+  txHashes?: string[]
 ): Promise<Checkpoint> {
   const timestamp = Date.now();
   return {
     checkpointId: await createCheckpointId(height, merkleRoot, timestamp),
     height,
     merkleRoot,
+    txMerkleRoot,
+    txHashes,
     tipCount,
     totalTransactions,
     totalWeight,
@@ -100,6 +104,7 @@ export function createCheckpointProof(
     checkpointId: checkpoint.checkpointId,
     checkpointHeight: checkpoint.height,
     merkleRoot: checkpoint.merkleRoot,
+    txMerkleRoot: checkpoint.txMerkleRoot,
     signatureCount: checkpoint.signatures.length,
     totalValidatorWeight: validatorWeightPercent,
     totalNetworkWeight: checkpoint.totalWeight,

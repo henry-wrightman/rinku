@@ -107,7 +107,8 @@ async function main() {
     getTotalWeight: () => rewardsService.getTotalStaked(),
     getPublicKey: (address: string) => consensus.getPublicKeys().get(address),
     getPrivateKey: () => undefined,
-    getNodeAddress: () => NODE_ID
+    getNodeAddress: () => NODE_ID,
+    getAllTransactionHashes: () => consensus.getAllNodes().map(n => n.tx.hash)
   };
 
   let checkpointService: CheckpointService;

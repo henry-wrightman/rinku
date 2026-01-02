@@ -108,3 +108,50 @@ export async function verifyMerkleProof(
 
   return currentHash === root;
 }
+
+export async function getTransactionMerkleRoot(txHashes: string[]): Promise<string> {
+  if (txHashes.length === 0) {
+    return await hash('empty-tx-tree');
+  }
+
+  const sorted = [...txHashes].sort();
+  const leaves: MerkleNode[] = sorted.map(h => ({ hash: h }));
+  const tree = await buildTreeFromLeaves(leaves);
+  return tree.hash;
+}
+
+export async function getTransactionMerkleProof(
+  txHashes: string[],
+  targetHash: string
+): Promise<{ proof: string[]; index: number } | null> {
+  const sorted = [...txHashes].sort();
+  const index = sorted.indexOf(targetHash);
+  
+  if (index === -1) return null;
+
+  const leaves: MerkleNode[] = sorted.map(h => ({ hash: h }));
+  const proof: string[] = [];
+  let currentLevel = leaves;
+  let currentIndex = index;
+
+  while (currentLevel.length > 1) {
+    const siblingIndex = currentIndex % 2 === 0 ? currentIndex + 1 : currentIndex - 1;
+    
+    if (siblingIndex < currentLevel.length) {
+      proof.push(currentLevel[siblingIndex].hash);
+    }
+
+    const nextLevel: MerkleNode[] = [];
+    for (let i = 0; i < currentLevel.length; i += 2) {
+      const left = currentLevel[i];
+      const right = currentLevel[i + 1] || left;
+      const combinedHash = await hash(left.hash + right.hash);
+      nextLevel.push({ hash: combinedHash });
+    }
+
+    currentLevel = nextLevel;
+    currentIndex = Math.floor(currentIndex / 2);
+  }
+
+  return { proof, index };
+}

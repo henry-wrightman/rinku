@@ -13,7 +13,8 @@ import {
   DEFAULT_CHECKPOINT_CONFIG,
   GENESIS_CHECKPOINT_ID,
   sign,
-  verify
+  verify,
+  getTransactionMerkleRoot
 } from '@rinku/core';
 
 export interface CheckpointServiceDeps {
@@ -25,6 +26,7 @@ export interface CheckpointServiceDeps {
   getPublicKey: (address: string) => Uint8Array | undefined;
   getPrivateKey: () => Uint8Array | undefined;
   getNodeAddress: () => string;
+  getAllTransactionHashes?: () => string[];
 }
 
 export class CheckpointService {
@@ -93,6 +95,9 @@ export class CheckpointService {
 
     const previousCheckpointId = this.latestCheckpoint?.checkpointId || null;
     const validators = this.deps.getValidatorEntries();
+    
+    const txHashes = this.deps.getAllTransactionHashes?.() || [];
+    const txMerkleRoot = txHashes.length > 0 ? await getTransactionMerkleRoot(txHashes) : undefined;
 
     const checkpoint = await createCheckpoint(
       this.checkpointHeight,
@@ -101,7 +106,9 @@ export class CheckpointService {
       this.deps.getTotalTransactions(),
       this.deps.getTotalWeight(),
       validators,
-      previousCheckpointId
+      previousCheckpointId,
+      txMerkleRoot,
+      txHashes.length > 0 ? txHashes : undefined
     );
 
     this.checkpoints.set(checkpoint.checkpointId, checkpoint);
@@ -189,6 +196,26 @@ export class CheckpointService {
 
   getLatestCheckpoint(): Checkpoint | null {
     return this.latestCheckpoint;
+  }
+
+  async getTransactionMerkleProof(
+    txHash: string,
+    checkpointId: string
+  ): Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null> {
+    const checkpoint = this.checkpoints.get(checkpointId);
+    if (!checkpoint || !checkpoint.txMerkleRoot || !checkpoint.txHashes) return null;
+    
+    if (checkpoint.txHashes.length === 0) return null;
+    
+    const { getTransactionMerkleProof: getMerkleProof } = await import('@rinku/core');
+    const proofResult = await getMerkleProof(checkpoint.txHashes, txHash);
+    if (!proofResult) return null;
+    
+    return {
+      proof: proofResult.proof,
+      index: proofResult.index,
+      txMerkleRoot: checkpoint.txMerkleRoot
+    };
   }
 
   getCheckpointProof(checkpointId?: string): CheckpointProof | null {
