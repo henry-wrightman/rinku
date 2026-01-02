@@ -225,6 +225,31 @@ export class RewardsService {
       .reduce((sum, s) => sum + s.amount, 0);
   }
 
+  async distributeFeeToValidators(feeAmount: number): Promise<Map<string, number>> {
+    const distribution = new Map<string, number>();
+    const validators = this.getActiveValidators();
+    
+    if (validators.length === 0 || feeAmount <= 0) {
+      return distribution;
+    }
+
+    const totalStaked = this.getTotalStaked();
+    if (totalStaked === 0) return distribution;
+
+    for (const stake of validators) {
+      const share = (stake.amount / totalStaked) * feeAmount;
+      if (share > 0) {
+        await this.deps.updateBalance(stake.staker, share);
+        distribution.set(stake.staker, share);
+        
+        const pending = this.pendingRewards.get(stake.staker) || 0;
+        this.pendingRewards.set(stake.staker, pending + share);
+      }
+    }
+
+    return distribution;
+  }
+
   getTopStakers(limit: number = 10): StakePosition[] {
     return Array.from(this.stakes.values())
       .sort((a, b) => b.amount - a.amount)

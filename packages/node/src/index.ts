@@ -129,8 +129,22 @@ async function main() {
     console.log(`Added peer: ${peer}`);
   });
 
+  let gasService: GasService;
+  if (snapshot?.gas) {
+    gasService = GasService.fromJSON(snapshot.gas);
+    console.log('Restored gas service data from snapshot');
+  } else {
+    gasService = new GasService({
+      minFee: 0.001,
+      maxFee: 100,
+      baseFee: 0.01,
+      burnPercent: 50,
+      validatorPercent: 50
+    });
+  }
+
   peerSync.onSyncComplete(async () => {
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService);
   });
 
   // Debounced snapshot saving - don't save on every transaction
@@ -146,27 +160,19 @@ async function main() {
     }
     snapshotPending = false;
     lastSnapshotTime = now;
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService);
   };
-
-  const gasService = new GasService({
-    minFee: 0.001,
-    maxFee: 100,
-    baseFee: 0.01,
-    burnPercent: 50,
-    validatorPercent: 50
-  });
   
   const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave);
   
-  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
+  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService);
   
   // Periodic snapshot save for pending changes
   setInterval(async () => {
     if (snapshotPending) {
       snapshotPending = false;
       lastSnapshotTime = Date.now();
-      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
+      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService);
     }
   }, SNAPSHOT_DEBOUNCE_MS);
 
@@ -294,7 +300,8 @@ async function saveSnapshot(
   state: StateManager,
   consensus: Consensus,
   rewardsService?: RewardsService,
-  checkpointService?: CheckpointService
+  checkpointService?: CheckpointService,
+  gasService?: GasService
 ): Promise<void> {
   const stateJson = state.toJSON() as { accounts: [string, any][]; merkleRoot: string };
   const consensusJson = consensus.toJSON();
@@ -306,7 +313,8 @@ async function saveSnapshot(
     dag: consensusJson.dag as { nodes: any[]; tips: string[] },
     publicKeys: consensusJson.publicKeys,
     rewards: rewardsService?.toJSON(),
-    checkpoints: checkpointService?.toJSON()
+    checkpoints: checkpointService?.toJSON(),
+    gas: gasService?.toJSON()
   };
 
   await storage.save(snapshot);

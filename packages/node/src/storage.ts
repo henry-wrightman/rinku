@@ -16,6 +16,7 @@ export interface NodeSnapshot {
   publicKeys: [string, number[]][];
   rewards?: object;
   checkpoints?: object;
+  gas?: object;
 }
 
 export class Storage {

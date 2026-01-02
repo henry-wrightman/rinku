@@ -184,6 +184,15 @@ export function createAPI(
         return;
       }
 
+      const isFaucetOrGenesis = tx.from === 'faucet' || tx.from === 'genesis';
+      if (gasService && !isFaucetOrGenesis) {
+        const feeValidation = gasService.validateFee(tx.fee || 0);
+        if (!feeValidation.valid) {
+          res.status(400).json({ error: feeValidation.error });
+          return;
+        }
+      }
+
       const pubKeyArray = publicKey ? new Uint8Array(publicKey) : undefined;
       
       if (pubKeyArray) {
@@ -208,6 +217,14 @@ export function createAPI(
       }
 
       await consensus.addTransaction(tx);
+
+      if (gasService && tx.fee && tx.fee > 0) {
+        const { toValidators } = gasService.recordFee(tx.fee);
+        
+        if (rewardsService && toValidators > 0) {
+          await rewardsService.distributeFeeToValidators(toValidators);
+        }
+      }
 
       if (onTransaction) {
         onTransaction();
