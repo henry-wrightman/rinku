@@ -152,19 +152,22 @@ export function createAPI(
     res.json(node);
   });
 
-  let lightNodesCache: { nodes: any[]; merkleRoot: string; timestamp: number } | null = null;
-  const CACHE_TTL = 2000;
+  type LightNode = { hash: string; from: string; to: string; amount: number; ts: number; parentCount: number; url: string; weight: number; confirmed: boolean };
+  let sortedNodesCache: { nodes: LightNode[]; lastSize: number; timestamp: number } | null = null;
+  const CACHE_TTL = 5000;
 
-  const getLightNodes = () => {
+  const getSortedNodes = (): LightNode[] => {
     const now = Date.now();
-    const currentMerkle = state.getMerkleRoot();
+    const currentSize = consensus.getDAGSize();
     
-    if (lightNodesCache && (now - lightNodesCache.timestamp) < CACHE_TTL && lightNodesCache.merkleRoot === currentMerkle) {
-      return lightNodesCache.nodes;
+    if (sortedNodesCache && 
+        (now - sortedNodesCache.timestamp) < CACHE_TTL && 
+        sortedNodesCache.lastSize === currentSize) {
+      return sortedNodesCache.nodes;
     }
     
     const allNodes = consensus.getAllNodes();
-    const lightNodes = allNodes.map(node => ({
+    const lightNodes: LightNode[] = allNodes.map(node => ({
       hash: node.tx.hash,
       from: node.tx.from,
       to: node.tx.to,
@@ -176,16 +179,17 @@ export function createAPI(
       confirmed: node.confirmed
     }));
     
-    lightNodesCache = { nodes: lightNodes, merkleRoot: currentMerkle, timestamp: now };
+    lightNodes.sort((a, b) => b.ts - a.ts);
+    
+    sortedNodesCache = { nodes: lightNodes, lastSize: currentSize, timestamp: now };
     return lightNodes;
   };
 
   app.get('/api/dag/summary', (_req, res) => {
-    const tips = consensus.getTips();
+    const tipCount = consensus.getTips().length;
     res.json({
       totalNodes: consensus.getDAGSize(),
-      tipCount: tips.length,
-      tips,
+      tipCount,
       merkleRoot: state.getMerkleRoot(),
       accountCount: state.getAllAccounts().size
     });
@@ -195,21 +199,15 @@ export function createAPI(
     const page = parseInt(req.query.page as string) || 0;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
     
-    const lightNodes = getLightNodes();
-    const tips = consensus.getTips();
-    
-    const sorted = lightNodes.slice().sort((a, b) => b.ts - a.ts);
+    const sorted = getSortedNodes();
     const pageNodes = sorted.slice(page * limit, (page + 1) * limit);
     
     res.json({
       nodes: pageNodes,
-      tips,
-      tipCount: tips.length,
-      totalNodes: lightNodes.length,
+      totalNodes: sorted.length,
       page,
       limit,
-      hasMore: (page + 1) * limit < lightNodes.length,
-      merkleRoot: state.getMerkleRoot()
+      hasMore: (page + 1) * limit < sorted.length
     });
   });
 
