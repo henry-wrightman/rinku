@@ -39,6 +39,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **React:** Frontend development for the explorer.
 - **Vite:** Fast frontend tooling.
 - **Express:** Backend API servers for nodes and faucet.
-- **Web Crypto API:** Cryptographic operations (e.g., ed25519 signatures).
+- **Web Crypto API:** Cryptographic operations (ECDSA P-256 signatures, SHA-256 hashing).
+- **Whitepaper:** See WHITEPAPER.md for complete technical specification.
 - **pako:** DEFLATE compression for URL payloads.
 - **vitest:** Testing framework.
