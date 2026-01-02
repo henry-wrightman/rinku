@@ -22,7 +22,8 @@ export class DAG {
       parentUrls: tx.tipUrls,
       children: [],
       weight: 0,
-      confirmed: false
+      confirmed: false,
+      url: txUrl
     };
 
     for (const parentUrl of tx.tipUrls) {
@@ -75,7 +76,7 @@ export class DAG {
   getTipUrls(): string[] {
     return this.getTips().map(hash => {
       const node = this.nodes.get(hash);
-      return node ? createTransactionURL(node.tx).path : '';
+      return node?.url || '';
     }).filter(url => url !== '');
   }
 
@@ -123,7 +124,7 @@ export class DAG {
     const tipHashes = this.selectTips(count);
     return tipHashes.map(hash => {
       const node = this.nodes.get(hash);
-      return node ? createTransactionURL(node.tx).path : '';
+      return node?.url || '';
     }).filter(url => url !== '');
   }
 
@@ -316,7 +317,9 @@ export class DAG {
       }
       dag.nodes.set(hash, node);
       
-      if (node.tx?.url) {
+      if (node.url) {
+        dag.urlToHash.set(node.url, hash);
+      } else if (node.tx?.url) {
         dag.urlToHash.set(node.tx.url, hash);
       }
     }

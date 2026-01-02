@@ -25,6 +25,7 @@ export interface DAGNode {
   children: string[];
   weight: number;
   confirmed: boolean;
+  url?: string;
 }
 
 export interface MerkleNode {

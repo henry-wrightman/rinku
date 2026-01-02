@@ -9,9 +9,7 @@ import { RewardsService } from './rewards.js';
 import { CheckpointService } from './checkpoint.js';
 import { 
   parseTransactionURL, 
-  createTransactionURL, 
   parseContractURL,
-  createContractURL,
   createContractId,
   computeStateHash,
   embedProofInUrl,
@@ -159,12 +157,7 @@ export function createAPI(
     const nodes = consensus.getAllNodes();
     const tips = consensus.getTips();
     
-    const nodesWithUrls = nodes.map(node => ({
-      ...node,
-      url: createTransactionURL(node.tx).path
-    }));
-    
-    res.json({ nodes: nodesWithUrls, tips, tipCount: tips.length, merkleRoot: state.getMerkleRoot() });
+    res.json({ nodes, tips, tipCount: tips.length, merkleRoot: state.getMerkleRoot() });
   });
 
   app.get('/api/state', (_req, res) => {
@@ -776,9 +769,8 @@ export function createAPI(
       res.json({ finalized: false, reason: 'No checkpoints yet' });
       return;
     }
-    const txUrlObj = createTransactionURL(node.tx);
-    const txUrl = txUrlObj.path;
-    const finalizedUrl = embedProofInUrl(txUrl, proof);
+    const txUrl = node.url || '';
+    const finalizedUrl = txUrl ? embedProofInUrl(txUrl, proof) : '';
     res.json({
       finalized: true,
       txUrl,
