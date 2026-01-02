@@ -212,7 +212,8 @@ export class RewardsService {
 
   getRewardsSummary(address: string): RewardsSummary {
     const rewards = this.rewards.get(address) || [];
-    return createRewardsSummary(address, rewards);
+    const pending = this.pendingRewards.get(address) || 0;
+    return createRewardsSummary(address, rewards, pending);
   }
 
   getActiveValidators(): StakePosition[] {

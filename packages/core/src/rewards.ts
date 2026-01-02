@@ -65,7 +65,8 @@ export function createWitnessReward(
 
 export function createRewardsSummary(
   address: string,
-  rewards: Reward[]
+  rewards: Reward[],
+  pendingAmount: number = 0
 ): RewardsSummary {
   const tipRewards = rewards
     .filter((r): r is TipReward => r.type === 'tip')
@@ -85,7 +86,7 @@ export function createRewardsSummary(
     stakeRewards,
     witnessRewards,
     totalRewards: tipRewards + stakeRewards + witnessRewards,
-    pendingRewards: 0,
+    pendingRewards: pendingAmount,
     rewardHistory: rewards
   };
 }
