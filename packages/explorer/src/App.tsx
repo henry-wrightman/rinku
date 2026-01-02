@@ -8,6 +8,7 @@ import {
   ContractsTab,
   RewardsTab,
   TokenomicsTab,
+  SearchBar,
 } from "./components";
 import { formatNumber, formatTps } from "./utils";
 
@@ -69,6 +70,11 @@ function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [searchResult, setSearchResult] = useState<{
+    type: "transaction" | "account" | "contract" | null;
+    data: any;
+    error?: string;
+  } | null>(null);
 
   useEffect(() => {
     document.body.classList.toggle("light", !darkMode);
@@ -255,6 +261,24 @@ function App() {
               {(finalityStats.lastCheckpointAge / 1000).toFixed(0)}s
             </span>
             <span className="stat-label">last checkpoint</span>
+          </div>
+        </div>
+      )}
+
+      <SearchBar onResult={setSearchResult} />
+
+      {searchResult && (
+        <div className="search-result-modal">
+          <div className="search-result-content">
+            <button className="close-btn" onClick={() => setSearchResult(null)}>x</button>
+            {searchResult.error ? (
+              <div className="error">{searchResult.error}</div>
+            ) : (
+              <>
+                <h3>{searchResult.type}</h3>
+                <pre>{JSON.stringify(searchResult.data, null, 2)}</pre>
+              </>
+            )}
           </div>
         </div>
       )}

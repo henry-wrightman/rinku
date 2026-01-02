@@ -4,6 +4,10 @@ interface FaucetStats {
   rateLimitEntries: number;
   maxEntries: number;
   nodeUrl: string;
+  genesisAllocation?: number;
+  currentBalance?: number;
+  totalDistributed?: number;
+  dropAmount?: number;
 }
 
 interface FaucetTabProps {
@@ -85,23 +89,39 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
   return (
     <div className="rewards-tab">
       <div className="section">
-        <h3>faucet status</h3>
+        <h3>faucet tokenomics</h3>
         <div className="staking-overview">
+          {stats?.genesisAllocation !== undefined && (
+            <div className="stat-row">
+              <span>genesis allocation:</span>
+              <span className="value">{stats.genesisAllocation.toLocaleString()} RKU</span>
+            </div>
+          )}
+          {stats?.currentBalance !== undefined && (
+            <div className="stat-row">
+              <span>remaining balance:</span>
+              <span className="value">{stats.currentBalance.toLocaleString()} RKU</span>
+            </div>
+          )}
+          {stats?.totalDistributed !== undefined && (
+            <div className="stat-row">
+              <span>total distributed:</span>
+              <span className="value">{stats.totalDistributed.toLocaleString()} RKU</span>
+            </div>
+          )}
           <div className="stat-row">
             <span>drop amount:</span>
-            <span className="value">100 coins</span>
+            <span className="value">{stats?.dropAmount || 100} RKU</span>
           </div>
           <div className="stat-row">
             <span>rate limit:</span>
             <span className="value">1 request / 60s</span>
           </div>
           {stats && (
-            <>
-              <div className="stat-row">
-                <span>active rate limits:</span>
-                <span className="value">{stats.rateLimitEntries}</span>
-              </div>
-            </>
+            <div className="stat-row">
+              <span>active rate limits:</span>
+              <span className="value">{stats.rateLimitEntries}</span>
+            </div>
           )}
         </div>
       </div>

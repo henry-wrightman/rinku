@@ -68,12 +68,29 @@ async function main() {
     });
   });
 
-  app.get('/api/stats', (_req, res) => {
-    res.json({
-      rateLimitEntries: requestLog.size,
-      maxEntries: MAX_LOG_ENTRIES,
-      nodeUrl: NODE_URL
-    });
+  app.get('/api/stats', async (_req, res) => {
+    try {
+      const faucetRes = await fetchWithTimeout(`${NODE_URL}/api/account/faucet`);
+      const faucetAccount = await faucetRes.json() as { balance?: number };
+      
+      res.json({
+        rateLimitEntries: requestLog.size,
+        maxEntries: MAX_LOG_ENTRIES,
+        nodeUrl: NODE_URL,
+        genesisAllocation: 1000000,
+        currentBalance: faucetAccount.balance || 0,
+        totalDistributed: 1000000 - (faucetAccount.balance || 0),
+        dropAmount: FAUCET_AMOUNT
+      });
+    } catch {
+      res.json({
+        rateLimitEntries: requestLog.size,
+        maxEntries: MAX_LOG_ENTRIES,
+        nodeUrl: NODE_URL,
+        genesisAllocation: 1000000,
+        dropAmount: FAUCET_AMOUNT
+      });
+    }
   });
 
   app.post('/api/request', async (req, res) => {
