@@ -9,17 +9,6 @@ function compactUrl(hash: string): string {
 function extractHashFromUrl(url: string): string | null {
   const hashMatch = url.match(/\/tx\/h\/([a-f0-9]+)/);
   if (hashMatch) return hashMatch[1];
-  
-  const proofMatch = url.match(/\/txp\/(.+)/);
-  if (proofMatch) {
-    try {
-      const decoded = Buffer.from(proofMatch[1], 'base64url');
-      const { inflate } = require('pako');
-      const json = JSON.parse(inflate(decoded, { to: 'string' }));
-      if (json.hash) return json.hash;
-    } catch {}
-  }
-  
   return null;
 }
 
