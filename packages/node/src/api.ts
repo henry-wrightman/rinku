@@ -158,7 +158,13 @@ export function createAPI(
   app.get('/api/dag', (_req, res) => {
     const nodes = consensus.getAllNodes();
     const tips = consensus.getTips();
-    res.json({ nodes, tips, tipCount: tips.length, merkleRoot: state.getMerkleRoot() });
+    
+    const nodesWithUrls = nodes.map(node => ({
+      ...node,
+      url: createTransactionURL(node.tx).path
+    }));
+    
+    res.json({ nodes: nodesWithUrls, tips, tipCount: tips.length, merkleRoot: state.getMerkleRoot() });
   });
 
   app.get('/api/state', (_req, res) => {

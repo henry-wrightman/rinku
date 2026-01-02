@@ -495,6 +495,39 @@ input[type="text"]::placeholder {
   50% { opacity: 0.4; }
 }
 
+@keyframes rainbow {
+  0% { color: #ff6b6b; }
+  14% { color: #ffa500; }
+  28% { color: #ffd93d; }
+  42% { color: #6bcb77; }
+  57% { color: #4d96ff; }
+  71% { color: #9b59b6; }
+  85% { color: #ff6b9d; }
+  100% { color: #ff6b6b; }
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+@keyframes pulse-opacity {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes blink-color {
+  0% { color: #ff6b6b; }
+  12.5% { color: #ffa500; }
+  25% { color: #ffd93d; }
+  37.5% { color: #6bcb77; }
+  50% { color: #4d96ff; }
+  62.5% { color: #9b59b6; }
+  75% { color: #ff6b9d; }
+  87.5% { color: #00d9ff; }
+  100% { color: #ff6b6b; }
+}
+
 .theme-toggle {
   position: absolute;
   top: 20px;
