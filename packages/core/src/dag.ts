@@ -271,8 +271,7 @@ export class DAG {
         },
         children: node.children,
         weight: node.weight,
-        confirmed: node.confirmed,
-        url: node.url
+        confirmed: node.confirmed
       })),
       tipHashes: Array.from(this.tipHashes)
     };
@@ -282,7 +281,9 @@ export class DAG {
     const dag = new DAG();
     
     for (const nodeData of data.nodes) {
-      const { hash, tx, children, weight, confirmed, url } = nodeData;
+      const { hash, tx, children, weight, confirmed } = nodeData;
+      
+      const compactUrl = `/tx/h/${hash}`;
       
       const restoredTx = {
         from: tx.from,
@@ -292,23 +293,20 @@ export class DAG {
         sig: tx.sig,
         ts: tx.ts,
         hash: tx.hash,
-        tipUrls: tx.tipUrls || []
+        tipUrls: [] as string[]
       };
       
       const node = {
         tx: restoredTx,
-        parentUrls: tx.tipUrls || [],
+        parentUrls: [] as string[],
         children: children || [],
         weight: weight || 0,
         confirmed: confirmed || false,
-        url: url
+        url: compactUrl
       };
       
       dag.nodes.set(hash, node);
-      
-      if (url) {
-        dag.urlToHash.set(url, hash);
-      }
+      dag.urlToHash.set(compactUrl, hash);
     }
 
     for (const nodeData of data.nodes) {
