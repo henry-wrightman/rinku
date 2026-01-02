@@ -45,12 +45,15 @@ function App() {
 
       const summaryData = await summaryRes.json();
       const accountsData = await accountsRes.json();
-      const networkData = await networkRes.json();
-
+      
       setSummary(summaryData);
       setAccounts(accountsData.accounts);
-      setNetworkStats(networkData);
       setConnected(true);
+      
+      if (networkRes.ok) {
+        const networkData = await networkRes.json();
+        setNetworkStats(networkData);
+      }
     } catch (e) {
       console.error("Failed to fetch summary:", e);
       setConnected(false);

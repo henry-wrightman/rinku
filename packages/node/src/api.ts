@@ -61,7 +61,6 @@ export function createAPI(
     });
   });
 
-  const recentTxTimestamps: number[] = [];
   const TPS_WINDOW_MS = 60000;
 
   app.get('/api/stats/network', (_req, res) => {
@@ -69,10 +68,6 @@ export function createAPI(
     const nodes = consensus.getAllNodes();
     
     const cutoff = now - TPS_WINDOW_MS;
-    while (recentTxTimestamps.length > 0 && recentTxTimestamps[0] < cutoff) {
-      recentTxTimestamps.shift();
-    }
-    
     const recentFromDag = nodes.filter(n => n.tx.ts > cutoff).length;
     const tps = recentFromDag / 60;
     
