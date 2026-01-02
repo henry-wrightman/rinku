@@ -172,7 +172,8 @@ export class DAG {
   async buildSelfCrawlableBundle(
     hash: string,
     getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
-    getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>
+    getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>,
+    getPrunedTx?: (hash: string) => { tx: { from: string; to: string; amount: number; nonce: number; tipUrls: string[]; sig: string; ts: number }; checkpointId: string; checkpointHeight: number } | null
   ): Promise<SelfCrawlableBundle | null> {
     const node = this.nodes.get(hash);
     if (!node) return null;
@@ -185,6 +186,33 @@ export class DAG {
       if (!parentHash) continue;
       
       const parentNode = this.nodes.get(parentHash);
+      
+      if (!parentNode && getPrunedTx && getCheckpoint) {
+        const prunedInfo = getPrunedTx(parentHash);
+        if (prunedInfo) {
+          const checkpoint = getCheckpoint(prunedInfo.checkpointId);
+          if (checkpoint) {
+            const truncatedRef: TruncatedParentRef = {
+              hash: parentHash,
+              tx: prunedInfo.tx,
+              checkpointAnchor: checkpoint
+            };
+            if (getMerkleProof && checkpoint.txMerkleRoot) {
+              const proofResult = await getMerkleProof(parentHash, prunedInfo.checkpointId);
+              if (proofResult) {
+                truncatedRef.merkleProof = {
+                  proof: proofResult.proof,
+                  index: proofResult.index,
+                  txMerkleRoot: proofResult.txMerkleRoot
+                };
+              }
+            }
+            truncatedParents.push(truncatedRef);
+          }
+        }
+        continue;
+      }
+      
       if (parentNode?.finality && getCheckpoint) {
         const checkpoint = getCheckpoint(parentNode.finality.checkpointId);
         if (checkpoint) {
@@ -216,7 +244,7 @@ export class DAG {
         continue;
       }
       
-      const parentBundle = await this.buildSelfCrawlableBundle(parentHash, getCheckpoint, getMerkleProof);
+      const parentBundle = await this.buildSelfCrawlableBundle(parentHash, getCheckpoint, getMerkleProof, getPrunedTx);
       if (parentBundle) {
         parents.push(parentBundle);
       }
@@ -246,9 +274,10 @@ export class DAG {
   async getSelfCrawlableUrl(
     hash: string,
     getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
-    getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>
+    getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>,
+    getPrunedTx?: (hash: string) => { tx: { from: string; to: string; amount: number; nonce: number; tipUrls: string[]; sig: string; ts: number }; checkpointId: string; checkpointHeight: number } | null
   ): Promise<string | null> {
-    const bundle = await this.buildSelfCrawlableBundle(hash, getCheckpoint, getMerkleProof);
+    const bundle = await this.buildSelfCrawlableBundle(hash, getCheckpoint, getMerkleProof, getPrunedTx);
     if (!bundle) return null;
     return createSelfCrawlableURL(bundle).path;
   }
@@ -374,15 +403,31 @@ export class DAG {
     return this.nodes.size;
   }
 
-  pruneOldNodes(maxNodes: number): { hash: string; finality?: FinalityMetadata }[] {
+  pruneOldNodes(maxNodes: number): { hash: string; finality?: FinalityMetadata; tx?: SignedTransaction }[] {
     if (this.nodes.size <= maxNodes) return [];
 
-    const allNodes = Array.from(this.nodes.entries());
-    allNodes.sort((a, b) => b[1].tx.ts - a[1].tx.ts);
+    const finalizedNodes: Array<[string, DAGNode]> = [];
+    const unfinalizedNodes: Array<[string, DAGNode]> = [];
+    
+    for (const [hash, node] of this.nodes) {
+      if (node.finality) {
+        finalizedNodes.push([hash, node]);
+      } else {
+        unfinalizedNodes.push([hash, node]);
+      }
+    }
+    
+    finalizedNodes.sort((a, b) => b[1].tx.ts - a[1].tx.ts);
     
     const nodesToKeep = new Set<string>();
-    for (let i = 0; i < Math.min(maxNodes, allNodes.length); i++) {
-      nodesToKeep.add(allNodes[i][0]);
+    
+    for (const [hash] of unfinalizedNodes) {
+      nodesToKeep.add(hash);
+    }
+    
+    const slotsForFinalized = Math.max(0, maxNodes - unfinalizedNodes.length);
+    for (let i = 0; i < Math.min(slotsForFinalized, finalizedNodes.length); i++) {
+      nodesToKeep.add(finalizedNodes[i][0]);
     }
     
     const toRemove: string[] = [];
@@ -392,17 +437,12 @@ export class DAG {
       }
     }
 
-    const prunedNodes: { hash: string; finality?: FinalityMetadata }[] = [];
+    const prunedNodes: { hash: string; finality?: FinalityMetadata; tx?: SignedTransaction }[] = [];
 
     for (const hash of toRemove) {
       const node = this.nodes.get(hash);
       if (node) {
-        prunedNodes.push({ hash, finality: node.finality });
-        for (const [url, h] of this.urlToHash) {
-          if (h === hash) {
-            this.urlToHash.delete(url);
-          }
-        }
+        prunedNodes.push({ hash, finality: node.finality, tx: node.tx });
         for (const childHash of node.children) {
           const child = this.nodes.get(childHash);
           if (child && child.parentUrls) {

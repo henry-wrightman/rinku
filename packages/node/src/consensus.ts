@@ -18,6 +18,15 @@ export interface PrunedTxInfo {
   checkpointId: string;
   checkpointHeight: number;
   prunedAt: number;
+  tx?: {
+    from: string;
+    to: string;
+    amount: number;
+    nonce: number;
+    tipUrls: string[];
+    sig: string;
+    ts: number;
+  };
 }
 
 export class Consensus {
@@ -151,13 +160,22 @@ export class Consensus {
     const prunedNodes = this.dag.pruneOldNodes(maxNodes);
     const now = Date.now();
     
-    for (const { hash, finality } of prunedNodes) {
-      if (finality) {
+    for (const { hash, finality, tx } of prunedNodes) {
+      if (finality && tx) {
         this.prunedTxIndex.set(hash, {
           hash,
           checkpointId: finality.checkpointId,
           checkpointHeight: finality.checkpointHeight,
-          prunedAt: now
+          prunedAt: now,
+          tx: {
+            from: tx.from,
+            to: tx.to,
+            amount: tx.amount,
+            nonce: tx.nonce,
+            tipUrls: tx.tipUrls,
+            sig: tx.sig,
+            ts: tx.ts
+          }
         });
       }
     }
@@ -187,7 +205,16 @@ export class Consensus {
     getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
     getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>
   ): Promise<SelfCrawlableBundle | null> {
-    return this.dag.buildSelfCrawlableBundle(hash, getCheckpoint, getMerkleProof);
+    const getPrunedTx = (txHash: string) => {
+      const info = this.prunedTxIndex.get(txHash);
+      if (!info?.tx) return null;
+      return {
+        tx: info.tx,
+        checkpointId: info.checkpointId,
+        checkpointHeight: info.checkpointHeight
+      };
+    };
+    return this.dag.buildSelfCrawlableBundle(hash, getCheckpoint, getMerkleProof, getPrunedTx);
   }
 
   async getSelfCrawlableUrl(
@@ -195,7 +222,16 @@ export class Consensus {
     getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
     getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>
   ): Promise<string | null> {
-    return this.dag.getSelfCrawlableUrl(hash, getCheckpoint, getMerkleProof);
+    const getPrunedTx = (txHash: string) => {
+      const info = this.prunedTxIndex.get(txHash);
+      if (!info?.tx) return null;
+      return {
+        tx: info.tx,
+        checkpointId: info.checkpointId,
+        checkpointHeight: info.checkpointHeight
+      };
+    };
+    return this.dag.getSelfCrawlableUrl(hash, getCheckpoint, getMerkleProof, getPrunedTx);
   }
 
   stampFinalityForAll(checkpointId: string, checkpointHeight: number): number {
