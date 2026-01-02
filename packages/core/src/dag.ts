@@ -1,6 +1,6 @@
-import type { DAGNode, SignedTransaction } from './types.js';
+import type { DAGNode, SignedTransaction, SelfCrawlableBundle, Checkpoint } from './types.js';
 import { hashTransaction } from './crypto.js';
-import { parseTransactionURL, createTransactionURL } from './encoding.js';
+import { parseTransactionURL, createTransactionURL, createSelfCrawlableURL } from './encoding.js';
 
 function compactUrl(hash: string): string {
   return `/tx/h/${hash}`;
@@ -139,6 +139,64 @@ export class DAG {
       const node = this.nodes.get(hash);
       return node?.url || '';
     }).filter(url => url !== '');
+  }
+
+  buildSelfCrawlableBundle(
+    hash: string,
+    isConfirmed: (hash: string) => boolean,
+    getCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+  ): SelfCrawlableBundle | null {
+    const node = this.nodes.get(hash);
+    if (!node) return null;
+
+    const parents: SelfCrawlableBundle[] = [];
+    
+    for (const parentUrl of node.tx.tipUrls) {
+      const parentHash = this.resolveUrlToHash(parentUrl);
+      if (!parentHash) continue;
+      
+      if (isConfirmed(parentHash)) {
+        continue;
+      }
+      
+      const parentBundle = this.buildSelfCrawlableBundle(parentHash, isConfirmed, getCheckpoint);
+      if (parentBundle) {
+        parents.push(parentBundle);
+      }
+    }
+
+    const bundle: SelfCrawlableBundle = {
+      tx: {
+        from: node.tx.from,
+        to: node.tx.to,
+        amount: node.tx.amount,
+        nonce: node.tx.nonce,
+        tipUrls: node.tx.tipUrls,
+        sig: node.tx.sig,
+        ts: node.tx.ts
+      },
+      hash: node.tx.hash,
+      parents
+    };
+
+    if (getCheckpoint && parents.length === 0 && node.tx.tipUrls.length > 0) {
+      const checkpoint = getCheckpoint();
+      if (checkpoint) {
+        bundle.checkpointAnchor = checkpoint;
+      }
+    }
+
+    return bundle;
+  }
+
+  getSelfCrawlableUrl(
+    hash: string,
+    isConfirmed: (hash: string) => boolean,
+    getCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+  ): string | null {
+    const bundle = this.buildSelfCrawlableBundle(hash, isConfirmed, getCheckpoint);
+    if (!bundle) return null;
+    return createSelfCrawlableURL(bundle).path;
   }
 
   updateWeights(accountWeights: Map<string, number>): void {

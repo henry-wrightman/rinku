@@ -1,5 +1,5 @@
 import pako from 'pako';
-import type { Transaction, TransactionURL, ContractDeploy, ContractURL, ContractTransaction } from './types.js';
+import type { Transaction, TransactionURL, ContractDeploy, ContractURL, ContractTransaction, SelfCrawlableBundle } from './types.js';
 
 const base64urlChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
@@ -168,9 +168,45 @@ export function assembleWasmFromChunks(chunkUrls: string[]): string {
 }
 
 /** Determine URL type from path */
-export function getURLType(url: string): 'tx' | 'sc' | 'sc-chunk' | 'unknown' {
+export function getURLType(url: string): 'tx' | 'txp' | 'sc' | 'sc-chunk' | 'unknown' {
+  if (url.startsWith('/tx/h/')) return 'tx';
+  if (url.startsWith('/txp/')) return 'txp';
   if (url.startsWith('/tx/')) return 'tx';
   if (url.startsWith('/sc/chunk/')) return 'sc-chunk';
   if (url.startsWith('/sc/')) return 'sc';
   return 'unknown';
+}
+
+/** Encode self-crawlable bundle to URL payload */
+export function encodeSelfCrawlableBundle(bundle: SelfCrawlableBundle): string {
+  const json = JSON.stringify(bundle);
+  const compressed = pako.deflate(json);
+  return base64urlEncode(compressed);
+}
+
+/** Decode self-crawlable bundle from URL payload */
+export function decodeSelfCrawlableBundle(payload: string): SelfCrawlableBundle {
+  const compressed = base64urlDecode(payload);
+  const json = pako.inflate(compressed, { to: 'string' });
+  return JSON.parse(json);
+}
+
+/** Create self-crawlable proof URL */
+export function createSelfCrawlableURL(bundle: SelfCrawlableBundle): { path: string; payload: string } {
+  const payload = encodeSelfCrawlableBundle(bundle);
+  return {
+    path: `/txp/${payload}`,
+    payload
+  };
+}
+
+/** Parse self-crawlable proof URL */
+export function parseSelfCrawlableURL(url: string): SelfCrawlableBundle | null {
+  try {
+    const match = url.match(/\/txp\/([A-Za-z0-9_-]+)/);
+    if (!match) return null;
+    return decodeSelfCrawlableBundle(match[1]);
+  } catch {
+    return null;
+  }
 }

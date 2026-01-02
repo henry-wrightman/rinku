@@ -269,6 +269,19 @@ export interface FinalizedTransactionURL {
   proof?: CheckpointProof;
 }
 
+/** Self-crawlable transaction bundle - contains full ancestry back to checkpoint */
+export interface SelfCrawlableBundle {
+  tx: Transaction;
+  hash: string;
+  parents: SelfCrawlableBundle[];
+  checkpointAnchor?: {
+    checkpointId: string;
+    merkleRoot: string;
+    height: number;
+    signatureCount: number;
+  };
+}
+
 /** Configuration for checkpoint system */
 export interface CheckpointConfig {
   checkpointIntervalMs: number;
