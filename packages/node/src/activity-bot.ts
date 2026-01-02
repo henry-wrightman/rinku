@@ -41,7 +41,7 @@ function fetchWithTimeout(
 
 async function faucetRequest(fingerprint: string): Promise<boolean> {
   try {
-    const res = await fetchWithTimeout(`${FAUCET_URL}/request`, {
+    const res = await fetchWithTimeout(`${FAUCET_URL}/api/request`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address: fingerprint }),
