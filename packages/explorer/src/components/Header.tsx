@@ -71,7 +71,7 @@ export function Header({ connected }: HeaderProps) {
 
   return (
     <header>
-      <h1>rinku explorer</h1>
+      {/* <h1>rinku explorer</h1> */}
       <p>
         {" "}
         <span style={{}}>

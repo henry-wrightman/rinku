@@ -143,6 +143,10 @@ export class Consensus {
     return this.dag.size();
   }
 
+  getDAGStats(): { nodes: number; tips: number; unresolvedParents: number } {
+    return this.dag.getStats();
+  }
+
   pruneDAG(maxNodes: number): number {
     const prunedNodes = this.dag.pruneOldNodes(maxNodes);
     const now = Date.now();

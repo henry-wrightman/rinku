@@ -196,7 +196,8 @@ async function main() {
     const memUsage = process.memoryUsage();
     const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
     const rewardsStats = rewardsService?.getStats();
-    console.log(`[Stats] DAG: ${consensus.getDAGSize()} nodes, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB, Witnessed: ${rewardsStats?.witnessedCount || 0}`);
+    const dagStats = consensus.getDAGStats();
+    console.log(`[Stats] DAG: ${dagStats.nodes} nodes, Tips: ${dagStats.tips}, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB, Witnessed: ${rewardsStats?.witnessedCount || 0}`);
     
     if (heapMB > 300 && typeof global.gc === 'function') {
       console.log('[GC] Forcing garbage collection...');

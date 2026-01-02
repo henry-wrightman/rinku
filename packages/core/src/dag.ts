@@ -6,10 +6,28 @@ function compactUrl(hash: string): string {
   return `/tx/h/${hash}`;
 }
 
+function extractHashFromUrl(url: string): string | null {
+  const hashMatch = url.match(/\/tx\/h\/([a-f0-9]+)/);
+  if (hashMatch) return hashMatch[1];
+  
+  const proofMatch = url.match(/\/txp\/(.+)/);
+  if (proofMatch) {
+    try {
+      const decoded = Buffer.from(proofMatch[1], 'base64url');
+      const { inflate } = require('pako');
+      const json = JSON.parse(inflate(decoded, { to: 'string' }));
+      if (json.hash) return json.hash;
+    } catch {}
+  }
+  
+  return null;
+}
+
 export class DAG {
   private nodes: Map<string, DAGNode> = new Map();
   private tipHashes: Set<string> = new Set();
   private urlToHash: Map<string, string> = new Map();
+  private unresolvedParentCount = 0;
 
   constructor() {
     this.nodes = new Map();
@@ -21,16 +39,27 @@ export class DAG {
     const txUrl = compactUrl(tx.hash);
     this.urlToHash.set(txUrl, tx.hash);
 
+    const normalizedParentUrls: string[] = [];
+    for (const parentUrl of tx.tipUrls) {
+      const hash = extractHashFromUrl(parentUrl);
+      if (hash && this.nodes.has(hash)) {
+        normalizedParentUrls.push(compactUrl(hash));
+        this.urlToHash.set(parentUrl, hash);
+      } else {
+        normalizedParentUrls.push(parentUrl);
+      }
+    }
+
     const node: DAGNode = {
       tx,
-      parentUrls: tx.tipUrls,
+      parentUrls: normalizedParentUrls,
       children: [],
       weight: 0,
       confirmed: false,
       url: txUrl
     };
 
-    for (const parentUrl of tx.tipUrls) {
+    for (const parentUrl of normalizedParentUrls) {
       const parentHash = this.resolveUrlToHash(parentUrl);
       if (parentHash) {
         const parent = this.nodes.get(parentHash);
@@ -38,6 +67,8 @@ export class DAG {
           parent.children.push(tx.hash);
           this.tipHashes.delete(parentHash);
         }
+      } else {
+        this.unresolvedParentCount++;
       }
     }
 
@@ -45,6 +76,14 @@ export class DAG {
     this.tipHashes.add(tx.hash);
 
     return node;
+  }
+
+  getStats(): { nodes: number; tips: number; unresolvedParents: number } {
+    return {
+      nodes: this.nodes.size,
+      tips: this.tipHashes.size,
+      unresolvedParents: this.unresolvedParentCount
+    };
   }
 
   resolveUrlToHash(url: string): string | null {
@@ -357,10 +396,6 @@ export class DAG {
       nodesToKeep.add(allNodes[i][0]);
     }
     
-    for (const tipHash of this.tipHashes) {
-      nodesToKeep.add(tipHash);
-    }
-
     const toRemove: string[] = [];
     for (const hash of this.nodes.keys()) {
       if (!nodesToKeep.has(hash)) {
