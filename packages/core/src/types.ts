@@ -277,17 +277,27 @@ export interface FinalizedTransactionURL {
   proof?: CheckpointProof;
 }
 
-/** Self-crawlable transaction bundle - contains full ancestry back to checkpoint */
+/** Checkpoint anchor info for proof bundles */
+export interface CheckpointAnchor {
+  checkpointId: string;
+  merkleRoot: string;
+  height: number;
+  signatureCount: number;
+}
+
+/** Reference to a truncated (finalized) parent with its checkpoint anchor */
+export interface TruncatedParentRef {
+  hash: string;
+  checkpointAnchor: CheckpointAnchor;
+}
+
+/** Self-crawlable transaction bundle - contains full ancestry back to checkpoint(s) */
 export interface SelfCrawlableBundle {
   tx: Transaction;
   hash: string;
   parents: SelfCrawlableBundle[];
-  checkpointAnchor?: {
-    checkpointId: string;
-    merkleRoot: string;
-    height: number;
-    signatureCount: number;
-  };
+  truncatedParents?: TruncatedParentRef[];
+  checkpointAnchor?: CheckpointAnchor;
 }
 
 /** Configuration for checkpoint system */

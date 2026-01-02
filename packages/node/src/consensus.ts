@@ -144,16 +144,16 @@ export class Consensus {
 
   getSelfCrawlableBundle(
     hash: string,
-    getLatestCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
   ): SelfCrawlableBundle | null {
-    return this.dag.buildSelfCrawlableBundle(hash, getLatestCheckpoint);
+    return this.dag.buildSelfCrawlableBundle(hash, getCheckpoint);
   }
 
   getSelfCrawlableUrl(
     hash: string,
-    getLatestCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
   ): string | null {
-    return this.dag.getSelfCrawlableUrl(hash, getLatestCheckpoint);
+    return this.dag.getSelfCrawlableUrl(hash, getCheckpoint);
   }
 
   stampFinalityForAll(checkpointId: string, checkpointHeight: number): number {

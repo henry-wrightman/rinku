@@ -111,10 +111,18 @@ For full SSRF protection in production, combine with network-level egress restri
 **Checkpoint-Bounded Self-Crawlable URLs (Jan 2026):**
 - New `/txp/{payload}` URL format for self-crawlable proof bundles.
 - Bundles contain full transaction ancestry back to the last finalized checkpoint (~60 seconds).
-- `SelfCrawlableBundle` type includes `tx`, `hash`, `parents[]`, and optional `checkpointAnchor`.
+- `SelfCrawlableBundle` type includes `tx`, `hash`, `parents[]`, `truncatedParents[]`, and optional `checkpointAnchor`.
 - API endpoint: `GET /api/tx/:hash/proof` returns the self-crawlable bundle and proof URL.
 - Preserves "link is the proof" property while keeping URL sizes bounded by checkpoint interval.
 - Verification function `verifySelfCrawlableBundle()` validates bundle structure.
+
+**Per-Transaction Finality (Jan 2026):**
+- Each transaction receives `FinalityMetadata` when included in a checkpoint: `checkpointId`, `checkpointHeight`, `finalizedAt`.
+- `CheckpointService.onCheckpoint()` callback triggers `consensus.stampFinalityForAll()` to stamp all unfinalized transactions.
+- `DAG.buildSelfCrawlableBundle()` stops recursion at finalized transactions and creates `TruncatedParentRef` entries.
+- Each truncated parent carries its own `CheckpointAnchor` (checkpointId, merkleRoot, height, signatureCount).
+- Multi-branch DAGs properly preserve per-branch checkpoint anchors for independent verification.
+- Future enhancement: embed merkle inclusion proofs for fully self-contained verification without checkpoint lookup.
 
 **Batched Operations:**
 - Merkle root updates are batched every 5 seconds (not per-transaction).

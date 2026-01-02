@@ -143,30 +143,33 @@ export class DAG {
 
   buildSelfCrawlableBundle(
     hash: string,
-    getLatestCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
   ): SelfCrawlableBundle | null {
     const node = this.nodes.get(hash);
     if (!node) return null;
 
     const parents: SelfCrawlableBundle[] = [];
-    let ancestryTruncated = false;
-    
+    const truncatedParents: { hash: string; checkpointAnchor: { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } }[] = [];
+
     for (const parentUrl of node.tx.tipUrls) {
       const parentHash = this.resolveUrlToHash(parentUrl);
       if (!parentHash) continue;
       
       const parentNode = this.nodes.get(parentHash);
-      if (parentNode?.finality) {
-        ancestryTruncated = true;
+      if (parentNode?.finality && getCheckpoint) {
+        const checkpoint = getCheckpoint(parentNode.finality.checkpointId);
+        if (checkpoint) {
+          truncatedParents.push({
+            hash: parentHash,
+            checkpointAnchor: checkpoint
+          });
+        }
         continue;
       }
       
-      const parentBundle = this.buildSelfCrawlableBundle(parentHash, getLatestCheckpoint);
+      const parentBundle = this.buildSelfCrawlableBundle(parentHash, getCheckpoint);
       if (parentBundle) {
         parents.push(parentBundle);
-        if (parentBundle.checkpointAnchor) {
-          ancestryTruncated = true;
-        }
       }
     }
 
@@ -184,11 +187,8 @@ export class DAG {
       parents
     };
 
-    if (getLatestCheckpoint && ancestryTruncated) {
-      const checkpoint = getLatestCheckpoint();
-      if (checkpoint) {
-        bundle.checkpointAnchor = checkpoint;
-      }
+    if (truncatedParents.length > 0) {
+      bundle.truncatedParents = truncatedParents;
     }
 
     return bundle;
@@ -196,9 +196,9 @@ export class DAG {
 
   getSelfCrawlableUrl(
     hash: string,
-    getLatestCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+    getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
   ): string | null {
-    const bundle = this.buildSelfCrawlableBundle(hash, getLatestCheckpoint);
+    const bundle = this.buildSelfCrawlableBundle(hash, getCheckpoint);
     if (!bundle) return null;
     return createSelfCrawlableURL(bundle).path;
   }

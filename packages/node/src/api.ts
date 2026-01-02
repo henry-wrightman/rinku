@@ -160,26 +160,26 @@ export function createAPI(
       return;
     }
 
-    const getLatestCheckpoint = checkpointService 
-      ? () => {
-          const latest = checkpointService.getLatestCheckpoint();
-          if (!latest) return null;
+    const getCheckpoint = checkpointService 
+      ? (checkpointId: string) => {
+          const checkpoint = checkpointService.getCheckpoint(checkpointId);
+          if (!checkpoint) return null;
           return {
-            checkpointId: latest.checkpointId,
-            merkleRoot: latest.merkleRoot,
-            height: latest.height,
-            signatureCount: latest.signatures.length
+            checkpointId: checkpoint.checkpointId,
+            merkleRoot: checkpoint.merkleRoot,
+            height: checkpoint.height,
+            signatureCount: checkpoint.signatures.length
           };
         }
       : undefined;
 
-    const proofUrl = consensus.getSelfCrawlableUrl(hash, getLatestCheckpoint);
+    const proofUrl = consensus.getSelfCrawlableUrl(hash, getCheckpoint);
     if (!proofUrl) {
       res.status(500).json({ error: 'Failed to generate proof URL' });
       return;
     }
 
-    const bundle = consensus.getSelfCrawlableBundle(hash, getLatestCheckpoint);
+    const bundle = consensus.getSelfCrawlableBundle(hash, getCheckpoint);
 
     res.json({
       hash,
