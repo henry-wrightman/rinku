@@ -153,11 +153,36 @@ export function createAPI(
     res.json(node);
   });
 
+  let dagCache: { nodes: any[]; tips: string[]; merkleRoot: string; timestamp: number } | null = null;
+  const DAG_CACHE_TTL = 1000;
+
   app.get('/api/dag', (_req, res) => {
-    const nodes = consensus.getAllNodes();
+    const now = Date.now();
+    const currentMerkle = state.getMerkleRoot();
+    
+    if (dagCache && (now - dagCache.timestamp) < DAG_CACHE_TTL && dagCache.merkleRoot === currentMerkle) {
+      res.json({ nodes: dagCache.nodes, tips: dagCache.tips, tipCount: dagCache.tips.length, merkleRoot: currentMerkle });
+      return;
+    }
+    
+    const allNodes = consensus.getAllNodes();
     const tips = consensus.getTips();
     
-    res.json({ nodes, tips, tipCount: tips.length, merkleRoot: state.getMerkleRoot() });
+    const lightNodes = allNodes.map(node => ({
+      hash: node.tx.hash,
+      from: node.tx.from,
+      to: node.tx.to,
+      amount: node.tx.amount,
+      ts: node.tx.ts,
+      parentCount: node.tx.tipUrls?.length || 0,
+      url: node.url,
+      weight: node.weight,
+      confirmed: node.confirmed
+    }));
+    
+    dagCache = { nodes: lightNodes, tips, merkleRoot: currentMerkle, timestamp: now };
+    
+    res.json({ nodes: lightNodes, tips, tipCount: tips.length, merkleRoot: currentMerkle });
   });
 
   app.get('/api/state', (_req, res) => {

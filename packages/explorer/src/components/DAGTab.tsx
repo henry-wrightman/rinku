@@ -18,7 +18,7 @@ export function DAGTab({ nodes, merkleRoot }: DAGTabProps) {
   const prevHashesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const currentHashes = new Set(nodes.map((n) => n.tx.hash));
+    const currentHashes = new Set(nodes.map((n) => n.hash));
     const freshHashes = new Set<string>();
 
     currentHashes.forEach((hash) => {
@@ -49,22 +49,19 @@ export function DAGTab({ nodes, merkleRoot }: DAGTabProps) {
     <div className="section">
       {pageNodes.map((node) => (
         <div
-          key={node.tx.hash}
-          className={`dag-node ${newHashes.has(node.tx.hash) ? "new-tx" : ""}`}
+          key={node.hash}
+          className={`dag-node ${newHashes.has(node.hash) ? "new-tx" : ""}`}
         >
           <div className="hash">
-            {/* {newHashes.has(node.tx.hash) && (
-              <span className="new-badge">NEW</span>
-            )} */}
-            <span className={newHashes.has(node.tx.hash) ? "typewriter" : ""}>
-              {truncate(node.tx.hash, 12)}
+            <span className={newHashes.has(node.hash) ? "typewriter" : ""}>
+              {truncate(node.hash, 12)}
             </span>
           </div>
-          <div className="amount">{node.tx.amount.toLocaleString()} coins</div>
+          <div className="amount">{node.amount.toLocaleString()} coins</div>
           <div className="meta">
-            {node.tx.from === "genesis" ? "genesis" : truncate(node.tx.from, 6)}{" "}
-            → {truncate(node.tx.to, 6)} · {timeAgo(node.tx.ts)} · refs{" "}
-            {(node.tx.tipUrls || []).length} parent(s)
+            {node.from === "genesis" ? "genesis" : truncate(node.from, 6)}{" "}
+            → {truncate(node.to, 6)} · {timeAgo(node.ts)} · refs{" "}
+            {node.parentCount} parent(s)
           </div>
           <div className="actions">
             <span

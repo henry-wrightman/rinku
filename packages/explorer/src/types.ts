@@ -6,21 +6,15 @@ export interface Account {
 }
 
 export interface DAGNode {
-  tx: {
-    from: string;
-    to: string;
-    amount: number;
-    nonce: number;
-    tipUrls: string[];
-    sig: string;
-    ts: number;
-    hash: string;
-  };
-  parentUrls: string[];
-  children: string[];
+  hash: string;
+  from: string;
+  to: string;
+  amount: number;
+  ts: number;
+  parentCount: number;
+  url: string;
   weight: number;
   confirmed: boolean;
-  url: string;
 }
 
 export interface State {
