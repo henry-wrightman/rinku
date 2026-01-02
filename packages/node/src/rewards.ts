@@ -28,12 +28,15 @@ export interface RewardsServiceDeps {
 }
 
 const WITNESS_TTL_MS = 3600000;
+const QUEUE_COMPACT_THRESHOLD = 10000;
 
 export class RewardsService {
   private rewards: Map<string, Reward[]> = new Map();
   private stakes: Map<string, StakePosition> = new Map();
   private pendingRewards: Map<string, number> = new Map();
   private witnessedTxs: Map<string, number> = new Map();
+  private witnessedQueue: Array<{ key: string; ts: number }> = [];
+  private witnessedQueueHead = 0;
   private config: RewardConfig;
 
   constructor(
@@ -114,7 +117,9 @@ export class RewardsService {
     );
 
     this.addReward(recipient, reward);
-    this.witnessedTxs.set(key, Date.now());
+    const now = Date.now();
+    this.witnessedTxs.set(key, now);
+    this.witnessedQueue.push({ key, ts: now });
 
     return reward;
   }
@@ -258,11 +263,21 @@ export class RewardsService {
     const cutoff = now - WITNESS_TTL_MS;
     let pruned = 0;
     
-    for (const [key, timestamp] of this.witnessedTxs) {
-      if (timestamp < cutoff) {
-        this.witnessedTxs.delete(key);
+    while (this.witnessedQueueHead < this.witnessedQueue.length) {
+      const oldest = this.witnessedQueue[this.witnessedQueueHead];
+      if (oldest.ts >= cutoff) {
+        break;
+      }
+      this.witnessedQueueHead++;
+      if (this.witnessedTxs.get(oldest.key) === oldest.ts) {
+        this.witnessedTxs.delete(oldest.key);
         pruned++;
       }
+    }
+    
+    if (this.witnessedQueueHead >= QUEUE_COMPACT_THRESHOLD) {
+      this.witnessedQueue = this.witnessedQueue.slice(this.witnessedQueueHead);
+      this.witnessedQueueHead = 0;
     }
     
     return pruned;
@@ -277,11 +292,13 @@ export class RewardsService {
   }
 
   toJSON(): object {
+    const activeQueue = this.witnessedQueue.slice(this.witnessedQueueHead);
     return {
       rewards: Array.from(this.rewards.entries()),
       stakes: Array.from(this.stakes.entries()),
       pendingRewards: Array.from(this.pendingRewards.entries()),
       witnessedTxs: Array.from(this.witnessedTxs.entries()),
+      witnessedQueue: activeQueue,
       config: this.config
     };
   }
@@ -315,6 +332,14 @@ export class RewardsService {
           service.witnessedTxs.set(entry, Date.now());
         }
       }
+    }
+
+    if (data.witnessedQueue && Array.isArray(data.witnessedQueue)) {
+      service.witnessedQueue = data.witnessedQueue;
+    } else if (data.witnessedTxs) {
+      service.witnessedQueue = Array.from(service.witnessedTxs.entries())
+        .map(([key, ts]) => ({ key, ts }))
+        .sort((a, b) => a.ts - b.ts);
     }
 
     return service;
