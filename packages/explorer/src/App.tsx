@@ -72,15 +72,18 @@ function App() {
       </button>
 
       <div className="stats">
-        <span>
-          <span className="value">{state?.nodes.length || 0}</span> transactions
-        </span>
-        <span>
-          <span className="value">{state?.accounts.length || 0}</span> accounts
-        </span>
-        <span>
-          <span className="value">{state?.tips.length || 0}</span> tips
-        </span>
+        <div className="stat-item">
+          <span className="stat-value">{state?.nodes.length || 0}</span>
+          <span className="stat-label">transactions</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-value">{state?.accounts.length || 0}</span>
+          <span className="stat-label">accounts</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-value">{state?.tips.length || 0}</span>
+          <span className="stat-label">tips</span>
+        </div>
       </div>
 
       <div className="nav">

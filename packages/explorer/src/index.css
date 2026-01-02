@@ -64,17 +64,35 @@ a:hover, .link:hover {
 }
 
 .stats {
+  display: flex;
+  gap: 24px;
   margin-bottom: 24px;
+}
+
+.stats .stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 20px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  min-width: 80px;
+}
+
+.stats .stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: #a3be8c;
+  line-height: 1;
+}
+
+.stats .stat-label {
+  font-size: 11px;
   color: #666;
-  font-size: 13px;
-}
-
-.stats span {
-  margin-right: 16px;
-}
-
-.stats .value {
-  color: #c0c0c0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 6px;
 }
 
 .section {
@@ -520,12 +538,17 @@ body.light .nav span.active {
   color: #111;
 }
 
-body.light .stats {
-  color: #666;
+body.light .stats .stat-item {
+  background: #fff;
+  border-color: #ddd;
 }
 
-body.light .stats .value {
-  color: #222;
+body.light .stats .stat-value {
+  color: #228b22;
+}
+
+body.light .stats .stat-label {
+  color: #888;
 }
 
 body.light .dag-node {
