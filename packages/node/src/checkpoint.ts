@@ -18,7 +18,7 @@ import {
 
 export interface CheckpointServiceDeps {
   getMerkleRoot: () => string;
-  getTipUrls: () => string[];
+  getTipCount: () => number;
   getTotalTransactions: () => number;
   getValidatorEntries: () => ValidatorEntry[];
   getTotalWeight: () => number;
@@ -32,7 +32,7 @@ export class CheckpointService {
   private latestCheckpoint: Checkpoint | null = null;
   private genesisCheckpoint: Checkpoint | null = null;
   private checkpointHeight = 0;
-  private readonly maxCheckpoints = 50;
+  private readonly maxCheckpoints = 10;
   private config: CheckpointConfig;
   private intervalId: NodeJS.Timeout | null = null;
   private chainId: string;
@@ -92,7 +92,7 @@ export class CheckpointService {
     const checkpoint = await createCheckpoint(
       this.checkpointHeight,
       this.deps.getMerkleRoot(),
-      this.deps.getTipUrls(),
+      this.deps.getTipCount(),
       this.deps.getTotalTransactions(),
       this.deps.getTotalWeight(),
       validators,

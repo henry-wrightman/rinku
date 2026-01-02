@@ -156,13 +156,9 @@ export function createAPI(
   });
 
   app.get('/api/dag', (_req, res) => {
-    const nodes = consensus.getAllNodes().map(node => ({
-      ...node,
-      url: createTransactionURL(node.tx).path
-    }));
+    const nodes = consensus.getAllNodes();
     const tips = consensus.getTips();
-    const tipUrls = consensus.getTipUrls();
-    res.json({ nodes, tips, tipUrls, merkleRoot: state.getMerkleRoot() });
+    res.json({ nodes, tips, tipCount: tips.length, merkleRoot: state.getMerkleRoot() });
   });
 
   app.get('/api/state', (_req, res) => {

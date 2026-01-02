@@ -288,12 +288,12 @@ describe('DAG Module', () => {
       expect(dag.getNode('abc123')).toBeDefined();
     });
 
-    it('should handle urlToHash in serialization', async () => {
+    it('should rebuild urlToHash on deserialization', async () => {
       const dag = new DAG();
       const tx = await createMockTx('alice', 'bob', 100, 1);
       await dag.addTransaction(tx);
       const json = dag.toJSON() as any;
-      expect(json.urlToHash).toBeDefined();
+      expect(json.urlToHash).toBeUndefined();
       const restored = DAG.fromJSON(json);
       const url = createTransactionURL(tx).path;
       expect(restored.resolveUrlToHash(url)).toBe(tx.hash);

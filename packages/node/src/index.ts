@@ -75,7 +75,7 @@ async function main() {
 
   const checkpointDeps = {
     getMerkleRoot: () => state.getMerkleRoot(),
-    getTipUrls: () => consensus.getTipUrls(),
+    getTipCount: () => consensus.getTips().length,
     getTotalTransactions: () => consensus.getAllNodes().length,
     getValidatorEntries: () => rewardsService.getActiveValidators().map(v => {
       const pubKey = consensus.getPublicKeys().get(v.staker);

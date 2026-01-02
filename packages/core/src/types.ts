@@ -229,7 +229,7 @@ export interface Checkpoint {
   checkpointId: string;
   height: number;
   merkleRoot: string;
-  tipUrls: string[];
+  tipCount: number;
   totalTransactions: number;
   totalWeight: number;
   validatorSetHash: string;

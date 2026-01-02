@@ -301,8 +301,7 @@ export class DAG {
         hash,
         ...node
       })),
-      tipHashes: Array.from(this.tipHashes),
-      urlToHash: Array.from(this.urlToHash.entries())
+      tipHashes: Array.from(this.tipHashes)
     };
   }
 
@@ -316,13 +315,13 @@ export class DAG {
         delete node.parents;
       }
       dag.nodes.set(hash, node);
+      
+      if (node.tx?.url) {
+        dag.urlToHash.set(node.tx.url, hash);
+      }
     }
 
     dag.tipHashes = new Set(data.tipHashes || data.tips || []);
-    
-    if (data.urlToHash) {
-      dag.urlToHash = new Map(data.urlToHash);
-    }
     
     return dag;
   }

@@ -33,7 +33,7 @@ export class Storage {
 
   async save(snapshot: NodeSnapshot): Promise<void> {
     const tempPath = this.snapshotPath + '.tmp';
-    await fs.writeFile(tempPath, JSON.stringify(snapshot, null, 2));
+    await fs.writeFile(tempPath, JSON.stringify(snapshot));
     await fs.rename(tempPath, this.snapshotPath);
   }
 

@@ -71,7 +71,7 @@ describe('Checkpoint Module', () => {
   describe('Checkpoint Creation', () => {
     it('should create valid checkpoint', async () => {
       const checkpoint = await createCheckpoint(
-        1, 'abc123', [], 100, 1000, [], GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 100, 1000, [], GENESIS_CHECKPOINT_ID
       );
       expect(checkpoint.checkpointId).toBeDefined();
       expect(checkpoint.height).toBe(1);
@@ -85,7 +85,7 @@ describe('Checkpoint Module', () => {
         { address: 'validator2', publicKey: [4, 5, 6], weight: 200 },
       ];
       const checkpoint = await createCheckpoint(
-        1, 'abc123', [], 100, 300, validators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 100, 300, validators, GENESIS_CHECKPOINT_ID
       );
       expect(checkpoint.validatorSetHash).toBeDefined();
       expect(checkpoint.validators).toEqual(validators);
@@ -121,7 +121,7 @@ describe('Checkpoint Module', () => {
         { address, publicKey: pubKeyArray, weight: 100 }
       ];
       let checkpoint = await createCheckpoint(
-        1, 'abc123', [], 10, 100, validators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 10, 100, validators, GENESIS_CHECKPOINT_ID
       );
       checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 100);
       const proof = createCheckpointProof(checkpoint, 100);
@@ -136,7 +136,7 @@ describe('Checkpoint Module', () => {
         { address: 'v1', publicKey: [1, 2, 3], weight: 100 }
       ];
       const checkpoint = await createCheckpoint(
-        1, 'abc123', [], 10, 100, validators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 10, 100, validators, GENESIS_CHECKPOINT_ID
       );
       const proof = createCheckpointProof(checkpoint, 0);
       const result = await verifyCheckpointProof(proof, validators);
@@ -154,7 +154,7 @@ describe('Checkpoint Module', () => {
         { address, publicKey: pubKeyArray, weight: 100 }
       ];
       let checkpoint = await createCheckpoint(
-        1, 'abc123', [], 10, 100, validators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 10, 100, validators, GENESIS_CHECKPOINT_ID
       );
       checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 100);
       const proof = createCheckpointProof(checkpoint, 100);
@@ -242,7 +242,7 @@ describe('Checkpoint Module', () => {
         { address, publicKey: Array.from(publicKey), weight: 100 }
       ];
       let checkpoint = await createCheckpoint(
-        0, 'genesis', [], 10, 100, validators, null
+        0, 'genesis', 0, 10, 100, validators, null
       );
       checkpoint.checkpointId = GENESIS_CHECKPOINT_ID;
       checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 100);
@@ -265,12 +265,12 @@ describe('Checkpoint Module', () => {
         { address, publicKey: Array.from(publicKey), weight: 100 }
       ];
       let checkpoint1 = await createCheckpoint(
-        1, 'merkle1', [], 10, 100, validators, GENESIS_CHECKPOINT_ID
+        1, 'merkle1', 0, 10, 100, validators, GENESIS_CHECKPOINT_ID
       );
       checkpoint1 = await signCheckpointManually(checkpoint1, address, privateKey, publicKey, 100);
       const proof1 = createCheckpointProof(checkpoint1, 100);
       let checkpoint2 = await createCheckpoint(
-        2, 'merkle2', [], 20, 100, validators, checkpoint1.checkpointId
+        2, 'merkle2', 0, 20, 100, validators, checkpoint1.checkpointId
       );
       checkpoint2 = await signCheckpointManually(checkpoint2, address, privateKey, publicKey, 100);
       const proof2 = createCheckpointProof(checkpoint2, 100);
@@ -294,7 +294,7 @@ describe('Checkpoint Module', () => {
         { address, publicKey: pubKeyArray, weight: 100 }
       ];
       let checkpoint = await createCheckpoint(
-        1, 'abc123', [], 10, 100, trustedValidators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 10, 100, trustedValidators, GENESIS_CHECKPOINT_ID
       );
       checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 100);
       const proof = createCheckpointProof(checkpoint, 100);
@@ -313,7 +313,7 @@ describe('Checkpoint Module', () => {
         { address: 'other_validator', publicKey: [1, 2, 3], weight: 60 },
       ];
       let checkpoint = await createCheckpoint(
-        1, 'abc123', [], 10, 100, trustedValidators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 10, 100, trustedValidators, GENESIS_CHECKPOINT_ID
       );
       checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 40);
       const proof = createCheckpointProof(checkpoint, 40);
@@ -330,7 +330,7 @@ describe('Checkpoint Module', () => {
         { address, publicKey: pubKeyArray, weight: 100 }
       ];
       let checkpoint = await createCheckpoint(
-        1, 'abc123', [], 10, 100, attackerValidators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 10, 100, attackerValidators, GENESIS_CHECKPOINT_ID
       );
       checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 100);
       const proof = createCheckpointProof(checkpoint, 100);
@@ -349,7 +349,7 @@ describe('Checkpoint Module', () => {
         { address: legitimateAddress, publicKey: Array.from(legitimate.publicKey), weight: 100 }
       ];
       let checkpoint = await createCheckpoint(
-        1, 'abc123', [], 10, 100, trustedValidators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 10, 100, trustedValidators, GENESIS_CHECKPOINT_ID
       );
       checkpoint = await signCheckpointManually(
         checkpoint, legitimateAddress, attacker.privateKey, attacker.publicKey, 100
@@ -367,7 +367,7 @@ describe('Checkpoint Module', () => {
         { address, publicKey: pubKeyArray, weight: 100 }
       ];
       let checkpoint = await createCheckpoint(
-        1, 'abc123', [], 10, 100, checkpointValidators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 10, 100, checkpointValidators, GENESIS_CHECKPOINT_ID
       );
       checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 100);
       const proof = createCheckpointProof(checkpoint, 100);
@@ -387,7 +387,7 @@ describe('Checkpoint Module', () => {
         { address, publicKey: Array.from(otherKey.publicKey), weight: 100 }
       ];
       let checkpoint = await createCheckpoint(
-        1, 'abc123', [], 10, 100, trustedValidators, GENESIS_CHECKPOINT_ID
+        1, 'abc123', 0, 10, 100, trustedValidators, GENESIS_CHECKPOINT_ID
       );
       checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 100);
       const proof = createCheckpointProof(checkpoint, 100);
