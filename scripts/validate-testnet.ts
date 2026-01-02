@@ -66,7 +66,11 @@ async function validateNodeConnectivity() {
     record('connectivity', 'Node is reachable', true);
     record('connectivity', 'Has merkle root', !!status.merkleRoot, status.merkleRoot?.slice(0, 16) + '...');
     record('connectivity', 'DAG size reported', status.dagSize >= 0, `${status.dagSize} nodes`);
-    record('connectivity', 'Tips count valid', status.tips >= 0, `${status.tips} tips`);
+    
+    const tipCount = typeof status.tips === 'string' 
+      ? status.tips.split(',').filter((t: string) => t.length > 0).length 
+      : (typeof status.tips === 'number' ? status.tips : 0);
+    record('connectivity', 'Tips count valid', tipCount >= 0, `${tipCount} tips`);
     return status;
   } catch (e: any) {
     record('connectivity', 'Node is reachable', false, e.message);
