@@ -15,8 +15,8 @@ const FAUCET_BALANCE = 1000000;
 const DATA_DIR = process.env.RINKU_DATA_DIR || '.rinku-data';
 const NODE_PEERS = process.env.NODE_PEERS || '';
 const NODE_ID = process.env.NODE_ID || randomBytes(8).toString('hex');
-const MAX_DAG_NODES = parseInt(process.env.MAX_DAG_NODES || '10000', 10);
-const PRUNE_INTERVAL_MS = parseInt(process.env.PRUNE_INTERVAL_MS || '60000', 10);
+const MAX_DAG_NODES = parseInt(process.env.MAX_DAG_NODES || '500', 10);
+const PRUNE_INTERVAL_MS = parseInt(process.env.PRUNE_INTERVAL_MS || '30000', 10);
 
 async function main() {
   console.log('Starting Rinku Node...');
@@ -112,11 +112,34 @@ async function main() {
     await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
   });
 
-  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, async () => {
+  // Debounced snapshot saving - don't save on every transaction
+  let snapshotPending = false;
+  let lastSnapshotTime = Date.now();
+  const SNAPSHOT_DEBOUNCE_MS = 30000; // Save at most every 30 seconds
+  
+  const debouncedSave = async () => {
+    const now = Date.now();
+    if (now - lastSnapshotTime < SNAPSHOT_DEBOUNCE_MS) {
+      snapshotPending = true;
+      return;
+    }
+    snapshotPending = false;
+    lastSnapshotTime = now;
     await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
-  });
+  };
+  
+  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, debouncedSave);
   
   await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
+  
+  // Periodic snapshot save for pending changes
+  setInterval(async () => {
+    if (snapshotPending) {
+      snapshotPending = false;
+      lastSnapshotTime = Date.now();
+      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
+    }
+  }, SNAPSHOT_DEBOUNCE_MS);
 
   checkpointService.start(60000);
   
@@ -130,12 +153,22 @@ async function main() {
       const pruned = consensus.pruneDAG(MAX_DAG_NODES);
       if (pruned > 0) {
         console.log(`[Pruning] Removed ${pruned} old DAG nodes. Size: ${dagSize} -> ${consensus.getDAGSize()}`);
+        // Hint garbage collection after pruning
+        if (global.gc) {
+          global.gc();
+        }
       }
     }
     
     const memUsage = process.memoryUsage();
     const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
     console.log(`[Stats] DAG: ${consensus.getDAGSize()} nodes, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB`);
+    
+    // Force GC if heap is getting too large (over 512MB)
+    if (heapMB > 512 && global.gc) {
+      console.log('[GC] Forcing garbage collection...');
+      global.gc();
+    }
   }, PRUNE_INTERVAL_MS);
   console.log(`DAG pruning enabled (max: ${MAX_DAG_NODES} nodes, interval: ${PRUNE_INTERVAL_MS / 1000}s)`);
 
