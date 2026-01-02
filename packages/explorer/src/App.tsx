@@ -26,6 +26,14 @@ interface NetworkStats {
   networkAge: number;
 }
 
+interface GasStats {
+  current: number;
+  min: number;
+  max: number;
+  avgLast100: number;
+  totalBurned: number;
+}
+
 function App() {
   const [tab, setTab] = useState<
     "dag" | "accounts" | "faucet" | "contracts" | "rewards"
@@ -40,6 +48,7 @@ function App() {
     accountCount: number;
   } | null>(null);
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
+  const [gasStats, setGasStats] = useState<GasStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
@@ -52,10 +61,12 @@ function App() {
 
   const fetchSummary = useCallback(async () => {
     try {
-      const [summaryRes, accountsRes, networkRes] = await Promise.all([
+      const [summaryRes, accountsRes, networkRes, gasPriceRes, gasStatsRes] = await Promise.all([
         fetch(`${NODE_URL}/dag/summary`),
         fetch(`${NODE_URL}/accounts`),
         fetch(`${NODE_URL}/stats/network`),
+        fetch(`${NODE_URL}/gas/price`),
+        fetch(`${NODE_URL}/gas/stats`),
       ]);
 
       const summaryData = await summaryRes.json();
@@ -68,6 +79,18 @@ function App() {
       if (networkRes.ok) {
         const networkData = await networkRes.json();
         setNetworkStats(networkData);
+      }
+
+      if (gasPriceRes.ok && gasStatsRes.ok) {
+        const gasPriceData = await gasPriceRes.json();
+        const gasStatsData = await gasStatsRes.json();
+        setGasStats({
+          current: gasPriceData.current,
+          min: gasPriceData.min,
+          max: gasPriceData.max,
+          avgLast100: gasPriceData.avgLast100,
+          totalBurned: gasStatsData.totalBurned
+        });
       }
     } catch (e) {
       console.error("Failed to fetch summary:", e);
@@ -164,6 +187,18 @@ function App() {
             {networkStats?.validatorCount || 0}
           </span>
           <span className="stat-label">validators</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-value">
+            {gasStats?.current?.toFixed(4) || "0.0100"}
+          </span>
+          <span className="stat-label">gas price</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-value">
+            {formatNumber(gasStats?.totalBurned || 0)}
+          </span>
+          <span className="stat-label">burned</span>
         </div>
       </div>
 

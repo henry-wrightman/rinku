@@ -173,7 +173,7 @@ export class DAG {
     hash: string,
     getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
     getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>,
-    getPrunedTx?: (hash: string) => { tx: { from: string; to: string; amount: number; nonce: number; tipUrls: string[]; sig: string; ts: number }; checkpointId: string; checkpointHeight: number } | null
+    getPrunedTx?: (hash: string) => { tx: { from: string; to: string; amount: number; fee: number; nonce: number; tipUrls: string[]; sig: string; ts: number }; checkpointId: string; checkpointHeight: number } | null
   ): Promise<SelfCrawlableBundle | null> {
     const node = this.nodes.get(hash);
     if (!node) return null;
@@ -222,6 +222,7 @@ export class DAG {
               from: parentNode.tx.from,
               to: parentNode.tx.to,
               amount: parentNode.tx.amount,
+              fee: parentNode.tx.fee,
               nonce: parentNode.tx.nonce,
               tipUrls: parentNode.tx.tipUrls,
               sig: parentNode.tx.sig,
@@ -255,6 +256,7 @@ export class DAG {
         from: node.tx.from,
         to: node.tx.to,
         amount: node.tx.amount,
+        fee: node.tx.fee,
         nonce: node.tx.nonce,
         tipUrls: node.tx.tipUrls,
         sig: node.tx.sig,
@@ -275,7 +277,7 @@ export class DAG {
     hash: string,
     getCheckpoint?: (checkpointId: string) => { checkpointId: string; merkleRoot: string; txMerkleRoot?: string; height: number; signatureCount: number } | null,
     getMerkleProof?: (txHash: string, checkpointId: string) => Promise<{ proof: string[]; index: number; txMerkleRoot: string } | null>,
-    getPrunedTx?: (hash: string) => { tx: { from: string; to: string; amount: number; nonce: number; tipUrls: string[]; sig: string; ts: number }; checkpointId: string; checkpointHeight: number } | null
+    getPrunedTx?: (hash: string) => { tx: { from: string; to: string; amount: number; fee: number; nonce: number; tipUrls: string[]; sig: string; ts: number }; checkpointId: string; checkpointHeight: number } | null
   ): Promise<string | null> {
     const bundle = await this.buildSelfCrawlableBundle(hash, getCheckpoint, getMerkleProof, getPrunedTx);
     if (!bundle) return null;
@@ -495,6 +497,7 @@ export class DAG {
         from: tx.from,
         to: tx.to,
         amount: tx.amount,
+        fee: tx.fee || 0,
         nonce: tx.nonce,
         sig: tx.sig,
         ts: tx.ts,

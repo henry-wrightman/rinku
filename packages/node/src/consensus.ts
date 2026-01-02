@@ -22,6 +22,7 @@ export interface PrunedTxInfo {
     from: string;
     to: string;
     amount: number;
+    fee: number;
     nonce: number;
     tipUrls: string[];
     sig: string;
@@ -74,12 +75,17 @@ export class Consensus {
         return { valid: false, error: 'Sender account not found' };
       }
 
-      if (sender.balance < tx.amount) {
-        return { valid: false, error: 'Insufficient balance' };
+      const totalCost = tx.amount + (tx.fee || 0);
+      if (sender.balance < totalCost) {
+        return { valid: false, error: `Insufficient balance for amount + fee (need ${totalCost}, have ${sender.balance})` };
       }
 
       if (tx.nonce !== sender.nonce + 1) {
         return { valid: false, error: 'Invalid nonce' };
+      }
+
+      if (tx.fee < 0) {
+        return { valid: false, error: 'Fee cannot be negative' };
       }
     }
 
@@ -171,6 +177,7 @@ export class Consensus {
             from: tx.from,
             to: tx.to,
             amount: tx.amount,
+            fee: tx.fee,
             nonce: tx.nonce,
             tipUrls: tx.tipUrls,
             sig: tx.sig,

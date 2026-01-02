@@ -40,7 +40,8 @@ export class StateManager {
     }
 
     if (sender && !skipChecks) {
-      if (sender.balance < tx.amount) {
+      const totalCost = tx.amount + (tx.fee || 0);
+      if (sender.balance < totalCost) {
         return false;
       }
 
@@ -50,7 +51,8 @@ export class StateManager {
     }
 
     if (sender) {
-      sender.balance -= tx.amount;
+      const totalDebit = tx.amount + (tx.fee || 0);
+      sender.balance -= totalDebit;
       sender.nonce = tx.nonce;
     }
 

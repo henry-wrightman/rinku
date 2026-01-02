@@ -79,6 +79,7 @@ export async function hashTransaction(tx: Transaction): Promise<string> {
     from: tx.from,
     to: tx.to,
     amount: tx.amount,
+    fee: tx.fee,
     nonce: tx.nonce,
     tipUrls: tx.tipUrls,
     ts: tx.ts

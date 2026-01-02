@@ -16,6 +16,7 @@ describe('DAG Module', () => {
       from,
       to,
       amount,
+      fee: 0,
       nonce,
       tipUrls,
       sig: 'mocksig123',
@@ -276,7 +277,7 @@ describe('DAG Module', () => {
       const legacyData = {
         nodes: [{
           hash: 'abc123',
-          tx: { from: 'alice', to: 'bob', amount: 100, nonce: 1, tipUrls: [], sig: 'sig', ts: 123, hash: 'abc123' },
+          tx: { from: 'alice', to: 'bob', amount: 100, fee: 0, nonce: 1, tipUrls: [], sig: 'sig', ts: 123, hash: 'abc123' },
           parents: ['/tx/parent1'],
           children: [],
           weight: 0,

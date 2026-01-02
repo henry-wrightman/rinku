@@ -9,10 +9,42 @@ export interface Transaction {
   from: string;
   to: string;
   amount: number;
+  fee: number;
   nonce: number;
   tipUrls: string[];
   sig: string;
   ts: number;
+}
+
+// ============================================
+// Gas & Fee Types
+// ============================================
+
+/** Current gas price from network oracle */
+export interface GasPrice {
+  current: number;
+  min: number;
+  max: number;
+  avgLast100: number;
+  lastUpdated: number;
+}
+
+/** Gas configuration */
+export interface GasConfig {
+  minFee: number;
+  maxFee: number;
+  baseFee: number;
+  feeMultiplier: number;
+  burnPercent: number;
+  validatorPercent: number;
+}
+
+/** Fee statistics */
+export interface FeeStats {
+  totalBurned: number;
+  totalToValidators: number;
+  avgFee: number;
+  txCount: number;
 }
 
 export interface SignedTransaction extends Transaction {

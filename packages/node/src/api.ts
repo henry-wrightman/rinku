@@ -7,6 +7,7 @@ import { PeerSyncService } from './peerSync.js';
 import { ContractService } from './contracts.js';
 import { RewardsService } from './rewards.js';
 import { CheckpointService } from './checkpoint.js';
+import { GasService } from './gas.js';
 import { 
   parseTransactionURL, 
   parseContractURL,
@@ -26,6 +27,7 @@ export function createAPI(
   contractService?: ContractService,
   rewardsService?: RewardsService,
   checkpointService?: CheckpointService,
+  gasService?: GasService,
   onTransaction?: () => Promise<void>
 ) {
   const app = express();
@@ -118,6 +120,30 @@ export function createAPI(
   app.get('/api/tips', (_req, res) => {
     const tips = consensus.getTips();
     res.json({ tips });
+  });
+
+  app.get('/api/gas/price', (_req, res) => {
+    if (!gasService) {
+      res.json({ current: 0, min: 0, max: 0, avgLast100: 0, lastUpdated: Date.now() });
+      return;
+    }
+    res.json(gasService.getCurrentGasPrice());
+  });
+
+  app.get('/api/gas/stats', (_req, res) => {
+    if (!gasService) {
+      res.json({ totalBurned: 0, totalToValidators: 0, avgFee: 0, txCount: 0 });
+      return;
+    }
+    res.json(gasService.getStats());
+  });
+
+  app.get('/api/gas/config', (_req, res) => {
+    if (!gasService) {
+      res.json({ minFee: 0, maxFee: 0, baseFee: 0, feeMultiplier: 1, burnPercent: 50, validatorPercent: 50 });
+      return;
+    }
+    res.json(gasService.getConfig());
   });
 
   app.get('/api/tipUrls', (_req, res) => {
@@ -576,6 +602,7 @@ export function createAPI(
         from: caller || 'contract-caller',
         to: contractId,
         amount: 0,
+        fee: 0,
         nonce: Date.now(),
         tipUrls: consensus.getTipUrls(),
         sig: '',

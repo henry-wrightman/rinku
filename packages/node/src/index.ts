@@ -7,6 +7,7 @@ import { PeerSyncService } from './peerSync.js';
 import { ContractService } from './contracts.js';
 import { RewardsService } from './rewards.js';
 import { CheckpointService } from './checkpoint.js';
+import { GasService } from './gas.js';
 import { hashTransaction, type SignedTransaction } from '@rinku/core';
 import { randomBytes } from 'crypto';
 
@@ -147,8 +148,16 @@ async function main() {
     lastSnapshotTime = now;
     await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
   };
+
+  const gasService = new GasService({
+    minFee: 0.001,
+    maxFee: 100,
+    baseFee: 0.01,
+    burnPercent: 50,
+    validatorPercent: 50
+  });
   
-  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, debouncedSave);
+  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave);
   
   await saveSnapshot(storage, state, consensus, rewardsService, checkpointService);
   
@@ -173,6 +182,7 @@ async function main() {
   console.log('Smart contract service enabled');
   console.log('Rewards & staking service enabled');
   console.log('Checkpoint service enabled (60s interval)');
+  console.log('Gas service enabled (min: 0.001, max: 100)');
 
   setInterval(async () => {
     consensus.updateWeights(state.getAllAccounts());
@@ -221,6 +231,7 @@ async function createGenesis(state: StateManager, consensus: Consensus): Promise
     from: 'genesis',
     to: 'faucet',
     amount: FAUCET_BALANCE,
+    fee: 0,
     nonce: 0,
     tipUrls: [],
     sig: 'genesis-signature',
@@ -311,4 +322,5 @@ export { PeerSyncService } from './peerSync.js';
 export { ContractService } from './contracts.js';
 export { RewardsService } from './rewards.js';
 export { CheckpointService } from './checkpoint.js';
+export { GasService } from './gas.js';
 export { createAPI } from './api.js';
