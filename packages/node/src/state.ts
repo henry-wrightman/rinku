@@ -3,6 +3,9 @@ import { getMerkleRoot, type AccountState, type SignedTransaction } from '@rinku
 export class StateManager {
   private accounts: Map<string, AccountState> = new Map();
   private merkleRoot: string = '';
+  private merkleRootDirty: boolean = false;
+  private lastMerkleUpdate: number = 0;
+  private readonly MERKLE_UPDATE_INTERVAL = 5000;
 
   constructor() {
     this.accounts = new Map();
@@ -13,7 +16,7 @@ export class StateManager {
   }
 
   getAllAccounts(): Map<string, AccountState> {
-    return new Map(this.accounts);
+    return this.accounts;
   }
 
   createAccount(fingerprint: string, initialBalance: number = 0): AccountState {
@@ -57,13 +60,25 @@ export class StateManager {
     }
     receiver.balance += tx.amount;
 
-    await this.updateMerkleRoot();
+    this.merkleRootDirty = true;
 
     return true;
   }
 
-  async updateMerkleRoot(): Promise<string> {
+  async updateMerkleRootIfNeeded(): Promise<string> {
+    const now = Date.now();
+    if (this.merkleRootDirty && (now - this.lastMerkleUpdate) > this.MERKLE_UPDATE_INTERVAL) {
+      this.merkleRoot = await getMerkleRoot(this.accounts);
+      this.merkleRootDirty = false;
+      this.lastMerkleUpdate = now;
+    }
+    return this.merkleRoot;
+  }
+
+  async forceUpdateMerkleRoot(): Promise<string> {
     this.merkleRoot = await getMerkleRoot(this.accounts);
+    this.merkleRootDirty = false;
+    this.lastMerkleUpdate = Date.now();
     return this.merkleRoot;
   }
 
@@ -86,7 +101,7 @@ export class StateManager {
     if (!account) {
       if (delta > 0) {
         this.createAccount(fingerprint, delta);
-        await this.updateMerkleRoot();
+        this.merkleRootDirty = true;
         return true;
       }
       return false;
@@ -98,7 +113,7 @@ export class StateManager {
     }
 
     account.balance = newBalance;
-    await this.updateMerkleRoot();
+    this.merkleRootDirty = true;
     return true;
   }
 

@@ -129,49 +129,10 @@ export class DAG {
   }
 
   updateWeights(accountWeights: Map<string, number>): void {
-    for (const [hash, node] of this.nodes) {
+    for (const node of this.nodes.values()) {
       const accountWeight = accountWeights.get(node.tx.from) || 0;
       node.weight = accountWeight;
     }
-
-    const sorted = this.topologicalSort();
-    for (const hash of sorted) {
-      const node = this.nodes.get(hash)!;
-      for (const childHash of node.children) {
-        const child = this.nodes.get(childHash);
-        if (child) {
-          child.weight += node.weight;
-        }
-      }
-    }
-  }
-
-  private topologicalSort(): string[] {
-    const visited = new Set<string>();
-    const result: string[] = [];
-
-    const visit = (hash: string) => {
-      if (visited.has(hash)) return;
-      visited.add(hash);
-
-      const node = this.nodes.get(hash);
-      if (node) {
-        for (const parentUrl of node.parentUrls) {
-          const parentHash = this.resolveUrlToHash(parentUrl);
-          if (parentHash) {
-            visit(parentHash);
-          }
-        }
-      }
-
-      result.push(hash);
-    };
-
-    for (const hash of this.nodes.keys()) {
-      visit(hash);
-    }
-
-    return result;
   }
 
   resolveConflict(tx1Hash: string, tx2Hash: string): string {

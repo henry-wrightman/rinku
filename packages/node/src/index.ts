@@ -166,13 +166,15 @@ async function main() {
   console.log('Rewards & staking service enabled');
   console.log('Checkpoint service enabled (60s interval)');
 
-  setInterval(() => {
+  setInterval(async () => {
+    consensus.updateWeights(state.getAllAccounts());
+    await state.updateMerkleRootIfNeeded();
+    
     const dagSize = consensus.getDAGSize();
     if (dagSize > MAX_DAG_NODES) {
       const pruned = consensus.pruneDAG(MAX_DAG_NODES);
       if (pruned > 0) {
         console.log(`[Pruning] Removed ${pruned} old DAG nodes. Size: ${dagSize} -> ${consensus.getDAGSize()}`);
-        // Hint garbage collection after pruning
         if (global.gc) {
           global.gc();
         }
@@ -183,7 +185,6 @@ async function main() {
     const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
     console.log(`[Stats] DAG: ${consensus.getDAGSize()} nodes, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB`);
     
-    // Force GC if heap is getting too large (over 512MB)
     if (heapMB > 512 && global.gc) {
       console.log('[GC] Forcing garbage collection...');
       global.gc();

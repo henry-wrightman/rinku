@@ -128,10 +128,9 @@ export function createAPI(
       }
 
       await consensus.addTransaction(tx);
-      consensus.updateWeights(state.getAllAccounts());
 
       if (onTransaction) {
-        await onTransaction();
+        onTransaction();
       }
 
       res.json({
@@ -307,10 +306,9 @@ export function createAPI(
       }
 
       await consensus.addTransaction(tx);
-      consensus.updateWeights(state.getAllAccounts());
 
       if (onTransaction) {
-        await onTransaction();
+        onTransaction();
       }
 
       res.json({
