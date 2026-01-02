@@ -2,6 +2,10 @@ import type { DAGNode, SignedTransaction } from './types.js';
 import { hashTransaction } from './crypto.js';
 import { parseTransactionURL, createTransactionURL } from './encoding.js';
 
+function compactUrl(hash: string): string {
+  return `/tx/h/${hash}`;
+}
+
 export class DAG {
   private nodes: Map<string, DAGNode> = new Map();
   private tipHashes: Set<string> = new Set();
@@ -14,7 +18,7 @@ export class DAG {
   }
 
   async addTransaction(tx: SignedTransaction): Promise<DAGNode> {
-    const txUrl = createTransactionURL(tx).path;
+    const txUrl = compactUrl(tx.hash);
     this.urlToHash.set(txUrl, tx.hash);
 
     const node: DAGNode = {
@@ -46,6 +50,15 @@ export class DAG {
   resolveUrlToHash(url: string): string | null {
     if (this.urlToHash.has(url)) {
       return this.urlToHash.get(url)!;
+    }
+    
+    const hashMatch = url.match(/\/tx\/h\/([a-f0-9]+)/);
+    if (hashMatch) {
+      const hash = hashMatch[1];
+      if (this.nodes.has(hash)) {
+        this.urlToHash.set(url, hash);
+        return hash;
+      }
     }
     
     const tx = parseTransactionURL(url);

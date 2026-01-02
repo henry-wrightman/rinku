@@ -104,9 +104,10 @@ For full SSRF protection in production, combine with network-level egress restri
 - **Witness tracking**: Uses TTL-based Map (1-hour window) to prevent duplicate rewards while bounding memory growth.
 
 **Snapshot Optimizations (Jan 2026):**
-- Snapshots use compact hash-based URLs (`/tx/h/{hash}`) instead of full self-crawlable URLs.
-- This reduced snapshot size from ~205 MB to ~2 KB for 300 transactions.
-- Full self-crawlable URLs are generated on-demand for new transactions.
+- DAG nodes store compact hash-based URLs (`/tx/h/{hash}`) instead of full self-crawlable URLs.
+- This prevents exponential URL growth where each URL would embed full parent URLs recursively.
+- Memory reduced from ~500 MB at 70 nodes to ~10 MB at 78 nodes.
+- **Note**: Full self-crawlable URLs for trustless verification require a separate proof mechanism (future work).
 
 **Batched Operations:**
 - Merkle root updates are batched every 5 seconds (not per-transaction).
