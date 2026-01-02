@@ -4,7 +4,8 @@ import {
   hashTransaction,
   calculateAccountWeights,
   type SignedTransaction,
-  type AccountState
+  type AccountState,
+  type SelfCrawlableBundle
 } from '@rinku/core';
 
 export interface ValidationResult {
@@ -139,6 +140,22 @@ export class Consensus {
 
   getPublicKeys(): Map<string, Uint8Array> {
     return new Map(this.publicKeys);
+  }
+
+  getSelfCrawlableBundle(
+    hash: string,
+    isConfirmed: (hash: string) => boolean,
+    getCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+  ): SelfCrawlableBundle | null {
+    return this.dag.buildSelfCrawlableBundle(hash, isConfirmed, getCheckpoint);
+  }
+
+  getSelfCrawlableUrl(
+    hash: string,
+    isConfirmed: (hash: string) => boolean,
+    getCheckpoint?: () => { checkpointId: string; merkleRoot: string; height: number; signatureCount: number } | null
+  ): string | null {
+    return this.dag.getSelfCrawlableUrl(hash, isConfirmed, getCheckpoint);
   }
 
   toJSON(): { dag: object; publicKeys: [string, number[]][] } {

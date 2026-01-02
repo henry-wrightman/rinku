@@ -210,3 +210,88 @@ export function parseSelfCrawlableURL(url: string): SelfCrawlableBundle | null {
     return null;
   }
 }
+
+/** Verification result for self-crawlable bundle */
+export interface BundleVerification {
+  valid: boolean;
+  errors: string[];
+  transactionCount: number;
+  maxDepth: number;
+  hasCheckpointAnchor: boolean;
+  checkpointId?: string;
+}
+
+const MAX_BUNDLE_DEPTH = 100;
+const MAX_BUNDLE_TRANSACTIONS = 500;
+
+/** Verify a self-crawlable bundle structure */
+export function verifySelfCrawlableBundle(bundle: SelfCrawlableBundle): BundleVerification {
+  const errors: string[] = [];
+  let transactionCount = 0;
+  let maxDepth = 0;
+  const seenHashes = new Set<string>();
+
+  function countAndValidate(b: SelfCrawlableBundle, depth: number): void {
+    if (depth > MAX_BUNDLE_DEPTH) {
+      errors.push(`Bundle exceeds max depth of ${MAX_BUNDLE_DEPTH}`);
+      return;
+    }
+    if (transactionCount > MAX_BUNDLE_TRANSACTIONS) {
+      errors.push(`Bundle exceeds max transactions of ${MAX_BUNDLE_TRANSACTIONS}`);
+      return;
+    }
+    
+    maxDepth = Math.max(maxDepth, depth);
+    transactionCount++;
+    
+    if (!b.tx) {
+      errors.push('Bundle missing tx field');
+      return;
+    }
+    if (!b.hash) {
+      errors.push('Bundle missing hash field');
+      return;
+    }
+    
+    if (seenHashes.has(b.hash)) {
+      errors.push(`Duplicate transaction ${b.hash} in bundle`);
+      return;
+    }
+    seenHashes.add(b.hash);
+    
+    if (!b.tx.from || !b.tx.to) {
+      errors.push(`Transaction ${b.hash} missing from/to`);
+    }
+    if (typeof b.tx.amount !== 'number' || b.tx.amount <= 0) {
+      errors.push(`Transaction ${b.hash} has invalid amount`);
+    }
+    if (!b.tx.sig) {
+      errors.push(`Transaction ${b.hash} missing signature`);
+    }
+
+    if (b.checkpointAnchor) {
+      if (!b.checkpointAnchor.checkpointId || !b.checkpointAnchor.merkleRoot) {
+        errors.push('Invalid checkpoint anchor: missing required fields');
+      }
+    }
+
+    for (const parent of b.parents) {
+      countAndValidate(parent, depth + 1);
+    }
+  }
+
+  try {
+    countAndValidate(bundle, 0);
+  } catch (e) {
+    errors.push(`Validation error: ${e}`);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    transactionCount,
+    maxDepth,
+    hasCheckpointAnchor: !!bundle.checkpointAnchor,
+    checkpointId: bundle.checkpointAnchor?.checkpointId
+  };
+}

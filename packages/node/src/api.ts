@@ -152,6 +152,45 @@ export function createAPI(
     res.json(node);
   });
 
+  app.get('/api/tx/:hash/proof', (req, res) => {
+    const hash = req.params.hash;
+    const node = consensus.getNode(hash);
+    if (!node) {
+      res.status(404).json({ error: 'Transaction not found' });
+      return;
+    }
+
+    const isConfirmed = (txHash: string) => {
+      const n = consensus.getNode(txHash);
+      return n?.confirmed || false;
+    };
+
+    const getCheckpoint = checkpointService 
+      ? () => {
+          const latest = checkpointService.getLatestCheckpoint();
+          if (!latest) return null;
+          return {
+            checkpointId: latest.checkpointId,
+            merkleRoot: latest.merkleRoot,
+            height: latest.height,
+            signatureCount: latest.signatures.length
+          };
+        }
+      : undefined;
+
+    const proofUrl = consensus.getSelfCrawlableUrl(hash, isConfirmed, getCheckpoint);
+    if (!proofUrl) {
+      res.status(500).json({ error: 'Failed to generate proof URL' });
+      return;
+    }
+
+    res.json({
+      hash,
+      proofUrl,
+      bundle: consensus.getSelfCrawlableBundle(hash, isConfirmed, getCheckpoint)
+    });
+  });
+
   type LightNode = { hash: string; from: string; to: string; amount: number; ts: number; parentCount: number; url: string; weight: number; confirmed: boolean };
   let sortedNodesCache: { nodes: LightNode[]; lastSize: number; timestamp: number } | null = null;
   const CACHE_TTL = 5000;
@@ -174,7 +213,7 @@ export function createAPI(
       amount: node.tx.amount,
       ts: node.tx.ts,
       parentCount: node.tx.tipUrls?.length || 0,
-      url: node.url,
+      url: node.url || '',
       weight: node.weight,
       confirmed: node.confirmed
     }));

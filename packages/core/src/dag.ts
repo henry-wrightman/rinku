@@ -150,18 +150,23 @@ export class DAG {
     if (!node) return null;
 
     const parents: SelfCrawlableBundle[] = [];
+    let ancestryTruncated = false;
     
     for (const parentUrl of node.tx.tipUrls) {
       const parentHash = this.resolveUrlToHash(parentUrl);
       if (!parentHash) continue;
       
       if (isConfirmed(parentHash)) {
+        ancestryTruncated = true;
         continue;
       }
       
       const parentBundle = this.buildSelfCrawlableBundle(parentHash, isConfirmed, getCheckpoint);
       if (parentBundle) {
         parents.push(parentBundle);
+        if (parentBundle.checkpointAnchor) {
+          ancestryTruncated = true;
+        }
       }
     }
 
@@ -179,7 +184,7 @@ export class DAG {
       parents
     };
 
-    if (getCheckpoint && parents.length === 0 && node.tx.tipUrls.length > 0) {
+    if (getCheckpoint && ancestryTruncated) {
       const checkpoint = getCheckpoint();
       if (checkpoint) {
         bundle.checkpointAnchor = checkpoint;

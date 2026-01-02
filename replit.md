@@ -107,7 +107,14 @@ For full SSRF protection in production, combine with network-level egress restri
 - DAG nodes store compact hash-based URLs (`/tx/h/{hash}`) instead of full self-crawlable URLs.
 - This prevents exponential URL growth where each URL would embed full parent URLs recursively.
 - Memory reduced from ~500 MB at 70 nodes to ~10 MB at 78 nodes.
-- **Note**: Full self-crawlable URLs for trustless verification require a separate proof mechanism (future work).
+
+**Checkpoint-Bounded Self-Crawlable URLs (Jan 2026):**
+- New `/txp/{payload}` URL format for self-crawlable proof bundles.
+- Bundles contain full transaction ancestry back to the last finalized checkpoint (~60 seconds).
+- `SelfCrawlableBundle` type includes `tx`, `hash`, `parents[]`, and optional `checkpointAnchor`.
+- API endpoint: `GET /api/tx/:hash/proof` returns the self-crawlable bundle and proof URL.
+- Preserves "link is the proof" property while keeping URL sizes bounded by checkpoint interval.
+- Verification function `verifySelfCrawlableBundle()` validates bundle structure.
 
 **Batched Operations:**
 - Merkle root updates are batched every 5 seconds (not per-transaction).
