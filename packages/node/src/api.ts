@@ -61,6 +61,65 @@ export function createAPI(
     });
   });
 
+  const recentTxTimestamps: number[] = [];
+  const TPS_WINDOW_MS = 60000;
+
+  app.get('/api/stats/network', (_req, res) => {
+    const now = Date.now();
+    const nodes = consensus.getAllNodes();
+    
+    const cutoff = now - TPS_WINDOW_MS;
+    while (recentTxTimestamps.length > 0 && recentTxTimestamps[0] < cutoff) {
+      recentTxTimestamps.shift();
+    }
+    
+    const recentFromDag = nodes.filter(n => n.tx.ts > cutoff).length;
+    const tps = recentFromDag / 60;
+    
+    let finalizedCount = 0;
+    let unfinalizedCount = 0;
+    for (const node of nodes) {
+      if (consensus.hasFinality(node.tx.hash)) {
+        finalizedCount++;
+      } else {
+        unfinalizedCount++;
+      }
+    }
+    
+    let checkpointCount = 0;
+    let latestCheckpointHeight = 0;
+    let latestCheckpointId: string | null = null;
+    if (checkpointService) {
+      const checkpoints = checkpointService.getAllCheckpoints();
+      checkpointCount = checkpoints.length;
+      const latest = checkpointService.getLatestCheckpoint();
+      if (latest) {
+        latestCheckpointHeight = latest.height;
+        latestCheckpointId = latest.checkpointId;
+      }
+    }
+    
+    let totalStaked = 0;
+    let validatorCount = 0;
+    if (rewardsService) {
+      totalStaked = rewardsService.getTotalStaked();
+      validatorCount = rewardsService.getActiveValidators().length;
+    }
+    
+    res.json({
+      tps: Math.round(tps * 100) / 100,
+      finalizedCount,
+      unfinalizedCount,
+      finalityRatio: nodes.length > 0 ? Math.round((finalizedCount / nodes.length) * 100) : 0,
+      checkpointCount,
+      latestCheckpointHeight,
+      latestCheckpointId: latestCheckpointId ? latestCheckpointId.slice(0, 16) + '...' : null,
+      totalStaked,
+      validatorCount,
+      networkAge: Math.round(process.uptime())
+    });
+  });
+
   app.get('/api/tips', (_req, res) => {
     const tips = consensus.getTips();
     res.json({ tips });
