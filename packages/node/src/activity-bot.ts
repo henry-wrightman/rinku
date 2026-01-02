@@ -4,12 +4,14 @@ const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3002";
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "8000");
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "5");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "3000");
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "50");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "2");
-const CONTRACT_INTERVAL_MS = parseInt(process.env.CONTRACT_INTERVAL || "120000");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "3");
+const CONTRACT_INTERVAL_MS = parseInt(
+  process.env.CONTRACT_INTERVAL || "120000",
+);
 const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "180000");
 const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "300000");
 
@@ -93,7 +95,9 @@ async function createNewWallet(): Promise<void> {
         hasContract: false,
       });
       totalFaucetHits++;
-      log(`New wallet: ${fingerprint.slice(0, 16)}... (${wallets.length} total)`);
+      log(
+        `New wallet: ${fingerprint.slice(0, 16)}... (${wallets.length} total)`,
+      );
     } else {
       errors++;
     }
@@ -130,7 +134,11 @@ async function doRandomFaucetDrop(): Promise<void> {
   }
 }
 
-async function doSingleTransaction(sender: BotWallet, recipient: BotWallet, amount: number): Promise<boolean> {
+async function doSingleTransaction(
+  sender: BotWallet,
+  recipient: BotWallet,
+  amount: number,
+): Promise<boolean> {
   try {
     await sender.wallet.send(recipient.fingerprint, amount);
     totalTransactions++;
@@ -148,38 +156,48 @@ async function doConcurrentTransactions(): Promise<void> {
   pendingOperations++;
   try {
     const txPromises: Promise<boolean>[] = [];
-    const txCount = Math.min(CONCURRENT_TX_COUNT, Math.floor(wallets.length / 2));
-    
+    const txCount = Math.min(
+      CONCURRENT_TX_COUNT,
+      Math.floor(wallets.length / 2),
+    );
+
     const usedSenders = new Set<string>();
-    
+
     for (let i = 0; i < txCount; i++) {
       const availableSenders = wallets.filter(
-        w => !usedSenders.has(w.fingerprint)
+        (w) => !usedSenders.has(w.fingerprint),
       );
       if (availableSenders.length < 1) break;
-      
+
       const sender = pickRandom(availableSenders);
       usedSenders.add(sender.fingerprint);
-      
-      const recipients = wallets.filter(w => w.fingerprint !== sender.fingerprint);
+
+      const recipients = wallets.filter(
+        (w) => w.fingerprint !== sender.fingerprint,
+      );
       if (recipients.length === 0) continue;
-      
+
       const recipient = pickRandom(recipients);
       const amount = Math.floor(Math.random() * 5) + 1;
-      
+
       txPromises.push(
-        sender.wallet.getBalance().then(async balance => {
-          if (balance < amount + 5) return false;
-          return doSingleTransaction(sender, recipient, amount);
-        }).catch(() => false)
+        sender.wallet
+          .getBalance()
+          .then(async (balance) => {
+            if (balance < amount + 5) return false;
+            return doSingleTransaction(sender, recipient, amount);
+          })
+          .catch(() => false),
       );
     }
-    
+
     if (txPromises.length > 0) {
       const results = await Promise.all(txPromises);
-      const successCount = results.filter(r => r).length;
+      const successCount = results.filter((r) => r).length;
       if (successCount > 0) {
-        log(`Concurrent TX batch: ${successCount}/${txPromises.length} succeeded (creating ${successCount} potential tips)`);
+        log(
+          `Concurrent TX batch: ${successCount}/${txPromises.length} succeeded (creating ${successCount} potential tips)`,
+        );
       }
     }
   } finally {
@@ -191,8 +209,8 @@ async function deployContract(): Promise<void> {
   if (wallets.length < 3) return;
   if (pendingOperations >= maxPendingOps) return;
   if (deployedContracts.length >= MAX_CONTRACTS) return;
-  
-  const eligible = wallets.filter(w => !w.hasContract);
+
+  const eligible = wallets.filter((w) => !w.hasContract);
   if (eligible.length === 0) return;
 
   pendingOperations++;
@@ -211,20 +229,22 @@ async function deployContract(): Promise<void> {
       body: JSON.stringify({
         creator: creator.fingerprint,
         wasmBase64,
-        initState: { balances: {}, totalSupply: 0 }
+        initState: { balances: {}, totalSupply: 0 },
       }),
     });
 
     if (res.ok) {
-      const data = await res.json() as { contractId: string };
+      const data = (await res.json()) as { contractId: string };
       deployedContracts.push({
         contractId: data.contractId,
         ownerFingerprint: creator.fingerprint,
-        deployedAt: Date.now()
+        deployedAt: Date.now(),
       });
       creator.hasContract = true;
       totalContractDeploys++;
-      log(`Contract deployed: ${data.contractId.slice(0, 16)}... by ${creator.fingerprint.slice(0, 12)}`);
+      log(
+        `Contract deployed: ${data.contractId.slice(0, 16)}... by ${creator.fingerprint.slice(0, 12)}`,
+      );
     } else {
       const errData = await res.json().catch(() => ({}));
       log(`Contract deploy failed: ${JSON.stringify(errData).slice(0, 50)}`);
@@ -246,40 +266,50 @@ async function callContract(): Promise<void> {
   try {
     const contract = pickRandom(deployedContracts);
     const caller = pickRandom(wallets);
-    
+
     const action = Math.random();
     let entrypoint: string;
     let input: object;
-    
+
     if (action < 0.4) {
       entrypoint = "mint";
-      input = { to: caller.fingerprint, amount: Math.floor(Math.random() * 50) + 10 };
+      input = {
+        to: caller.fingerprint,
+        amount: Math.floor(Math.random() * 50) + 10,
+      };
     } else if (action < 0.7) {
       entrypoint = "transfer";
-      const recipient = pickRandom(wallets.filter(w => w.fingerprint !== caller.fingerprint));
-      input = { 
+      const recipient = pickRandom(
+        wallets.filter((w) => w.fingerprint !== caller.fingerprint),
+      );
+      input = {
         from: caller.fingerprint,
-        to: recipient?.fingerprint || caller.fingerprint, 
-        amount: Math.floor(Math.random() * 10) + 1 
+        to: recipient?.fingerprint || caller.fingerprint,
+        amount: Math.floor(Math.random() * 10) + 1,
       };
     } else {
       entrypoint = "get_balance";
       input = { address: caller.fingerprint };
     }
 
-    const res = await fetchWithTimeout(`${NODE_URL}/api/contracts/${contract.contractId}/call`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        caller: caller.fingerprint,
-        entrypoint,
-        input
-      }),
-    });
+    const res = await fetchWithTimeout(
+      `${NODE_URL}/api/contracts/${contract.contractId}/call`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caller: caller.fingerprint,
+          entrypoint,
+          input,
+        }),
+      },
+    );
 
     if (res.ok) {
       totalContractCalls++;
-      log(`Contract call: ${entrypoint}() on ${contract.contractId.slice(0, 12)}...`);
+      log(
+        `Contract call: ${entrypoint}() on ${contract.contractId.slice(0, 12)}...`,
+      );
     } else {
       const errData = await res.json().catch(() => ({}));
       if (entrypoint !== "get_balance") {
@@ -297,16 +327,16 @@ async function doStaking(): Promise<void> {
   if (wallets.length < 5) return;
   if (pendingOperations >= maxPendingOps) return;
 
-  const nonStakers = wallets.filter(w => !w.isStaking);
+  const nonStakers = wallets.filter((w) => !w.isStaking);
   if (nonStakers.length === 0) return;
 
   pendingOperations++;
   try {
     const staker = pickRandom(nonStakers);
     const balance = await staker.wallet.getBalance();
-    
+
     if (balance < 200) return;
-    
+
     const stakeAmount = Math.floor(balance * 0.3);
 
     const res = await fetchWithTimeout(`${NODE_URL}/api/staking/stake`, {
@@ -314,14 +344,16 @@ async function doStaking(): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         address: staker.fingerprint,
-        amount: stakeAmount
+        amount: stakeAmount,
       }),
     });
 
     if (res.ok) {
       staker.isStaking = true;
       totalStakes++;
-      log(`Staked: ${staker.fingerprint.slice(0, 16)}... staked ${stakeAmount} coins`);
+      log(
+        `Staked: ${staker.fingerprint.slice(0, 16)}... staked ${stakeAmount} coins`,
+      );
     }
   } catch (err: any) {
     errors++;
@@ -338,21 +370,28 @@ async function claimRewards(): Promise<void> {
   try {
     const claimer = pickRandom(wallets);
 
-    const summaryRes = await fetchWithTimeout(`${NODE_URL}/api/rewards/${claimer.fingerprint}`);
+    const summaryRes = await fetchWithTimeout(
+      `${NODE_URL}/api/rewards/${claimer.fingerprint}`,
+    );
     if (!summaryRes.ok) return;
-    
-    const summary = await summaryRes.json() as { pending: number };
+
+    const summary = (await summaryRes.json()) as { pending: number };
     if (summary.pending < 1) return;
 
-    const res = await fetchWithTimeout(`${NODE_URL}/api/rewards/${claimer.fingerprint}/claim`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
+    const res = await fetchWithTimeout(
+      `${NODE_URL}/api/rewards/${claimer.fingerprint}/claim`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
+    );
 
     if (res.ok) {
-      const result = await res.json() as { claimed: number };
+      const result = (await res.json()) as { claimed: number };
       totalRewardsClaimed += result.claimed || 0;
-      log(`Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.claimed} coins`);
+      log(
+        `Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.claimed} coins`,
+      );
     }
   } catch (err: any) {
   } finally {
@@ -368,17 +407,27 @@ function log(msg: string): void {
 function printStats(): void {
   const memUsage = process.memoryUsage();
   const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
-  const stakingWallets = wallets.filter(w => w.isStaking).length;
-  const contractOwners = wallets.filter(w => w.hasContract).length;
+  const stakingWallets = wallets.filter((w) => w.isStaking).length;
+  const contractOwners = wallets.filter((w) => w.hasContract).length;
 
   console.log("\n" + "=".repeat(55));
   console.log("RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION");
   console.log("=".repeat(55));
-  console.log(`  Wallets: ${wallets.length}/${MAX_WALLETS} (${stakingWallets} staking, ${contractOwners} w/contracts)`);
-  console.log(`  Transactions: ${totalTransactions} | Faucet: ${totalFaucetHits}`);
-  console.log(`  Contracts: ${totalContractDeploys} deployed, ${totalContractCalls} calls`);
-  console.log(`  Staking: ${totalStakes} stakes, ${totalRewardsClaimed} rewards claimed`);
-  console.log(`  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps}`);
+  console.log(
+    `  Wallets: ${wallets.length}/${MAX_WALLETS} (${stakingWallets} staking, ${contractOwners} w/contracts)`,
+  );
+  console.log(
+    `  Transactions: ${totalTransactions} | Faucet: ${totalFaucetHits}`,
+  );
+  console.log(
+    `  Contracts: ${totalContractDeploys} deployed, ${totalContractCalls} calls`,
+  );
+  console.log(
+    `  Staking: ${totalStakes} stakes, ${totalRewardsClaimed} rewards claimed`,
+  );
+  console.log(
+    `  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps}`,
+  );
   console.log(`  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT}`);
   console.log("=".repeat(55) + "\n");
 }
@@ -387,7 +436,10 @@ async function checkTipCount(): Promise<void> {
   try {
     const res = await fetchWithTimeout(`${NODE_URL}/api/dag/summary`);
     if (res.ok) {
-      const data = await res.json() as { tipCount: number; totalNodes: number };
+      const data = (await res.json()) as {
+        tipCount: number;
+        totalNodes: number;
+      };
       log(`DAG Status: ${data.totalNodes} nodes, ${data.tipCount} tips`);
     }
   } catch {}
