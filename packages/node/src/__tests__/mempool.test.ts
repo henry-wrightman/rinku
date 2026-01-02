@@ -10,6 +10,7 @@ describe('Mempool', () => {
     from,
     to: 'recipient',
     amount: 100,
+    fee: 0.01,
     nonce,
     tipUrls: [],
     sig: 'mocksig',
