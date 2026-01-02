@@ -32,6 +32,7 @@ export class CheckpointService {
   private latestCheckpoint: Checkpoint | null = null;
   private genesisCheckpoint: Checkpoint | null = null;
   private checkpointHeight = 0;
+  private readonly maxCheckpoints = 50;
   private config: CheckpointConfig;
   private intervalId: NodeJS.Timeout | null = null;
   private chainId: string;
@@ -100,6 +101,8 @@ export class CheckpointService {
 
     this.checkpoints.set(checkpoint.checkpointId, checkpoint);
     this.latestCheckpoint = checkpoint;
+
+    this.pruneOldCheckpoints();
 
     return checkpoint;
   }
@@ -225,6 +228,30 @@ export class CheckpointService {
     if (!proof) return false;
 
     return proof.totalValidatorWeight >= this.config.minValidatorWeightPercent;
+  }
+
+  private pruneOldCheckpoints(): void {
+    if (this.checkpoints.size <= this.maxCheckpoints) return;
+
+    const sorted = Array.from(this.checkpoints.entries())
+      .sort((a, b) => b[1].height - a[1].height);
+
+    const toKeep = new Set<string>();
+    if (this.genesisCheckpoint) {
+      toKeep.add(this.genesisCheckpoint.checkpointId);
+    }
+    if (this.latestCheckpoint) {
+      toKeep.add(this.latestCheckpoint.checkpointId);
+    }
+
+    let kept = 0;
+    for (const [id] of sorted) {
+      if (kept >= this.maxCheckpoints && !toKeep.has(id)) {
+        this.checkpoints.delete(id);
+      } else {
+        kept++;
+      }
+    }
   }
 
   getAllCheckpoints(): Checkpoint[] {

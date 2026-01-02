@@ -15,8 +15,8 @@ const FAUCET_BALANCE = 1000000;
 const DATA_DIR = process.env.RINKU_DATA_DIR || '.rinku-data';
 const NODE_PEERS = process.env.NODE_PEERS || '';
 const NODE_ID = process.env.NODE_ID || randomBytes(8).toString('hex');
-const MAX_DAG_NODES = parseInt(process.env.MAX_DAG_NODES || '50000', 10);
-const PRUNE_INTERVAL_MS = parseInt(process.env.PRUNE_INTERVAL_MS || '300000', 10);
+const MAX_DAG_NODES = parseInt(process.env.MAX_DAG_NODES || '10000', 10);
+const PRUNE_INTERVAL_MS = parseInt(process.env.PRUNE_INTERVAL_MS || '60000', 10);
 
 async function main() {
   console.log('Starting Rinku Node...');

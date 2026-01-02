@@ -1,0 +1,392 @@
+> @rinku/core@0.1.0 build
+> tsc
+
+
+> @rinku/faucet@0.1.0 dev
+> tsx watch src/index.ts
+
+
+> @rinku/node@0.1.0 dev
+> tsx watch src/index.ts
+
+Starting Rinku Faucet...
+Rate limit cleanup scheduled every 300s
+Rinku Faucet running on port 3002
+Connected to node at http://localhost:3001
+Fetch timeout: 10000ms
+Starting Rinku Node...
+Node ID: 2c06dd9b94583fbe
+Data dir: .rinku-data
+Cold start - initializing genesis...
+Genesis transaction created: c94a8abf728fc521...
+Faucet account initialized with 1000000 coins
+Genesis checkpoint created: genesis_00000000
+Initial validators: 0
+Smart contract service enabled
+Rewards & staking service enabled
+Checkpoint service enabled (60s interval)
+DAG pruning enabled (max: 50000 nodes, interval: 300s)
+Rinku Node running on port 3001
+API available at http://0.0.0.0:3001/api
+
+> @rinku/explorer@0.1.0 dev
+> vite --host 0.0.0.0 --port 5000
+
+
+  VITE v5.4.21  ready in 213 ms
+
+  ➜  Local:   http://localhost:5000/
+  ➜  Network: http://172.31.125.130:5000/
+  ➜  press h + enter to show help
+Created checkpoint 64304c0992da2efd at height 1
+12:12:32 AM [vite] hmr update /src/components/DAGTab.tsx
+12:12:44 AM [vite] hmr update /src/components/DAGTab.tsx (x2)
+Created checkpoint de0eea9661882bba at height 2
+12:12:56 AM [vite] hmr update /src/components/DAGTab.tsx (x3)
+Created checkpoint d63e94b571c720ea at height 3
+12:14:07 AM [vite] hmr update /src/components/DAGTab.tsx (x4)
+Created checkpoint f09c9579a3c9eac0 at height 4
+[Cleanup] Removed 5 expired rate limit entries. Current size: 12
+[Stats] DAG: 79 nodes, Accounts: 18, Heap: 93 MB
+Created checkpoint f8ab937c008aae55 at height 5
+Created checkpoint 97b841c6fb258409 at height 6
+Created checkpoint 666f2f9d1c6dbaa1 at height 7
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+Faucet error: Node request timeout
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+Faucet error: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+Created checkpoint b63416ee1df82c26 at height 8
+Faucet error: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+Faucet error: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+Created checkpoint 5f9492e9dce6460a at height 9
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+Faucet error: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+PayloadTooLargeError: request entity too large
+    at readStream (/home/runner/workspace/node_modules/raw-body/index.js:163:17)
+    at getRawBody (/home/runner/workspace/node_modules/raw-body/index.js:116:12)
+    at read (/home/runner/workspace/node_modules/body-parser/lib/read.js:79:3)
+    at jsonParser (/home/runner/workspace/node_modules/body-parser/lib/types/json.js:138:5)
+    at Layer.handle [as handle_request] (/home/runner/workspace/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/home/runner/workspace/node_modules/express/lib/router/index.js:328:13)
+    at /home/runner/workspace/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/home/runner/workspace/node_modules/express/lib/router/index.js:346:12)
+    at next (/home/runner/workspace/node_modules/express/lib/router/index.js:280:10)
+    at cors (/home/runner/workspace/node_modules/cors/lib/index.js:188:7)
+Faucet error: Node request timeout
+[Cleanup] Removed 22 expired rate limit entries. Current size: 0
+
+<--- Last few GCs --->
+
+[64960:0x16095200]   607171 ms: Scavenge 2042.8 (2079.9) -> 2042.8 (2080.6) MB, 4.58 / 0.00 ms  (average mu = 0.230, current mu = 0.227) allocation failure; 
+[64960:0x16095200]   607175 ms: Scavenge 2043.8 (2080.6) -> 2043.8 (2085.4) MB, 4.48 / 0.00 ms  (average mu = 0.230, current mu = 0.227) allocation failure; 
+
+
+<--- JS stacktrace --->
+
+FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory
+----- Native stack trace -----
+
+ 1: 0xaa132b node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+ 2: 0xe74030 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+ 3: 0xe7443b v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+ 4: 0x10aaaa7  [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+ 5: 0x10aab39  [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+ 6: 0x10c2770 v8::internal::Heap::PerformGarbageCollection(v8::internal::GarbageCollector, v8::internal::GarbageCollectionReason, char const*) [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+ 7: 0x10c327c v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+ 8: 0x10c3aec v8::internal::Heap::CollectAllGarbage(int, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+ 9: 0x102e7f8 v8::internal::StackGuard::HandleInterrupts() [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+10: 0x14f7ac9 v8::internal::Runtime_StackGuard(int, unsigned long*, v8::internal::Isolate*) [/nix/store/lz7iav1hd92jbv44zf2rdd7b2mj23536-nodejs-20.19.3/bin/node]
+11: 0x7f749fed9ef6 
+12:21:18 AM [vite] http proxy error: /api/dag
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:528:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)
+12:21:18 AM [vite] http proxy error: /api/accounts
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:218:20)
+Faucet error: fetch failed
+12:21:28 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:21:28 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+Faucet error: fetch failed
+Faucet error: fetch failed
+Faucet error: fetch failed
+12:22:01 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16) (x2)
+12:22:01 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:03 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16) (x2)
+12:22:03 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+Faucet error: fetch failed
+12:22:08 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:08 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:13 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:13 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+Faucet error: fetch failed
+12:22:18 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:18 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:23 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16) (x2)
+12:22:23 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+Faucet error: fetch failed
+12:22:28 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16) (x2)
+12:22:28 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:33 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:33 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+Faucet error: fetch failed
+12:22:38 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:38 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:43 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:43 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+Faucet error: fetch failed
+12:22:48 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:48 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:53 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:53 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+Faucet error: fetch failed
+12:22:59 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16) (x2)
+12:22:59 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
+12:22:59 AM [vite] http proxy error: /api/dag
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16) (x2)
+12:22:59 AM [vite] http proxy error: /api/accounts
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1611:16)
