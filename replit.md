@@ -138,6 +138,36 @@ For full SSRF protection in production, combine with network-level egress restri
 - Weight calculations are batched every 30 seconds.
 - API responses are cached for 5 seconds with DAG-size-based invalidation.
 
+### Dynamic Gas Fee Model (Jan 2026)
+
+**Gas Pricing:**
+- Demand-based pricing using moving average of last 100 transaction fees
+- Price range: minFee (0.001) to maxFee (100), base fee 0.01
+- Demand multiplier scales up to 2x based on recent transaction volume
+- Fee field required in all SignedTransaction types
+
+**Fee Distribution:**
+- 50% burned (permanently removed from circulation for deflation)
+- 50% distributed to active validators proportionally by stake weight
+- Faucet and genesis transactions exempt from gas fees (fee: 0)
+
+**Fee Validation Flow:**
+1. POST /api/tx validates fee against GasService min/max bounds
+2. Consensus.validateTransaction checks balance covers amount + fee
+3. StateManager.applyTransaction deducts total (amount + fee) from sender
+4. GasService.recordFee() tracks burn/validator portions
+5. RewardsService.distributeFeeToValidators() credits validator balances
+
+**API Endpoints:**
+- `GET /api/gas/price`: Current gas price, min, max, avg of last 100
+- `GET /api/gas/stats`: Total burned, total to validators, transaction count
+- `GET /api/gas/config`: Fee multiplier, burn/validator percentages
+
+**Design Compatibility:**
+- Dynamic fees work with URL-native proofs because checkpoint inclusion proves the fee was valid at submission time
+- The fee is frozen in the transaction hash and checkpoint verification ensures historical validity
+- Gas service state persisted in node snapshots for restart recovery
+
 **Scaling Notes:**
 - Current config handles 300+ nodes with ~50 MB heap on Replit.
 - For production, increase `MAX_DAG_NODES` on infrastructure with more memory.

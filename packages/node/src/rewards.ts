@@ -241,9 +241,6 @@ export class RewardsService {
       if (share > 0) {
         await this.deps.updateBalance(stake.staker, share);
         distribution.set(stake.staker, share);
-        
-        const pending = this.pendingRewards.get(stake.staker) || 0;
-        this.pendingRewards.set(stake.staker, pending + share);
       }
     }
 
