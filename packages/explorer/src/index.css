@@ -1200,3 +1200,181 @@ body.light .stat-row .value {
 body.light .reward-type .amount {
   color: #228b22;
 }
+
+.tokenomics-tab {
+  padding: 16px 0;
+}
+
+.tokenomics-section {
+  margin-bottom: 32px;
+}
+
+.tokenomics-section h3 {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 8px;
+}
+
+.tokenomics-section h4 {
+  color: #c0c0c0;
+  font-size: 14px;
+  font-weight: 500;
+  margin: 16px 0 12px 0;
+}
+
+.tokenomics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tokenomics-card {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.tokenomics-card .card-label {
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.tokenomics-card .card-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: #a3be8c;
+}
+
+.tokenomics-card .card-sub {
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.tokenomics-card.warning .card-value {
+  color: #ebcb8b;
+}
+
+.tokenomics-card.danger .card-value {
+  color: #bf616a;
+}
+
+.tokenomics-info {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.tokenomics-info p {
+  color: #c0c0c0;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.tokenomics-info p:last-child {
+  margin-bottom: 0;
+}
+
+.tokenomics-info strong {
+  color: #fff;
+}
+
+.tokenomics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tokenomics-table th,
+.tokenomics-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+
+.tokenomics-table th {
+  color: #666;
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
+.tokenomics-table td {
+  color: #c0c0c0;
+}
+
+.tokenomics-table tr.active-epoch {
+  background: rgba(163, 190, 140, 0.1);
+}
+
+.tokenomics-table .mono {
+  font-family: 'Courier New', monospace;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge.active {
+  background: rgba(163, 190, 140, 0.2);
+  color: #a3be8c;
+}
+
+.badge.completed {
+  background: rgba(136, 136, 136, 0.2);
+  color: #888;
+}
+
+.badge.upcoming {
+  background: rgba(180, 142, 173, 0.2);
+  color: #b48ead;
+}
+
+.no-data {
+  color: #666;
+  font-style: italic;
+  padding: 16px;
+  text-align: center;
+}
+
+body.light .tokenomics-card {
+  background: #f5f5f5;
+  border-color: #ddd;
+}
+
+body.light .tokenomics-info {
+  background: #f5f5f5;
+  border-color: #ddd;
+}
+
+body.light .tokenomics-table th,
+body.light .tokenomics-table td {
+  border-color: #ddd;
+}
+
+body.light .tokenomics-table tr.active-epoch {
+  background: rgba(34, 139, 34, 0.1);
+}
+
+body.light .tokenomics-card .card-value {
+  color: #228b22;
+}

@@ -172,3 +172,56 @@ For full SSRF protection in production, combine with network-level egress restri
 - Current config handles 300+ nodes with ~50 MB heap on Replit.
 - For production, increase `MAX_DAG_NODES` on infrastructure with more memory.
 - Linear memory growth: approximately 150-200 KB per transaction in memory.
+
+### Tokenomics System (Jan 2026)
+
+**Supply & Emission:**
+- Max Supply: 30,000,000 RKU (hard cap)
+- Genesis Allocation: 6,000,000 RKU (3M treasury, 2M staking rewards, 1M faucet)
+- Remaining for Emission: 24,000,000 RKU distributed via checkpoint rewards
+- Initial Checkpoint Reward: 150 RKU per checkpoint
+- Halving Interval: Every 210,000 checkpoints
+- Minimum Reward: 4.6875 RKU (after 5 halvings)
+
+**Halving Schedule:**
+| Epoch | Start Height | Reward (RKU) |
+|-------|--------------|--------------|
+| 0     | 0            | 150.0000     |
+| 1     | 210,000      | 75.0000      |
+| 2     | 420,000      | 37.5000      |
+| 3     | 630,000      | 18.7500      |
+| 4     | 840,000      | 9.3750       |
+| 5     | 1,050,000    | 4.6875       |
+
+**Reward Distribution (WPoS):**
+- 70% distributed by stake weight (amount staked)
+- 30% distributed by account age (days since first transaction)
+- Rewards credited to validator balances on each checkpoint
+
+**Slashing Penalties:**
+- Double Signing: 15% of stake slashed
+- Invalid Checkpoint: 25% of stake slashed
+- Liveness Failure: 5% after missing 3 consecutive checkpoints
+- Repeat Liveness: 10% for subsequent failures within 30 days
+
+**Unbonding Queue:**
+- 14-day unbonding period for unstaking
+- Stake remains slashable during unbonding
+- Processed automatically on each checkpoint
+
+**Deflation Mechanics:**
+- Gas fees: 50% burned, 50% to validators
+- Net deflation when burn rate exceeds emission
+- Total burned tracked in tokenomics stats
+
+**API Endpoints:**
+- `GET /api/tokenomics/supply`: Current supply stats, circulating, emitted, burned
+- `GET /api/tokenomics/emission`: Halving schedule, current epoch, reward rate
+- `GET /api/tokenomics/slashing`: Slashing config, events history, unbonding queue
+- `GET /api/tokenomics/slashing/:validator`: Validator-specific slash history
+
+**Explorer Integration:**
+- Tokenomics tab in Explorer UI
+- Supply overview with circulating and emission stats
+- Emission schedule table with active epoch indicator
+- Slashing rules display and event history

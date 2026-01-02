@@ -7,6 +7,7 @@ import {
   FaucetTab,
   ContractsTab,
   RewardsTab,
+  TokenomicsTab,
 } from "./components";
 import { formatNumber, formatTps } from "./utils";
 
@@ -36,7 +37,7 @@ interface GasStats {
 
 function App() {
   const [tab, setTab] = useState<
-    "dag" | "accounts" | "faucet" | "contracts" | "rewards"
+    "dag" | "accounts" | "faucet" | "contracts" | "rewards" | "tokenomics"
   >("dag");
   const [nodes, setNodes] = useState<DAGNode[]>([]);
   const [accounts, setAccounts] = useState<State["accounts"]>([]);
@@ -234,6 +235,12 @@ function App() {
         >
           rewards
         </span>
+        <span
+          className={tab === "tokenomics" ? "active" : ""}
+          onClick={() => setTab("tokenomics")}
+        >
+          tokenomics
+        </span>
       </div>
 
       {tab === "dag" && (
@@ -257,6 +264,7 @@ function App() {
       )}
       {tab === "contracts" && <ContractsTab />}
       {tab === "rewards" && <RewardsTab />}
+      {tab === "tokenomics" && <TokenomicsTab />}
     </div>
   );
 }

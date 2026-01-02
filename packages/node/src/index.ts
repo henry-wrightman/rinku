@@ -1,4 +1,4 @@
-import { createAPI } from './api.js';
+import { createAPI, type TokenomicsServices } from './api.js';
 import { StateManager } from './state.js';
 import { Consensus } from './consensus.js';
 import { Mempool } from './mempool.js';
@@ -8,6 +8,7 @@ import { ContractService } from './contracts.js';
 import { RewardsService } from './rewards.js';
 import { CheckpointService } from './checkpoint.js';
 import { GasService } from './gas.js';
+import { EmissionService, SlashingService, distributeCheckpointReward, TOKENOMICS_CONFIG, type SlashingServiceDeps } from './tokenomics.js';
 import { hashTransaction, type SignedTransaction } from '@rinku/core';
 import { randomBytes } from 'crypto';
 
@@ -129,6 +130,52 @@ async function main() {
     console.log(`Added peer: ${peer}`);
   });
 
+  const slashingDeps: SlashingServiceDeps = {
+    getStake: (address: string) => {
+      const validators = rewardsService.getActiveValidators();
+      return validators.find(v => v.staker === address);
+    },
+    updateStake: (address: string, newAmount: number) => {
+      const validators = rewardsService.getActiveValidators();
+      const stake = validators.find(v => v.staker === address);
+      if (stake) {
+        stake.amount = newAmount;
+      }
+    },
+    removeStake: (address: string) => {
+      const validators = rewardsService.getActiveValidators();
+      const idx = validators.findIndex(v => v.staker === address);
+      if (idx >= 0) {
+        validators.splice(idx, 1);
+      }
+    },
+    updateBalance: async (address: string, delta: number) => state.updateBalance(address, delta)
+  };
+
+  let emissionService: EmissionService;
+  let slashingService: SlashingService;
+  
+  if (snapshot?.tokenomics?.emission) {
+    emissionService = EmissionService.fromJSON(snapshot.tokenomics.emission as { totalEmitted?: number; totalBurned?: number });
+    console.log('Restored emission service from snapshot');
+  } else {
+    emissionService = new EmissionService();
+  }
+  
+  if (snapshot?.tokenomics?.slashing) {
+    slashingService = SlashingService.fromJSON(snapshot.tokenomics.slashing as any, slashingDeps);
+    console.log('Restored slashing service from snapshot');
+  } else {
+    slashingService = new SlashingService(slashingDeps);
+  }
+  
+  const tokenomics: TokenomicsServices = {
+    emissionService,
+    slashingService
+  };
+
+  console.log('Tokenomics service enabled (30M max supply, halving every 210k checkpoints)');
+
   let gasService: GasService;
   if (snapshot?.gas) {
     gasService = GasService.fromJSON(snapshot.gas);
@@ -144,7 +191,7 @@ async function main() {
   }
 
   peerSync.onSyncComplete(async () => {
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics);
   });
 
   // Debounced snapshot saving - don't save on every transaction
@@ -160,27 +207,55 @@ async function main() {
     }
     snapshotPending = false;
     lastSnapshotTime = now;
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics);
   };
   
-  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave);
+  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave, tokenomics);
   
-  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService);
+  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics);
   
-  // Periodic snapshot save for pending changes
   setInterval(async () => {
     if (snapshotPending) {
       snapshotPending = false;
       lastSnapshotTime = Date.now();
-      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService);
+      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics);
     }
   }, SNAPSHOT_DEBOUNCE_MS);
 
-  checkpointService.onCheckpoint((checkpointId, height) => {
+  checkpointService.onCheckpoint(async (checkpointId, height) => {
     const count = consensus.stampFinalityForAll(checkpointId, height);
     if (count > 0) {
       console.log(`[Finality] Stamped ${count} transactions with checkpoint ${checkpointId.slice(0, 8)}... at height ${height}`);
     }
+
+    const reward = emissionService.getCheckpointReward(height);
+    if (reward > 0 && emissionService.getRemainingToEmit() > 0) {
+      const validators = rewardsService.getActiveValidators();
+      const validatorWeights = validators.map(v => {
+        const account = state.getAccount(v.staker);
+        const ageMs = account ? Date.now() - account.firstTxTimestamp : 0;
+        const ageDays = Math.max(0, ageMs / (24 * 60 * 60 * 1000));
+        return {
+          address: v.staker,
+          stakeWeight: v.amount,
+          ageWeight: ageDays
+        };
+      });
+
+      const distribution = distributeCheckpointReward(reward, validatorWeights);
+      let distributed = 0;
+      for (const [address, amount] of distribution) {
+        await state.updateBalance(address, amount);
+        distributed += amount;
+      }
+
+      if (distributed > 0) {
+        emissionService.recordEmission(distributed);
+        console.log(`[Emission] Distributed ${distributed.toFixed(4)} RKU to ${distribution.size} validators at height ${height}`);
+      }
+    }
+
+    await slashingService.processUnbondingQueue();
   });
 
   checkpointService.start(60000);
@@ -301,7 +376,8 @@ async function saveSnapshot(
   consensus: Consensus,
   rewardsService?: RewardsService,
   checkpointService?: CheckpointService,
-  gasService?: GasService
+  gasService?: GasService,
+  tokenomics?: TokenomicsServices
 ): Promise<void> {
   const stateJson = state.toJSON() as { accounts: [string, any][]; merkleRoot: string };
   const consensusJson = consensus.toJSON();
@@ -314,7 +390,11 @@ async function saveSnapshot(
     publicKeys: consensusJson.publicKeys,
     rewards: rewardsService?.toJSON(),
     checkpoints: checkpointService?.toJSON(),
-    gas: gasService?.toJSON()
+    gas: gasService?.toJSON(),
+    tokenomics: {
+      emission: tokenomics?.emissionService?.toJSON(),
+      slashing: tokenomics?.slashingService?.toJSON()
+    }
   };
 
   await storage.save(snapshot);
@@ -331,4 +411,5 @@ export { ContractService } from './contracts.js';
 export { RewardsService } from './rewards.js';
 export { CheckpointService } from './checkpoint.js';
 export { GasService } from './gas.js';
+export { EmissionService, SlashingService, TOKENOMICS_CONFIG, distributeCheckpointReward } from './tokenomics.js';
 export { createAPI } from './api.js';

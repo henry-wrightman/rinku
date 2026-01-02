@@ -17,6 +17,10 @@ export interface NodeSnapshot {
   rewards?: object;
   checkpoints?: object;
   gas?: object;
+  tokenomics?: {
+    emission?: object;
+    slashing?: object;
+  };
 }
 
 export class Storage {

@@ -8,6 +8,7 @@ import { ContractService } from './contracts.js';
 import { RewardsService } from './rewards.js';
 import { CheckpointService } from './checkpoint.js';
 import { GasService } from './gas.js';
+import { EmissionService, SlashingService, TOKENOMICS_CONFIG } from './tokenomics.js';
 import { 
   parseTransactionURL, 
   parseContractURL,
@@ -19,6 +20,11 @@ import {
   type ContractTransaction
 } from '@rinku/core';
 
+export interface TokenomicsServices {
+  emissionService?: EmissionService;
+  slashingService?: SlashingService;
+}
+
 export function createAPI(
   state: StateManager,
   consensus: Consensus,
@@ -28,7 +34,8 @@ export function createAPI(
   rewardsService?: RewardsService,
   checkpointService?: CheckpointService,
   gasService?: GasService,
-  onTransaction?: () => Promise<void>
+  onTransaction?: () => Promise<void>,
+  tokenomics?: TokenomicsServices
 ) {
   const app = express();
 
@@ -144,6 +151,100 @@ export function createAPI(
       return;
     }
     res.json(gasService.getConfig());
+  });
+
+  app.get('/api/tokenomics/supply', (_req, res) => {
+    const checkpointHeight = checkpointService?.getLatestCheckpoint()?.height ?? 0;
+    const gasStats = gasService?.getStats();
+    const totalBurned = gasStats?.totalBurned ?? 0;
+    
+    if (tokenomics?.emissionService) {
+      const stats = tokenomics.emissionService.getStats(checkpointHeight);
+      const circulatingSupply = TOKENOMICS_CONFIG.GENESIS_ALLOCATION + stats.totalEmitted - totalBurned;
+      res.json({
+        maxSupply: TOKENOMICS_CONFIG.MAX_SUPPLY,
+        genesisAllocation: TOKENOMICS_CONFIG.GENESIS_ALLOCATION,
+        circulatingSupply: Math.max(0, circulatingSupply),
+        totalEmitted: stats.totalEmitted,
+        totalBurned,
+        remainingToEmit: stats.remainingToEmit,
+        currentReward: stats.currentReward,
+        halvingEpoch: stats.halvingEpoch,
+        nextHalvingAt: stats.nextHalvingAt,
+        halvingInterval: TOKENOMICS_CONFIG.HALVING_INTERVAL,
+        checkpointHeight
+      });
+    } else {
+      res.json({
+        maxSupply: TOKENOMICS_CONFIG.MAX_SUPPLY,
+        genesisAllocation: TOKENOMICS_CONFIG.GENESIS_ALLOCATION,
+        circulatingSupply: Math.max(0, TOKENOMICS_CONFIG.GENESIS_ALLOCATION - totalBurned),
+        totalEmitted: 0,
+        totalBurned,
+        remainingToEmit: TOKENOMICS_CONFIG.MAX_SUPPLY - TOKENOMICS_CONFIG.GENESIS_ALLOCATION,
+        currentReward: TOKENOMICS_CONFIG.INITIAL_CHECKPOINT_REWARD,
+        halvingEpoch: 0,
+        nextHalvingAt: TOKENOMICS_CONFIG.HALVING_INTERVAL,
+        halvingInterval: TOKENOMICS_CONFIG.HALVING_INTERVAL,
+        checkpointHeight
+      });
+    }
+  });
+
+  app.get('/api/tokenomics/emission', (_req, res) => {
+    const checkpointHeight = checkpointService?.getLatestCheckpoint()?.height ?? 0;
+    
+    const schedule = [];
+    for (let epoch = 0; epoch <= TOKENOMICS_CONFIG.HALVINGS_COUNT; epoch++) {
+      const reward = TOKENOMICS_CONFIG.INITIAL_CHECKPOINT_REWARD / Math.pow(2, epoch);
+      schedule.push({
+        epoch,
+        startHeight: epoch * TOKENOMICS_CONFIG.HALVING_INTERVAL,
+        reward: Math.max(reward, TOKENOMICS_CONFIG.MIN_CHECKPOINT_REWARD)
+      });
+    }
+    
+    res.json({
+      currentEpoch: Math.floor(checkpointHeight / TOKENOMICS_CONFIG.HALVING_INTERVAL),
+      currentReward: tokenomics?.emissionService?.getCheckpointReward(checkpointHeight) ?? TOKENOMICS_CONFIG.INITIAL_CHECKPOINT_REWARD,
+      halvingInterval: TOKENOMICS_CONFIG.HALVING_INTERVAL,
+      totalHalvings: TOKENOMICS_CONFIG.HALVINGS_COUNT,
+      minReward: TOKENOMICS_CONFIG.MIN_CHECKPOINT_REWARD,
+      schedule,
+      stakeWeightPercent: TOKENOMICS_CONFIG.STAKE_WEIGHT_PERCENT * 100,
+      ageWeightPercent: TOKENOMICS_CONFIG.AGE_WEIGHT_PERCENT * 100
+    });
+  });
+
+  app.get('/api/tokenomics/slashing', (_req, res) => {
+    res.json({
+      config: {
+        doubleSignPercent: TOKENOMICS_CONFIG.SLASH_DOUBLE_SIGN_PERCENT * 100,
+        invalidCheckpointPercent: TOKENOMICS_CONFIG.SLASH_INVALID_CHECKPOINT_PERCENT * 100,
+        livenessPercent: TOKENOMICS_CONFIG.SLASH_LIVENESS_PERCENT * 100,
+        livenessRepeatPercent: TOKENOMICS_CONFIG.SLASH_LIVENESS_REPEAT_PERCENT * 100,
+        livenessMissThreshold: TOKENOMICS_CONFIG.LIVENESS_MISS_THRESHOLD,
+        unbondingPeriodDays: TOKENOMICS_CONFIG.UNBONDING_PERIOD_MS / (24 * 60 * 60 * 1000)
+      },
+      events: tokenomics?.slashingService?.getSlashEvents(50) ?? [],
+      totalSlashed: tokenomics?.slashingService?.getTotalSlashed() ?? 0,
+      unbondingQueue: tokenomics?.slashingService?.getUnbondingQueue() ?? []
+    });
+  });
+
+  app.get('/api/tokenomics/slashing/:validator', (req, res) => {
+    const validator = req.params.validator;
+    
+    if (!tokenomics?.slashingService) {
+      res.json({ validator, events: [], unbonding: [] });
+      return;
+    }
+    
+    res.json({
+      validator,
+      events: tokenomics.slashingService.getValidatorSlashHistory(validator),
+      unbonding: tokenomics.slashingService.getUnbondingForValidator(validator)
+    });
   });
 
   app.get('/api/tipUrls', (_req, res) => {
