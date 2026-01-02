@@ -6,6 +6,7 @@ interface TransactionData {
   from: string;
   to: string;
   amount: number;
+  fee?: number;
   nonce: number;
   tipUrls: string[];
   sig: string;
@@ -121,6 +122,7 @@ function TransactionPage() {
 
         <div className="tx-amount">
           {tx.amount.toLocaleString()} <span className="unit">coins</span>
+          {(tx.fee ?? 0) > 0 && <span className="fee" style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}>(+{tx.fee} fee)</span>}
         </div>
 
         <div className="tx-flow">
@@ -143,6 +145,10 @@ function TransactionPage() {
           <div className="meta-row">
             <span className="label">nonce</span>
             <span className="value">{tx.nonce}</span>
+          </div>
+          <div className="meta-row">
+            <span className="label">gas fee</span>
+            <span className="value" style={{ color: (tx.fee ?? 0) > 0 ? "#ebcb8b" : undefined }}>{tx.fee ?? 0}</span>
           </div>
           {tx.hash && (
             <div className="meta-row">
