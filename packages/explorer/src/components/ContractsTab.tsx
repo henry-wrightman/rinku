@@ -77,7 +77,8 @@ export function ContractsTab() {
       const data = await res.json();
       
       if (data.success) {
-        setResult(`Deployed: ${data.contractId}`);
+        setResult(`deployed: ${data.contractId}`);
+        setDeployForm({ creator: "", initState: "{}" });
         fetchContracts();
       } else {
         setError(data.error || "Deploy failed");
@@ -107,7 +108,7 @@ export function ContractsTab() {
       const data = await res.json();
       
       if (data.success) {
-        setResult(`Success! Gas: ${data.gasUsed}, Logs: ${data.logs?.join(", ") || "none"}`);
+        setResult(`success! gas: ${data.gasUsed}, logs: ${data.logs?.join(", ") || "none"}`);
         fetchContractDetails(selectedContract.contractId);
         fetchContracts();
       } else {
@@ -118,18 +119,40 @@ export function ContractsTab() {
     }
   };
 
+  const formatTime = (ts: number) => {
+    return new Date(ts).toLocaleString();
+  };
+
   if (loading) {
     return <div className="loading">loading contracts...</div>;
   }
 
   return (
-    <div className="contracts-tab">
-      <div className="deploy-section">
-        <h3>Deploy Contract</h3>
+    <div className="rewards-tab">
+      <div className="section">
+        <h3>network contracts</h3>
+        <div className="staking-overview">
+          <div className="stat-row">
+            <span>deployed contracts:</span>
+            <span className="value">{contracts.length}</span>
+          </div>
+          <div className="stat-row">
+            <span>runtime:</span>
+            <span className="value">mock wasm</span>
+          </div>
+          <div className="stat-row">
+            <span>entrypoints:</span>
+            <span className="value">mint, transfer, get_balance</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="section">
+        <h3>deploy contract</h3>
         <div className="form-row">
           <input
             type="text"
-            placeholder="Creator fingerprint"
+            placeholder="creator fingerprint"
             value={deployForm.creator}
             onChange={(e) => setDeployForm({ ...deployForm, creator: e.target.value })}
           />
@@ -137,71 +160,114 @@ export function ContractsTab() {
         <div className="form-row">
           <input
             type="text"
-            placeholder='Initial state (JSON)'
+            placeholder='initial state (json)'
             value={deployForm.initState}
             onChange={(e) => setDeployForm({ ...deployForm, initState: e.target.value })}
           />
+          <button onClick={handleDeploy} disabled={!deployForm.creator}>
+            deploy
+          </button>
         </div>
-        <button onClick={handleDeploy}>Deploy Token Contract</button>
       </div>
 
-      {error && <div className="error-msg">{error}</div>}
-      {result && <div className="success-msg">{result}</div>}
+      {(error || result) && (
+        <div className="section" style={{ padding: "12px 20px" }}>
+          {error && <div className="error">{error}</div>}
+          {result && <div className="success">{result}</div>}
+        </div>
+      )}
 
-      <div className="contracts-list">
-        <h3>Deployed Contracts ({contracts.length})</h3>
+      <div className="section">
+        <h3>deployed contracts</h3>
         {contracts.length === 0 ? (
-          <div className="empty">No contracts deployed yet</div>
+          <div className="empty">no contracts deployed yet</div>
         ) : (
-          contracts.map((c) => (
-            <div
-              key={c.contractId}
-              className={`contract-item ${selectedContract?.contractId === c.contractId ? "selected" : ""}`}
-              onClick={() => fetchContractDetails(c.contractId)}
-            >
-              <div className="contract-id">{c.contractId}</div>
-              <div className="contract-meta">
-                <span>Height: {c.height}</span>
-                <span>Creator: {c.creator.slice(0, 8)}...</span>
+          <div className="top-stakers">
+            {contracts.map((c) => (
+              <div
+                key={c.contractId}
+                className={`staker-row ${selectedContract?.contractId === c.contractId ? "selected" : ""}`}
+                onClick={() => fetchContractDetails(c.contractId)}
+                style={{ cursor: "pointer", padding: "8px 0", borderBottom: "1px solid #333" }}
+              >
+                <span className="mono" style={{ color: "#b48ead" }}>{c.contractId}</span>
+                <span className="value">height {c.height}</span>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
 
       {selectedContract && (
-        <div className="contract-details">
-          <h3>Contract: {selectedContract.contractId}</h3>
-          
-          <div className="state-view">
-            <h4>State (height {selectedContract.height})</h4>
-            <pre>{JSON.stringify(selectedContract.state, null, 2)}</pre>
-            <div className="state-hash">Hash: {selectedContract.stateHash}</div>
+        <>
+          <div className="section">
+            <h3>contract: {selectedContract.contractId}</h3>
+            <div className="staking-overview">
+              <div className="stat-row">
+                <span>creator:</span>
+                <span className="value mono">{selectedContract.creator.slice(0, 16)}...</span>
+              </div>
+              <div className="stat-row">
+                <span>height:</span>
+                <span className="value">{selectedContract.height}</span>
+              </div>
+              <div className="stat-row">
+                <span>created:</span>
+                <span className="value">{formatTime(selectedContract.createdAt)}</span>
+              </div>
+              <div className="stat-row">
+                <span>state hash:</span>
+                <span className="value mono">{selectedContract.stateHash.slice(0, 16)}...</span>
+              </div>
+            </div>
+
+            <h4 style={{ marginTop: 16 }}>state</h4>
+            <pre style={{
+              background: "#000",
+              border: "1px solid #333",
+              padding: 12,
+              fontSize: 12,
+              color: "#a3be8c",
+              overflow: "auto",
+              maxHeight: 200
+            }}>
+              {JSON.stringify(selectedContract.state, null, 2)}
+            </pre>
           </div>
 
-          <div className="call-section">
-            <h4>Call Contract</h4>
+          <div className="section">
+            <h3>call contract</h3>
             <div className="form-row">
               <select
                 value={callForm.entrypoint}
                 onChange={(e) => setCallForm({ ...callForm, entrypoint: e.target.value })}
+                style={{
+                  flex: "none",
+                  width: 140,
+                  background: "#000",
+                  border: "1px solid #333",
+                  color: "#a3be8c",
+                  padding: "8px 12px",
+                  fontFamily: "'Courier New', Courier, monospace",
+                  fontSize: 13
+                }}
               >
                 <option value="mint">mint</option>
                 <option value="transfer">transfer</option>
                 <option value="get_balance">get_balance</option>
               </select>
-            </div>
-            <div className="form-row">
               <input
                 type="text"
-                placeholder="Input (JSON)"
+                placeholder="input (json)"
                 value={callForm.input}
                 onChange={(e) => setCallForm({ ...callForm, input: e.target.value })}
               />
+              <button onClick={handleCall}>
+                execute
+              </button>
             </div>
-            <button onClick={handleCall}>Execute</button>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
