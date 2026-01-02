@@ -122,7 +122,15 @@ For full SSRF protection in production, combine with network-level egress restri
 - `DAG.buildSelfCrawlableBundle()` stops recursion at finalized transactions and creates `TruncatedParentRef` entries.
 - Each truncated parent carries its own `CheckpointAnchor` (checkpointId, merkleRoot, height, signatureCount).
 - Multi-branch DAGs properly preserve per-branch checkpoint anchors for independent verification.
-- Future enhancement: embed merkle inclusion proofs for fully self-contained verification without checkpoint lookup.
+
+**Self-Contained Merkle Proofs (Jan 2026):**
+- Transaction merkle tree infrastructure: `getTransactionMerkleRoot()` and `getTransactionMerkleProof()` functions.
+- `TransactionMerkleProof` type: `{ proof: string[]; index: number; txMerkleRoot: string }`.
+- Checkpoints store `txMerkleRoot` and `txHashes[]` snapshot at creation time for consistent proof generation.
+- `TruncatedParentRef` includes full transaction data and merkle proof for self-contained verification.
+- `buildSelfCrawlableBundle()` is async to support on-demand merkle proof embedding.
+- Verification flow: recompute tx hash → verify against merkle proof → verify proof against txMerkleRoot → verify checkpoint signatures.
+- Proofs remain valid regardless of subsequent DAG changes (new transactions, pruning) since they use checkpoint-snapshotted hashes.
 
 **Batched Operations:**
 - Merkle root updates are batched every 5 seconds (not per-transaction).
