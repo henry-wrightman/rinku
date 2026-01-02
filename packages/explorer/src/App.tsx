@@ -130,7 +130,7 @@ function App() {
         />
       )}
       {tab === "accounts" && <AccountsTab accounts={accounts} />}
-      {tab === "faucet" && <FaucetTab />}
+      {tab === "faucet" && <FaucetTab onSuccess={() => { fetchSummary(); fetchPage(page); }} />}
       {tab === "contracts" && <ContractsTab />}
       {tab === "rewards" && <RewardsTab />}
     </div>
