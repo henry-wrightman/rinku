@@ -9,12 +9,12 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api/faucet': {
-        target: 'http://0.0.0.0:3002',
+        target: 'http://127.0.0.1:3002',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/faucet/, '/api')
       },
       '/api': {
-        target: 'http://0.0.0.0:3001',
+        target: 'http://127.0.0.1:3001',
         changeOrigin: true
       }
     }

@@ -18,13 +18,13 @@ args = "Rinku Services"
 name = "Rinku Services"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm run build -w @rinku/core && (npm run dev -w @rinku/node & npm run dev -w @rinku/faucet & npm run dev -w @rinku/explorer)"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build -w @rinku/core && (npm run dev -w @rinku/node & npm run dev -w @rinku/faucet & sleep 3 && npm run dev -w @rinku/explorer)"
+waitForPort = 5000
 
 [[ports]]
 localPort = 3001
