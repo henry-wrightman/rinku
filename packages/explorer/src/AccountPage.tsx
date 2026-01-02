@@ -73,14 +73,14 @@ function AccountPage() {
 
         const dagData = await dagRes.json();
         const accountTxs = (dagData.nodes || [])
-          .filter((node: any) => node.tx.from === address || node.tx.to === address)
+          .filter((node: any) => node && (node.from === address || node.to === address))
           .map((node: any) => ({
-            hash: node.tx.hash,
-            from: node.tx.from,
-            to: node.tx.to,
-            amount: node.tx.amount,
-            nonce: node.tx.nonce,
-            ts: node.tx.ts,
+            hash: node.hash,
+            from: node.from,
+            to: node.to,
+            amount: node.amount,
+            nonce: node.nonce,
+            ts: node.ts,
             url: node.url
           }))
           .sort((a: Transaction, b: Transaction) => b.ts - a.ts);
