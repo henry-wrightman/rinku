@@ -288,6 +288,9 @@ async function callContract(): Promise<void> {
   try {
     const contract = pickRandom(deployedContracts);
     const caller = pickRandom(wallets);
+    
+    const balance = await caller.wallet.getBalance();
+    if (balance < 10) return;
 
     const action = Math.random();
     let entrypoint: string;
