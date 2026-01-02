@@ -9,8 +9,11 @@ import { RewardsService } from './rewards.js';
 import { CheckpointService } from './checkpoint.js';
 import { GasService } from './gas.js';
 import { EmissionService, SlashingService, distributeCheckpointReward, TOKENOMICS_CONFIG, type SlashingServiceDeps } from './tokenomics.js';
+import { FinalityMetricsService } from './finality.js';
 import { hashTransaction, type SignedTransaction } from '@rinku/core';
 import { randomBytes } from 'crypto';
+
+const CHECKPOINT_INTERVAL_MS = parseInt(process.env.CHECKPOINT_INTERVAL_MS || '15000', 10);
 
 const PORT = parseInt(process.env.NODE_PORT || '3001', 10);
 const FAUCET_BALANCE = 1000000;
@@ -190,14 +193,22 @@ async function main() {
     });
   }
 
+  let finalityMetrics: FinalityMetricsService;
+  if (snapshot?.finality) {
+    finalityMetrics = FinalityMetricsService.fromJSON(snapshot.finality);
+    console.log('Restored finality metrics from snapshot');
+  } else {
+    finalityMetrics = new FinalityMetricsService();
+  }
+  finalityMetrics.setCheckpointInterval(CHECKPOINT_INTERVAL_MS);
+
   peerSync.onSyncComplete(async () => {
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics);
   });
 
-  // Debounced snapshot saving - don't save on every transaction
   let snapshotPending = false;
   let lastSnapshotTime = Date.now();
-  const SNAPSHOT_DEBOUNCE_MS = 30000; // Save at most every 30 seconds
+  const SNAPSHOT_DEBOUNCE_MS = 30000;
   
   const debouncedSave = async () => {
     const now = Date.now();
@@ -207,26 +218,41 @@ async function main() {
     }
     snapshotPending = false;
     lastSnapshotTime = now;
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics);
   };
   
-  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave, tokenomics);
+  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave, tokenomics, finalityMetrics);
   
-  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics);
+  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics);
   
   setInterval(async () => {
     if (snapshotPending) {
       snapshotPending = false;
       lastSnapshotTime = Date.now();
-      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics);
+      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics);
     }
   }, SNAPSHOT_DEBOUNCE_MS);
 
   checkpointService.onCheckpoint(async (checkpointId, height) => {
+    const checkpoint = checkpointService.getCheckpoint(checkpointId);
+    const checkpointTimestamp = checkpoint?.timestamp || Date.now();
+    const allNodes = consensus.getAllNodes();
+    const txCount = allNodes.length;
+    
+    const unfinalizedNodes = allNodes.filter(n => !n.finality);
+    
     const count = consensus.stampFinalityForAll(checkpointId, height);
     if (count > 0) {
       console.log(`[Finality] Stamped ${count} transactions with checkpoint ${checkpointId.slice(0, 8)}... at height ${height}`);
+      for (const node of unfinalizedNodes) {
+        if (node.tx.hash) {
+          finalityMetrics.recordTxFinalized(node.tx.hash, checkpointTimestamp);
+        }
+      }
     }
+    
+    finalityMetrics.recordCheckpoint(height, txCount, checkpointTimestamp);
+    finalityMetrics.pruneStaleEntries(height);
 
     const reward = emissionService.getCheckpointReward(height);
     if (reward > 0 && emissionService.getRemainingToEmit() > 0) {
@@ -258,11 +284,11 @@ async function main() {
     await slashingService.processUnbondingQueue();
   });
 
-  checkpointService.start(60000);
+  checkpointService.start(CHECKPOINT_INTERVAL_MS);
   
   console.log('Smart contract service enabled');
   console.log('Rewards & staking service enabled');
-  console.log('Checkpoint service enabled (60s interval)');
+  console.log(`Checkpoint service enabled (${CHECKPOINT_INTERVAL_MS / 1000}s interval)`);
   console.log('Gas service enabled (min: 0.001, max: 100)');
 
   setInterval(async () => {
@@ -377,7 +403,8 @@ async function saveSnapshot(
   rewardsService?: RewardsService,
   checkpointService?: CheckpointService,
   gasService?: GasService,
-  tokenomics?: TokenomicsServices
+  tokenomics?: TokenomicsServices,
+  finalityMetrics?: FinalityMetricsService
 ): Promise<void> {
   const stateJson = state.toJSON() as { accounts: [string, any][]; merkleRoot: string };
   const consensusJson = consensus.toJSON();
@@ -394,7 +421,8 @@ async function saveSnapshot(
     tokenomics: {
       emission: tokenomics?.emissionService?.toJSON(),
       slashing: tokenomics?.slashingService?.toJSON()
-    }
+    },
+    finality: finalityMetrics?.toJSON()
   };
 
   await storage.save(snapshot);

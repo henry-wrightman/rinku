@@ -35,6 +35,19 @@ interface GasStats {
   totalBurned: number;
 }
 
+interface FinalityStats {
+  avgTimeToFinality: number;
+  medianTimeToFinality: number;
+  p95TimeToFinality: number;
+  pendingCount: number;
+  finalizedCount: number;
+  finalityRate: number;
+  checkpointLatency: number;
+  checkpointsPerMinute: number;
+  lastCheckpointAge: number;
+  txThroughput: number;
+}
+
 function App() {
   const [tab, setTab] = useState<
     "dag" | "accounts" | "faucet" | "contracts" | "rewards" | "tokenomics"
@@ -50,6 +63,7 @@ function App() {
   } | null>(null);
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [gasStats, setGasStats] = useState<GasStats | null>(null);
+  const [finalityStats, setFinalityStats] = useState<FinalityStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
@@ -62,13 +76,14 @@ function App() {
 
   const fetchSummary = useCallback(async () => {
     try {
-      const [summaryRes, accountsRes, networkRes, gasPriceRes, gasStatsRes] =
+      const [summaryRes, accountsRes, networkRes, gasPriceRes, gasStatsRes, finalityRes] =
         await Promise.all([
           fetch(`${NODE_URL}/dag/summary`),
           fetch(`${NODE_URL}/accounts`),
           fetch(`${NODE_URL}/stats/network`),
           fetch(`${NODE_URL}/gas/price`),
           fetch(`${NODE_URL}/gas/stats`),
+          fetch(`${NODE_URL}/finality/metrics`),
         ]);
 
       const summaryData = await summaryRes.json();
@@ -93,6 +108,11 @@ function App() {
           avgLast100: gasPriceData.avgLast100,
           totalBurned: gasStatsData.totalBurned,
         });
+      }
+
+      if (finalityRes.ok) {
+        const finalityData = await finalityRes.json();
+        setFinalityStats(finalityData);
       }
     } catch (e) {
       console.error("Failed to fetch summary:", e);
@@ -203,6 +223,41 @@ function App() {
           <span className="stat-label">burned</span>
         </div>
       </div>
+      
+      {finalityStats && (finalityStats.avgTimeToFinality > 0 || finalityStats.pendingCount > 0) && (
+        <div className="stats finality-stats">
+          <div className="stat-item">
+            <span className="stat-value">
+              {(finalityStats.avgTimeToFinality / 1000).toFixed(1)}s
+            </span>
+            <span className="stat-label">avg finality</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-value">
+              {(finalityStats.p95TimeToFinality / 1000).toFixed(1)}s
+            </span>
+            <span className="stat-label">p95 finality</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-value">
+              {finalityStats.pendingCount}
+            </span>
+            <span className="stat-label">pending</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-value">
+              {finalityStats.checkpointsPerMinute.toFixed(1)}/min
+            </span>
+            <span className="stat-label">checkpoints</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-value">
+              {(finalityStats.lastCheckpointAge / 1000).toFixed(0)}s
+            </span>
+            <span className="stat-label">last checkpoint</span>
+          </div>
+        </div>
+      )}
 
       <div className="nav">
         <span

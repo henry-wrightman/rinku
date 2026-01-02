@@ -21,6 +21,7 @@ export interface NodeSnapshot {
     emission?: object;
     slashing?: object;
   };
+  finality?: object;
 }
 
 export class Storage {

@@ -9,6 +9,7 @@ import { RewardsService } from './rewards.js';
 import { CheckpointService } from './checkpoint.js';
 import { GasService } from './gas.js';
 import { EmissionService, SlashingService, TOKENOMICS_CONFIG } from './tokenomics.js';
+import { FinalityMetricsService } from './finality.js';
 import { 
   parseTransactionURL, 
   parseContractURL,
@@ -35,7 +36,8 @@ export function createAPI(
   checkpointService?: CheckpointService,
   gasService?: GasService,
   onTransaction?: () => Promise<void>,
-  tokenomics?: TokenomicsServices
+  tokenomics?: TokenomicsServices,
+  finalityMetrics?: FinalityMetricsService
 ) {
   const app = express();
 
@@ -151,6 +153,25 @@ export function createAPI(
       return;
     }
     res.json(gasService.getConfig());
+  });
+
+  app.get('/api/finality/metrics', (_req, res) => {
+    if (!finalityMetrics) {
+      res.json({
+        avgTimeToFinality: 0,
+        medianTimeToFinality: 0,
+        p95TimeToFinality: 0,
+        pendingCount: 0,
+        finalizedCount: 0,
+        finalityRate: 1,
+        checkpointLatency: 0,
+        checkpointsPerMinute: 0,
+        lastCheckpointAge: 0,
+        txThroughput: 0
+      });
+      return;
+    }
+    res.json(finalityMetrics.getMetrics());
   });
 
   app.get('/api/tokenomics/supply', (_req, res) => {
@@ -318,6 +339,10 @@ export function createAPI(
       }
 
       await consensus.addTransaction(tx);
+
+      if (finalityMetrics && tx.hash) {
+        finalityMetrics.recordTxSubmission(tx.hash);
+      }
 
       if (gasService && tx.fee && tx.fee > 0) {
         const { toValidators } = gasService.recordFee(tx.fee);

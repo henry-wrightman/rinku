@@ -108,10 +108,22 @@ a:hover, .link:hover {
 
 .stats .stat-label {
   font-size: 11px;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-top: 6px;
+}
+
+.stats.finality-stats {
+  margin-top: -12px;
+  gap: 12px;
+}
+
+.stats.finality-stats .stat-item {
+  padding: 8px 14px;
+  background: #151520;
+  border-color: #2a2a3a;
+}
+
+.stats.finality-stats .stat-value {
+  font-size: 18px;
+  color: #88c0d0;
 }
 
 .section {
