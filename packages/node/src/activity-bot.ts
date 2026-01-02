@@ -55,8 +55,10 @@ async function fetchGasPrice(): Promise<number> {
     const res = await fetchWithTimeout(`${NODE_URL}/api/gas/price`, {}, 3000);
     if (res.ok) {
       const data = await res.json() as { currentPrice: number };
-      currentGasPrice = data.currentPrice;
-      lastGasPriceFetch = now;
+      if (typeof data.currentPrice === 'number') {
+        currentGasPrice = data.currentPrice;
+        lastGasPriceFetch = now;
+      }
     }
   } catch {}
   return currentGasPrice;
