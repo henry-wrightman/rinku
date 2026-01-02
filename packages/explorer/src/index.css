@@ -436,6 +436,26 @@ input[type="text"]::placeholder {
   line-height: 1.5;
 }
 
+.pruned-notice {
+  padding: 20px;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+}
+
+.pruned-notice h2 {
+  color: #ebcb8b;
+  margin-bottom: 12px;
+  font-size: 18px;
+}
+
+.pruned-notice > p {
+  color: #888;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
 .error {
   color: #bf616a;
 }

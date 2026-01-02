@@ -346,8 +346,8 @@ export class DAG {
     return this.nodes.size;
   }
 
-  pruneOldNodes(maxNodes: number): number {
-    if (this.nodes.size <= maxNodes) return 0;
+  pruneOldNodes(maxNodes: number): { hash: string; finality?: FinalityMetadata }[] {
+    if (this.nodes.size <= maxNodes) return [];
 
     const allNodes = Array.from(this.nodes.entries());
     allNodes.sort((a, b) => b[1].tx.ts - a[1].tx.ts);
@@ -368,9 +368,12 @@ export class DAG {
       }
     }
 
+    const prunedNodes: { hash: string; finality?: FinalityMetadata }[] = [];
+
     for (const hash of toRemove) {
       const node = this.nodes.get(hash);
       if (node) {
+        prunedNodes.push({ hash, finality: node.finality });
         for (const [url, h] of this.urlToHash) {
           if (h === hash) {
             this.urlToHash.delete(url);
@@ -390,7 +393,7 @@ export class DAG {
       this.tipHashes.delete(hash);
     }
 
-    return toRemove.length;
+    return prunedNodes;
   }
 
   toJSON(): object {

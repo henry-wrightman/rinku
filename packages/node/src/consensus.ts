@@ -13,9 +13,18 @@ export interface ValidationResult {
   error?: string;
 }
 
+export interface PrunedTxInfo {
+  hash: string;
+  checkpointId: string;
+  checkpointHeight: number;
+  prunedAt: number;
+}
+
 export class Consensus {
   private dag: DAG;
   private publicKeys: Map<string, Uint8Array> = new Map();
+  private prunedTxIndex: Map<string, PrunedTxInfo> = new Map();
+  private readonly MAX_PRUNED_INDEX = 5000;
 
   constructor() {
     this.dag = new DAG();
@@ -135,7 +144,34 @@ export class Consensus {
   }
 
   pruneDAG(maxNodes: number): number {
-    return this.dag.pruneOldNodes(maxNodes);
+    const prunedNodes = this.dag.pruneOldNodes(maxNodes);
+    const now = Date.now();
+    
+    for (const { hash, finality } of prunedNodes) {
+      if (finality) {
+        this.prunedTxIndex.set(hash, {
+          hash,
+          checkpointId: finality.checkpointId,
+          checkpointHeight: finality.checkpointHeight,
+          prunedAt: now
+        });
+      }
+    }
+    
+    if (this.prunedTxIndex.size > this.MAX_PRUNED_INDEX) {
+      const entries = Array.from(this.prunedTxIndex.entries())
+        .sort((a, b) => a[1].prunedAt - b[1].prunedAt);
+      const toRemove = entries.slice(0, this.prunedTxIndex.size - this.MAX_PRUNED_INDEX);
+      for (const [hash] of toRemove) {
+        this.prunedTxIndex.delete(hash);
+      }
+    }
+    
+    return prunedNodes.length;
+  }
+
+  getPrunedTxInfo(hash: string): PrunedTxInfo | undefined {
+    return this.prunedTxIndex.get(hash);
   }
 
   getPublicKeys(): Map<string, Uint8Array> {

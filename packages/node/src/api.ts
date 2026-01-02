@@ -200,6 +200,17 @@ export function createAPI(
   app.get('/api/tx/:hash', (req, res) => {
     const node = consensus.getNode(req.params.hash);
     if (!node) {
+      const prunedInfo = consensus.getPrunedTxInfo(req.params.hash);
+      if (prunedInfo) {
+        res.status(410).json({ 
+          error: 'Transaction pruned',
+          pruned: true,
+          checkpointId: prunedInfo.checkpointId,
+          checkpointHeight: prunedInfo.checkpointHeight,
+          prunedAt: prunedInfo.prunedAt
+        });
+        return;
+      }
       res.status(404).json({ error: 'Transaction not found' });
       return;
     }

@@ -19,9 +19,17 @@ interface TransactionNode {
   };
 }
 
+interface PrunedInfo {
+  pruned: true;
+  checkpointId: string;
+  checkpointHeight: number;
+  prunedAt: number;
+}
+
 function HashTransactionPage() {
   const { hash } = useParams<{ hash: string }>();
   const [tx, setTx] = useState<TransactionNode | null>(null);
+  const [prunedInfo, setPrunedInfo] = useState<PrunedInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -34,11 +42,17 @@ function HashTransactionPage() {
     }
 
     fetch(`/api/tx/${hash}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Transaction not found");
-        return res.json();
+      .then(async (res) => {
+        const data = await res.json();
+        if (res.status === 410 && data.pruned) {
+          setPrunedInfo(data as PrunedInfo);
+          return null;
+        }
+        if (!res.ok) throw new Error(data.error || "Transaction not found");
+        return data;
       })
       .then((data) => {
+        if (!data) return;
         const txData = data.tx || data;
         setTx({
           hash: txData.hash,
@@ -50,7 +64,7 @@ function HashTransactionPage() {
           tipUrls: txData.tipUrls || data.parentUrls || [],
           sig: txData.sig,
           url: data.url || `/tx/h/${txData.hash}`,
-          weight: data.weight || 0,
+          weight: data.weight ?? txData.weight ?? 0,
           finality: data.finality || txData.finality
         });
       })
@@ -84,6 +98,59 @@ function HashTransactionPage() {
           <p>url-native distributed ledger</p>
         </header>
         <div className="loading">loading transaction...</div>
+      </div>
+    );
+  }
+
+  if (prunedInfo) {
+    return (
+      <div className="container">
+        <header>
+          <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
+            <h1>rinku explorer</h1>
+          </Link>
+          <p>url-native distributed ledger</p>
+        </header>
+        <div className="section tx-detail">
+          <div className="pruned-notice">
+            <h2>transaction pruned</h2>
+            <p>
+              This transaction was pruned from active memory after being finalized.
+              It is cryptographically verified and included in the ledger.
+            </p>
+            <div className="tx-meta">
+              <div className="meta-row">
+                <span className="label">hash</span>
+                <span className="value mono">{truncate(hash || "", 24)}</span>
+              </div>
+              <div className="meta-row">
+                <span className="label">status</span>
+                <span className="value" style={{ color: "#a3be8c" }}>finalized & pruned</span>
+              </div>
+              <div className="meta-row">
+                <span className="label">checkpoint</span>
+                <span className="value mono">{truncate(prunedInfo.checkpointId, 16)}</span>
+              </div>
+              <div className="meta-row">
+                <span className="label">checkpoint height</span>
+                <span className="value">{prunedInfo.checkpointHeight}</span>
+              </div>
+              <div className="meta-row">
+                <span className="label">pruned at</span>
+                <span className="value">{formatTime(prunedInfo.prunedAt)}</span>
+              </div>
+            </div>
+            <div className="tx-note" style={{ marginTop: 16 }}>
+              <p>
+                Pruned transactions are still part of the permanent ledger. The checkpoint 
+                contains a Merkle root that cryptographically proves this transaction existed.
+              </p>
+            </div>
+          </div>
+          <Link to="/" className="link" style={{ marginTop: 20, display: "block" }}>
+            ← back to explorer
+          </Link>
+        </div>
       </div>
     );
   }
@@ -167,7 +234,7 @@ function HashTransactionPage() {
           </div>
           <div className="meta-row">
             <span className="label">weight</span>
-            <span className="value">{tx.weight.toFixed(2)}</span>
+            <span className="value">{(tx.weight ?? 0).toFixed(2)}</span>
           </div>
           <div className="meta-row">
             <span className="label">signature</span>
