@@ -15,7 +15,7 @@ const FAUCET_BALANCE = 1000000;
 const DATA_DIR = process.env.RINKU_DATA_DIR || '.rinku-data';
 const NODE_PEERS = process.env.NODE_PEERS || '';
 const NODE_ID = process.env.NODE_ID || randomBytes(8).toString('hex');
-const MAX_DAG_NODES = parseInt(process.env.MAX_DAG_NODES || '500', 10);
+const MAX_DAG_NODES = parseInt(process.env.MAX_DAG_NODES || '300', 10);
 const PRUNE_INTERVAL_MS = parseInt(process.env.PRUNE_INTERVAL_MS || '30000', 10);
 const SELF_URL = process.env.SELF_URL || '';
 const MAX_PEERS = parseInt(process.env.MAX_PEERS || '50', 10);
@@ -185,7 +185,7 @@ async function main() {
     const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
     console.log(`[Stats] DAG: ${consensus.getDAGSize()} nodes, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB`);
     
-    if (heapMB > 512 && global.gc) {
+    if (heapMB > 300 && global.gc) {
       console.log('[GC] Forcing garbage collection...');
       global.gc();
     }

@@ -211,18 +211,16 @@ export class DAG {
   pruneOldNodes(maxNodes: number): number {
     if (this.nodes.size <= maxNodes) return 0;
 
+    const allNodes = Array.from(this.nodes.entries());
+    allNodes.sort((a, b) => b[1].tx.ts - a[1].tx.ts);
+    
     const nodesToKeep = new Set<string>();
+    for (let i = 0; i < Math.min(maxNodes, allNodes.length); i++) {
+      nodesToKeep.add(allNodes[i][0]);
+    }
     
     for (const tipHash of this.tipHashes) {
       nodesToKeep.add(tipHash);
-      const ancestors = this.getAncestors(tipHash);
-      for (const ancestor of ancestors) {
-        nodesToKeep.add(ancestor);
-      }
-    }
-
-    if (nodesToKeep.size >= this.nodes.size) {
-      return 0;
     }
 
     const toRemove: string[] = [];
