@@ -17,6 +17,9 @@ const NODE_PEERS = process.env.NODE_PEERS || '';
 const NODE_ID = process.env.NODE_ID || randomBytes(8).toString('hex');
 const MAX_DAG_NODES = parseInt(process.env.MAX_DAG_NODES || '500', 10);
 const PRUNE_INTERVAL_MS = parseInt(process.env.PRUNE_INTERVAL_MS || '30000', 10);
+const SELF_URL = process.env.SELF_URL || '';
+const MAX_PEERS = parseInt(process.env.MAX_PEERS || '50', 10);
+const DISCOVERY_ENABLED = process.env.DISCOVERY_ENABLED !== 'false';
 
 async function main() {
   console.log('Starting Rinku Node...');
@@ -71,6 +74,22 @@ async function main() {
   }
 
   const peerSync = new PeerSyncService(state, consensus, NODE_ID);
+  
+  if (SELF_URL) {
+    peerSync.setSelfUrl(SELF_URL);
+    console.log(`Self URL: ${SELF_URL}`);
+  }
+  
+  peerSync.setDiscoveryConfig({
+    maxPeers: MAX_PEERS,
+    discoveryEnabled: DISCOVERY_ENABLED,
+    announceEnabled: true
+  });
+  
+  if (DISCOVERY_ENABLED) {
+    console.log(`Peer discovery enabled (max ${MAX_PEERS} peers)`);
+  }
+  
   const contractService = new ContractService(state);
 
   const checkpointDeps = {

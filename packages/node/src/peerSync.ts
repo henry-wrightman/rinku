@@ -1,6 +1,7 @@
 import { StateManager } from './state.js';
 import { Consensus } from './consensus.js';
 import type { SignedTransaction } from '@rinku/core';
+import { lookup } from 'dns/promises';
 
 export interface SyncStatus {
   nodeId: string;
@@ -16,6 +17,14 @@ export interface PeerInfo {
   lastSeen: number;
   status: 'online' | 'offline' | 'unknown';
   merkleRoot?: string;
+  nodeId?: string;
+  discoveredFrom?: string;
+}
+
+export interface DiscoveryConfig {
+  maxPeers: number;
+  discoveryEnabled: boolean;
+  announceEnabled: boolean;
 }
 
 export class PeerSyncService {
@@ -25,6 +34,12 @@ export class PeerSyncService {
   private nodeId: string;
   private syncInterval: NodeJS.Timeout | null = null;
   private onSync: (() => Promise<void>) | null = null;
+  private selfUrl: string | null = null;
+  private discoveryConfig: DiscoveryConfig = {
+    maxPeers: 50,
+    discoveryEnabled: true,
+    announceEnabled: true
+  };
 
   constructor(state: StateManager, consensus: Consensus, nodeId: string) {
     this.state = state;
@@ -32,14 +47,171 @@ export class PeerSyncService {
     this.nodeId = nodeId;
   }
 
-  addPeer(url: string): void {
+  setSelfUrl(url: string): void {
+    this.selfUrl = url;
+  }
+
+  setDiscoveryConfig(config: Partial<DiscoveryConfig>): void {
+    this.discoveryConfig = { ...this.discoveryConfig, ...config };
+  }
+
+  getDiscoveryConfig(): DiscoveryConfig {
+    return { ...this.discoveryConfig };
+  }
+
+  addPeer(url: string, discoveredFrom?: string): boolean {
+    if (url === this.selfUrl) {
+      return false;
+    }
+    
+    if (!this.isValidPeerUrl(url)) {
+      console.log(`Rejected invalid peer URL: ${url}`);
+      return false;
+    }
+    
+    if (this.peers.size >= this.discoveryConfig.maxPeers && !this.peers.has(url)) {
+      return false;
+    }
+    
     if (!this.peers.has(url)) {
       this.peers.set(url, {
         url,
         lastSeen: 0,
-        status: 'unknown'
+        status: 'unknown',
+        discoveredFrom
       });
+      if (discoveredFrom) {
+        console.log(`Discovered peer ${url} via ${discoveredFrom}`);
+      }
+      
+      this.validatePeerDNS(url).catch(() => {
+        this.peers.delete(url);
+        console.log(`Removed peer ${url} after DNS validation failure`);
+      });
+      
+      if (!this.syncInterval && this.peers.size === 1) {
+        this.start();
+      }
+      
+      return true;
     }
+    return false;
+  }
+
+  private async validatePeerDNS(url: string): Promise<boolean> {
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+      
+      if (this.isPrivateOrLoopbackIPv4(hostname) || this.isPrivateOrLoopbackIPv6(hostname)) {
+        return false;
+      }
+      
+      const result = await lookup(hostname, { all: true });
+      
+      for (const record of result) {
+        const ip = record.address;
+        if (this.isPrivateOrLoopbackIPv4(ip) || this.isPrivateOrLoopbackIPv6(ip)) {
+          console.log(`DNS resolution for ${hostname} returned private/loopback IP: ${ip}`);
+          throw new Error('DNS resolved to private/loopback address');
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  private isValidPeerUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return false;
+      }
+      
+      let hostname = parsed.hostname.toLowerCase();
+      
+      if (hostname.startsWith('[') && hostname.endsWith(']')) {
+        hostname = hostname.slice(1, -1);
+      }
+      
+      if (hostname === 'localhost' || 
+          hostname.endsWith('.localhost') ||
+          hostname === '0.0.0.0' ||
+          hostname.endsWith('.local') ||
+          hostname.endsWith('.internal') ||
+          hostname.endsWith('.localdomain')) {
+        return false;
+      }
+      
+      if (this.isPrivateOrLoopbackIPv4(hostname)) {
+        return false;
+      }
+      
+      if (this.isPrivateOrLoopbackIPv6(hostname)) {
+        return false;
+      }
+      
+      if (/^\d+$/.test(hostname) || /^0x[0-9a-f]+$/i.test(hostname)) {
+        return false;
+      }
+      
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private isPrivateOrLoopbackIPv4(hostname: string): boolean {
+    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!ipv4Match) {
+      return false;
+    }
+    
+    const octets = ipv4Match.slice(1, 5).map(Number);
+    if (octets.some(o => o < 0 || o > 255)) {
+      return false;
+    }
+    
+    const [a, b, c, d] = octets;
+    
+    if (a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 0) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a === 198 && b >= 18 && b <= 19) return true;
+    if (a === 192 && b === 0 && c === 0) return true;
+    if (a === 192 && b === 0 && c === 2) return true;
+    if (a === 198 && b === 51 && c === 100) return true;
+    if (a === 203 && b === 0 && c === 113) return true;
+    if (a >= 224) return true;
+    if (a === 255 && b === 255 && c === 255 && d === 255) return true;
+    
+    return false;
+  }
+
+  private isPrivateOrLoopbackIPv6(hostname: string): boolean {
+    if (!hostname.includes(':')) {
+      return false;
+    }
+    
+    const lower = hostname.toLowerCase();
+    
+    if (lower === '::' || lower === '::1') return true;
+    if (lower.startsWith('::ffff:')) return true;
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+    if (lower.startsWith('fe80')) return true;
+    if (lower.startsWith('ff')) return true;
+    if (lower.startsWith('100::')) return true;
+    if (lower.startsWith('2001:db8')) return true;
+    if (lower.startsWith('2001:0db8')) return true;
+    
+    return false;
   }
 
   removePeer(url: string): void {
@@ -48,6 +220,14 @@ export class PeerSyncService {
 
   getPeers(): PeerInfo[] {
     return Array.from(this.peers.values());
+  }
+
+  getPeerCount(): number {
+    return this.peers.size;
+  }
+
+  getOnlinePeers(): PeerInfo[] {
+    return Array.from(this.peers.values()).filter(p => p.status === 'online');
   }
 
   getStatus(): SyncStatus {
@@ -91,14 +271,46 @@ export class PeerSyncService {
         peer.status = 'online';
         peer.lastSeen = Date.now();
         peer.merkleRoot = status.merkleRoot;
+        peer.nodeId = status.nodeId;
 
         if (status.merkleRoot !== this.state.getMerkleRoot()) {
           console.log(`Merkle mismatch with ${url}, syncing...`);
           await this.syncFromPeer(url, status);
         }
+
+        if (this.discoveryConfig.discoveryEnabled) {
+          await this.discoverPeersFromPeer(url);
+        }
       } catch (err) {
         peer.status = 'offline';
       }
+    }
+  }
+
+  private async discoverPeersFromPeer(peerUrl: string): Promise<number> {
+    try {
+      const response = await fetch(`${peerUrl}/api/sync/peers`, {
+        signal: AbortSignal.timeout(5000)
+      });
+      
+      if (!response.ok) {
+        return 0;
+      }
+
+      const data = await response.json() as { peers: PeerInfo[] };
+      let discovered = 0;
+
+      for (const remotePeer of data.peers) {
+        if (remotePeer.url && remotePeer.status === 'online') {
+          if (this.addPeer(remotePeer.url, peerUrl)) {
+            discovered++;
+          }
+        }
+      }
+
+      return discovered;
+    } catch {
+      return 0;
     }
   }
 

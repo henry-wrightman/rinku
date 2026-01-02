@@ -536,6 +536,44 @@ export function createAPI(
     res.json({ peers: peerSync.getPeers() });
   });
 
+  app.post('/api/sync/announce', express.json(), (req, res) => {
+    if (!peerSync) {
+      res.status(501).json({ error: 'Peer sync not enabled' });
+      return;
+    }
+
+    const config = peerSync.getDiscoveryConfig();
+    if (!config.announceEnabled) {
+      res.status(403).json({ error: 'Peer announcements are disabled on this node' });
+      return;
+    }
+
+    const { url, nodeId } = req.body;
+    if (!url || typeof url !== 'string') {
+      res.status(400).json({ error: 'Missing or invalid url field' });
+      return;
+    }
+
+    const added = peerSync.addPeer(url, 'announce');
+    res.json({ 
+      accepted: added,
+      peerCount: peerSync.getPeerCount(),
+      maxPeers: config.maxPeers
+    });
+  });
+
+  app.get('/api/sync/discovery', (_req, res) => {
+    if (!peerSync) {
+      res.status(501).json({ error: 'Peer sync not enabled' });
+      return;
+    }
+    res.json({
+      config: peerSync.getDiscoveryConfig(),
+      peerCount: peerSync.getPeerCount(),
+      onlinePeers: peerSync.getOnlinePeers().length
+    });
+  });
+
   app.post('/api/sync/force', async (_req, res) => {
     if (!peerSync) {
       res.status(501).json({ error: 'Peer sync not enabled' });

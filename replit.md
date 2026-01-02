@@ -1,359 +1,94 @@
 # Rinku - URL-Native Distributed Ledger
 
-## Overview
-Rinku (Japanese for "link") is a URL-native distributed ledger with DAG-based consensus and weight-based Sybil resistance. The entire state exists as cryptographically-linked URLs.
+### Overview
+Rinku (Japanese for "link") is a URL-native distributed ledger featuring DAG-based consensus and weight-based Sybil resistance. Its core innovation is that the entire ledger state exists as cryptographically-linked URLs, enabling a self-crawlable and verifiable chain without traditional node infrastructure. The project aims to provide a highly decentralized and robust distributed ledger.
 
-**Security Documentation**: See [SECURITY.md](./SECURITY.md) for comprehensive security analysis and attack vector defenses.
+### User Preferences
+I want to work iteratively. Please ask before making major changes. I prefer detailed explanations for complex features.
 
-## Project Structure
-```
-rinku/
-├── packages/
-│   ├── core/       # Shared library (types, crypto, encoding, merkle, dag, weight)
-│   ├── wallet/     # Client wallet library (key management, transaction creation)
-│   ├── node/       # Validator/Node (mempool, consensus, state, API)
-│   ├── faucet/     # Testnet faucet for distributing coins
-│   └── explorer/   # React-based block explorer
-├── package.json    # Workspace root
-└── tsconfig.base.json
-```
+### System Architecture
 
-## Key Concepts
+**UI/UX Decisions:**
+- **Explorer:** A React-based block explorer with a clean interface for visualizing the DAG, accounts, and interacting with faucet, contracts, and staking.
 
-### DAG-Based Ledger
-- Each account maintains its own micro-chain of transactions
-- Transactions reference 2+ prior "tips" from other accounts
-- Conflicts resolved by cumulative weight
-- No single coordinator - consensus emerges from weighted votes
+**Technical Implementations:**
+- **Core Library:** Shared `packages/core` for types, cryptography (Web Crypto API), encoding, Merkle trees, DAG structures, and weight calculation.
+- **Transaction URL Format:** Transactions are base64url-encoded, deflated JSON objects embedded directly in URLs. They include `from`, `to`, `amount`, `nonce`, `tipUrls` (full parent URLs), `sig`, and `ts`.
+- **Self-Crawlable Ledger:** Each transaction URL embeds the full URLs of its parent transactions, allowing the entire ledger to be reconstructed and validated from any single tip URL without a dedicated node.
+- **DAG-Based Ledger:** Accounts maintain micro-chains. Transactions reference multiple prior "tips," and conflicts are resolved by cumulative weight.
+- **Weight Calculation:** Sybil resistance is achieved through a weight formula: `(account_age_days * 0.3) + (balance * 0.7)`.
+- **Multi-Node Networking:**
+    - **Gossip Protocol:** Nodes discover peers automatically by exchanging peer lists.
+    - **Persistence:** State and DAG are persisted to JSON files for restart recovery.
+    - **Peer Sync Protocol:** Endpoints (`/api/sync/status`, `/api/sync/transactions`, `/api/sync/peers`, etc.) facilitate node-to-node communication.
+- **Smart Contracts (URL-Native):**
+    - Contract code and state are encoded in URLs (`/sc/{payload}`).
+    - Contract calls are embedded within transactions, specifying `contractId`, `action`, `entrypoint`, `input`, and pre/post state hashes.
+    - Mock runtime for token operations with future plans for deterministic WASM execution, gas metering, and state Merkle commitments.
+- **Rewards & Staking System:**
+    - **Reward Types:** Tip Rewards (validating orphaned transactions), Stake Rewards (for validators), Witness Rewards (when transactions are referenced).
+    - **Staking:** Validators stake tokens with a `minStakeAmount` and `unstakeCooldownMs`.
+- **Checkpoint & Finality Proofs:**
+    - Periodic checkpoints (60s intervals) signed by staked validators.
+    - Finality proofs embedded as URL query parameters (`?proof={encodedProof}`).
+    - Enables standalone, trustless verification from URLs by checking validator signatures and weight thresholds against a genesis-rooted chain.
+    - The proof includes `checkpointId`, `checkpointHeight`, `merkleRoot`, `signatureCount`, `totalValidatorWeight`, and an array of validator signatures with public keys and weights.
 
-### Weight Calculation (Sybil Resistance)
-```
-weight = (account_age_days * 0.3) + (balance * 0.7)
-```
+**Feature Specifications:**
+- **Wallet:** Client-side library for key management and transaction creation.
+- **Node:** Validator and API server handling mempool, consensus, and state.
+- **Faucet:** Testnet component for distributing Rinku coins.
+- **Explorer:** React-based UI for ledger visualization and interaction.
 
-### Transaction URL Format
-```
-/tx/{payload}
-payload = base64url(deflate({
-  from: fingerprint,
-  to: fingerprint,
-  amount: number,
-  nonce: number,
-  tipUrls: ["/tx/...", "/tx/..."],  # Full parent URLs - self-crawlable!
-  sig: signature,
-  ts: timestamp
-}))
-```
+**System Design Choices:**
+- **Trustless Verification:** The URL-native design, combined with finality proofs, allows for complete cryptographic validation of transactions and the ledger state without relying on a centralized node.
+- **Decentralization:** No single coordinator; consensus emerges from weighted votes.
+- **Security:** Comprehensive security analysis and attack vector defenses are documented in `SECURITY.md`. Genesis serves as the root of trust for checkpoint verification.
 
-### Self-Crawlable Ledger
-Each transaction embeds the **full URLs** of its parent transactions. This means:
-- Anyone with a single tip URL can reconstruct the entire ledger
-- No node infrastructure needed - just the URLs themselves
-- Complete cryptographic validation from any transaction URL
+### External Dependencies
+- **npm workspaces:** For monorepo management.
+- **React:** For the explorer frontend.
+- **Vite:** For fast frontend development with React.
+- **Express:** For building API servers (node, faucet).
+- **Web Crypto API:** For all cryptographic operations (e.g., ed25519 signatures).
+- **pako:** For DEFLATE compression in URL payloads.
+- **vitest:** For comprehensive testing.
 
-## Running the Project
+### Multi-Node Networking
 
-### Development
-- **Explorer**: Runs on port 5000 (main frontend)
-- **Node API**: Runs on port 3001
-- **Faucet**: Runs on port 3002
-
-### Commands
-```bash
-npm run dev:explorer  # Start explorer frontend
-npm run dev:node      # Start node server
-npm run dev:faucet    # Start faucet server
-npm run test          # Run all tests (core + node)
-npm run test:core     # Run core package tests
-npm run test:node     # Run node package tests
-```
-
-### Testing
-The project has comprehensive test coverage using vitest:
-- **Core tests (66 tests)**: Crypto, encoding, merkle, DAG, weight, checkpoint
-- **Node tests (22 tests)**: State management, mempool operations
-- **Security tests**: Weight inflation attack prevention, forged proof rejection, validator authentication
-
-## Technology Stack
-- TypeScript with npm workspaces
-- React + Vite for explorer frontend
-- Express for API servers
-- Web Crypto API for cryptography
-- pako for DEFLATE compression
-
-## Multi-Node Networking
-
-### Environment Variables
+**Environment Variables:**
 - `NODE_PORT`: Port for node API (default: 3001)
 - `NODE_ID`: Unique node identifier (auto-generated if not set)
 - `NODE_PEERS`: Comma-separated list of peer URLs (e.g., "http://peer1:3001,http://peer2:3001")
 - `RINKU_DATA_DIR`: Directory for persistence (default: .rinku-data)
+- `SELF_URL`: This node's public URL for peer discovery
+- `MAX_PEERS`: Maximum number of peers to maintain (default: 50)
+- `DISCOVERY_ENABLED`: Enable/disable auto-discovery (default: true)
 
-### Persistence
-State and DAG are persisted to JSON files in the data directory. On restart, nodes restore from the snapshot automatically.
+**Auto-Discovery (Gossip Protocol):**
+Nodes automatically discover each other through gossip-based peer exchange:
+1. When syncing with a peer, nodes also fetch that peer's peer list
+2. New peers are added automatically (up to MAX_PEERS limit)
+3. Nodes filter out themselves and duplicates
+4. Only online peers are shared during discovery
+5. Sync loop auto-starts when first peer is discovered
 
-### Peer Sync Protocol
+**Peer Sync Endpoints:**
 - `GET /api/sync/status`: Node status (merkleRoot, dagSize, tips)
 - `GET /api/sync/transactions`: All transactions with public keys
-- `GET /api/sync/peers`: List of configured peers
+- `GET /api/sync/peers`: List of known peers with status
+- `GET /api/sync/discovery`: Discovery config and peer counts
+- `POST /api/sync/announce`: Announce this node to a peer
 - `POST /api/sync/force`: Force sync with all peers
 
-### Running Multiple Nodes
-```bash
-# Node 1 (Replit)
-NODE_PORT=3001 NODE_ID=node1 npm run dev:node
+**Security Protections:**
+The peer discovery system includes SSRF protections that block:
+- Loopback addresses (127.0.0.0/8, ::1)
+- Private IP ranges (10.x, 172.16-31.x, 192.168.x)
+- Link-local addresses (169.254.x, fe80::)
+- IPv6 private ranges (fc00::/7)
+- Reserved/documentation addresses
+- Localhost and .local/.internal domains
 
-# Node 2 (local, syncs from Node 1)
-NODE_PORT=3002 NODE_ID=node2 NODE_PEERS=https://your-replit-url.repl.co npm run dev:node
-```
-
-### Wallet CLI Environment Variables
-- `RINKU_NODE_URL`: Node API URL (default: http://localhost:3001)
-- `RINKU_FAUCET_URL`: Faucet API URL (default: http://localhost:3002)
-
-### Network Simulation
-```bash
-# Generate 100 wallets and validate the entire ledger from a single tip URL
-cd packages/node
-WALLET_COUNT=100 npm run simulate
-
-# Results show:
-# - All transactions crawled from a single URL
-# - Complete account balance reconstruction
-# - Chain depth and linking structure
-```
-
-### Stress Testing
-```bash
-# Generate 500 faucet transactions
-cd packages/node
-TX_COUNT=500 npm run stress-test
-
-# Test bootstrap on another machine
-rm -rf .rinku-data
-NODE_PORT=3003 NODE_PEERS=https://your-replit-url npm run dev:node
-```
-
-## Testnet Deployment Strategy
-
-### Recommended Domain Structure
-```
-explorer.testnet.rinku.xyz  → Port 5000 (Frontend)
-node.testnet.rinku.xyz      → Port 3001 (Node API)
-faucet.testnet.rinku.xyz    → Port 3002 (Faucet API)
-
-# Future multi-node:
-node-1.testnet.rinku.xyz
-node-2.testnet.rinku.xyz
-```
-
-### Deployment Type
-- **Use VM deployment** (not autoscale) - nodes need persistent storage and always-on uptime
-- Autoscale instances sleep between requests, causing ledger drift and broken peer sync
-
-### Multi-Node Setup
-1. Deploy first node as canonical source
-2. Additional nodes set `NODE_PEERS=https://node.testnet.rinku.xyz`
-3. Use `/api/sync/peers` endpoint for peer discovery
-4. Consider a git-tracked peers manifest for production
-
-### Steps to Deploy
-1. Configure VM deployment with environment variables (NODE_PORT, NODE_ID, NODE_PEERS)
-2. Purchase domain and create DNS records for subdomains
-3. Set up TLS certificates (wildcard cert recommended for *.testnet.rinku.xyz)
-4. Configure reverse proxy to route subdomains to correct ports
-
-## Smart Contracts (URL-Native)
-
-### Overview
-Rinku supports URL-native smart contracts where contract code and state are encoded in URLs, maintaining the self-crawlable property.
-
-### Contract URL Format
-```
-/sc/{payload}
-payload = base64url(deflate({
-  type: "deploy",
-  contractId: string,
-  creator: fingerprint,
-  wasmBase64: string,     // WASM bytecode (or mock for now)
-  initState: {},
-  tipUrls: [...],
-  sig, ts
-}))
-```
-
-### Contract Call (Embedded in Transaction)
-```typescript
-{
-  ...transaction,
-  contract: {
-    action: "call",
-    contractId: string,
-    entrypoint: "mint" | "transfer" | "get_balance",
-    input: { to: "...", amount: 100 },
-    preStateHash: string,
-    postStateHash: string
-  }
-}
-```
-
-### API Endpoints
-- `GET /api/contracts` - List all deployed contracts
-- `GET /api/contracts/:id` - Get contract details
-- `GET /api/contracts/:id/state` - Get current state
-- `GET /api/contracts/:id/history` - Get execution history
-- `POST /api/contracts/deploy` - Deploy new contract
-- `POST /api/contracts/:id/call` - Execute contract method
-- `POST /api/contracts/:id/simulate` - Dry-run without state change
-
-### Demo Script
-```bash
-cd packages/node
-npm run demo-contract
-```
-
-### Supported Entrypoints (Mock Runtime)
-- `init` - Initialize contract
-- `mint` - Create tokens for an address
-- `transfer` - Move tokens between addresses
-- `get_balance` - Query balance (read-only)
-
-### Future: Real WASM Execution
-Currently uses a mock runtime that simulates token operations. Future versions will integrate:
-- Deterministic WASM runtime (Wasmer/WasmTime)
-- Gas metering with fuel limits
-- Host bindings for ledger queries
-- State Merkle commitments
-
-## Rewards & Staking System
-
-### Overview
-Rinku implements a multi-mechanism reward system to incentivize network participation without traditional proof-of-work mining.
-
-### Reward Types
-1. **Tip Rewards** - Earned for validating orphaned transactions (referencing tips)
-2. **Stake Rewards** - Earned by validators who stake tokens
-3. **Witness Rewards** - Earned when your transactions are referenced by others
-
-### Reward Configuration (Default)
-```typescript
-{
-  tipRewardRate: 0.01,      // 1% of tx amount
-  stakeRewardRate: 0.005,   // 0.5% per staked amount
-  witnessRewardRate: 0.002, // 0.2% when witnessed
-  minStakeAmount: 100,      // Minimum to become validator
-  unstakeCooldownMs: 86400000 // 24 hour cooldown
-}
-```
-
-### Staking API Endpoints
-- `GET /api/staking` - Network staking overview
-- `GET /api/staking/:address` - Individual staking status
-- `POST /api/staking/stake` - Stake tokens
-- `POST /api/staking/unstake` - Unstake tokens (after cooldown)
-
-### Rewards API Endpoints
-- `GET /api/rewards/config` - Reward configuration
-- `GET /api/rewards/:address` - Rewards summary
-- `POST /api/rewards/:address/claim` - Claim pending rewards
-
-### Demo Script
-```bash
-cd packages/node
-npm run demo-rewards
-```
-
-## Checkpoint & Finality Proofs
-
-### Overview
-Rinku implements checkpoint-based finality proofs that enable truly trustless verification from URLs alone. When validators create and sign checkpoints, finality proofs can be embedded in transaction URLs.
-
-### How It Works
-1. **Checkpoint Creation**: Periodic snapshots of network state (60s intervals)
-2. **Validator Signatures**: Staked validators sign checkpoints with their keys
-3. **Proof Embedding**: Finality proofs added as URL query parameters
-4. **Standalone Verification**: Recipients verify signatures cryptographically without nodes
-
-### Finalized URL Format
-```
-/tx/{payload}?proof={encodedProof}
-
-proof = base64url({
-  c: checkpointId,
-  h: checkpointHeight,
-  m: merkleRoot,
-  n: signatureCount,
-  w: totalValidatorWeight,
-  s: [{ v: validator, g: signature, p: publicKey, w: weight, t: timestamp }]
-})
-```
-
-### Verification Process (No Nodes Required)
-1. Extract proof from URL query parameter
-2. Recompute signing data from proof fields
-3. Verify each signature against public key
-4. Confirm validator fingerprint matches public key
-5. Check weight threshold (51% of validator weight)
-
-### Checkpoint API Endpoints
-- `GET /api/checkpoints` - List all checkpoints
-- `GET /api/checkpoints/:id` - Get specific checkpoint
-- `POST /api/checkpoints/create` - Trigger new checkpoint
-- `GET /api/tx/:hash/finalized` - Get transaction URL with proof
-
-### Demo Script
-```bash
-cd packages/node
-npm run demo-finality
-```
-
-### Finality Requirements
-- Minimum 1 validator signature
-- 51% of staked validator weight
-- Valid cryptographic signatures
-
-### Security Model (Trustless with Genesis Bootstrapping)
-- **Genesis as root of trust**: `genesis_00000000` contains initial validator set and chain ID
-- **Checkpoint chaining**: Each checkpoint has `previousCheckpointId` linking back to genesis
-- **Validator authentication**: Proofs embed full validator set with addresses, public keys, and weights
-- **Verification against trusted validators**: Weight thresholds computed from genesis/chain validators, NOT from proof
-- **Weight inflation protection**: Attacker cannot forge proofs with inflated weights - denominator is computed from trusted set
-
-**Attack Resistance:**
-- Forged checkpoint signatures → Cryptographically rejected
-- Inflated validator weights → Rejected (verified against genesis chain)
-- Fake validators → Rejected (not in authenticated validator set)
-- Lowered totalNetworkWeight → Rejected (recomputed from trusted validators)
-- History rewriting → Rejected (checkpoint chain verified from genesis)
-
-## Recent Changes
-- Initial project setup with all 5 packages
-- Core library with types, crypto, encoding, merkle, dag, weight modules
-- Node server with mempool, consensus, state management, and REST API
-- Wallet library for key management and transaction creation
-- Faucet for testnet coin distribution
-- Explorer with DAG visualization, accounts view, and faucet integration
-- Added persistence layer for state/DAG snapshots
-- Added peer sync service for multi-node networking
-- Added sync API endpoints for node-to-node communication
-- Fixed cold-start bootstrap (sync from peers before creating genesis)
-- Added stress test script for load testing (npm run stress-test)
-- Added configurable env vars for wallet CLI (RINKU_NODE_URL, RINKU_FAUCET_URL)
-- **URL-Native Transactions**: Changed from hash-based tips to URL-based tipUrls
-- **Self-Crawlable Ledger**: Entire ledger can be reconstructed from any single tip URL
-- **Stateless Validator**: Added @rinku/stateless package for validating from URLs
-- **Network Simulation**: Added `npm run simulate` to generate and validate large networks
-- **Smart Contracts**: URL-native contract system with mock WASM runtime
-- **Contract API**: Deploy, call, simulate, and view contract state endpoints
-- **Explorer Contracts Tab**: UI for deploying and interacting with contracts
-- **Token Contract Demo**: Example script for testing contract operations
-- **Rewards & Staking System**: Multi-mechanism rewards (tip, stake, witness)
-- **Staking API**: Stake/unstake endpoints with cooldown periods
-- **Rewards API**: Claim rewards, view summaries, check configuration
-- **Explorer Rewards Tab**: UI for viewing rewards and staking
-- **Checkpoint System**: Periodic checkpoints with validator signatures
-- **Finality Proofs**: URL-embedded proofs for trustless verification
-- **Cryptographic Verification**: Proof verification validates ed25519 signatures standalone
-- **Demo Script**: `npm run demo-finality` shows URL-only finality verification
-- **Production Stability**: Memory leak fixes, fetch timeouts, DAG pruning for high-volume operation
-- **Stats Endpoint**: `GET /api/stats` for monitoring DAG size, memory usage, account count
+**Production Deployment Note:**
+For full SSRF protection in production, combine with network-level egress restrictions to block outbound connections to internal networks.
