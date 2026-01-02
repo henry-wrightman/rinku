@@ -1,15 +1,30 @@
 import { useState, useEffect, useCallback } from "react";
 import type { State, DAGNode } from "./types";
 import { Header, DAGTab, AccountsTab, FaucetTab, ContractsTab, RewardsTab } from "./components";
+import { formatNumber, formatTps } from "./utils";
 
 const NODE_URL = "/api";
 const PAGE_SIZE = 20;
+
+interface NetworkStats {
+  tps: number;
+  finalizedCount: number;
+  unfinalizedCount: number;
+  finalityRatio: number;
+  checkpointCount: number;
+  latestCheckpointHeight: number;
+  latestCheckpointId: string | null;
+  totalStaked: number;
+  validatorCount: number;
+  networkAge: number;
+}
 
 function App() {
   const [tab, setTab] = useState<"dag" | "accounts" | "faucet" | "contracts" | "rewards">("dag");
   const [nodes, setNodes] = useState<DAGNode[]>([]);
   const [accounts, setAccounts] = useState<State["accounts"]>([]);
   const [summary, setSummary] = useState<{ totalNodes: number; tipCount: number; tips: string[]; merkleRoot: string; accountCount: number } | null>(null);
+  const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
@@ -22,16 +37,19 @@ function App() {
 
   const fetchSummary = useCallback(async () => {
     try {
-      const [summaryRes, accountsRes] = await Promise.all([
+      const [summaryRes, accountsRes, networkRes] = await Promise.all([
         fetch(`${NODE_URL}/dag/summary`),
         fetch(`${NODE_URL}/accounts`),
+        fetch(`${NODE_URL}/stats/network`),
       ]);
 
       const summaryData = await summaryRes.json();
       const accountsData = await accountsRes.json();
+      const networkData = await networkRes.json();
 
       setSummary(summaryData);
       setAccounts(accountsData.accounts);
+      setNetworkStats(networkData);
       setConnected(true);
     } catch (e) {
       console.error("Failed to fetch summary:", e);
@@ -88,16 +106,32 @@ function App() {
 
       <div className="stats">
         <div className="stat-item">
-          <span className="stat-value">{summary?.totalNodes || 0}</span>
+          <span className="stat-value">{formatNumber(summary?.totalNodes || 0)}</span>
           <span className="stat-label">transactions</span>
         </div>
         <div className="stat-item">
-          <span className="stat-value">{summary?.accountCount || accounts.length || 0}</span>
+          <span className="stat-value">{formatNumber(summary?.accountCount || accounts.length || 0)}</span>
           <span className="stat-label">accounts</span>
         </div>
         <div className="stat-item">
-          <span className="stat-value">{summary?.tipCount || 0}</span>
-          <span className="stat-label">tips</span>
+          <span className="stat-value">{formatTps(networkStats?.tps || 0)}</span>
+          <span className="stat-label">tps</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-value">{networkStats?.finalityRatio || 0}%</span>
+          <span className="stat-label">finalized</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-value">{formatNumber(networkStats?.checkpointCount || 0)}</span>
+          <span className="stat-label">checkpoints</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-value">{formatNumber(networkStats?.totalStaked || 0)}</span>
+          <span className="stat-label">staked</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-value">{networkStats?.validatorCount || 0}</span>
+          <span className="stat-label">validators</span>
         </div>
       </div>
 
