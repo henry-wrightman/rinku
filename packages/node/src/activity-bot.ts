@@ -3,15 +3,15 @@ import { Wallet } from "@rinku/wallet";
 const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3002";
 
-const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "45000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "4000");
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "30");
+const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "8000");
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "5");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "3");
-const CONTRACT_INTERVAL_MS = parseInt(process.env.CONTRACT_INTERVAL || "60000");
-const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "90000");
-const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "180000");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "2");
+const CONTRACT_INTERVAL_MS = parseInt(process.env.CONTRACT_INTERVAL || "120000");
+const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "180000");
+const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "300000");
 
 interface BotWallet {
   wallet: Wallet;
@@ -37,7 +37,8 @@ let totalStakes = 0;
 let totalRewardsClaimed = 0;
 let errors = 0;
 let pendingOperations = 0;
-let maxPendingOps = 10;
+let maxPendingOps = 5;
+const MAX_CONTRACTS = 3;
 
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -189,6 +190,7 @@ async function doConcurrentTransactions(): Promise<void> {
 async function deployContract(): Promise<void> {
   if (wallets.length < 3) return;
   if (pendingOperations >= maxPendingOps) return;
+  if (deployedContracts.length >= MAX_CONTRACTS) return;
   
   const eligible = wallets.filter(w => !w.hasContract);
   if (eligible.length === 0) return;
@@ -408,9 +410,9 @@ async function main() {
   log("Starting enhanced activity simulation...");
   log("Creating initial wallets...");
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     await createNewWallet();
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 1000));
   }
 
   setInterval(async () => {
