@@ -101,6 +101,7 @@ For full SSRF protection in production, combine with network-level egress restri
 - Time-based pruning keeps the N most recent transactions by timestamp.
 - Account state (balances, nonces) is always preserved regardless of pruning.
 - Checkpoints provide historical verification for pruned transactions.
+- **Witness tracking**: Uses TTL-based Map (1-hour window) to prevent duplicate rewards while bounding memory growth.
 
 **Snapshot Optimizations (Jan 2026):**
 - Snapshots use compact hash-based URLs (`/tx/h/{hash}`) instead of full self-crawlable URLs.
