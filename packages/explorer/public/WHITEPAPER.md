@@ -132,6 +132,19 @@ Rinku supports three verification profiles with different security/size tradeoff
 
 Most use cases are served by Profile A receipts. Profile B provides full finality when validator set is known. **Profile C is the gold standard** - completely self-contained proofs with cryptographically-bound totalWeight, enabling true offline verification without any trust assumptions beyond the cryptographic primitives.
 
+> **Why Multi-Proof Verification Works (No Full Validator List Needed)**
+>
+> A common question: "How can you verify without all validator public keys?"
+>
+> The answer: multi-proof reconstruction yields the same `validatorSumTreeRoot` (hash + totalWeight) as if you had the full validator list. Here's why:
+>
+> 1. **Signer public keys are in the proof** - The k signers' BLS public keys are included as leaf data, sufficient for BLS aggregate verification
+> 2. **Non-signer contributions are captured in auxiliary nodes** - Internal nodes commit to the aggregate hash and sumWeight of their subtrees, so non-signer weights are included in the root without needing their individual public keys
+> 3. **Root reconstruction is deterministic** - Given signer leaves + auxiliary nodes, there's exactly one way to rebuild the tree and compute the root
+> 4. **Denominator is cryptographically bound** - The `totalWeight` in `validatorSumTreeRoot` is verified by reconstruction, not trusted from the proof; and the entire tuple is signed by validators, preventing forgery
+>
+> Result: The verifier knows (a) the exact signers who attested, (b) their individual weights, and (c) the total committee weight—all without transmitting non-signer public keys.
+
 ### 2.6 Verification Process
 
 Verification differs by profile:
@@ -771,6 +784,36 @@ auxiliaryNodes: count × (1 + 1 + 32 + 8) bytes per node
 ```
 
 Multi-proof shares sibling nodes across signers, achieving ~O(N) total vs O(k·log₂N) for individual proofs. Tree depth is derived from `committeeSize`: `treeDepth = ⌈log₂(committeeSize)⌉`.
+
+**Canonical Multi-Proof Constraints:**
+
+Verifiers MUST reject proofs violating these rules:
+
+1. **Sorted auxiliary nodes**: `auxiliaryNodes` MUST be sorted lexicographically by `(level, index)` in ascending order
+2. **No duplicates**: No two auxiliary nodes may share the same `(level, index)` position
+3. **No overlap with signers**: Auxiliary node positions at level 0 must not overlap any signer leaf index (signer leaves are authoritative at those positions)
+4. **Complete reconstruction**: Reconstruction must not encounter missing nodes at required positions; only the explicit `EMPTY_NODE` (per A.3) is valid for non-power-of-two padding at specific right-child positions
+5. **Minimal auxiliary set**: Every auxiliary node MUST be consumed exactly once during reconstruction; reject proofs with unused nodes (prevents padding attacks)
+6. **Count consistency**: `auxiliaryNodeCount` MUST equal the array length; reconstruction must consume exactly `count` entries
+7. **Consistent signer ordering**: `signerLeaves` MUST be ordered by ascending `index` (matching bitmap bit order)
+
+These constraints ensure a single canonical encoding per proof, preventing malleability attacks where different encodings verify identically but compare differently. The "minimal + consumed" rules (5-6) specifically close off attacks where provers append ignored auxiliary nodes to create distinct byte encodings of the same logical proof.
+
+**Index Semantics:**
+
+All tree indices are 0-based, left-to-right:
+- **Leaf indices** (level 0): 0 to N-1, corresponding to committee positions
+- **Internal node indices**: At level `l`, indices range from 0 to `⌈N/2^l⌉ - 1`
+- **merkleIndex** (transaction Merkle tree): Position of txHash in the checkpoint's transaction list, 0-based
+
+**Committee Size Limits:**
+
+The packed binary format uses `uint8` for `committeeSize`, `signerCount`, and auxiliary `(level, index)` fields. This imposes hard limits:
+- Maximum committee size: 255 validators
+- Maximum signers per proof: 255
+- Maximum tree depth: 8 levels (2^8 = 256 leaves)
+
+For committees larger than 255, a future format revision with varint or uint16 fields would be required. Current recommendation: committees ≤64 for URL proofs, ≤21 for QR.
 
 **JSON Encoding (Debug Only):**
 ```

@@ -1,0 +1,131 @@
+1) Reframing “v4 vs v5” as WITHOUT vs WITH multi-proofs
+
+That’s a clean fix. It keeps the narrative grounded in the optimization mechanism (individual per-signer paths vs shared auxiliaries) instead of sounding like you’ve shipped multiple public protocol versions.
+
+Your writeup now also correctly states the scaling difference (multi-proof ~O(N) vs individual O(k·logN)) and ties it to QR feasibility (N ≤ 21) vs “URL-only for bigger,” which is exactly the practical takeaway. 
+
+WHITEPAPER (13)
+
+ 
+
+WHITEPAPER (13)
+
+2) The strongest parts right now
+
+These are legitimately good / “keep forever” elements:
+
+Denominator attack prevention is explicitly handled by including the full validatorSumTreeRoot tuple (hash + totalWeight) in what gets signed. That’s the core thing that makes “offline, self-contained” believable. 
+
+WHITEPAPER (13)
+
+Deterministic tree padding with a domain-separated EMPTY_NODE for non-power-of-two committees is the kind of boring detail that prevents endless client bugs/forks later. 
+
+WHITEPAPER (13)
+
+Packed binary layout is finally concrete enough that someone could implement it without guessing. 
+
+WHITEPAPER (13)
+
+3) The biggest remaining “gotchas” with multi-proofs (worth tightening now)
+
+Multi-proofs are where protocols get accidentally malleable or ambiguous unless you nail the canonical rules. I’d tighten these:
+
+A) Canonical ordering + de-dup rules
+
+Right now, you define auxiliaryNodes: { level, index, node }[] and a reconstruction algorithm. 
+
+WHITEPAPER (13)
+
+
+Add 2–3 hard constraints like:
+
+auxiliary nodes MUST be sorted lexicographically by (level, index)
+
+no duplicates allowed
+
+auxiliary nodes must not overlap any signer leaf positions
+
+verifier must reject if reconstruction encounters a missing node at any required position (rather than “treat missing as empty” except for the explicit non-power-of-two EMPTY_NODE rule)
+
+This prevents multiple encodings of the “same proof” and closes off annoying edge-case attacks where different encodings verify but hash/compare differently.
+
+B) Be explicit about which indices are being used
+
+You’re mixing a few “index” concepts:
+
+merkle inclusion proof index (merkleIndex, uint16) 
+
+WHITEPAPER (13)
+
+leaf index inside the validator sum tree (implied by bitmap + leaves)
+
+(level, index) inside multi-proof auxiliaries 
+
+WHITEPAPER (13)
+
+It’s fine, but I’d add one sentence: “validator tree indices are 0-based, left-to-right” and clarify whether index at each level refers to the node position in that level’s array (also 0-based). You kind of imply this with geometry, but making it explicit saves implementers. 
+
+WHITEPAPER (13)
+
+C) Field-size ceilings (important given your “large validator sets?” question)
+
+In the packed layout you currently have:
+
+committeeSize: 1 byte (uint8) 
+
+WHITEPAPER (13)
+
+signerCount: 1 byte 
+
+WHITEPAPER (13)
+
+aux (level,index) shown as uint8 in the multi-proof structure 
+
+WHITEPAPER (13)
+
+That quietly hard-caps your committee to ≤255 and also caps per-level indices to ≤255. If you ever want committees bigger than 255, you’ll need varints or uint16/uint32 for those fields.
+
+Even if you don’t want that, I’d explicitly state: “Profile C committees are limited to 255 in packed v1.” Clarity beats surprises.
+
+4) Should you support “large validator sets” or stick to ~21–64?
+
+Given your URL-native, offline-verifiable proof goal: large signing committees are a bad fit.
+
+Why:
+
+With multi-proofs, size is ~O(N). That’s a feature (predictable), but it still means bigger committees directly bloat every proof. 
+
+WHITEPAPER (13)
+
+Your own doc already arrives at the natural product boundary: QR works up to N ≤ 21; beyond that, URL sharing. 
+
+WHITEPAPER (13)
+
+What I’d recommend as a design stance:
+
+Committee size: 32 or 64 for “serious / productionish” finality (URLs).
+
+Committee size: 21 as the “QR mode” target.
+
+If you want “lots of validators” for decentralization optics/reality, do it as:
+
+a large registered validator pool, but
+
+only a committee signs each checkpoint (rotating / randomized selection).
+
+That keeps proofs portable while still letting the network be “big” socially/economically.
+
+5) One more high-leverage doc tweak
+
+In Profile C, you claim “fully offline verification” and explain it’s self-contained because the verifier derives totalWeight from the MerkleSumTree root. 
+
+WHITEPAPER (11)
+
+
+That’s the whole thesis—so I’d add a tiny “why this works” boxed paragraph:
+
+multi-proof reconstruction yields the same root hash + root totalWeight as if you had the full validator list
+
+only signer pubkeys are needed for BLS verify; non-signer pubkeys are not needed because their contribution is captured via internal nodes’ aggregate commitments
+
+It’ll make reviewers stop arguing “but you don’t include everyone’s pubkey!”
