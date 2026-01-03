@@ -382,43 +382,62 @@ All on-chain values use the smallest indivisible unit:
 
 ### 6.3 Emission Schedule
 
-Rewards halve every 210,000 checkpoints (~36.5 days at 15s intervals):
+Rewards halve every 3,150,000 checkpoints (~18 months at 15s intervals):
 
 | Epoch | Checkpoints | Reward (µRKU) | Reward (RKU) | Cumulative Emission |
 |-------|-------------|---------------|--------------|---------------------|
-| 0 | 0-209,999 | 150,000,000 | 150 | 31,500,000 RKU* |
-| 1 | 210,000-419,999 | 75,000,000 | 75 | +15,750,000 RKU |
-| 2 | 420,000-629,999 | 37,500,000 | 37.5 | +7,875,000 RKU |
-| 3 | 630,000-839,999 | 18,750,000 | 18.75 | +3,937,500 RKU |
-| 4 | 840,000-1,049,999 | 9,375,000 | 9.375 | +1,968,750 RKU |
-| 5+ | 1,050,000+ | 4,687,500 | 4.6875 | until cap |
+| 0 | 0-3,149,999 | 150,000,000 | 150 | 472,500,000 RKU* |
+| 1 | 3,150,000-6,299,999 | 75,000,000 | 75 | +236,250,000 RKU |
+| 2 | 6,300,000-9,449,999 | 37,500,000 | 37.5 | +118,125,000 RKU |
+| 3 | 9,450,000-12,599,999 | 18,750,000 | 18.75 | +59,062,500 RKU |
+| 4 | 12,600,000-15,749,999 | 9,375,000 | 9.375 | +29,531,250 RKU |
+| 5+ | 15,750,000+ | 4,687,500 | 4.6875 | until cap |
 
-*Epoch 0 theoretical max (31.5M) exceeds cap; actual emission stops when `totalSupply >= 30,000,000,000,000 µRKU`.
+*Epoch 0 theoretical max exceeds cap; actual emission stops when `totalSupply >= 30,000,000,000,000 µRKU`.
 
 **Hard Cap Enforcement**: Once total circulating supply reaches the cap, checkpoint rewards drop to 0. The floor reward of 4,687,500 µRKU only applies while supply remains below the cap.
 
 ### 6.4 Halving Rationale
 
-The 36.5-day halving interval (vs. Bitcoin's 4 years) enables:
-- Rapid initial distribution for network bootstrapping
-- Earlier transition to fee-based validator economics
-- Predictable supply schedule completion within ~1 year
+The 18-month halving interval (vs. Bitcoin's 4 years) balances:
+- **Sustained validator incentives:** Validators remain rewarded over multi-year timeframes
+- **Gradual transition:** Smooth progression from emission to fee-based economics
+- **Long-term sustainability:** Avoids emission cliff-dive during network growth phase
+- **Predictable schedule:** Complete emission over ~7.5 years
 
 ### 6.5 Reward Distribution
 
 Checkpoint rewards distributed to active validators using Weighted Proof-of-Stake:
-- 70% proportional to stake amount
-- 30% proportional to capped account age
+- **70% proportional to stake amount**
+- **30% proportional to effective account age**
 
-This rewards both capital commitment and long-term participation.
+**Anti-Gaming Measures:**
+- Age weight requires minimum bonded stake (100 RKU) to qualify
+- Missed checkpoints decay age weight by 10% per miss
+- Encourages consistent participation and discourages grinding strategies
 
-### 6.6 Deflationary Pressure
+This rewards both capital commitment and long-term, active participation.
 
-Gas fees create deflation:
-- 50% of each fee is burned (permanently removed)
-- 50% distributed to validators
+### 6.6 Adaptive Fee Split
 
-Net supply decreases when burn rate exceeds emission rate.
+Gas fees are split between validators and burn using an adaptive model:
+
+```
+if circulatingSupply < 50% of maxSupply:
+    validatorShare = max(70%, 100% - progressiveBurn)
+    burnShare = 100% - validatorShare
+else:
+    validatorShare = 70%
+    burnShare = 30%
+```
+
+**Key Properties:**
+- **Validator Floor:** Validators always receive at least 70% of fees
+- **Progressive Burn:** Burn percentage increases as supply grows toward target
+- **Supply-Aware:** Prioritizes validator incentives during early growth phase
+- **Deflationary Pressure:** Net supply decreases when burn rate exceeds emission rate
+
+This ensures validators are adequately compensated for signing Profile C proofs, especially during high-demand periods when their workload increases.
 
 ## 7. Dynamic Gas Fees (EIP-1559 Style)
 

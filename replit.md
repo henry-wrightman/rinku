@@ -18,8 +18,8 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Decentralization:** Consensus emerges from weighted votes among nodes, ensuring no single point of control.
 - **Smart Contracts:** Contract code and state are URL-encoded, with calls embedded within transactions.
 - **Reward and Staking System:** Supports Tip, Stake, and Witness Rewards, alongside a staking mechanism for validators with slashing penalties and an unbonding queue.
-- **Dynamic Gas Fee Model (EIP-1559 Style):** Utilization-based pricing that adjusts ±12.5% per checkpoint period based on txs vs target. Self-correcting to prevent runaway fee spikes. 50% of fees burned, 50% to validators.
-- **Tokenomics System:** Features a hard-capped supply, genesis allocation, checkpoint-based emission with a halving schedule, and a Weighted Proof-of-Stake (WPoS) reward distribution.
+- **Dynamic Gas Fee Model (EIP-1559 Style):** Utilization-based pricing that adjusts ±12.5% per checkpoint period based on txs vs target. Self-correcting to prevent runaway fee spikes. Adaptive fee split: 70%+ to validators (floor), up to 30% burned as supply grows toward 50% target.
+- **Tokenomics System:** Features a hard-capped supply (30M RKU), genesis allocation (6M RKU), checkpoint-based emission with 18-month halving epochs, adaptive fee split (70%+ validator floor), and WPoS reward distribution with anti-gaming measures (min bond for age weight, decay for missed checkpoints).
 - **Multi-Node Networking:** A gossip protocol for peer discovery and a peer sync protocol for state synchronization.
 - **Performance Optimizations:** Includes in-memory DAG pruning, snapshot optimizations using hash-based URLs, checkpoint-bounded self-crawlable URLs for efficient proof bundles, per-transaction finality, self-contained Merkle proofs, batched operations, parallel signature verification with worker threads, and batch transaction API.
 
@@ -30,8 +30,8 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Witness Tracking:** TTL-based tracking to prevent duplicate rewards.
 - **Self-Crawlable Bundles:** A new `/txp/{payload}` URL format for bundles containing transaction ancestry back to the last finalized checkpoint, maintaining the "link is the proof" property with bounded URL sizes.
 - **Merkle Proofs:** Transactions include Merkle proofs for self-contained verification, validated against checkpoint-snapshotted transaction hashes.
-- **Dynamic Gas Fees (EIP-1559 Style):** Utilization-based pricing adjusts ±12.5% per 15s period. Target: 15 txs/period. Max fee: 10 RKU. Self-correcting (no runaway feedback loops). 50% burned, 50% to validators.
-- **Tokenomics:** Implements a fixed maximum supply, genesis allocation, emission schedule with halvings, and a reward distribution mechanism based on stake weight and account age. Includes slashing penalties for validator misconduct.
+- **Dynamic Gas Fees (EIP-1559 Style):** Utilization-based pricing adjusts ±12.5% per 15s period. Target: 15 txs/period. Max fee: 10 RKU. Self-correcting (no runaway feedback loops). Adaptive fee split: 70%+ to validators (floor), up to 30% burned as supply grows toward 50% target.
+- **Tokenomics:** Implements fixed maximum supply (30M RKU), genesis allocation (6M RKU), 18-month halving epochs, adaptive fee/burn split (70%+ validator floor), and WPoS reward distribution with anti-gaming (min bond for age weight, 10% decay per missed checkpoint). Includes slashing penalties for validator misconduct.
 - **Finality Metrics System:** Tracks time-to-finality, pending transaction counts, and checkpoint latency to monitor network performance.
 - **Validator Key Management:** AES-256-GCM encrypted key storage with scrypt key derivation (N=16384, r=8, p=1). Keys persist across restarts when password is consistent. Production requires `VALIDATOR_KEY_PASSWORD` environment variable; development uses a consistent default password.
 - **Proof Slashing Service:** Validates Profile B proofs cryptographically, detecting duplicate signatures, weight mismatches, and forged validators. Triggers automatic slashing for invalid proofs (20%), invalid witnesses (15%), and receipt tampering (25%).

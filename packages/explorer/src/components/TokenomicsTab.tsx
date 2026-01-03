@@ -12,6 +12,8 @@ interface SupplyStats {
   nextHalvingAt: number;
   halvingInterval: number;
   checkpointHeight: number;
+  validatorFeePercent?: number;
+  burnPercent?: number;
 }
 
 interface EmissionSchedule {
@@ -130,6 +132,15 @@ export function TokenomicsTab() {
             <div className="card-sub">from gas fees</div>
           </div>
         </div>
+
+        <div className="tokenomics-info" style={{ marginTop: '1rem' }}>
+          <p>
+            <strong>Adaptive Fee Split:</strong> {supply?.validatorFeePercent?.toFixed(1) || 70}% to validators / {supply?.burnPercent?.toFixed(1) || 30}% burned
+          </p>
+          <p className="card-sub">
+            Validators receive 70%+ of fees until supply reaches 50% of max, then burn increases up to 30%
+          </p>
+        </div>
       </section>
 
       <section className="tokenomics-section">
@@ -142,7 +153,7 @@ export function TokenomicsTab() {
           </p>
           <p>
             <strong>Checkpoint Height:</strong> {supply?.checkpointHeight || 0} | 
-            <strong> Next Halving:</strong> {formatNumber(supply?.nextHalvingAt || 210000)}
+            <strong> Next Halving:</strong> {formatNumber(supply?.nextHalvingAt || 3150000)} (~18 months per epoch)
           </p>
         </div>
         

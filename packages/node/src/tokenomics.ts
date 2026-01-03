@@ -4,7 +4,7 @@ export const TOKENOMICS_CONFIG = {
   MAX_SUPPLY: 30_000_000,
   GENESIS_ALLOCATION: 6_000_000,
   INITIAL_CHECKPOINT_REWARD: 150,
-  HALVING_INTERVAL: 210_000,
+  HALVING_INTERVAL: 3_150_000,
   MIN_CHECKPOINT_REWARD: 4.6875,
   HALVINGS_COUNT: 5,
   UNBONDING_PERIOD_MS: 14 * 24 * 60 * 60 * 1000,
@@ -19,6 +19,12 @@ export const TOKENOMICS_CONFIG = {
   LIVENESS_REPEAT_WINDOW_MS: 30 * 24 * 60 * 60 * 1000,
   STAKE_WEIGHT_PERCENT: 0.70,
   AGE_WEIGHT_PERCENT: 0.30,
+  VALIDATOR_FEE_FLOOR_PERCENT: 0.70,
+  BURN_CEILING_PERCENT: 0.30,
+  SUPPLY_TARGET_FOR_FULL_BURN: 0.50,
+  MIN_BOND_FOR_AGE_WEIGHT: 100,
+  AGE_DECAY_PER_MISS: 0.10,
+  CHECKPOINT_EMISSION_POOL: 150,
 };
 
 export type SlashReason = 
@@ -57,6 +63,13 @@ export interface EmissionStats {
   remainingToEmit: number;
   circulatingSupply: number;
   totalBurned: number;
+  validatorFeePercent: number;
+  burnPercent: number;
+}
+
+export interface FeeSplit {
+  validatorShare: number;
+  burnShare: number;
 }
 
 export interface TokenomicsSnapshot {
@@ -109,7 +122,40 @@ export class EmissionService {
     return Math.max(0, maxEmittable - this.totalEmitted);
   }
 
+  getAdaptiveFeeSplit(): FeeSplit {
+    const circulatingSupply = this.getCirculatingSupply();
+    const supplyRatio = circulatingSupply / TOKENOMICS_CONFIG.MAX_SUPPLY;
+    
+    if (supplyRatio >= TOKENOMICS_CONFIG.SUPPLY_TARGET_FOR_FULL_BURN) {
+      return {
+        validatorShare: 1 - TOKENOMICS_CONFIG.BURN_CEILING_PERCENT,
+        burnShare: TOKENOMICS_CONFIG.BURN_CEILING_PERCENT
+      };
+    }
+    
+    const burnProgress = supplyRatio / TOKENOMICS_CONFIG.SUPPLY_TARGET_FOR_FULL_BURN;
+    const burnPercent = burnProgress * TOKENOMICS_CONFIG.BURN_CEILING_PERCENT;
+    const validatorPercent = Math.max(
+      TOKENOMICS_CONFIG.VALIDATOR_FEE_FLOOR_PERCENT,
+      1 - burnPercent
+    );
+    
+    return {
+      validatorShare: validatorPercent,
+      burnShare: 1 - validatorPercent
+    };
+  }
+
+  calculateFeeSplit(feeAmount: number): { validatorAmount: number; burnAmount: number } {
+    const split = this.getAdaptiveFeeSplit();
+    return {
+      validatorAmount: feeAmount * split.validatorShare,
+      burnAmount: feeAmount * split.burnShare
+    };
+  }
+
   getStats(checkpointHeight: number): EmissionStats {
+    const feeSplit = this.getAdaptiveFeeSplit();
     return {
       currentReward: this.getCheckpointReward(checkpointHeight),
       halvingEpoch: this.getHalvingEpoch(checkpointHeight),
@@ -118,6 +164,8 @@ export class EmissionService {
       remainingToEmit: this.getRemainingToEmit(),
       circulatingSupply: this.getCirculatingSupply(),
       totalBurned: this.totalBurned,
+      validatorFeePercent: feeSplit.validatorShare * 100,
+      burnPercent: feeSplit.burnShare * 100,
     };
   }
 
@@ -346,9 +394,33 @@ export class SlashingService {
   }
 }
 
+export interface ValidatorWeightInfo {
+  address: string;
+  stakeAmount: number;
+  ageWeight: number;
+  missedCheckpoints: number;
+}
+
+export function calculateEffectiveAgeWeight(
+  ageWeight: number,
+  stakeAmount: number,
+  missedCheckpoints: number
+): number {
+  if (stakeAmount < TOKENOMICS_CONFIG.MIN_BOND_FOR_AGE_WEIGHT) {
+    return 0;
+  }
+  
+  const decayFactor = Math.pow(
+    1 - TOKENOMICS_CONFIG.AGE_DECAY_PER_MISS,
+    missedCheckpoints
+  );
+  
+  return ageWeight * decayFactor;
+}
+
 export function distributeCheckpointReward(
   reward: number,
-  validators: Array<{ address: string; stakeWeight: number; ageWeight: number }>
+  validators: ValidatorWeightInfo[]
 ): Map<string, number> {
   const distribution = new Map<string, number>();
   
@@ -356,21 +428,27 @@ export function distributeCheckpointReward(
     return distribution;
   }
 
-  const totalStakeWeight = validators.reduce((sum, v) => sum + v.stakeWeight, 0);
-  const totalAgeWeight = validators.reduce((sum, v) => sum + v.ageWeight, 0);
+  const totalStake = validators.reduce((sum, v) => sum + v.stakeAmount, 0);
+  
+  const effectiveAgeWeights = validators.map(v => ({
+    address: v.address,
+    effectiveAge: calculateEffectiveAgeWeight(v.ageWeight, v.stakeAmount, v.missedCheckpoints)
+  }));
+  const totalEffectiveAge = effectiveAgeWeights.reduce((sum, v) => sum + v.effectiveAge, 0);
 
   const stakePool = reward * TOKENOMICS_CONFIG.STAKE_WEIGHT_PERCENT;
   const agePool = reward * TOKENOMICS_CONFIG.AGE_WEIGHT_PERCENT;
 
-  for (const validator of validators) {
+  for (let i = 0; i < validators.length; i++) {
+    const validator = validators[i];
     let share = 0;
     
-    if (totalStakeWeight > 0) {
-      share += (validator.stakeWeight / totalStakeWeight) * stakePool;
+    if (totalStake > 0) {
+      share += (validator.stakeAmount / totalStake) * stakePool;
     }
     
-    if (totalAgeWeight > 0) {
-      share += (validator.ageWeight / totalAgeWeight) * agePool;
+    if (totalEffectiveAge > 0) {
+      share += (effectiveAgeWeights[i].effectiveAge / totalEffectiveAge) * agePool;
     }
     
     if (share > 0) {

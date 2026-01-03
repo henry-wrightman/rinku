@@ -206,7 +206,7 @@ async function main() {
     slashingService
   };
 
-  console.log('Tokenomics service enabled (30M max supply, halving every 210k checkpoints)');
+  console.log('Tokenomics service enabled (30M max supply, halving every 3.15M checkpoints ~18mo)');
 
   let validatorKeyManager: ValidatorKeyManager;
   if (snapshot?.validatorKeys) {
@@ -392,8 +392,9 @@ async function main() {
         const ageDays = Math.max(0, ageMs / (24 * 60 * 60 * 1000));
         return {
           address: v.staker,
-          stakeWeight: v.amount,
-          ageWeight: ageDays
+          stakeAmount: v.amount,
+          ageWeight: ageDays,
+          missedCheckpoints: 0
         };
       });
 

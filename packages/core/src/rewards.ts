@@ -10,9 +10,9 @@ import type {
 } from './types.js';
 
 export const DEFAULT_REWARD_CONFIG: RewardConfig = {
-  tipRewardRate: 0.01,
-  stakeRewardRate: 0.005,
-  witnessRewardRate: 0.002,
+  tipRewardRate: 0.005,
+  stakeRewardRate: 0,
+  witnessRewardRate: 0.001,
   minStakeAmount: 100,
   unstakeCooldownMs: 24 * 60 * 60 * 1000
 };
@@ -139,11 +139,11 @@ export function calculateTipRewardAmount(
 }
 
 export function calculateStakeRewardAmount(
-  config: RewardConfig,
-  stakedAmount: number,
-  txAmount: number
+  _config: RewardConfig,
+  _stakedAmount: number,
+  _txAmount: number
 ): number {
-  return Math.floor(stakedAmount * config.stakeRewardRate * (txAmount / 1000));
+  return 0;
 }
 
 export function calculateWitnessRewardAmount(
