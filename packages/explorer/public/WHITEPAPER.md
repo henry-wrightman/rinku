@@ -109,19 +109,25 @@ Rinku supports three verification profiles with different security/size tradeoff
 - Trust assumption: Verifier knows genesis validator set or a pinned checkpoint
 - Use case: High-value settlements, cross-chain bridges, legal evidence
 
-**Profile C: Self-Contained Proof (v5 - MerkleSumTree Multi-Proof)**
-- Size: 1,600-2,100 bytes (packed v5 + DEFLATE) for N ≤ 21; ~2,100-2,800 URL chars after base64url encoding; QR-compatible for committees N ≤ 21, URL-shareable for larger
+**Profile C: Self-Contained Proof (MerkleSumTree with Multi-Proof)**
+- Size: 1,600-2,100 bytes (packed binary + DEFLATE) for N ≤ 21; ~2,100-2,800 URL chars after base64url encoding; QR-compatible for committees N ≤ 21, URL-shareable for larger
 - URL format: `rinku://sp/{base64url-deflate-packed}` (canonical scheme; HTTP URLs are transport wrappers)
 - Includes: chainId (network identifier), tx data, full checkpoint header, Merkle inclusion proof, BLS aggregated signature (48 bytes), MerkleSumTree multi-proof (signer leaves + shared auxiliary nodes), validatorSumTreeRoot (hash + totalWeight)
 - Guarantees: **Fully offline verification** - verifier derives totalWeight from MerkleSumTree root
 - Trust assumption: **Chain identity only** - verifier must know expected chainId; totalWeight is cryptographically bound to validator set via MerkleSumTree; BLS public keys are PoP-verified at registration (see E.2.1)
 - Security: validatorSumTreeRoot (containing both hash and totalWeight) is included in BLS signing hash, preventing both signer weight forgery AND denominator attacks
 - Use case: Offline verification, air-gapped systems, cross-chain bridges, legal evidence
-- **Size scaling**: With multi-proof (v5 default), proof size is `~O(N)` where `N` = committee size. Without multi-proof (v4), size grows as `O(k · log₂N)` where `k` = signers
-  - **Multi-proof optimization** (default in v5): Share sibling nodes across signers, reducing to `~N` nodes total (60-75% smaller than per-signer proofs). See Appendix F.3.1 and F.5
-  - **QR-compatible** (≤2,953 bytes): Requires packed binary + multi-proof AND committee N ≤ 21. JSON encoding will NOT fit QR
+- **Why multi-proof optimization?** Without multi-proof, each signer requires a full Merkle path: `O(k · log₂N)` nodes. With multi-proof, sibling nodes are shared across signers, reducing to `~O(N)` total nodes (60-75% smaller). This is critical for QR compatibility:
+  
+  | Committee (N) | Signers (k) | Without Multi-Proof | With Multi-Proof | Savings |
+  |---------------|-------------|---------------------|------------------|---------|
+  | 16 | 11 | ~44 nodes | ~16 nodes | 64% |
+  | 21 | 14 | ~63 nodes | ~21 nodes | 67% |
+  | 32 | 22 | ~110 nodes | ~32 nodes | 71% |
+  
+  - **QR-compatible** (≤2,953 bytes): Requires packed binary + multi-proof AND committee N ≤ 21
   - **URL-shareable** (always): All proofs fit browser URL limits (65KB+) with any reasonable committee size
-  - **Packed encoding required for QR**: Parallel byte arrays for siblings (32B hash + 8B weight each), varint indices, raw bytes for pubkeys. See Appendix F
+  - **Packed encoding required for QR**: Raw bytes for all fields (no JSON overhead). See Appendix B.1
   - **Recommendation**: Default to URL sharing; QR codes viable for committees N ≤ 21 with packed + multi-proof
 
 Most use cases are served by Profile A receipts. Profile B provides full finality when validator set is known. **Profile C is the gold standard** - completely self-contained proofs with cryptographically-bound totalWeight, enabling true offline verification without any trust assumptions beyond the cryptographic primitives.
@@ -711,16 +717,16 @@ Proof Bundle URL:
 
 ### B.1 Self-Contained Proof URL (Profile C)
 
-Profile C has two encodings. **Packed v5** is canonical and required for QR codes; JSON v4 is for debugging only.
+Profile C uses packed binary encoding for compact size. JSON encoding is available for debugging but does not fit QR codes.
 
-**Profile C v5 (Packed Binary - Canonical):**
+**Packed Binary (Canonical):**
 ```
 rinku://sp/{base64url(deflate(packed_binary))}
 ```
 
 **Packed binary layout (byte-level):**
 ```
-version:            1 byte   (0x05)
+version:            1 byte   (0x01, packed binary format)
 chainId:            4 bytes  (uint32_be, network identifier)
 txHash:            32 bytes  (raw SHA-256)
 txSignature:       64 bytes  (raw ECDSA P-256)
@@ -748,7 +754,7 @@ validatorSumTreeRoot.hash:        32 bytes
 validatorSumTreeRoot.totalWeight:  8 bytes (uint64_be)
 ```
 
-**Multi-proof layout (v5):**
+**Multi-proof layout:**
 ```
 signerLeaves: k × (1 + 20 + 96 + 8) bytes per signer
   - index:        1 byte  (uint8, committee position)
@@ -766,10 +772,10 @@ auxiliaryNodes: count × (1 + 1 + 32 + 8) bytes per node
 
 Multi-proof shares sibling nodes across signers, achieving ~O(N) total vs O(k·log₂N) for individual proofs. Tree depth is derived from `committeeSize`: `treeDepth = ⌈log₂(committeeSize)⌉`.
 
-**Profile C v4 (JSON - Legacy/Debug):**
+**JSON Encoding (Debug Only):**
 ```
 rinku://sp/{base64url(deflate(json({
-  version: 4,
+  version: 1,
   chainId: uint32,
   txHash: string,
   txSignature: string,
@@ -798,7 +804,7 @@ rinku://sp/{base64url(deflate(json({
 })))}
 ```
 
-JSON v4 is useful for debugging but does NOT fit in QR codes. Implementations MUST support packed v5 for production use.
+JSON encoding is human-readable for debugging but does NOT fit in QR codes due to field name overhead. Implementations MUST support packed binary for production use.
 
 ## Appendix C: Genesis Configuration
 
