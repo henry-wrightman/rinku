@@ -668,6 +668,8 @@ node.hash = SHA256(
 node.sumWeight = left.sumWeight + right.sumWeight
 ```
 
+Note: The `sumWeight` is included in the hash preimage (not just metadata), ensuring weight commitments are cryptographically bound at every tree level. The `0x00`/`0x01` domain separators prevent second-preimage attacks between leaf and internal nodes.
+
 **Root commitment:**
 ```
 validatorSumTreeRoot = { hash: root.hash, totalWeight: root.sumWeight }
@@ -698,6 +700,12 @@ EMPTY_NODE = {
 ```
 
 During tree construction, if a node at position `2i` has no sibling at `2i+1`, use `EMPTY_NODE` as the right child. This ensures all implementations compute identical roots regardless of committee size.
+
+**EMPTY_NODE Semantics:**
+- `EMPTY_NODE` is ONLY valid for right-side padding beyond `committeeSize` (non-power-of-two cases)
+- It is NOT a general wildcard for missing nodes; any "real" missing node causes proof rejection
+- A prover cannot exploit `EMPTY_NODE` because substituting it for a real validator would produce a different root hash
+- Verifiers: use `EMPTY_NODE` only when `rightIdx >= committeeSize` at level 0, or when the right subtree is structurally empty due to tree geometry
 
 **Tree Geometry:**
 - Tree depth: `⌈log₂N⌉` where N is committee size
@@ -770,10 +778,16 @@ validatorSumTreeRoot.totalWeight:  8 bytes (uint64_be)
 **Multi-proof layout:**
 ```
 signerLeaves: k × (1 + 20 + 96 + 8) bytes per signer
-  - index:        1 byte  (uint8, committee position)
+  - index:        1 byte  (uint8, committee position) [see note below]
   - address:     20 bytes (raw)
   - blsPublicKey: 96 bytes (raw G2 point)
   - weight:       8 bytes (uint64_be)
+
+NOTE: The `index` field is technically redundant since signerLeaves are
+ordered by ascending index and indices are derivable from signerBitmap
+via popcount walk. Retained for debugging/sanity checks. Implementations
+MAY omit index (saving k bytes) by deriving from bitmap; if so, use
+version byte 0x02 to distinguish.
 
 auxiliaryNodeCount: 1 byte (uint8)
 auxiliaryNodes: count × (1 + 1 + 32 + 8) bytes per node
@@ -1163,16 +1177,16 @@ Where `EMPTY_NODE = { hash: SHA256("rinku:empty_node:v1"), sumWeight: 0 }` per A
 
 ### F.4.1 QR Compatibility Matrix (With Multi-Proof)
 
-*Multi-proof format (v5) - recommended:*
+*With multi-proof optimization (recommended):*
 
-| Committee (N) | Signers (k) | Packed v5 + DEFLATE | QR-L (2,953B) |
+| Committee (N) | Signers (k) | Packed + DEFLATE | QR-L (2,953B) |
 |--------------|-------------|---------------------|---------------|
 | 16 | 11 | ~1,600 | ✓ |
 | 21 | 14 | ~2,100 | ✓ |
 | 32 | 22 | ~2,900 | ✗ |
 | 64 | 43 | ~5,400 | ✗ |
 
-**Conclusion:** With multi-proof (v5), QR codes are compatible with committees up to N ≤ 21. For N > 21, use URL sharing. The v5 format is the recommended default for all Profile C proofs.
+**Conclusion:** With multi-proof optimization, QR codes are compatible with committees up to N ≤ 21. For N > 21, use URL sharing. Multi-proof is the recommended default for all Profile C proofs.
 
 ### F.5 Merkle Multi-Proof Optimization
 
@@ -1226,3 +1240,138 @@ With multi-proof optimization, QR compatibility extends to:
 - Larger committees remain URL-only but significantly more compact
 
 **Security:** Multi-proofs provide identical security guarantees—the verifier still reconstructs the full MerkleSumTree root and verifies all signer weights are cryptographically bound.
+
+## Appendix G: Normative Test Vectors
+
+These test vectors enable cross-implementation verification. All values are deterministic.
+
+### G.1 MerkleSumTree Test Vector (N=4 Committee)
+
+**Committee (4 validators):**
+```
+Validator 0:
+  index:     0x00
+  address:   0x0000000000000000000000000000000000000001
+  blsPubKey: 0x{96 bytes of 0x01}
+  weight:    1000000 (1 RKU = 1,000,000 µRKU)
+
+Validator 1:
+  index:     0x01
+  address:   0x0000000000000000000000000000000000000002
+  blsPubKey: 0x{96 bytes of 0x02}
+  weight:    2000000
+
+Validator 2:
+  index:     0x02
+  address:   0x0000000000000000000000000000000000000003
+  blsPubKey: 0x{96 bytes of 0x03}
+  weight:    1500000
+
+Validator 3:
+  index:     0x03
+  address:   0x0000000000000000000000000000000000000004
+  blsPubKey: 0x{96 bytes of 0x04}
+  weight:    500000
+```
+
+**Leaf Hash Computation (Validator 0):**
+```
+preimage = 0x00 ||                        // domain separator (leaf)
+           0x00000000 ||                  // index (uint32_be)
+           0x0000000000000000000000000000000000000001 ||  // address (20 bytes)
+           0x{96 bytes of 0x01} ||        // blsPubKey (96 bytes)
+           0x00000000000f4240             // weight (uint64_be = 1000000)
+leafHash[0] = SHA256(preimage)            // 129-byte preimage
+```
+
+**Expected Tree Structure:**
+```
+Level 0 (leaves):
+  [0]: { hash: leafHash[0], sumWeight: 1000000 }
+  [1]: { hash: leafHash[1], sumWeight: 2000000 }
+  [2]: { hash: leafHash[2], sumWeight: 1500000 }
+  [3]: { hash: leafHash[3], sumWeight: 500000 }
+
+Level 1 (internal):
+  [0]: hash = SHA256(0x01 || leaf[0].hash || 0x00000000000f4240 || leaf[1].hash || 0x00000000001e8480)
+       sumWeight = 3000000  // 81-byte preimage
+  [1]: hash = SHA256(0x01 || leaf[2].hash || 0x000000000016e360 || leaf[3].hash || 0x000000000007a120)
+       sumWeight = 2000000
+
+Level 2 (root):
+  [0]: hash = SHA256(0x01 || node[0].hash || 0x00000000002dc6c0 || node[1].hash || 0x00000000001e8480)
+       sumWeight = 5000000
+
+validatorSumTreeRoot = { hash: <computed>, totalWeight: 5000000 }
+```
+
+### G.2 Multi-Proof Test Vector (k=3 of N=4)
+
+**Scenario:** Validators 0, 1, 3 sign (indices 0, 1, 3). Validator 2 abstains.
+
+**Signer Bitmap:** `0b00001011` = `0x0B` (bits 0, 1, 3 set)
+
+**Multi-Proof Structure:**
+```
+signerLeaves: [
+  { index: 0, address: 0x...01, blsPubKey: 0x{96×0x01}, weight: 1000000 },
+  { index: 1, address: 0x...02, blsPubKey: 0x{96×0x02}, weight: 2000000 },
+  { index: 3, address: 0x...04, blsPubKey: 0x{96×0x04}, weight: 500000 }
+]
+
+auxiliaryNodes: [
+  { level: 0, index: 2, hash: leafHash[2], sumWeight: 1500000 }
+]
+```
+
+**Reconstruction Steps:**
+1. Place leaves 0, 1, 3 at level 0 positions 0, 1, 3
+2. Place auxiliary node at level 0 position 2
+3. Level 0 → Level 1:
+   - Parent[0] = hash(leaf[0], leaf[1]), sumWeight = 3000000
+   - Parent[1] = hash(leaf[2], leaf[3]), sumWeight = 2000000
+4. Level 1 → Level 2:
+   - Root = hash(parent[0], parent[1]), sumWeight = 5000000
+5. Verify: reconstructed root == validatorSumTreeRoot
+
+**Signer Weight Calculation:**
+```
+signerWeight = 1000000 + 2000000 + 500000 = 3500000
+totalWeight  = 5000000
+ratio        = 3500000 / 5000000 = 70%
+quorumThresholdBps = 6700 (67%)
+PASS: 70% >= 67%
+```
+
+### G.3 Packed Binary Test Vector
+
+**For the G.2 proof, packed multi-proof section (hex):**
+```
+03                              // signerCount = 3
+00 0000...01 {96×01} 00000000000f4240  // signer 0: index(1B), addr(20B), pk(96B), weight(8B)
+01 0000...02 {96×02} 00000000001e8480  // signer 1
+03 0000...04 {96×04} 000000000007a120  // signer 3
+01                              // auxiliaryNodeCount = 1
+00 02 {leafHash[2]} 000000000016e360   // aux: level(1B), index(1B), hash(32B), weight(8B)
+```
+
+**Total multi-proof section size:**
+- Signers: 3 × (1 + 20 + 96 + 8) = 375 bytes
+- Aux nodes: 1 + 1 × (1 + 1 + 32 + 8) = 43 bytes
+- Total: 418 bytes
+
+Note: The packed format uses 1-byte index for signers (matching bitmap position), while the hash preimage uses 4-byte index (uint32_be) per A.3. This is intentional: packed format optimizes for size, hash preimage ensures determinism with fixed-width fields.
+
+### G.4 Implementation Checklist
+
+Cross-implementation testing should verify:
+- [ ] Leaf hash matches for each validator (domain separator included)
+- [ ] Internal node hash matches at each level
+- [ ] Root hash and totalWeight match expected values
+- [ ] Multi-proof reconstruction produces identical root
+- [ ] Signer weight sum matches expectation
+- [ ] Canonical constraints reject malformed proofs:
+  - [ ] Unsorted auxiliary nodes → REJECT
+  - [ ] Duplicate auxiliary nodes → REJECT
+  - [ ] Unused auxiliary nodes → REJECT
+  - [ ] Missing required nodes → REJECT
