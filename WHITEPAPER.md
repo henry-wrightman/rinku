@@ -93,7 +93,7 @@ QR codes require byte mode for base64url encoding (contains `-`, `_`, `/`):
 
 ### 2.5 Proof Profiles
 
-Rinku supports two verification profiles with different security/size tradeoffs:
+Rinku supports three verification profiles with different security/size tradeoffs:
 
 **Profile A: Receipt (QR-compatible)**
 - Size: 600-2,300 chars (fits QR for ≤5 depth)
@@ -109,7 +109,16 @@ Rinku supports two verification profiles with different security/size tradeoffs:
 - Trust assumption: Verifier knows genesis validator set or a pinned checkpoint
 - Use case: High-value settlements, cross-chain bridges, legal evidence
 
-Most use cases are served by Profile A receipts. Profile B is available when cryptographic finality proof is required without trusting the sender's checkpoint claim.
+**Profile C: Self-Contained Proof (v3)**
+- Size: 800-2,500 chars (QR-compatible with BLS aggregation)
+- URL format: `rinku://sp/{base64url-deflate-json}`
+- Includes: tx data, full checkpoint header (txMerkleRoot, stateRoot, receiptRoot, totalWeight, tipCount), Merkle inclusion proof, BLS aggregated signature (48 bytes), ValidatorWitness array for **signers only** with (index, address, blsPublicKey, weight)
+- Guarantees: **Offline signer verification** - verifier can confirm signers' weights sum to ≥67% of claimed totalWeight
+- Trust assumption: Verifier trusts claimed totalWeight from checkpoint header (non-signers not embedded)
+- Security: validatorSetRoot (hash of signer witnesses) is included in BLS signing hash, preventing signer weight forgery
+- Use case: Offline verification, air-gapped systems, cross-chain bridges, legal evidence
+
+Most use cases are served by Profile A receipts. Profile B provides full finality when validator set is known. **Profile C offers the best balance** of compact size and cryptographic verification - signer weights are cryptographically committed, enabling offline verification that sufficient stake backed the checkpoint, while keeping proofs QR-compatible.
 
 ### 2.6 Verification Process
 
@@ -457,6 +466,16 @@ Rinku's security relies on:
 - Validator signatures prove ≥2/3 stake attested to the checkpoint
 - Validator set commitment allows verification without knowing current validators
 
+**Profile C (Self-Contained):**
+- All Profile B guarantees, plus:
+- **Offline signer verification** - verifier can confirm signer weights without external queries
+- ValidatorWitness array embeds (index, address, blsPublicKey, weight) for **each signer** (not all validators)
+- validatorSetRoot (hash of signer witnesses) is included in BLS signing hash, binding signer weights to signature
+- Verifier recomputes signerWeight from embedded witnesses (not trusting claimed signer values)
+- BLS aggregated signature (48 bytes) replaces individual ECDSA signatures (94.9% compression for 21 validators)
+- *Does prove*: Signer weight sum using cryptographically committed signer data
+- *Does NOT prove*: totalWeight accuracy (trusts checkpoint header); for full validator set verification, use Profile B with known validator set
+
 ### 12.3 Attack Vectors and Mitigations
 
 | Attack | Description | Mitigation |
@@ -498,9 +517,11 @@ The combination of DAG-based consensus, weighted proof-of-stake, checkpoint fina
 ## Appendix A: Cryptographic Primitives
 
 - **Signatures:** ECDSA P-256 with SHA-256 (chosen for native Web Crypto API support)
-- **Hashing:** SHA-256 for transactions, Merkle trees, checkpoints
+- **BLS Signatures:** BLS12-381 shortSignatures for checkpoint aggregation (48-byte G1 signatures, 96-byte G2 public keys) via @noble/curves
+- **Hashing:** SHA-256 for transactions, Merkle trees, checkpoints, validator set commitments
 - **Key Derivation:** 40-character fingerprint from first 20 bytes of SHA-256(public key)
 - **Compression:** DEFLATE (pako) for URL payload encoding
+- **Validator Key Storage:** AES-256-GCM encryption with scrypt key derivation (N=16384, r=8, p=1)
 
 ## Appendix B: URL Format Specification
 
@@ -521,6 +542,39 @@ Proof Bundle URL:
     height: number,
     signatureCount: number
   }
+})))}
+```
+
+Self-Contained Proof URL (Profile C):
+```
+rinku://sp/{base64url(deflate(json({
+  version: 3,
+  txHash: string,
+  txSignature: string,
+  txFrom: string,
+  txTo: string,
+  txAmount: number,
+  txNonce: number,
+  txTimestamp: number,
+  checkpointHeight: number,
+  checkpointId: string,
+  txMerkleRoot: string,
+  stateRoot: string,
+  receiptRoot: string,
+  totalWeight: number,
+  tipCount: number,
+  merkleProof: string[],
+  merkleIndex: number,
+  blsAggregatedSig: number[],    // 48 bytes
+  blsSignerBitmap: number[],
+  blsSignerCount: number,
+  validatorWitnesses: [{
+    index: number,
+    address: string,
+    blsPublicKey: number[],      // 96 bytes
+    weight: number
+  }],
+  validatorSetRoot: string       // SHA-256 of witnesses
 })))}
 ```
 
@@ -568,3 +622,78 @@ Single transaction:     596 chars  (0.58 KB)
 - Random 64-char hex hashes
 - 88-char ECDSA signatures (realistic length)
 - Checkpoint anchors include signatureCount (not full signatures array)
+
+## Appendix E: BLS Signature Aggregation
+
+### E.1 Motivation
+
+Traditional ECDSA checkpoint signatures require O(n) storage for n validators. With 21 validators and 48-byte signatures each, this adds 1,008 bytes to every proof. BLS signature aggregation reduces this to a constant 48 bytes regardless of validator count.
+
+### E.2 BLS12-381 Specification
+
+Rinku uses BLS12-381 shortSignatures (G1 signatures, G2 public keys):
+- **Private Key:** 32 bytes (random scalar)
+- **Public Key:** 96 bytes (G2 point, compressed)
+- **Signature:** 48 bytes (G1 point, compressed)
+- **Aggregated Signature:** 48 bytes (constant, regardless of signer count)
+
+Implementation via @noble/curves library, which provides:
+- Constant-time operations for side-channel resistance
+- Pure JavaScript with no native dependencies
+- WebAssembly-free for maximum portability
+
+### E.3 Compression Ratios
+
+| Validators | ECDSA Total | BLS Aggregated | Compression |
+|------------|-------------|----------------|-------------|
+| 1 | 48 bytes | 48 bytes | 0% |
+| 5 | 240 bytes | 48 bytes | 80% |
+| 10 | 480 bytes | 48 bytes | 90% |
+| 21 | 1,008 bytes | 48 bytes | 95.2% |
+| 100 | 4,800 bytes | 48 bytes | 99% |
+
+The 48-byte aggregated signature plus 3-byte signer bitmap enables QR-compatible finality proofs.
+
+### E.4 Signing Process
+
+1. **Checkpoint Creation:** Leader computes checkpoint header including txMerkleRoot, stateRoot, receiptRoot, totalWeight, tipCount
+2. **Validator Set Root:** Compute SHA-256 hash of sorted validator witnesses: `index:address:blsPubKey:weight|...`
+3. **Signing Hash:** Compute SHA-256 of: `checkpointId:height:txMerkleRoot:stateRoot:receiptRoot:totalWeight:tipCount:validatorSetRoot`
+4. **Individual Signatures:** Each validator signs the hash with their BLS private key
+5. **Aggregation:** Combine all signatures into single 48-byte aggregated signature
+6. **Bitmap:** Create signer bitmap indicating which validators signed
+
+### E.5 Verification Process
+
+1. **Recompute validatorSetRoot:** Hash the embedded ValidatorWitness array
+2. **Verify root matches:** Ensures validator data hasn't been tampered
+3. **Recompute signing hash:** Using checkpoint fields + validatorSetRoot
+4. **Extract signer public keys:** From ValidatorWitness array based on bitmap
+5. **Verify aggregated signature:** BLS verification against signer public keys
+6. **Compute signer weight:** Sum weights from ValidatorWitness entries
+7. **Check threshold:** Verify signerWeight ≥ 67% of totalWeight
+
+### E.6 Security Properties
+
+**Signer Weight Binding:** The validatorSetRoot (hash of signer witnesses) is included in the BLS signing hash. Any attempt to modify signer weights invalidates the aggregated signature.
+
+**Tamper Detection:** Verifiers recompute validatorSetRoot from embedded signer witnesses. Mismatched roots indicate tampering.
+
+**Signer-Only Witnesses:** To minimize proof size, only signing validators are embedded. This enables verification that signers' combined weight meets the threshold, but verifiers must trust the checkpoint's claimed totalWeight. For applications requiring full validator set verification, use Profile B with a known validator set.
+
+**Threshold Verification:** Verifiers compute `signerWeight / totalWeight` using embedded signer witnesses (trusted) and checkpoint totalWeight (from header). The 67% threshold check confirms sufficient stake backed the checkpoint.
+
+### E.7 Validator Key Management
+
+Validators maintain both ECDSA (transaction signing) and BLS (checkpoint signing) keypairs:
+
+```
+{
+  ecdsaPrivateKey: Uint8Array,  // 32 bytes
+  ecdsaPublicKey: Uint8Array,   // 65 bytes (uncompressed)
+  blsPrivateKey: Uint8Array,    // 32 bytes
+  blsPublicKey: Uint8Array      // 96 bytes (G2 compressed)
+}
+```
+
+Keys are encrypted at rest using AES-256-GCM with scrypt-derived key (N=16384, r=8, p=1). Password required at node startup; development mode uses consistent default for testing.
