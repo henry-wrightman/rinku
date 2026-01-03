@@ -5,17 +5,24 @@ import {
   type ValidatorEntry,
   type CheckpointConfig,
   type GenesisConfig,
+  type BLSCheckpointSignature,
   createCheckpoint,
   createGenesisCheckpoint,
   createCheckpointProof,
   getCheckpointSigningData,
+  getBLSCheckpointSigningData,
   computeValidatorSetHash,
   DEFAULT_CHECKPOINT_CONFIG,
   GENESIS_CHECKPOINT_ID,
   sign,
   verify,
-  getTransactionMerkleRoot
+  getTransactionMerkleRoot,
+  blsSign,
+  aggregateSignatures,
+  createSignerBitmap,
+  hexToBytes
 } from '@rinku/core';
+import { createHash } from 'crypto';
 
 export interface CheckpointServiceDeps {
   getMerkleRoot: () => string;
@@ -25,10 +32,18 @@ export interface CheckpointServiceDeps {
   getTotalWeight: () => number;
   getPublicKey: (address: string) => Uint8Array | undefined;
   getPrivateKey: () => Uint8Array | undefined;
+  getBLSPrivateKey?: () => Uint8Array | undefined;
+  getBLSPublicKey?: () => Uint8Array | undefined;
   getNodeAddress: () => string;
   getAllTransactionHashes?: () => string[];
   getStateRoot?: () => Promise<string>;
   getReceiptRoot?: () => Promise<string>;
+}
+
+export interface BLSSignatureCollection {
+  validatorIndex: number;
+  signature: Uint8Array;
+  validatorAddress: string;
 }
 
 export class CheckpointService {
@@ -205,6 +220,102 @@ export class CheckpointService {
     return this.latestCheckpoint;
   }
 
+  getCheckpointSigningHash(checkpointId: string): Uint8Array | null {
+    const checkpoint = this.checkpoints.get(checkpointId);
+    if (!checkpoint) return null;
+    
+    const signingData = getCheckpointSigningData(checkpoint);
+    const hash = createHash('sha256').update(signingData).digest();
+    return new Uint8Array(hash);
+  }
+
+  getBLSCheckpointSigningHash(checkpointId: string, validatorSetRoot: string): Uint8Array | null {
+    const checkpoint = this.checkpoints.get(checkpointId);
+    if (!checkpoint) return null;
+    
+    const signingData = getBLSCheckpointSigningData(checkpoint, validatorSetRoot);
+    const hash = createHash('sha256').update(signingData).digest();
+    return new Uint8Array(hash);
+  }
+
+  signCheckpointBLS(
+    checkpointId: string,
+    blsPrivateKey: Uint8Array,
+    validatorAddress: string
+  ): { signature: Uint8Array; validatorIndex: number; validatorSetRoot: string } | null {
+    const checkpoint = this.checkpoints.get(checkpointId);
+    if (!checkpoint) return null;
+
+    const validators = checkpoint.validators;
+    const validatorIndex = validators.findIndex(v => v.address === validatorAddress);
+    if (validatorIndex === -1) return null;
+
+    const signerWitness = {
+      index: validatorIndex,
+      address: validatorAddress,
+      blsPublicKey: validators[validatorIndex].blsPublicKey || [],
+      weight: validators[validatorIndex].weight
+    };
+    const validatorSetRoot = this.computeValidatorSetRoot([signerWitness]);
+
+    const checkpointHash = this.getBLSCheckpointSigningHash(checkpointId, validatorSetRoot);
+    if (!checkpointHash) return null;
+
+    const signature = blsSign(checkpointHash, blsPrivateKey);
+    return { signature, validatorIndex, validatorSetRoot };
+  }
+
+  aggregateBLSSignatures(
+    checkpointId: string,
+    blsSignatures: BLSSignatureCollection[]
+  ): BLSCheckpointSignature | null {
+    const checkpoint = this.checkpoints.get(checkpointId);
+    if (!checkpoint || blsSignatures.length === 0) return null;
+
+    const validators = checkpoint.validators;
+    
+    const sortedSigs = [...blsSignatures].sort((a, b) => a.validatorIndex - b.validatorIndex);
+    const signerIndices = sortedSigs.map(s => s.validatorIndex);
+
+    const signerWitnesses = signerIndices.map(i => ({
+      index: i,
+      address: validators[i].address,
+      blsPublicKey: validators[i].blsPublicKey || [],
+      weight: validators[i].weight
+    }));
+    const validatorSetRoot = this.computeValidatorSetRoot(signerWitnesses);
+
+    const checkpointHash = this.getBLSCheckpointSigningHash(checkpointId, validatorSetRoot);
+    if (!checkpointHash) return null;
+
+    const resignedSigs: Uint8Array[] = [];
+    for (const sig of sortedSigs) {
+      resignedSigs.push(sig.signature);
+    }
+
+    const aggregatedSig = aggregateSignatures(resignedSigs);
+    const signerBitmap = createSignerBitmap(signerIndices, validators.length);
+
+    const blsSig: BLSCheckpointSignature = {
+      aggregatedSignature: Array.from(aggregatedSig),
+      signerBitmap: Array.from(signerBitmap),
+      signerCount: blsSignatures.length,
+      validatorSetRoot
+    };
+
+    checkpoint.blsSignature = blsSig;
+    return blsSig;
+  }
+
+  private computeValidatorSetRoot(witnesses: Array<{ index: number; address: string; blsPublicKey: number[]; weight: number }>): string {
+    const sorted = [...witnesses].sort((a, b) => a.index - b.index);
+    const entries = sorted.map(w => 
+      `${w.index}:${w.address}:${Buffer.from(w.blsPublicKey).toString('hex')}:${w.weight}`
+    );
+    const combined = entries.join('|');
+    return createHash('sha256').update(combined).digest('hex');
+  }
+
   async getTransactionMerkleProof(
     txHash: string,
     checkpointId: string
@@ -323,7 +434,23 @@ export class CheckpointService {
             publicKey,
             nodeAddress
           );
-          console.log(`Signed checkpoint ${checkpoint.checkpointId}`);
+          
+          const blsPrivateKey = this.deps.getBLSPrivateKey?.();
+          if (blsPrivateKey) {
+            const blsSigResult = this.signCheckpointBLS(
+              checkpoint.checkpointId,
+              blsPrivateKey,
+              nodeAddress
+            );
+            
+            if (blsSigResult) {
+              this.aggregateBLSSignatures(checkpoint.checkpointId, [{
+                validatorIndex: blsSigResult.validatorIndex,
+                signature: blsSigResult.signature,
+                validatorAddress: nodeAddress
+              }]);
+            }
+          }
         }
       } catch (err) {
         console.error('Failed to create checkpoint:', err);

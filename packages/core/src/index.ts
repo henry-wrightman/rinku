@@ -2,6 +2,7 @@ export * from './types.js';
 export * from './crypto.js';
 export * from './bls.js';
 export * from './compact-proof.js';
+export * from './self-proof.js';
 export * from './encoding.js';
 export * from './merkle.js';
 export * from './dag.js';

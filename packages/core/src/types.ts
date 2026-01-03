@@ -330,7 +330,16 @@ export interface ValidatorSignature {
 export interface ValidatorEntry {
   address: string;
   publicKey: number[];
+  blsPublicKey?: number[];  // BLS12-381 G2 public key (96 bytes)
   weight: number;
+}
+
+/** BLS aggregated signature for checkpoints */
+export interface BLSCheckpointSignature {
+  aggregatedSignature: number[];  // BLS12-381 G1 aggregated sig (48 bytes)
+  signerBitmap: number[];         // Bitmap of which validators signed
+  signerCount: number;            // Number of signers
+  validatorSetRoot: string;       // Merkle root of validator public keys
 }
 
 /** A checkpoint representing network consensus at a point in time */
@@ -350,6 +359,7 @@ export interface Checkpoint {
   validators: ValidatorEntry[];
   timestamp: number;
   signatures: ValidatorSignature[];
+  blsSignature?: BLSCheckpointSignature;  // Aggregated BLS signature for compact proofs
 }
 
 /** Compact proof that a transaction is part of canonical history */

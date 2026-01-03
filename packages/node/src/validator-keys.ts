@@ -1,11 +1,28 @@
-import { generateKeyPair, sign, verify, computeFingerprint } from '@rinku/core';
-import type { ValidatorEntry, ValidatorSignature } from '@rinku/core';
+import { 
+  generateKeyPair, 
+  sign, 
+  verify, 
+  computeFingerprint,
+  generateBLSKeyPair,
+  blsSign,
+  blsVerify,
+  aggregateSignatures,
+  verifyAggregatedSignature,
+  createSignerBitmap,
+  parseBLSSignerBitmap,
+  bytesToHex,
+  hexToBytes,
+  type BLSKeyPair
+} from '@rinku/core';
+import type { ValidatorEntry, ValidatorSignature, BLSCheckpointSignature } from '@rinku/core';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, createHash } from 'crypto';
 
 export interface ValidatorKeyPair {
   address: string;
   publicKey: Uint8Array;
   privateKey: Uint8Array;
+  blsPublicKey?: Uint8Array;
+  blsPrivateKey?: Uint8Array;
   createdAt: number;
 }
 
@@ -78,6 +95,8 @@ export interface ValidatorKeySnapshot {
     address: string;
     publicKey: number[];
     encryptedPrivateKey: string;
+    blsPublicKey?: number[];
+    encryptedBlsPrivateKey?: string;
     createdAt: number;
   } | null;
   keyHistory: Array<{
@@ -89,6 +108,7 @@ export interface ValidatorKeySnapshot {
   registeredValidators: Array<{
     address: string;
     publicKey: number[];
+    blsPublicKey?: number[];
     weight: number;
     registeredAt: number;
   }>;
@@ -105,6 +125,7 @@ export class ValidatorKeyManager {
   }> = [];
   private registeredValidators: Map<string, {
     publicKey: Uint8Array;
+    blsPublicKey?: Uint8Array;
     weight: number;
     registeredAt: number;
   }> = new Map();
@@ -133,11 +154,15 @@ export class ValidatorKeyManager {
   async generateNewKey(): Promise<ValidatorKeyPair> {
     const { publicKey, privateKey } = await generateKeyPair();
     const address = await computeFingerprint(publicKey);
+    
+    const blsKeyPair = generateBLSKeyPair();
 
     const keyPair: ValidatorKeyPair = {
       address,
       publicKey,
       privateKey,
+      blsPublicKey: blsKeyPair.publicKey,
+      blsPrivateKey: blsKeyPair.privateKey,
       createdAt: Date.now(),
     };
 
@@ -197,6 +222,21 @@ export class ValidatorKeyManager {
     return this.activeKey?.address || null;
   }
 
+  getBLSPublicKey(): Uint8Array | null {
+    return this.activeKey?.blsPublicKey || null;
+  }
+
+  getBLSPrivateKey(): Uint8Array | null {
+    return this.activeKey?.blsPrivateKey || null;
+  }
+
+  signCheckpointBLS(checkpointHash: Uint8Array): Uint8Array {
+    if (!this.activeKey?.blsPrivateKey) {
+      throw new Error('No active BLS validator key');
+    }
+    return blsSign(checkpointHash, this.activeKey.blsPrivateKey);
+  }
+
   async signData(data: string): Promise<string> {
     if (!this.activeKey) {
       throw new Error('No active validator key');
@@ -241,9 +281,10 @@ export class ValidatorKeyManager {
     return verify(data, signature, publicKey);
   }
 
-  registerValidator(address: string, publicKey: Uint8Array, weight: number): void {
+  registerValidator(address: string, publicKey: Uint8Array, weight: number, blsPublicKey?: Uint8Array): void {
     this.registeredValidators.set(address, {
       publicKey,
+      blsPublicKey,
       weight,
       registeredAt: Date.now(),
     });
@@ -263,8 +304,77 @@ export class ValidatorKeyManager {
     return Array.from(this.registeredValidators.entries()).map(([address, info]) => ({
       address,
       publicKey: Array.from(info.publicKey),
+      blsPublicKey: info.blsPublicKey ? Array.from(info.blsPublicKey) : undefined,
       weight: info.weight,
     }));
+  }
+  
+  createAggregatedBLSSignature(
+    checkpointHash: Uint8Array,
+    blsSignatures: Array<{ validatorIndex: number; signature: Uint8Array }>,
+    validators: ValidatorEntry[]
+  ): BLSCheckpointSignature {
+    if (blsSignatures.length === 0) {
+      throw new Error('No BLS signatures to aggregate');
+    }
+    
+    const sortedSigs = blsSignatures.sort((a, b) => a.validatorIndex - b.validatorIndex);
+    const sigs = sortedSigs.map(s => s.signature);
+    const signerIndices = sortedSigs.map(s => s.validatorIndex);
+    
+    const aggregatedSig = aggregateSignatures(sigs);
+    const signerBitmap = createSignerBitmap(signerIndices, validators.length);
+    
+    const blsKeys = validators
+      .filter(v => v.blsPublicKey)
+      .map(v => bytesToHex(new Uint8Array(v.blsPublicKey!)));
+    const validatorSetRoot = this.computeValidatorSetRoot(blsKeys);
+    
+    return {
+      aggregatedSignature: Array.from(aggregatedSig),
+      signerBitmap: Array.from(signerBitmap),
+      signerCount: blsSignatures.length,
+      validatorSetRoot
+    };
+  }
+  
+  private computeValidatorSetRoot(blsKeyHexes: string[]): string {
+    const combined = blsKeyHexes.sort().join('|');
+    return createHash('sha256').update(combined).digest('hex');
+  }
+  
+  verifyAggregatedBLSSignature(
+    checkpointHash: Uint8Array,
+    blsSig: BLSCheckpointSignature,
+    validators: ValidatorEntry[]
+  ): boolean {
+    try {
+      const signerIndices = parseBLSSignerBitmap(
+        new Uint8Array(blsSig.signerBitmap),
+        validators.length
+      );
+      
+      if (signerIndices.length !== blsSig.signerCount) {
+        return false;
+      }
+      
+      const signerBLSKeys = signerIndices
+        .map(i => validators[i]?.blsPublicKey)
+        .filter((k): k is number[] => k !== undefined)
+        .map(k => new Uint8Array(k));
+      
+      if (signerBLSKeys.length !== blsSig.signerCount) {
+        return false;
+      }
+      
+      return verifyAggregatedSignature(
+        checkpointHash,
+        new Uint8Array(blsSig.aggregatedSignature),
+        signerBLSKeys
+      );
+    } catch {
+      return false;
+    }
   }
 
   updateValidatorWeight(address: string, weight: number): boolean {
@@ -304,6 +414,10 @@ export class ValidatorKeyManager {
         address: this.activeKey.address,
         publicKey: Array.from(this.activeKey.publicKey),
         encryptedPrivateKey: encryptPrivateKey(this.activeKey.privateKey, this.encryptionPassword),
+        blsPublicKey: this.activeKey.blsPublicKey ? Array.from(this.activeKey.blsPublicKey) : undefined,
+        encryptedBlsPrivateKey: this.activeKey.blsPrivateKey 
+          ? encryptPrivateKey(this.activeKey.blsPrivateKey, this.encryptionPassword) 
+          : undefined,
         createdAt: this.activeKey.createdAt,
       } : null,
       keyHistory: this.keyHistory.map(k => ({
@@ -315,6 +429,7 @@ export class ValidatorKeyManager {
       registeredValidators: Array.from(this.registeredValidators.entries()).map(([address, info]) => ({
         address,
         publicKey: Array.from(info.publicKey),
+        blsPublicKey: info.blsPublicKey ? Array.from(info.blsPublicKey) : undefined,
         weight: info.weight,
         registeredAt: info.registeredAt,
       })),
@@ -330,6 +445,7 @@ export class ValidatorKeyManager {
     for (const v of data.registeredValidators) {
       manager.registeredValidators.set(v.address, {
         publicKey: new Uint8Array(v.publicKey),
+        blsPublicKey: v.blsPublicKey ? new Uint8Array(v.blsPublicKey) : undefined,
         weight: v.weight,
         registeredAt: v.registeredAt,
       });
@@ -351,12 +467,26 @@ export class ValidatorKeyManager {
     if (data.activeKey && data.activeKey.encryptedPrivateKey) {
       try {
         const decryptedPrivateKey = decryptPrivateKey(data.activeKey.encryptedPrivateKey, manager.encryptionPassword);
+        let decryptedBlsPrivateKey: Uint8Array | undefined;
+        if (data.activeKey.encryptedBlsPrivateKey) {
+          decryptedBlsPrivateKey = decryptPrivateKey(data.activeKey.encryptedBlsPrivateKey, manager.encryptionPassword);
+        }
         manager.activeKey = {
           address: data.activeKey.address,
           publicKey: new Uint8Array(data.activeKey.publicKey),
           privateKey: decryptedPrivateKey,
+          blsPublicKey: data.activeKey.blsPublicKey ? new Uint8Array(data.activeKey.blsPublicKey) : undefined,
+          blsPrivateKey: decryptedBlsPrivateKey,
           createdAt: data.activeKey.createdAt,
         };
+        
+        if (!manager.activeKey.blsPrivateKey) {
+          console.log('Generating BLS key for existing validator...');
+          const blsKeyPair = generateBLSKeyPair();
+          manager.activeKey.blsPublicKey = blsKeyPair.publicKey;
+          manager.activeKey.blsPrivateKey = blsKeyPair.privateKey;
+        }
+        
         console.log(`Restored validator key: ${manager.activeKey.address.slice(0, 16)}...`);
       } catch (e) {
         console.warn('Failed to decrypt validator key - generating new key');

@@ -116,22 +116,30 @@ async function main() {
     contractService = new ContractService(state);
   }
 
+  let validatorKeyManagerRef: ValidatorKeyManager | null = null;
+  
   const checkpointDeps = {
     getMerkleRoot: () => state.getMerkleRoot(),
     getTipCount: () => consensus.getTips().length,
     getTotalTransactions: () => consensus.getAllNodes().length,
     getValidatorEntries: () => rewardsService.getActiveValidators().map(v => {
       const pubKey = consensus.getPublicKeys().get(v.staker);
+      const blsKey = validatorKeyManagerRef?.getAddress() === v.staker 
+        ? validatorKeyManagerRef?.getBLSPublicKey() 
+        : undefined;
       return {
         address: v.staker,
         publicKey: pubKey ? Array.from(pubKey) : [],
+        blsPublicKey: blsKey ? Array.from(blsKey) : undefined,
         weight: v.amount
       };
     }),
     getTotalWeight: () => rewardsService.getTotalStaked(),
     getPublicKey: (address: string) => consensus.getPublicKeys().get(address),
-    getPrivateKey: () => undefined,
-    getNodeAddress: () => NODE_ID,
+    getPrivateKey: () => validatorKeyManagerRef?.getPrivateKey() || undefined,
+    getBLSPrivateKey: () => validatorKeyManagerRef?.getBLSPrivateKey() || undefined,
+    getBLSPublicKey: () => validatorKeyManagerRef?.getBLSPublicKey() || undefined,
+    getNodeAddress: () => validatorKeyManagerRef?.getAddress() || NODE_ID,
     getAllTransactionHashes: () => consensus.getAllNodes().map(n => n.tx.hash),
     getStateRoot: () => contractService.getStateRoot(),
     getReceiptRoot: () => contractService.getReceiptRoot()
@@ -209,11 +217,16 @@ async function main() {
     await validatorKeyManager.generateNewKey();
     console.log(`Generated validator key: ${validatorKeyManager.getAddress()?.slice(0, 16)}...`);
   }
+  
+  validatorKeyManagerRef = validatorKeyManager;
 
   for (const validator of rewardsService.getActiveValidators()) {
     const pubKey = consensus.getPublicKeys().get(validator.staker);
+    const blsKey = validatorKeyManager.getAddress() === validator.staker
+      ? validatorKeyManager.getBLSPublicKey()
+      : undefined;
     if (pubKey) {
-      validatorKeyManager.registerValidator(validator.staker, pubKey, validator.amount);
+      validatorKeyManager.registerValidator(validator.staker, pubKey, validator.amount, blsKey || undefined);
     }
   }
 
