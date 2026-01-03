@@ -3,9 +3,9 @@ import type { StakePosition } from '@rinku/core';
 export const TOKENOMICS_CONFIG = {
   MAX_SUPPLY: 30_000_000,
   GENESIS_ALLOCATION: 6_000_000,
-  INITIAL_CHECKPOINT_REWARD: 150,
+  INITIAL_CHECKPOINT_REWARD: 3.934,
   HALVING_INTERVAL: 3_150_000,
-  MIN_CHECKPOINT_REWARD: 4.6875,
+  MIN_CHECKPOINT_REWARD: 0.123,
   HALVINGS_COUNT: 5,
   UNBONDING_PERIOD_MS: 14 * 24 * 60 * 60 * 1000,
   SLASH_DOUBLE_SIGN_PERCENT: 0.15,
@@ -24,7 +24,6 @@ export const TOKENOMICS_CONFIG = {
   SUPPLY_TARGET_FOR_FULL_BURN: 0.50,
   MIN_BOND_FOR_AGE_WEIGHT: 100,
   AGE_DECAY_PER_MISS: 0.10,
-  CHECKPOINT_EMISSION_POOL: 150,
 };
 
 export type SlashReason = 
@@ -122,19 +121,31 @@ export class EmissionService {
     return Math.max(0, maxEmittable - this.totalEmitted);
   }
 
-  getAdaptiveFeeSplit(): FeeSplit {
+  /**
+   * Calculate progressive burn percentage based on circulating supply.
+   * Formula: burnPercent = (circulatingSupply / MAX_SUPPLY) / SUPPLY_TARGET * BURN_CEILING
+   * This is a LINEAR function where:
+   * - At genesis (20% supply): ~12% burn
+   * - At 50% supply target: 30% burn (ceiling)
+   * - Beyond 50%: capped at 30% burn
+   * 
+   * circulatingSupply = GENESIS_ALLOCATION + totalEmitted - totalBurned
+   * (includes treasury, excludes burned tokens)
+   */
+  progressiveBurn(): number {
     const circulatingSupply = this.getCirculatingSupply();
     const supplyRatio = circulatingSupply / TOKENOMICS_CONFIG.MAX_SUPPLY;
     
     if (supplyRatio >= TOKENOMICS_CONFIG.SUPPLY_TARGET_FOR_FULL_BURN) {
-      return {
-        validatorShare: 1 - TOKENOMICS_CONFIG.BURN_CEILING_PERCENT,
-        burnShare: TOKENOMICS_CONFIG.BURN_CEILING_PERCENT
-      };
+      return TOKENOMICS_CONFIG.BURN_CEILING_PERCENT;
     }
     
     const burnProgress = supplyRatio / TOKENOMICS_CONFIG.SUPPLY_TARGET_FOR_FULL_BURN;
-    const burnPercent = burnProgress * TOKENOMICS_CONFIG.BURN_CEILING_PERCENT;
+    return burnProgress * TOKENOMICS_CONFIG.BURN_CEILING_PERCENT;
+  }
+
+  getAdaptiveFeeSplit(): FeeSplit {
+    const burnPercent = this.progressiveBurn();
     const validatorPercent = Math.max(
       TOKENOMICS_CONFIG.VALIDATOR_FEE_FLOOR_PERCENT,
       1 - burnPercent

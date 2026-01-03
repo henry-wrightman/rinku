@@ -39,14 +39,14 @@ describe('Tokenomics Module', () => {
     describe('getCheckpointReward', () => {
       it('should return initial reward for epoch 0', () => {
         const service = new EmissionService();
-        expect(service.getCheckpointReward(0)).toBe(150);
-        expect(service.getCheckpointReward(1000)).toBe(150);
+        expect(service.getCheckpointReward(0)).toBeCloseTo(3.934, 3);
+        expect(service.getCheckpointReward(1000)).toBeCloseTo(3.934, 3);
       });
 
       it('should halve reward after halving interval', () => {
         const service = new EmissionService();
-        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL)).toBe(75);
-        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL * 2)).toBe(37.5);
+        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL)).toBeCloseTo(1.967, 3);
+        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL * 2)).toBeCloseTo(0.9835, 3);
       });
 
       it('should not go below minimum reward', () => {
@@ -130,8 +130,10 @@ describe('Tokenomics Module', () => {
   });
 
   describe('distributeCheckpointReward', () => {
+    const testReward = TOKENOMICS_CONFIG.INITIAL_CHECKPOINT_REWARD;
+
     it('should return empty map for empty validators', () => {
-      const result = distributeCheckpointReward(150, []);
+      const result = distributeCheckpointReward(testReward, []);
       expect(result.size).toBe(0);
     });
 
@@ -139,8 +141,8 @@ describe('Tokenomics Module', () => {
       const validators: ValidatorWeightInfo[] = [
         { address: 'v1', stakeAmount: 1000, ageWeight: 50, missedCheckpoints: 0 }
       ];
-      const result = distributeCheckpointReward(150, validators);
-      expect(result.get('v1')).toBeCloseTo(150, 5);
+      const result = distributeCheckpointReward(testReward, validators);
+      expect(result.get('v1')).toBeCloseTo(testReward, 5);
     });
 
     it('should distribute proportionally by stake (70%) and age (30%)', () => {
@@ -148,9 +150,9 @@ describe('Tokenomics Module', () => {
         { address: 'v1', stakeAmount: 1000, ageWeight: 100, missedCheckpoints: 0 },
         { address: 'v2', stakeAmount: 1000, ageWeight: 100, missedCheckpoints: 0 }
       ];
-      const result = distributeCheckpointReward(150, validators);
-      expect(result.get('v1')).toBeCloseTo(75, 5);
-      expect(result.get('v2')).toBeCloseTo(75, 5);
+      const result = distributeCheckpointReward(testReward, validators);
+      expect(result.get('v1')).toBeCloseTo(testReward / 2, 5);
+      expect(result.get('v2')).toBeCloseTo(testReward / 2, 5);
     });
 
     it('should favor higher stakes', () => {
@@ -158,7 +160,7 @@ describe('Tokenomics Module', () => {
         { address: 'whale', stakeAmount: 9000, ageWeight: 100, missedCheckpoints: 0 },
         { address: 'small', stakeAmount: 1000, ageWeight: 100, missedCheckpoints: 0 }
       ];
-      const result = distributeCheckpointReward(150, validators);
+      const result = distributeCheckpointReward(testReward, validators);
       expect(result.get('whale')!).toBeGreaterThan(result.get('small')!);
     });
 
@@ -167,7 +169,7 @@ describe('Tokenomics Module', () => {
         { address: 'bonded', stakeAmount: 1000, ageWeight: 100, missedCheckpoints: 0 },
         { address: 'unbonded', stakeAmount: 50, ageWeight: 100, missedCheckpoints: 0 }
       ];
-      const result = distributeCheckpointReward(150, validators);
+      const result = distributeCheckpointReward(testReward, validators);
       expect(result.get('bonded')!).toBeGreaterThan(result.get('unbonded')!);
     });
 
@@ -176,7 +178,7 @@ describe('Tokenomics Module', () => {
         { address: 'active', stakeAmount: 1000, ageWeight: 100, missedCheckpoints: 0 },
         { address: 'absent', stakeAmount: 1000, ageWeight: 100, missedCheckpoints: 5 }
       ];
-      const result = distributeCheckpointReward(150, validators);
+      const result = distributeCheckpointReward(testReward, validators);
       expect(result.get('active')!).toBeGreaterThan(result.get('absent')!);
     });
   });

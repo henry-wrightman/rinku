@@ -384,18 +384,26 @@ All on-chain values use the smallest indivisible unit:
 
 Rewards halve every 3,150,000 checkpoints (~18 months at 15s intervals):
 
-| Epoch | Checkpoints | Reward (µRKU) | Reward (RKU) | Cumulative Emission |
-|-------|-------------|---------------|--------------|---------------------|
-| 0 | 0-3,149,999 | 150,000,000 | 150 | 472,500,000 RKU* |
-| 1 | 3,150,000-6,299,999 | 75,000,000 | 75 | +236,250,000 RKU |
-| 2 | 6,300,000-9,449,999 | 37,500,000 | 37.5 | +118,125,000 RKU |
-| 3 | 9,450,000-12,599,999 | 18,750,000 | 18.75 | +59,062,500 RKU |
-| 4 | 12,600,000-15,749,999 | 9,375,000 | 9.375 | +29,531,250 RKU |
-| 5+ | 15,750,000+ | 4,687,500 | 4.6875 | until cap |
+| Epoch | Checkpoints | Reward (µRKU) | Reward (RKU) | Epoch Emission | Cumulative |
+|-------|-------------|---------------|--------------|----------------|------------|
+| 0 | 0 – 3,149,999 | 3,934,000 | 3.934 | 12,392,100 RKU | 12,392,100 RKU |
+| 1 | 3,150,000 – 6,299,999 | 1,967,000 | 1.967 | 6,196,050 RKU | 18,588,150 RKU |
+| 2 | 6,300,000 – 9,449,999 | 983,500 | 0.984 | 3,098,025 RKU | 21,686,175 RKU |
+| 3 | 9,450,000 – 12,599,999 | 491,750 | 0.492 | 1,549,013 RKU | 23,235,188 RKU |
+| 4 | 12,600,000 – 15,749,999 | 245,875 | 0.246 | 774,506 RKU | 24,009,694 RKU |
+| 5+ | 15,750,000+ | 123,000 | 0.123 | floor until cap | ≤24,000,000 RKU |
 
-*Epoch 0 theoretical max exceeds cap; actual emission stops when `totalSupply >= 30,000,000,000,000 µRKU`.
+**Derivation:** To emit ~24,000,000 RKU over 5 halving epochs:
+```
+totalEmission = R0 × 3,150,000 × (1 + 1/2 + 1/4 + 1/8 + 1/16)
+             = R0 × 3,150,000 × 1.9375
+             = R0 × 6,103,125
+R0 = 24,000,000 / 6,103,125 ≈ 3.934 RKU per checkpoint
+```
 
-**Hard Cap Enforcement**: Once total circulating supply reaches the cap, checkpoint rewards drop to 0. The floor reward of 4,687,500 µRKU only applies while supply remains below the cap.
+*Note: Epoch totals are calculated as reward × 3,150,000 checkpoints. Values may differ slightly due to rounding. Actual emission stops when hard cap is reached.*
+
+**Hard Cap Enforcement**: Once total circulating supply reaches 30,000,000 RKU, checkpoint rewards drop to 0. The floor reward of 123,000 µRKU only applies while supply remains below the cap.
 
 ### 6.4 Halving Rationale
 
@@ -423,17 +431,34 @@ This rewards both capital commitment and long-term, active participation.
 Gas fees are split between validators and burn using an adaptive model:
 
 ```
-if circulatingSupply < 50% of maxSupply:
-    validatorShare = max(70%, 100% - progressiveBurn)
-    burnShare = 100% - validatorShare
-else:
-    validatorShare = 70%
-    burnShare = 30%
+progressiveBurn = min(BURN_CEILING, (circulatingSupply / MAX_SUPPLY) / SUPPLY_TARGET × BURN_CEILING)
+
+where:
+  circulatingSupply = GENESIS_ALLOCATION + totalEmitted - totalBurned
+  
+  Note: GENESIS_ALLOCATION (6M RKU) includes treasury (3M), staking reserve (2M), 
+  and faucet (1M). All are counted as "circulating" for fee split calculation—
+  treasury funds are not excluded because they may enter circulation at any time.
+  
+  BURN_CEILING = 30%
+  SUPPLY_TARGET = 50%
+  MAX_SUPPLY = 30,000,000 RKU
+
+validatorShare = max(70%, 100% - progressiveBurn)
+burnShare = 100% - validatorShare
 ```
+
+**progressiveBurn Examples:**
+| Circulating Supply | Supply Ratio | progressiveBurn | Validator Share |
+|-------------------|--------------|-----------------|-----------------|
+| 6M RKU (genesis) | 20% | 12% | 88% |
+| 9M RKU | 30% | 18% | 82% |
+| 12M RKU | 40% | 24% | 76% |
+| 15M+ RKU | ≥50% | 30% (cap) | 70% (floor) |
 
 **Key Properties:**
 - **Validator Floor:** Validators always receive at least 70% of fees
-- **Progressive Burn:** Burn percentage increases as supply grows toward target
+- **Progressive Burn:** LINEAR function—burn percentage scales linearly from genesis to 50% supply target
 - **Supply-Aware:** Prioritizes validator incentives during early growth phase
 - **Deflationary Pressure:** Net supply decreases when burn rate exceeds emission rate
 
