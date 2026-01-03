@@ -11,7 +11,7 @@ The problem with existing systems:
 2. **State opacity** - Users cannot independently verify without syncing
 3. **Proof complexity** - Light client proofs require specialized tooling
 
-Rinku solves this by making URLs self-verifying. A transaction URL contains its ancestry back to a finalized checkpoint, cryptographic proofs, and sufficient data for complete validation. Through aggressive compression, complete finality proofs fit within standard URL length limits—including QR codes.
+Rinku solves this by making URLs proof-carrying. A transaction URL contains its ancestry back to a finalized checkpoint anchor, transaction signatures, and sufficient data for verification. Through DEFLATE compression, proof receipts fit within QR code limits for simple transactions, with full finality certificates available as shareable URLs for high-assurance use cases.
 
 ## 2. URL-Native Transactions
 
@@ -70,7 +70,7 @@ Empirical measurement using high-entropy data (random hex hashes, random address
 - Full txHashes array from checkpoint
 - Merkle proof paths (add ~100-500 bytes if needed)
 
-DEFLATE compression achieves ~40-55% reduction on high-entropy transaction JSON.
+DEFLATE compression achieves ~40-55% reduction on transaction JSON. Compression gains come primarily from repeated field names and structural redundancy (keys like "from", "to", "amount" appear in every transaction), even when values are high-entropy hex strings.
 
 ### 2.4 Platform Compatibility
 
@@ -84,25 +84,46 @@ QR codes require byte mode for base64url encoding (contains `-`, `_`, `/`):
 | QR Code H (30% EC) | 1,273 bytes | ✓ | ✗ | ✗ |
 | Firefox | 65,536 chars | ✓ | ✓ | ✓ |
 | Chrome/Edge | 2 MB | ✓ | ✓ | ✓ |
-| nginx/Apache default | 8,192 chars | ✓ | ✓ | ✓ |
+| nginx/Apache (common config) | 8,192 chars | ✓ | ✓ | ✓ |
 
 **Practical guidance:**
 - Single transactions and short ancestry chains (1-5 depth) fit in QR codes
 - Complex DAG proofs (15+ txs) require URL sharing via links, not QR
 - All proofs fit comfortably in browser URL limits
 
-### 2.5 Self-Contained Verification
+### 2.5 Proof Profiles
+
+Rinku supports two verification profiles with different security/size tradeoffs:
+
+**Profile A: Receipt (QR-compatible)**
+- Size: 600-2,300 chars (fits QR for ≤5 depth)
+- Includes: tx data, signature, hash, ancestry chain, checkpoint anchor (id, merkleRoot, height, signatureCount)
+- Guarantees: Transaction integrity, signature validity, ancestry consistency
+- Trust assumption: Verifier trusts the checkpoint anchor was validly signed by ≥2/3 stake
+- Use case: Point-of-sale receipts, payment confirmations, audit trails
+
+**Profile B: Full Finality Certificate**
+- Size: 3,000-10,000+ chars (URL sharing only)
+- Adds: Merkle inclusion path (txHash → merkleRoot), aggregated validator signatures or signature bitmap, validator set commitment
+- Guarantees: Cryptographic proof of checkpoint inclusion and validator quorum
+- Trust assumption: Verifier knows genesis validator set or a pinned checkpoint
+- Use case: High-value settlements, cross-chain bridges, legal evidence
+
+Most use cases are served by Profile A receipts. Profile B is available when cryptographic finality proof is required without trusting the sender's checkpoint claim.
+
+### 2.6 Verification Process
 
 Any party receiving a transaction URL can:
 1. Decode and decompress the payload
-2. Verify the signature against the sender's public key
-3. Validate the hash integrity
-4. Trace ancestry to a finalized checkpoint
-5. Verify Merkle inclusion proofs
+2. Verify the transaction signature against the sender's public key
+3. Validate hash integrity (recompute and compare)
+4. Trace ancestry to a checkpoint anchor
+5. (Profile A) Trust checkpoint attestation via signatureCount
+6. (Profile B) Verify Merkle inclusion path and validator signatures
 
-No external queries required. The URL is the proof.
+No trusted infrastructure required for verification. Proof availability is provided by the sender or the network. The URL carries the proof; external queries are only needed to upgrade from Profile A to Profile B trust.
 
-### 2.6 Trust Bootstrapping
+### 2.7 Trust Bootstrapping
 
 For a fresh verifier to validate proofs, they must possess a trust anchor:
 
@@ -264,7 +285,7 @@ Rewards halve every 210,000 checkpoints (~36.5 days at 15s intervals):
 | 4 | 840,000-1,049,999 | 9.375 RKU | +1,968,750 RKU |
 | 5+ | 1,050,000+ | 4.6875 RKU | until cap |
 
-*Theoretical maximum; actual emission stops when `totalSupply >= maxSupply`.
+*Epoch 0 theoretical max (31.5M) exceeds cap; actual emission stops when `totalSupply >= 30,000,000 RKU`.
 
 **Hard Cap Enforcement**: Once total circulating supply reaches 30,000,000 RKU, checkpoint rewards drop to 0. The floor reward of 4.6875 RKU only applies while supply remains below the cap.
 
@@ -411,7 +432,53 @@ Submitted transactions:
 - State sharding (future work)
 - Layer 2 solutions for high-frequency use cases
 
-## 12. Conclusion
+## 12. Security Model
+
+### 12.1 Assumptions
+
+Rinku's security relies on:
+
+1. **Honest stake majority**: ≥2/3 of staked weight is controlled by honest validators
+2. **Cryptographic hardness**: ECDSA P-256 and SHA-256 remain secure
+3. **Network synchrony**: Messages propagate within bounded time for liveness (not safety)
+4. **Trust anchor availability**: Verifiers can obtain a valid genesis or checkpoint reference
+
+### 12.2 What Each Proof Profile Guarantees
+
+**Profile A (Receipt):**
+- Sender cannot forge transaction signatures
+- Transaction hash is tamper-evident
+- Ancestry chain is internally consistent
+- *Does NOT prove*: checkpoint was actually signed by validators (trusts signatureCount claim)
+
+**Profile B (Full Finality):**
+- All Profile A guarantees, plus:
+- Merkle inclusion proves tx was in the checkpoint's transaction set
+- Validator signatures prove ≥2/3 stake attested to the checkpoint
+- Validator set commitment allows verification without knowing current validators
+
+### 12.3 Attack Vectors and Mitigations
+
+| Attack | Description | Mitigation |
+|--------|-------------|------------|
+| **Eclipse attack** | Isolate a node to feed false checkpoints | Multiple peer connections, checkpoint pinning |
+| **Fake committee** | Attacker claims false signatureCount | Profile B verification; community checkpoint pins |
+| **Long-range attack** | Attacker with old keys rewrites history | Checkpoint chain commitment to validator set changes |
+| **Withheld data** | Sender provides proof but data unavailable | Receiver can request Profile B upgrade; network redundancy |
+| **Leader targeting** | DoS specific checkpoint leaders | Randomized leader selection (beacon from prev checkpoint) |
+| **Double-spend** | Conflicting transactions in DAG | Weight-based fork resolution; checkpoint finality locks |
+| **Stake grinding** | Manipulate randomness for leader selection | Beacon includes all prior signatures (hard to predict) |
+
+### 12.4 Profile A Trust Model
+
+Profile A receipts are analogous to **signed receipts in traditional commerce**:
+- The merchant trusts the payment network processed the transaction
+- The receipt proves the customer authorized the payment
+- Full audit requires contacting the payment processor
+
+For most retail/P2P transactions, Profile A provides sufficient assurance. High-value or adversarial contexts should use Profile B or await additional checkpoint confirmations.
+
+## 13. Conclusion
 
 Rinku demonstrates that distributed ledger state can exist entirely in URLs. By encoding transactions, proofs, and ancestry in self-contained URLs, we eliminate infrastructure dependency for verification.
 

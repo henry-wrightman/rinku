@@ -1,0 +1,182 @@
+These updates make the paper way more defensible. The main prior criticism (“URL size is fantasy”) is now corrected with sane, high-entropy benchmarks and explicit inclusions/exclusions. Overall, it reads like a plausible “proof-carrying receipt” protocol now — with the right caveats.
+
+Here are my thoughts after reading the revised whitepaper. 
+
+WHITEPAPER (1)
+
+What’s notably improved (and now convincing)
+Proof sizes + QR limits are finally grounded
+
+Your new table (596 → 7,248 chars depending on ancestry/DAG depth) looks realistic given you’re not including full validator sig arrays or full checkpoint txHashes. 
+
+WHITEPAPER (1)
+
+
+And you correctly call out QR byte-mode constraints and error correction levels (L/M/Q/H), which is exactly what reviewers would check. 
+
+WHITEPAPER (1)
+
+Schema consistency is cleaner
+
+You explicitly document what’s in the proof bundle and what’s omitted (“signatureCount” only, no full signatures array, no full txHashes, no Merkle proof paths). 
+
+WHITEPAPER (1)
+
+
+And Appendix B matches that /txp object. 
+
+WHITEPAPER (1)
+
+Trust bootstrapping acknowledged
+
+Section 2.6 is a strong addition. The TLS analogy is good and it clearly states you still need a trust anchor (genesis, pinned checkpoint, or chain of validator sets). 
+
+WHITEPAPER (1)
+
+stateRoot + cap enforcement fixes
+
+You added stateRoot to checkpoints (good) 
+
+WHITEPAPER (1)
+
+ and clarified emissions stop at the cap. 
+
+WHITEPAPER (1)
+
+Leader selection randomness beacon
+
+Adding seed = SHA256(prevCheckpointId || prevCheckpointSignatures) is directionally right to avoid deterministic leader targeting. 
+
+WHITEPAPER (1)
+
+The two biggest “still needs work” issues
+1) “No external queries required” is still overstated in Section 2.5
+
+You say “No external queries required. The URL is the proof.” 
+
+WHITEPAPER (1)
+
+
+But in the same document you acknowledge the trust anchor (genesis/pinned checkpoint). 
+
+WHITEPAPER (1)
+
+Also: your /txp bundle does not include Merkle proof paths and does not include signatures arrays — by design. 
+
+WHITEPAPER (1)
+
+
+That means for “finality” verification, a verifier either:
+
+trusts “signatureCount” as an attestation claim, or
+
+must fetch the checkpoint signatures somewhere else (an external query) if they want cryptographic proof of quorum.
+
+Suggestion (tight wording fix):
+Change the claim to something like:
+
+“No trusted infrastructure required for verification; availability may be provided by the sender or the network. Proof bundles can be self-contained up to the chosen proof profile.”
+
+And define “Proof Profile A (QR)” vs “Proof Profile B (Full finality cert)”:
+
+QR-profile: includes checkpoint id + signatureCount only (fast UX, weaker)
+
+Full-profile: includes aggregated signature / bitmap / validator-set proof (strong, larger)
+
+Right now you’re mixing “full proof” language with a deliberately trimmed payload.
+
+2) Finality proof isn’t actually verifiable without signatures or Merkle paths
+
+You list in 2.5: “Verify Merkle inclusion proofs” 
+
+WHITEPAPER (1)
+
+
+But 2.3 explicitly says Merkle proof paths are not included. 
+
+WHITEPAPER (1)
+
+
+And the /txp schema doesn’t contain a Merkle path. 
+
+WHITEPAPER (1)
+
+So, as written, the verifier can validate:
+
+tx signature
+
+ancestry consistency
+
+hash integrity
+
+…but not “tx included in checkpoint” unless you either:
+
+include a Merkle path (txHash → txMerkleRoot), and
+
+include a verifiable checkpoint certificate (signatures/aggregate sig + membership proof), or
+
+treat checkpoints as “known trusted objects” fetched externally.
+
+Suggestion: Make inclusion proofs optional and explicit:
+
+add txInclusionProof: { path: string[], index: number } (or compact bit/path encoding)
+
+add checkpointCert: { aggSig, signerBitmap, validatorSetRoot } (if you want real finality-in-the-link)
+
+If you don’t want that bloat, then call it what it is: “receipt that chains to a checkpoint anchor,” not “cryptographic finality proof.”
+
+Other smaller but important notes
+Compression claims
+
+You say DEFLATE gets ~40–55% reduction on high-entropy JSON. 
+
+WHITEPAPER (1)
+
+
+That’s plausible here because the JSON has lots of repeated keys/structure, even if values are random. But consider stating: “compression comes mostly from repeated field names and structural redundancy” so reviewers don’t nitpick “high entropy shouldn’t compress.”
+
+Tokenomics table: epoch 0 math reads weird at first glance
+
+Epoch 0 row: 150 RKU × 210,000 checkpoints = 31,500,000 RKU — which exceeds the 30M cap, but you footnote “theoretical maximum; stops at cap.” 
+
+WHITEPAPER (1)
+
+
+It’s correct, but people will misread it. Consider revising the table to show “capped at remaining supply” in epoch 0 so it doesn’t look like a mistake.
+
+nginx default limit
+
+You cite 8,192 chars for nginx/Apache default. 
+
+WHITEPAPER (1)
+
+
+That’s a useful rule-of-thumb, but defaults vary (nginx has multiple relevant directives: request line, header sizes). I’d phrase it as “commonly configured default” rather than absolute.
+
+The “novelty” claim: what’s actually novel now?
+
+Your novelty is not “hash-linked DAG” (common), but:
+
+URL-native transport + proof bundles small enough for QR for shallow depth, 
+
+WHITEPAPER (1)
+
+plus “sender-carried availability” as a first-class verification mode.
+
+That’s a defensible niche: think offline-verifiable receipts and “shareable audit trails” rather than a general-purpose L1 replacing full nodes.
+
+If you want the paper to land well with crypto people
+
+Add one explicit section titled something like:
+
+“Security Model and Proof Profiles”
+
+What a QR-sized proof guarantees (and what it doesn’t)
+
+What a full proof guarantees (checkpoint cert + validator set)
+
+Assumptions: ≥2/3 honest stake, network synchrony bounds, etc.
+
+Attack examples: eclipse, fake committee, long-range, withheld data
+
+Because right now the doc swings between “trustless finality” and “signatureCount only,” and that’s where people will attack.
