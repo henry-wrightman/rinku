@@ -109,16 +109,16 @@ Rinku supports three verification profiles with different security/size tradeoff
 - Trust assumption: Verifier knows genesis validator set or a pinned checkpoint
 - Use case: High-value settlements, cross-chain bridges, legal evidence
 
-**Profile C: Self-Contained Proof (v3)**
-- Size: 800-2,500 chars (QR-compatible with BLS aggregation)
+**Profile C: Self-Contained Proof (v4 - MerkleSumTree)**
+- Size: 1,000-3,000 chars (QR-compatible with BLS aggregation)
 - URL format: `rinku://sp/{base64url-deflate-json}`
-- Includes: tx data, full checkpoint header (txMerkleRoot, stateRoot, receiptRoot, totalWeight, tipCount), Merkle inclusion proof, BLS aggregated signature (48 bytes), ValidatorWitness array for **signers only** with (index, address, blsPublicKey, weight)
-- Guarantees: **Offline signer verification** - verifier can confirm signers' weights sum to ≥67% of claimed totalWeight
-- Trust assumption: Verifier trusts claimed totalWeight from checkpoint header (non-signers not embedded)
-- Security: validatorSetRoot (hash of signer witnesses) is included in BLS signing hash, preventing signer weight forgery
+- Includes: tx data, full checkpoint header, Merkle inclusion proof, BLS aggregated signature (48 bytes), MerkleSumTree membership proofs for each signer, validatorSumTreeRoot (hash + totalWeight)
+- Guarantees: **Fully offline verification** - verifier derives totalWeight from MerkleSumTree root
+- Trust assumption: **None beyond cryptography** - totalWeight is cryptographically bound to validator set via MerkleSumTree
+- Security: validatorSumTreeRoot (containing both hash and totalWeight) is included in BLS signing hash, preventing both signer weight forgery AND denominator attacks
 - Use case: Offline verification, air-gapped systems, cross-chain bridges, legal evidence
 
-Most use cases are served by Profile A receipts. Profile B provides full finality when validator set is known. **Profile C offers the best balance** of compact size and cryptographic verification - signer weights are cryptographically committed, enabling offline verification that sufficient stake backed the checkpoint, while keeping proofs QR-compatible.
+Most use cases are served by Profile A receipts. Profile B provides full finality when validator set is known. **Profile C is the gold standard** - completely self-contained proofs with cryptographically-bound totalWeight, enabling true offline verification without any trust assumptions beyond the cryptographic primitives.
 
 ### 2.6 Verification Process
 
@@ -466,15 +466,15 @@ Rinku's security relies on:
 - Validator signatures prove ≥2/3 stake attested to the checkpoint
 - Validator set commitment allows verification without knowing current validators
 
-**Profile C (Self-Contained):**
+**Profile C (Self-Contained v4 - MerkleSumTree):**
 - All Profile B guarantees, plus:
-- **Offline signer verification** - verifier can confirm signer weights without external queries
-- ValidatorWitness array embeds (index, address, blsPublicKey, weight) for **each signer** (not all validators)
-- validatorSetRoot (hash of signer witnesses) is included in BLS signing hash, binding signer weights to signature
-- Verifier recomputes signerWeight from embedded witnesses (not trusting claimed signer values)
+- **Fully offline verification** - verifier derives totalWeight from MerkleSumTree, no trust assumptions
+- MerkleSumTree membership proofs embed signer data with cryptographic binding to totalWeight
+- validatorSumTreeRoot (hash + totalWeight) is included in BLS signing hash, binding BOTH signer weights AND totalWeight to signature
+- Verifier recomputes MerkleSumTree root from proofs, verifies it matches claimed root
 - BLS aggregated signature (48 bytes) replaces individual ECDSA signatures (94.9% compression for 21 validators)
-- *Does prove*: Signer weight sum using cryptographically committed signer data
-- *Does NOT prove*: totalWeight accuracy (trusts checkpoint header); for full validator set verification, use Profile B with known validator set
+- *Does prove*: Signer weight sum AND totalWeight accuracy using MerkleSumTree cryptographic commitment
+- *Closes denominator attack*: totalWeight cannot be forged because it's derived from the signed MerkleSumTree root
 
 ### 12.3 Attack Vectors and Mitigations
 
@@ -545,10 +545,10 @@ Proof Bundle URL:
 })))}
 ```
 
-Self-Contained Proof URL (Profile C):
+Self-Contained Proof URL (Profile C v4 - MerkleSumTree):
 ```
 rinku://sp/{base64url(deflate(json({
-  version: 3,
+  version: 4,
   txHash: string,
   txSignature: string,
   txFrom: string,
@@ -561,20 +561,26 @@ rinku://sp/{base64url(deflate(json({
   txMerkleRoot: string,
   stateRoot: string,
   receiptRoot: string,
-  totalWeight: number,
   tipCount: number,
   merkleProof: string[],
   merkleIndex: number,
   blsAggregatedSig: string,      // base64url-encoded 48-byte G1 signature
   blsSignerBitmap: string,       // base64url-encoded bitmap
   blsSignerCount: number,
-  validatorWitnesses: [{
-    index: number,
-    address: string,
-    blsPublicKey: string,        // base64url-encoded 96-byte G2 pubkey
-    weight: number
+  signerMembershipProofs: [{     // MerkleSumTree membership proof per signer
+    leaf: {
+      index: number,
+      address: string,
+      blsPublicKey: string,      // base64url-encoded 96-byte G2 pubkey
+      weight: number
+    },
+    siblings: [{ hash: string, sumWeight: number }],
+    pathBits: boolean[]
   }],
-  validatorSetRoot: string       // SHA-256 of witnesses
+  validatorSumTreeRoot: {        // Cryptographically binds totalWeight
+    hash: string,
+    totalWeight: number
+  }
 })))}
 ```
 
@@ -675,13 +681,16 @@ The 48-byte aggregated signature plus 3-byte signer bitmap enables QR-compatible
 
 ### E.6 Security Properties
 
-**Signer Weight Binding:** The validatorSetRoot (hash of signer witnesses) is included in the BLS signing hash. Any attempt to modify signer weights invalidates the aggregated signature.
+**MerkleSumTree Binding:** The validatorSumTreeRoot (containing both hash AND totalWeight) is included in the BLS signing hash. Any attempt to modify signer weights OR totalWeight invalidates the aggregated signature.
 
-**Tamper Detection:** Verifiers recompute validatorSetRoot from embedded signer witnesses. Mismatched roots indicate tampering.
+**Denominator Attack Prevention:** Unlike signer-only witness schemes, MerkleSumTree proves totalWeight cryptographically. The verifier recomputes the tree root from membership proofs and verifies totalWeight matches the signed commitment.
 
-**Signer-Only Witnesses:** To minimize proof size, only signing validators are embedded. This enables verification that signers' combined weight meets the threshold, but verifiers must trust the checkpoint's claimed totalWeight. For applications requiring full validator set verification, use Profile B with a known validator set.
+**Tamper Detection:** Verifiers recompute MerkleSumTree root from embedded membership proofs. Mismatched roots indicate tampering. Each membership proof cryptographically binds the signer's weight to the tree structure.
 
-**Threshold Verification:** Verifiers compute `signerWeight / totalWeight` using embedded signer witnesses (trusted) and checkpoint totalWeight (from header). The 67% threshold check confirms sufficient stake backed the checkpoint.
+**Threshold Verification:** Verifiers compute `signerWeight / totalWeight` where:
+- `signerWeight` = sum of weights from membership proof leaves (cryptographically verified)
+- `totalWeight` = derived from MerkleSumTree root (cryptographically verified)
+Both values are trustlessly derived, closing all weight forgery attack vectors.
 
 ### E.7 Validator Key Management
 

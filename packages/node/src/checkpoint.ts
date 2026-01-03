@@ -229,11 +229,11 @@ export class CheckpointService {
     return new Uint8Array(hash);
   }
 
-  getBLSCheckpointSigningHash(checkpointId: string, validatorSetRoot: string): Uint8Array | null {
+  getBLSCheckpointSigningHash(checkpointId: string, validatorSumTreeRootHash: string, validatorSumTreeTotalWeight: number): Uint8Array | null {
     const checkpoint = this.checkpoints.get(checkpointId);
     if (!checkpoint) return null;
     
-    const signingData = getBLSCheckpointSigningData(checkpoint, validatorSetRoot);
+    const signingData = getBLSCheckpointSigningData(checkpoint, validatorSumTreeRootHash, validatorSumTreeTotalWeight);
     const hash = createHash('sha256').update(signingData).digest();
     return new Uint8Array(hash);
   }
@@ -242,7 +242,7 @@ export class CheckpointService {
     checkpointId: string,
     blsPrivateKey: Uint8Array,
     validatorAddress: string
-  ): { signature: Uint8Array; validatorIndex: number; validatorSetRoot: string } | null {
+  ): { signature: Uint8Array; validatorIndex: number; validatorSumTreeRoot: { hash: string; totalWeight: number } } | null {
     const checkpoint = this.checkpoints.get(checkpointId);
     if (!checkpoint) return null;
 
@@ -250,19 +250,13 @@ export class CheckpointService {
     const validatorIndex = validators.findIndex(v => v.address === validatorAddress);
     if (validatorIndex === -1) return null;
 
-    const signerWitness = {
-      index: validatorIndex,
-      address: validatorAddress,
-      blsPublicKey: validators[validatorIndex].blsPublicKey || [],
-      weight: validators[validatorIndex].weight
-    };
-    const validatorSetRoot = this.computeValidatorSetRoot([signerWitness]);
+    const validatorSumTreeRoot = this.computeValidatorSumTreeRoot(validators);
 
-    const checkpointHash = this.getBLSCheckpointSigningHash(checkpointId, validatorSetRoot);
+    const checkpointHash = this.getBLSCheckpointSigningHash(checkpointId, validatorSumTreeRoot.hash, validatorSumTreeRoot.totalWeight);
     if (!checkpointHash) return null;
 
     const signature = blsSign(checkpointHash, blsPrivateKey);
-    return { signature, validatorIndex, validatorSetRoot };
+    return { signature, validatorIndex, validatorSumTreeRoot };
   }
 
   aggregateBLSSignatures(
@@ -277,15 +271,9 @@ export class CheckpointService {
     const sortedSigs = [...blsSignatures].sort((a, b) => a.validatorIndex - b.validatorIndex);
     const signerIndices = sortedSigs.map(s => s.validatorIndex);
 
-    const signerWitnesses = signerIndices.map(i => ({
-      index: i,
-      address: validators[i].address,
-      blsPublicKey: validators[i].blsPublicKey || [],
-      weight: validators[i].weight
-    }));
-    const validatorSetRoot = this.computeValidatorSetRoot(signerWitnesses);
+    const validatorSumTreeRoot = this.computeValidatorSumTreeRoot(validators);
 
-    const checkpointHash = this.getBLSCheckpointSigningHash(checkpointId, validatorSetRoot);
+    const checkpointHash = this.getBLSCheckpointSigningHash(checkpointId, validatorSumTreeRoot.hash, validatorSumTreeRoot.totalWeight);
     if (!checkpointHash) return null;
 
     const resignedSigs: Uint8Array[] = [];
@@ -300,20 +288,54 @@ export class CheckpointService {
       aggregatedSignature: Array.from(aggregatedSig),
       signerBitmap: Array.from(signerBitmap),
       signerCount: blsSignatures.length,
-      validatorSetRoot
+      validatorSetRoot: validatorSumTreeRoot.hash
     };
 
     checkpoint.blsSignature = blsSig;
     return blsSig;
   }
 
-  private computeValidatorSetRoot(witnesses: Array<{ index: number; address: string; blsPublicKey: number[]; weight: number }>): string {
-    const sorted = [...witnesses].sort((a, b) => a.index - b.index);
-    const entries = sorted.map(w => 
-      `${w.index}:${w.address}:${Buffer.from(w.blsPublicKey).toString('hex')}:${w.weight}`
-    );
-    const combined = entries.join('|');
-    return createHash('sha256').update(combined).digest('hex');
+  private computeValidatorSumTreeRoot(validators: ValidatorEntry[]): { hash: string; totalWeight: number } {
+    const leaves = validators.map((v, i) => ({
+      index: i,
+      address: v.address,
+      blsPublicKey: v.blsPublicKey ? Buffer.from(v.blsPublicKey).toString('base64url') : '',
+      weight: v.weight
+    }));
+
+    if (leaves.length === 0) {
+      return { hash: createHash('sha256').update('empty').digest('hex'), totalWeight: 0 };
+    }
+
+    const hashLeaf = (leaf: typeof leaves[0]): string => {
+      const data = `leaf:${leaf.index}:${leaf.address}:${leaf.blsPublicKey}:${leaf.weight}`;
+      return createHash('sha256').update(data).digest('hex');
+    };
+
+    const hashInternal = (left: { hash: string; sumWeight: number }, right: { hash: string; sumWeight: number }): string => {
+      const data = `node:${left.hash}:${left.sumWeight}:${right.hash}:${right.sumWeight}`;
+      return createHash('sha256').update(data).digest('hex');
+    };
+
+    let currentLayer = leaves.map(leaf => ({
+      hash: hashLeaf(leaf),
+      sumWeight: leaf.weight
+    }));
+
+    while (currentLayer.length > 1) {
+      const nextLayer: typeof currentLayer = [];
+      for (let i = 0; i < currentLayer.length; i += 2) {
+        const left = currentLayer[i];
+        const right = currentLayer[i + 1] || { hash: 'padding', sumWeight: 0 };
+        nextLayer.push({
+          hash: hashInternal(left, right),
+          sumWeight: left.sumWeight + right.sumWeight
+        });
+      }
+      currentLayer = nextLayer;
+    }
+
+    return { hash: currentLayer[0].hash, totalWeight: currentLayer[0].sumWeight };
   }
 
   async getTransactionMerkleProof(

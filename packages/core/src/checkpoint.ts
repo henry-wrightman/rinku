@@ -102,9 +102,10 @@ export function getCheckpointSigningData(checkpoint: Checkpoint | CheckpointProo
 
 export function getBLSCheckpointSigningData(
   checkpoint: Checkpoint,
-  validatorSetRoot: string
+  validatorSumTreeRootHash: string,
+  validatorSumTreeTotalWeight: number
 ): string {
-  return `${checkpoint.checkpointId}:${checkpoint.height}:${checkpoint.txMerkleRoot || ''}:${checkpoint.stateRoot || ''}:${checkpoint.receiptRoot || ''}:${checkpoint.totalWeight}:${checkpoint.tipCount}:${validatorSetRoot}`;
+  return `${checkpoint.checkpointId}:${checkpoint.height}:${checkpoint.txMerkleRoot || ''}:${checkpoint.stateRoot || ''}:${checkpoint.receiptRoot || ''}:${validatorSumTreeRootHash}:${validatorSumTreeTotalWeight}:${checkpoint.tipCount}`;
 }
 
 export function createCheckpointProof(

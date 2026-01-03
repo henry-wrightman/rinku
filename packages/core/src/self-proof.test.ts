@@ -6,19 +6,15 @@ import {
   decodeSelfContainedProof,
   createSelfProofURL,
   analyzeSelfProofSize,
-  computeValidatorSetRoot,
   computeCheckpointSigningHash,
+  computeValidatorSumTreeRoot,
+  validatorToMerkleSumLeaf,
   type SelfContainedProof,
-  type ValidatorWitness
 } from './self-proof.js';
-import { blsSign, aggregateSignatures, createSignerBitmap, bytesToHex, generateBLSKeyPair } from './bls.js';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { base64urlEncode, base64urlDecode } from './encoding.js';
-import type { SignedTransaction, Checkpoint, BLSCheckpointSignature } from './types.js';
-
-function uint8ToBase64url(data: Uint8Array): string {
-  return base64urlEncode(data);
-}
+import { blsSign, aggregateSignatures, createSignerBitmap, generateBLSKeyPair } from './bls.js';
+import { buildMerkleSumTree, getMerkleSumProof, type MerkleSumLeaf, type MerkleSumRoot, type MerkleSumProof } from './merkle-sum-tree.js';
+import { base64urlEncode } from './encoding.js';
+import type { SignedTransaction, Checkpoint, BLSCheckpointSignature, ValidatorEntry } from './types.js';
 
 function createMockTransaction(): SignedTransaction {
   return {
@@ -34,7 +30,10 @@ function createMockTransaction(): SignedTransaction {
   };
 }
 
-function createMockCheckpointWithBLS(validators: Array<{ address: string; blsPublicKey: Uint8Array; weight: number }>, blsSig: BLSCheckpointSignature): Checkpoint {
+function createMockCheckpointWithBLS(
+  validators: Array<{ address: string; blsPublicKey: Uint8Array; weight: number }>,
+  blsSig: BLSCheckpointSignature
+): Checkpoint {
   return {
     checkpointId: 'cp-test-12345',
     height: 1,
@@ -59,9 +58,9 @@ function createMockCheckpointWithBLS(validators: Array<{ address: string; blsPub
   };
 }
 
-describe('Self-Contained Proof', () => {
+describe('Self-Contained Proof v4 (MerkleSumTree)', () => {
   describe('createSelfContainedProof', () => {
-    it('should create a valid self-contained proof', () => {
+    it('should create a valid self-contained proof with MerkleSumTree', () => {
       const key1 = generateBLSKeyPair();
       const key2 = generateBLSKeyPair();
       const key3 = generateBLSKeyPair();
@@ -72,13 +71,14 @@ describe('Self-Contained Proof', () => {
         { address: 'val3', blsPublicKey: key3.publicKey, weight: 100 }
       ];
 
-      const witnesses: ValidatorWitness[] = validators.map((v, i) => ({
-        index: i,
+      const validatorEntries: ValidatorEntry[] = validators.map((v, i) => ({
         address: v.address,
-        blsPublicKey: uint8ToBase64url(v.blsPublicKey),
+        publicKey: [],
+        blsPublicKey: Array.from(v.blsPublicKey),
         weight: v.weight
       }));
-      const validatorSetRoot = computeValidatorSetRoot(witnesses);
+
+      const validatorSumTreeRoot = computeValidatorSumTreeRoot(validatorEntries);
 
       const checkpointHash = computeCheckpointSigningHash(
         'cp-test-12345',
@@ -86,9 +86,8 @@ describe('Self-Contained Proof', () => {
         'abc123def456789012345678901234567890123456789012345678901234abcd',
         'state-root-hash',
         'receipt-root-hash',
-        300,
         5,
-        validatorSetRoot
+        validatorSumTreeRoot
       );
 
       const sig1 = blsSign(checkpointHash, key1.privateKey);
@@ -102,27 +101,24 @@ describe('Self-Contained Proof', () => {
         aggregatedSignature: Array.from(aggregatedSig),
         signerBitmap: Array.from(bitmap),
         signerCount: 3,
-        validatorSetRoot
+        validatorSetRoot: validatorSumTreeRoot.hash
       };
 
       const checkpoint = createMockCheckpointWithBLS(validators, blsSig);
       const tx = createMockTransaction();
-      tx.hash = 'abc123def456789012345678901234567890123456789012345678901234abcd';
 
       const proof = createSelfContainedProof(tx, checkpoint, [], 0);
 
       expect(proof).not.toBeNull();
-      expect(proof!.version).toBe(3);
+      expect(proof!.version).toBe(4);
       expect(proof!.txHash).toBe(tx.hash);
       expect(proof!.checkpointHeight).toBe(1);
       expect(proof!.blsSignerCount).toBe(3);
-      expect(proof!.validatorWitnesses.length).toBe(3);
-      expect(proof!.totalWeight).toBe(300);
+      expect(proof!.signerMembershipProofs.length).toBe(3);
+      expect(proof!.validatorSumTreeRoot.totalWeight).toBe(300);
       expect(proof!.stateRoot).toBe('state-root-hash');
       expect(proof!.receiptRoot).toBe('receipt-root-hash');
       expect(typeof proof!.blsAggregatedSig).toBe('string');
-      expect(typeof proof!.blsSignerBitmap).toBe('string');
-      expect(typeof proof!.validatorWitnesses[0].blsPublicKey).toBe('string');
     });
 
     it('should return null if checkpoint has no BLS signature', () => {
@@ -151,7 +147,7 @@ describe('Self-Contained Proof', () => {
   });
 
   describe('verifySelfContainedProof', () => {
-    it('should verify a valid proof with correct BLS signatures', () => {
+    it('should verify a valid proof with MerkleSumTree membership proofs', () => {
       const key1 = generateBLSKeyPair();
       const key2 = generateBLSKeyPair();
       const key3 = generateBLSKeyPair();
@@ -159,15 +155,16 @@ describe('Self-Contained Proof', () => {
       const txHash = 'abc123def456789012345678901234567890123456789012345678901234abcd';
       const stateRoot = 'state-root-hash';
       const receiptRoot = 'receipt-root-hash';
-      const totalWeight = 300;
       const tipCount = 5;
 
-      const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 },
-        { index: 1, address: 'val2', blsPublicKey: uint8ToBase64url(key2.publicKey), weight: 100 },
-        { index: 2, address: 'val3', blsPublicKey: uint8ToBase64url(key3.publicKey), weight: 100 }
+      const leaves: MerkleSumLeaf[] = [
+        { index: 0, address: 'val1', blsPublicKey: base64urlEncode(key1.publicKey), weight: 100 },
+        { index: 1, address: 'val2', blsPublicKey: base64urlEncode(key2.publicKey), weight: 100 },
+        { index: 2, address: 'val3', blsPublicKey: base64urlEncode(key3.publicKey), weight: 100 }
       ];
-      const validatorSetRoot = computeValidatorSetRoot(witnesses);
+
+      const { root } = buildMerkleSumTree(leaves);
+      const signerMembershipProofs = [0, 1, 2].map(i => getMerkleSumProof(leaves, i)!);
 
       const checkpointHash = computeCheckpointSigningHash(
         'cp-test-12345',
@@ -175,9 +172,8 @@ describe('Self-Contained Proof', () => {
         txHash,
         stateRoot,
         receiptRoot,
-        totalWeight,
         tipCount,
-        validatorSetRoot
+        root
       );
 
       const sig1 = blsSign(checkpointHash, key1.privateKey);
@@ -188,7 +184,7 @@ describe('Self-Contained Proof', () => {
       const bitmap = createSignerBitmap([0, 1, 2], 3);
 
       const proof: SelfContainedProof = {
-        version: 3,
+        version: 4,
         txHash,
         txSignature: 'mock-sig',
         txFrom: 'sender',
@@ -201,15 +197,14 @@ describe('Self-Contained Proof', () => {
         txMerkleRoot: txHash,
         stateRoot,
         receiptRoot,
-        totalWeight,
         tipCount,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: uint8ToBase64url(aggregatedSig),
-        blsSignerBitmap: uint8ToBase64url(bitmap),
+        blsAggregatedSig: base64urlEncode(aggregatedSig),
+        blsSignerBitmap: base64urlEncode(bitmap),
         blsSignerCount: 3,
-        validatorWitnesses: witnesses,
-        validatorSetRoot
+        signerMembershipProofs,
+        validatorSumTreeRoot: root
       };
 
       const result = verifySelfContainedProof(proof);
@@ -220,14 +215,26 @@ describe('Self-Contained Proof', () => {
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
       expect(result.computedSignerWeight).toBe(300);
+      expect(result.totalWeight).toBe(300);
     });
 
-    it('should reject proof with tampered validator set', () => {
+    it('should reject proof with tampered totalWeight (denominator attack)', () => {
       const key1 = generateBLSKeyPair();
-      const fakeTamperedRoot = 'tampered-root-hash-that-does-not-match';
+
+      const leaves: MerkleSumLeaf[] = [
+        { index: 0, address: 'val1', blsPublicKey: base64urlEncode(key1.publicKey), weight: 100 }
+      ];
+
+      const { root } = buildMerkleSumTree(leaves);
+      const signerMembershipProofs = [getMerkleSumProof(leaves, 0)!];
+
+      const tamperedRoot: MerkleSumRoot = {
+        hash: root.hash,
+        totalWeight: 50
+      };
 
       const proof: SelfContainedProof = {
-        version: 3,
+        version: 4,
         txHash: 'abc123',
         txSignature: 'sig',
         txFrom: 'sender',
@@ -240,33 +247,35 @@ describe('Self-Contained Proof', () => {
         txMerkleRoot: 'root',
         stateRoot: 'state',
         receiptRoot: 'receipt',
-        totalWeight: 100,
         tipCount: 1,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: uint8ToBase64url(new Uint8Array(48)),
-        blsSignerBitmap: uint8ToBase64url(new Uint8Array([1])),
+        blsAggregatedSig: base64urlEncode(new Uint8Array(48)),
+        blsSignerBitmap: base64urlEncode(new Uint8Array([1])),
         blsSignerCount: 1,
-        validatorWitnesses: [{ index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 }],
-        validatorSetRoot: fakeTamperedRoot
+        signerMembershipProofs,
+        validatorSumTreeRoot: tamperedRoot
       };
 
       const result = verifySelfContainedProof(proof);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('Validator set root mismatch'))).toBe(true);
+      expect(result.errors.some(e => e.includes('total weight mismatch'))).toBe(true);
     });
 
-    it('should reject proof with insufficient weight', () => {
+    it('should reject proof with tampered signer weight', () => {
       const key1 = generateBLSKeyPair();
 
-      const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 50 }
+      const leaves: MerkleSumLeaf[] = [
+        { index: 0, address: 'val1', blsPublicKey: base64urlEncode(key1.publicKey), weight: 100 }
       ];
-      const validatorSetRoot = computeValidatorSetRoot(witnesses);
+
+      const { root } = buildMerkleSumTree(leaves);
+      const proof1 = getMerkleSumProof(leaves, 0)!;
+      proof1.leaf.weight = 99999;
 
       const proof: SelfContainedProof = {
-        version: 3,
+        version: 4,
         txHash: 'abc123',
         txSignature: 'sig',
         txFrom: 'sender',
@@ -279,34 +288,88 @@ describe('Self-Contained Proof', () => {
         txMerkleRoot: 'root',
         stateRoot: 'state',
         receiptRoot: 'receipt',
-        totalWeight: 100,
         tipCount: 1,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: uint8ToBase64url(new Uint8Array(48)),
-        blsSignerBitmap: uint8ToBase64url(new Uint8Array([1])),
+        blsAggregatedSig: base64urlEncode(new Uint8Array(48)),
+        blsSignerBitmap: base64urlEncode(new Uint8Array([1])),
         blsSignerCount: 1,
-        validatorWitnesses: witnesses,
-        validatorSetRoot
+        signerMembershipProofs: [proof1],
+        validatorSumTreeRoot: root
+      };
+
+      const result = verifySelfContainedProof(proof);
+
+      expect(result.valid).toBe(false);
+    });
+
+    it('should reject proof with insufficient weight', () => {
+      const key1 = generateBLSKeyPair();
+      const key2 = generateBLSKeyPair();
+      const key3 = generateBLSKeyPair();
+
+      const leaves: MerkleSumLeaf[] = [
+        { index: 0, address: 'val1', blsPublicKey: base64urlEncode(key1.publicKey), weight: 100 },
+        { index: 1, address: 'val2', blsPublicKey: base64urlEncode(key2.publicKey), weight: 100 },
+        { index: 2, address: 'val3', blsPublicKey: base64urlEncode(key3.publicKey), weight: 100 }
+      ];
+
+      const { root } = buildMerkleSumTree(leaves);
+      const signerMembershipProofs = [getMerkleSumProof(leaves, 0)!];
+
+      const checkpointHash = computeCheckpointSigningHash(
+        'cp-1', 1, 'root', 'state', 'receipt', 1, root
+      );
+
+      const sig1 = blsSign(checkpointHash, key1.privateKey);
+      const aggregatedSig = aggregateSignatures([sig1]);
+
+      const proof: SelfContainedProof = {
+        version: 4,
+        txHash: 'root',
+        txSignature: 'sig',
+        txFrom: 'sender',
+        txTo: 'recipient',
+        txAmount: 100,
+        txNonce: 1,
+        txTimestamp: Date.now(),
+        checkpointHeight: 1,
+        checkpointId: 'cp-1',
+        txMerkleRoot: 'root',
+        stateRoot: 'state',
+        receiptRoot: 'receipt',
+        tipCount: 1,
+        merkleProof: [],
+        merkleIndex: 0,
+        blsAggregatedSig: base64urlEncode(aggregatedSig),
+        blsSignerBitmap: base64urlEncode(new Uint8Array([1])),
+        blsSignerCount: 1,
+        signerMembershipProofs,
+        validatorSumTreeRoot: root
       };
 
       const result = verifySelfContainedProof(proof);
 
       expect(result.valid).toBe(false);
       expect(result.errors.some(e => e.includes('Insufficient signer weight'))).toBe(true);
+      expect(result.computedSignerWeight).toBe(100);
+      expect(result.totalWeight).toBe(300);
     });
   });
 
   describe('Encoding/Decoding', () => {
     it('should encode and decode proof correctly', () => {
       const key1 = generateBLSKeyPair();
-      const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 }
+
+      const leaves: MerkleSumLeaf[] = [
+        { index: 0, address: 'val1', blsPublicKey: base64urlEncode(key1.publicKey), weight: 100 }
       ];
-      const validatorSetRoot = computeValidatorSetRoot(witnesses);
+
+      const { root } = buildMerkleSumTree(leaves);
+      const signerMembershipProofs = [getMerkleSumProof(leaves, 0)!];
 
       const proof: SelfContainedProof = {
-        version: 3,
+        version: 4,
         txHash: 'abc123',
         txSignature: 'sig',
         txFrom: 'sender',
@@ -319,15 +382,14 @@ describe('Self-Contained Proof', () => {
         txMerkleRoot: 'root',
         stateRoot: 'state',
         receiptRoot: 'receipt',
-        totalWeight: 100,
         tipCount: 5,
         merkleProof: ['proof1', 'proof2'],
         merkleIndex: 3,
-        blsAggregatedSig: uint8ToBase64url(new Uint8Array([1, 2, 3, 4])),
-        blsSignerBitmap: uint8ToBase64url(new Uint8Array([5])),
+        blsAggregatedSig: base64urlEncode(new Uint8Array([1, 2, 3, 4])),
+        blsSignerBitmap: base64urlEncode(new Uint8Array([5])),
         blsSignerCount: 1,
-        validatorWitnesses: witnesses,
-        validatorSetRoot
+        signerMembershipProofs,
+        validatorSumTreeRoot: root
       };
 
       const encoded = encodeSelfContainedProof(proof);
@@ -338,18 +400,21 @@ describe('Self-Contained Proof', () => {
       expect(decoded.checkpointHeight).toBe(proof.checkpointHeight);
       expect(decoded.blsSignerCount).toBe(proof.blsSignerCount);
       expect(decoded.stateRoot).toBe(proof.stateRoot);
-      expect(decoded.totalWeight).toBe(proof.totalWeight);
+      expect(decoded.validatorSumTreeRoot.totalWeight).toBe(proof.validatorSumTreeRoot.totalWeight);
     });
 
     it('should create URL format', () => {
       const key1 = generateBLSKeyPair();
-      const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 }
+
+      const leaves: MerkleSumLeaf[] = [
+        { index: 0, address: 'val1', blsPublicKey: base64urlEncode(key1.publicKey), weight: 100 }
       ];
-      const validatorSetRoot = computeValidatorSetRoot(witnesses);
+
+      const { root } = buildMerkleSumTree(leaves);
+      const signerMembershipProofs = [getMerkleSumProof(leaves, 0)!];
 
       const proof: SelfContainedProof = {
-        version: 3,
+        version: 4,
         txHash: 'abc123',
         txSignature: 'sig',
         txFrom: 'sender',
@@ -362,15 +427,14 @@ describe('Self-Contained Proof', () => {
         txMerkleRoot: 'root',
         stateRoot: 'state',
         receiptRoot: 'receipt',
-        totalWeight: 100,
         tipCount: 5,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: uint8ToBase64url(new Uint8Array([1, 2, 3])),
-        blsSignerBitmap: uint8ToBase64url(new Uint8Array([1])),
+        blsAggregatedSig: base64urlEncode(new Uint8Array([1, 2, 3])),
+        blsSignerBitmap: base64urlEncode(new Uint8Array([1])),
         blsSignerCount: 1,
-        validatorWitnesses: witnesses,
-        validatorSetRoot
+        signerMembershipProofs,
+        validatorSumTreeRoot: root
       };
 
       const url = createSelfProofURL(proof);
@@ -383,13 +447,16 @@ describe('Self-Contained Proof', () => {
 
     it('should analyze proof size for QR viability', () => {
       const key1 = generateBLSKeyPair();
-      const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 }
+
+      const leaves: MerkleSumLeaf[] = [
+        { index: 0, address: 'val1', blsPublicKey: base64urlEncode(key1.publicKey), weight: 100 }
       ];
-      const validatorSetRoot = computeValidatorSetRoot(witnesses);
+
+      const { root } = buildMerkleSumTree(leaves);
+      const signerMembershipProofs = [getMerkleSumProof(leaves, 0)!];
 
       const proof: SelfContainedProof = {
-        version: 3,
+        version: 4,
         txHash: 'abc123',
         txSignature: 'sig',
         txFrom: 'sender',
@@ -402,15 +469,14 @@ describe('Self-Contained Proof', () => {
         txMerkleRoot: 'root',
         stateRoot: 'state',
         receiptRoot: 'receipt',
-        totalWeight: 100,
         tipCount: 5,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: uint8ToBase64url(new Uint8Array(48)),
-        blsSignerBitmap: uint8ToBase64url(new Uint8Array([1])),
+        blsAggregatedSig: base64urlEncode(new Uint8Array(48)),
+        blsSignerBitmap: base64urlEncode(new Uint8Array([1])),
         blsSignerCount: 1,
-        validatorWitnesses: witnesses,
-        validatorSetRoot
+        signerMembershipProofs,
+        validatorSumTreeRoot: root
       };
 
       const sizeAnalysis = analyzeSelfProofSize(proof);
@@ -420,6 +486,62 @@ describe('Self-Contained Proof', () => {
       expect(sizeAnalysis.base64Size).toBeGreaterThan(0);
       expect(sizeAnalysis.urlSize).toBeGreaterThan(0);
       expect(sizeAnalysis.qrViability).toBeTruthy();
+    });
+  });
+
+  describe('Security: Denominator Attack Prevention', () => {
+    it('should derive totalWeight from MerkleSumTree root, not trust claimed value', () => {
+      const key1 = generateBLSKeyPair();
+      const key2 = generateBLSKeyPair();
+
+      const leaves: MerkleSumLeaf[] = [
+        { index: 0, address: 'val1', blsPublicKey: base64urlEncode(key1.publicKey), weight: 100 },
+        { index: 1, address: 'val2', blsPublicKey: base64urlEncode(key2.publicKey), weight: 200 }
+      ];
+
+      const { root } = buildMerkleSumTree(leaves);
+      
+      expect(root.totalWeight).toBe(300);
+
+      const signerMembershipProofs = [getMerkleSumProof(leaves, 0)!];
+
+      const checkpointHash = computeCheckpointSigningHash(
+        'cp-1', 1, 'hash', 'state', 'receipt', 1, root
+      );
+
+      const attackerRoot: MerkleSumRoot = {
+        hash: root.hash,
+        totalWeight: 100
+      };
+
+      const proof: SelfContainedProof = {
+        version: 4,
+        txHash: 'hash',
+        txSignature: 'sig',
+        txFrom: 'sender',
+        txTo: 'recipient',
+        txAmount: 100,
+        txNonce: 1,
+        txTimestamp: Date.now(),
+        checkpointHeight: 1,
+        checkpointId: 'cp-1',
+        txMerkleRoot: 'hash',
+        stateRoot: 'state',
+        receiptRoot: 'receipt',
+        tipCount: 1,
+        merkleProof: [],
+        merkleIndex: 0,
+        blsAggregatedSig: base64urlEncode(new Uint8Array(48)),
+        blsSignerBitmap: base64urlEncode(new Uint8Array([1])),
+        blsSignerCount: 1,
+        signerMembershipProofs,
+        validatorSumTreeRoot: attackerRoot
+      };
+
+      const result = verifySelfContainedProof(proof);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('total weight mismatch'))).toBe(true);
     });
   });
 });

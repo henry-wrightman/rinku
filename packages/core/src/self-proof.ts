@@ -13,13 +13,15 @@ import type {
   SignedTransaction,
 } from "./types.js";
 import { base64urlEncode, base64urlDecode } from "./encoding.js";
-
-export interface ValidatorWitness {
-  index: number;
-  address: string;
-  blsPublicKey: string; // base64url-encoded 96-byte G2 point
-  weight: number;
-}
+import {
+  buildMerkleSumTree,
+  getMerkleSumProof,
+  verifyMerkleSumProof,
+  computeMerkleSumRootFromProofs,
+  type MerkleSumLeaf,
+  type MerkleSumProof,
+  type MerkleSumRoot,
+} from "./merkle-sum-tree.js";
 
 export interface SelfContainedProof {
   version: number;
@@ -35,15 +37,14 @@ export interface SelfContainedProof {
   txMerkleRoot: string;
   stateRoot: string;
   receiptRoot: string;
-  totalWeight: number;
   tipCount: number;
   merkleProof: string[];
   merkleIndex: number;
-  blsAggregatedSig: string; // base64url-encoded 48-byte G1 signature
-  blsSignerBitmap: string; // base64url-encoded bitmap
+  blsAggregatedSig: string;
+  blsSignerBitmap: string;
   blsSignerCount: number;
-  validatorWitnesses: ValidatorWitness[];
-  validatorSetRoot: string;
+  signerMembershipProofs: MerkleSumProof[];
+  validatorSumTreeRoot: MerkleSumRoot;
 }
 
 export interface ProofVerificationResult {
@@ -59,17 +60,21 @@ export interface ProofVerificationResult {
   validatorSetVerified: boolean;
 }
 
-const SELF_PROOF_VERSION = 3;
+const SELF_PROOF_VERSION = 4;
 
-export function computeValidatorSetRoot(witnesses: ValidatorWitness[]): string {
-  const sorted = [...witnesses].sort((a, b) => a.index - b.index);
-  const entries = sorted.map(
-    (w) =>
-      `${w.index}:${w.address}:${w.blsPublicKey}:${w.weight}`,
-  );
-  const combined = entries.join("|");
-  const hash = sha256(new TextEncoder().encode(combined));
-  return bytesToHex(hash);
+export function validatorToMerkleSumLeaf(v: ValidatorEntry, index: number): MerkleSumLeaf {
+  return {
+    index,
+    address: v.address,
+    blsPublicKey: v.blsPublicKey ? base64urlEncode(new Uint8Array(v.blsPublicKey)) : "",
+    weight: v.weight,
+  };
+}
+
+export function computeValidatorSumTreeRoot(validators: ValidatorEntry[]): MerkleSumRoot {
+  const leaves = validators.map((v, i) => validatorToMerkleSumLeaf(v, i));
+  const { root } = buildMerkleSumTree(leaves);
+  return root;
 }
 
 export function computeCheckpointSigningHash(
@@ -78,11 +83,10 @@ export function computeCheckpointSigningHash(
   txMerkleRoot: string,
   stateRoot: string,
   receiptRoot: string,
-  totalWeight: number,
   tipCount: number,
-  validatorSetRoot: string,
+  validatorSumTreeRoot: MerkleSumRoot,
 ): Uint8Array {
-  const signingData = `${checkpointId}:${height}:${txMerkleRoot}:${stateRoot}:${receiptRoot}:${totalWeight}:${tipCount}:${validatorSetRoot}`;
+  const signingData = `${checkpointId}:${height}:${txMerkleRoot}:${stateRoot}:${receiptRoot}:${validatorSumTreeRoot.hash}:${validatorSumTreeRoot.totalWeight}:${tipCount}`;
   return sha256(new TextEncoder().encode(signingData));
 }
 
@@ -105,22 +109,16 @@ export function createSelfContainedProof(
     checkpoint.validators.length,
   );
 
-  const validatorWitnesses: ValidatorWitness[] = [];
+  const leaves = checkpoint.validators.map((v, i) => validatorToMerkleSumLeaf(v, i));
+  const { root } = buildMerkleSumTree(leaves);
 
-  for (let i = 0; i < checkpoint.validators.length; i++) {
-    const v = checkpoint.validators[i];
-
-    if (signerIndices.includes(i) && v.blsPublicKey) {
-      validatorWitnesses.push({
-        index: i,
-        address: v.address,
-        blsPublicKey: base64urlEncode(new Uint8Array(v.blsPublicKey)),
-        weight: v.weight,
-      });
+  const signerMembershipProofs: MerkleSumProof[] = [];
+  for (const idx of signerIndices) {
+    const proof = getMerkleSumProof(leaves, idx);
+    if (proof) {
+      signerMembershipProofs.push(proof);
     }
   }
-
-  const validatorSetRoot = computeValidatorSetRoot(validatorWitnesses);
 
   return {
     version: SELF_PROOF_VERSION,
@@ -136,15 +134,14 @@ export function createSelfContainedProof(
     txMerkleRoot: checkpoint.txMerkleRoot,
     stateRoot: checkpoint.stateRoot || "",
     receiptRoot: checkpoint.receiptRoot || "",
-    totalWeight: checkpoint.totalWeight,
     tipCount: checkpoint.tipCount,
     merkleProof,
     merkleIndex,
     blsAggregatedSig: base64urlEncode(new Uint8Array(blsSig.aggregatedSignature)),
     blsSignerBitmap: base64urlEncode(new Uint8Array(blsSig.signerBitmap)),
     blsSignerCount: blsSig.signerCount,
-    validatorWitnesses,
-    validatorSetRoot,
+    signerMembershipProofs,
+    validatorSumTreeRoot: root,
   };
 }
 
@@ -152,17 +149,15 @@ export function verifySelfContainedProof(
   proof: SelfContainedProof,
 ): ProofVerificationResult {
   let computedSignerWeight = 0;
-  for (const w of proof.validatorWitnesses) {
-    computedSignerWeight += w.weight;
-  }
+  const totalWeight = proof.validatorSumTreeRoot.totalWeight;
 
   const result: ProofVerificationResult = {
     valid: false,
     errors: [],
     txHash: proof.txHash,
     checkpointHeight: proof.checkpointHeight,
-    computedSignerWeight,
-    totalWeight: proof.totalWeight,
+    computedSignerWeight: 0,
+    totalWeight,
     signerCount: proof.blsSignerCount,
     merkleVerified: false,
     blsVerified: false,
@@ -174,27 +169,47 @@ export function verifySelfContainedProof(
     return result;
   }
 
-  const recomputedValidatorSetRoot = computeValidatorSetRoot(
-    proof.validatorWitnesses,
-  );
+  const computedRoot = computeMerkleSumRootFromProofs(proof.signerMembershipProofs);
+  if (!computedRoot) {
+    result.errors.push("Failed to compute root from membership proofs - inconsistent proofs");
+    return result;
+  }
 
-  if (recomputedValidatorSetRoot !== proof.validatorSetRoot) {
+  if (computedRoot.hash !== proof.validatorSumTreeRoot.hash) {
     result.errors.push(
-      "Validator set root mismatch - validator data may have been tampered",
+      `Validator sum tree root hash mismatch: computed ${computedRoot.hash.slice(0, 16)}..., expected ${proof.validatorSumTreeRoot.hash.slice(0, 16)}...`
     );
     return result;
   }
+
+  if (computedRoot.totalWeight !== proof.validatorSumTreeRoot.totalWeight) {
+    result.errors.push(
+      `Validator sum tree total weight mismatch: computed ${computedRoot.totalWeight}, expected ${proof.validatorSumTreeRoot.totalWeight}`
+    );
+    return result;
+  }
+
+  for (const membershipProof of proof.signerMembershipProofs) {
+    const verifyResult = verifyMerkleSumProof(membershipProof, proof.validatorSumTreeRoot);
+    if (!verifyResult.valid) {
+      result.errors.push(`Invalid membership proof for validator ${membershipProof.leaf.index}: ${verifyResult.errors.join(", ")}`);
+      return result;
+    }
+    computedSignerWeight += verifyResult.leafWeight;
+  }
+
+  result.computedSignerWeight = computedSignerWeight;
   result.validatorSetVerified = true;
 
   try {
-    const merkleValid = verifyMerkleProof(
+    const txMerkleValid = verifyTxMerkleProof(
       proof.txHash,
       proof.merkleProof,
       proof.merkleIndex,
       proof.txMerkleRoot,
     );
-    result.merkleVerified = merkleValid;
-    if (!merkleValid) {
+    result.merkleVerified = txMerkleValid;
+    if (!txMerkleValid) {
       result.errors.push(
         "Merkle proof verification failed - tx not included in checkpoint",
       );
@@ -204,20 +219,18 @@ export function verifySelfContainedProof(
   }
 
   try {
-    // binds validator weights (via validatorSetRoot) to the BLS signature, preventing weight forgery attacks
     const checkpointHash = computeCheckpointSigningHash(
       proof.checkpointId,
       proof.checkpointHeight,
       proof.txMerkleRoot,
       proof.stateRoot,
       proof.receiptRoot,
-      proof.totalWeight,
       proof.tipCount,
-      proof.validatorSetRoot,
+      proof.validatorSumTreeRoot,
     );
 
-    const signerPubKeys = proof.validatorWitnesses.map(
-      (w) => base64urlDecode(w.blsPublicKey),
+    const signerPubKeys = proof.signerMembershipProofs.map(
+      (p) => base64urlDecode(p.leaf.blsPublicKey),
     );
 
     const blsValid = verifyAggregatedSignature(
@@ -236,10 +249,10 @@ export function verifySelfContainedProof(
     result.errors.push(`BLS verification error: ${e.message}`);
   }
 
-  if (proof.totalWeight <= 0) {
+  if (totalWeight <= 0) {
     result.errors.push("Invalid total weight");
   } else {
-    const weightRatio = computedSignerWeight / proof.totalWeight;
+    const weightRatio = computedSignerWeight / totalWeight;
     if (weightRatio < 0.67) {
       result.errors.push(
         `Insufficient signer weight: ${(weightRatio * 100).toFixed(1)}% (need 67%)`,
@@ -255,7 +268,7 @@ export function verifySelfContainedProof(
   return result;
 }
 
-function verifyMerkleProof(
+function verifyTxMerkleProof(
   txHash: string,
   proof: string[],
   index: number,
@@ -350,5 +363,8 @@ export function analyzeSelfProofSize(proof: SelfContainedProof): {
 }
 
 export function getSelfProofSigningData(checkpoint: Checkpoint): string {
-  return `${checkpoint.checkpointId}:${checkpoint.height}:${checkpoint.txMerkleRoot || ""}:${checkpoint.stateRoot || ""}:${checkpoint.receiptRoot || ""}:${checkpoint.totalWeight}:${checkpoint.tipCount}`;
+  const root = computeValidatorSumTreeRoot(checkpoint.validators);
+  return `${checkpoint.checkpointId}:${checkpoint.height}:${checkpoint.txMerkleRoot || ""}:${checkpoint.stateRoot || ""}:${checkpoint.receiptRoot || ""}:${root.hash}:${root.totalWeight}:${checkpoint.tipCount}`;
 }
+
+export { type MerkleSumProof, type MerkleSumRoot, type MerkleSumLeaf };
