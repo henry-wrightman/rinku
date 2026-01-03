@@ -241,6 +241,33 @@ Every 15 seconds (configurable), the network produces a checkpoint:
 }
 ```
 
+**Checkpoint ID Computation (byte-level):**
+
+The `id` field is computed deterministically from header fields. Two independent implementations MUST produce identical IDs from identical input:
+
+```
+checkpointId = SHA256(
+  "rinku:checkpoint:v1" ||     // 19 bytes, ASCII domain separator
+  uint32_be(chainId) ||         // 4 bytes, network identifier
+  uint32_be(height) ||          // 4 bytes
+  uint64_be(timestamp) ||       // 8 bytes, Unix milliseconds
+  previousId_bytes ||           // 32 bytes (raw SHA-256, or 32 zero bytes for genesis)
+  txMerkleRoot_bytes ||         // 32 bytes (raw SHA-256)
+  stateRoot_bytes ||            // 32 bytes (raw SHA-256)
+  receiptRoot_bytes ||          // 32 bytes (raw SHA-256)
+  uint8(tipCount)               // 1 byte
+)
+```
+
+**Field encoding:**
+- All integers use unsigned big-endian encoding
+- Hash fields are raw 32-byte SHA-256 digests (not hex strings)
+- Domain separator is UTF-8 encoded ASCII
+- Genesis checkpoint uses 32 zero bytes for `previousId`
+- Total preimage size: 19 + 4 + 4 + 8 + 32 + 32 + 32 + 32 + 1 = 164 bytes
+
+Note: `txHashes`, `signatures`, and `signatureCount` are NOT included in `id` computation. The ID commits only to header fields; signatures are collected afterward and may vary across nodes during aggregation.
+
 ### 4.2 Consensus Protocol
 
 Checkpoint finality requires Byzantine fault tolerance:
@@ -261,13 +288,13 @@ Checkpoint finality requires Byzantine fault tolerance:
 
 5. **Validator Set Updates**: The active validator set is determined by stake positions at the previous checkpoint. Changes take effect at the next checkpoint boundary.
 
-6. **Active Signing Committee**: While any account meeting minimum stake can register as a validator, each checkpoint is signed by an active committee selected from the validator pool:
-   - **Committee size (N)**: 32-64 validators recommended for decentralization + manageable URL proof sizes
-   - **QR mode**: For QR-compatible proofs, use smaller committees (N ≤ 21) with packed + multi-proof encoding
-   - **Selection**: Top N validators by stake weight, or rotating selection using beacon randomness for larger pools
-   - **Index Assignment**: Committee indices (0 to N-1) are assigned by sorting selected validators deterministically: `(stakeWeight DESC, ecdsaFingerprint ASC)` as of checkpoint h-1. This ensures all nodes build identical MerkleSumTree roots from the same committee set.
+6. **Active Signing Committee**: While any account meeting minimum stake can register as a validator (supporting large pools of hundreds/thousands), each checkpoint is signed by a bounded active committee selected from the validator pool:
+   - **Validator pool**: Unlimited registrations; all staked validators earn proportional rewards
+   - **Committee size (N)**: Bounded to 32-64 for URL proof sizes (default: 64); ≤21 for QR mode
+   - **Selection**: Top N validators by stake weight at checkpoint h-1
+   - **Rotation via beacon**: For pools larger than N, use rotating selection: `selectedIndices = beaconShuffle(seed, poolSize).slice(0, N)` where `seed = SHA256(prevCheckpointId || prevAggBLSSig)`. This prevents ossification into "top-N forever" while maintaining stake-weighted influence
+   - **Index Assignment**: Committee indices (0 to N-1) are assigned by sorting selected validators deterministically: `(stakeWeight DESC, ecdsaFingerprint ASC)`. This ensures all nodes build identical MerkleSumTree roots
    - **Threshold (k)**: At least ⌈2N/3⌉ committee members must sign (e.g., k ≥ 43 for N = 64)
-   - **Rotation**: Committee membership updates each checkpoint based on stake changes
    - With multi-proof optimization, proof size is ~O(N) rather than O(k · log₂N)
 
 ### 4.3 Finality
@@ -318,40 +345,47 @@ Account state is committed to a Merkle tree with root included in each checkpoin
 
 ## 6. Tokenomics
 
-### 6.1 Supply
+### 6.1 Base Unit
 
-- **Maximum Supply:** 30,000,000 RKU (hard cap, enforced)
+All on-chain values use the smallest indivisible unit:
+- **1 RKU = 1,000,000 µRKU** (micro-RKU)
+- All amounts, fees, rewards, and supply values are `uint64` in µRKU
+- Human-readable RKU values are for documentation only; implementations use µRKU
+
+### 6.2 Supply
+
+- **Maximum Supply:** 30,000,000 RKU = 30,000,000,000,000 µRKU (hard cap, enforced)
 - **Genesis Allocation:** 6,000,000 RKU
   - 3,000,000 RKU - Treasury
   - 2,000,000 RKU - Staking rewards reserve
   - 1,000,000 RKU - Faucet distribution (testnet only)
 - **Emission:** Up to 24,000,000 RKU via checkpoint rewards
 
-### 6.2 Emission Schedule
+### 6.3 Emission Schedule
 
 Rewards halve every 210,000 checkpoints (~36.5 days at 15s intervals):
 
-| Epoch | Checkpoints | Reward/Checkpoint | Cumulative Emission |
-|-------|-------------|-------------------|---------------------|
-| 0 | 0-209,999 | 150 RKU | 31,500,000 RKU* |
-| 1 | 210,000-419,999 | 75 RKU | +15,750,000 RKU |
-| 2 | 420,000-629,999 | 37.5 RKU | +7,875,000 RKU |
-| 3 | 630,000-839,999 | 18.75 RKU | +3,937,500 RKU |
-| 4 | 840,000-1,049,999 | 9.375 RKU | +1,968,750 RKU |
-| 5+ | 1,050,000+ | 4.6875 RKU | until cap |
+| Epoch | Checkpoints | Reward (µRKU) | Reward (RKU) | Cumulative Emission |
+|-------|-------------|---------------|--------------|---------------------|
+| 0 | 0-209,999 | 150,000,000 | 150 | 31,500,000 RKU* |
+| 1 | 210,000-419,999 | 75,000,000 | 75 | +15,750,000 RKU |
+| 2 | 420,000-629,999 | 37,500,000 | 37.5 | +7,875,000 RKU |
+| 3 | 630,000-839,999 | 18,750,000 | 18.75 | +3,937,500 RKU |
+| 4 | 840,000-1,049,999 | 9,375,000 | 9.375 | +1,968,750 RKU |
+| 5+ | 1,050,000+ | 4,687,500 | 4.6875 | until cap |
 
-*Epoch 0 theoretical max (31.5M) exceeds cap; actual emission stops when `totalSupply >= 30,000,000 RKU`.
+*Epoch 0 theoretical max (31.5M) exceeds cap; actual emission stops when `totalSupply >= 30,000,000,000,000 µRKU`.
 
-**Hard Cap Enforcement**: Once total circulating supply reaches 30,000,000 RKU, checkpoint rewards drop to 0. The floor reward of 4.6875 RKU only applies while supply remains below the cap.
+**Hard Cap Enforcement**: Once total circulating supply reaches the cap, checkpoint rewards drop to 0. The floor reward of 4,687,500 µRKU only applies while supply remains below the cap.
 
-### 6.3 Halving Rationale
+### 6.4 Halving Rationale
 
 The 36.5-day halving interval (vs. Bitcoin's 4 years) enables:
 - Rapid initial distribution for network bootstrapping
 - Earlier transition to fee-based validator economics
 - Predictable supply schedule completion within ~1 year
 
-### 6.4 Reward Distribution
+### 6.5 Reward Distribution
 
 Checkpoint rewards distributed to active validators using Weighted Proof-of-Stake:
 - 70% proportional to stake amount
@@ -359,7 +393,7 @@ Checkpoint rewards distributed to active validators using Weighted Proof-of-Stak
 
 This rewards both capital commitment and long-term participation.
 
-### 6.5 Deflationary Pressure
+### 6.6 Deflationary Pressure
 
 Gas fees create deflation:
 - 50% of each fee is burned (permanently removed)
@@ -378,9 +412,9 @@ currentPrice = baseFee × demandMultiplier
 demandMultiplier = 1 + (recentTxCount / targetTxCount)
 ```
 
-Bounded by:
-- Minimum: 0.001 RKU
-- Maximum: 100 RKU
+Bounded by (in µRKU):
+- Minimum: 1,000 µRKU (0.001 RKU)
+- Maximum: 100,000,000 µRKU (100 RKU)
 
 ### 7.2 Fee Validation
 
@@ -675,10 +709,68 @@ Proof Bundle URL:
 })))}
 ```
 
-Self-Contained Proof URL (Profile C v4 - MerkleSumTree):
+### B.1 Self-Contained Proof URL (Profile C)
+
+Profile C has two encodings. **Packed v5** is canonical and required for QR codes; JSON v4 is for debugging only.
+
+**Profile C v5 (Packed Binary - Canonical):**
+```
+rinku://sp/{base64url(deflate(packed_binary))}
+```
+
+**Packed binary layout (byte-level):**
+```
+version:            1 byte   (0x05)
+chainId:            4 bytes  (uint32_be, network identifier)
+txHash:            32 bytes  (raw SHA-256)
+txSignature:       64 bytes  (raw ECDSA P-256)
+txFrom:            20 bytes  (raw address)
+txTo:              20 bytes  (raw address)
+txAmount:           8 bytes  (uint64_be, µRKU)
+txFee:              8 bytes  (uint64_be, µRKU)
+txNonce:            8 bytes  (uint64_be)
+txTimestamp:        8 bytes  (uint64_be, Unix ms)
+checkpointHeight:   4 bytes  (uint32_be)
+checkpointId:      32 bytes  (raw SHA-256)
+txMerkleRoot:      32 bytes  (raw SHA-256)
+stateRoot:         32 bytes  (raw SHA-256)
+receiptRoot:       32 bytes  (raw SHA-256)
+tipCount:           1 byte   (uint8)
+merkleProofDepth:   1 byte   (uint8, 0-20)
+merkleProof:       32 × depth bytes (raw hashes, bottom-up)
+merkleIndex:        2 bytes  (uint16_be)
+blsAggregatedSig:  48 bytes  (raw G1 point)
+committeeSize:      1 byte   (uint8, N)
+signerBitmap:      ⌈N/8⌉ bytes (packed bits, LSB-first)
+signerCount:        1 byte   (uint8, k = popcount(bitmap))
+multiProof:        variable  (see below)
+validatorSumTreeRoot.hash:        32 bytes
+validatorSumTreeRoot.totalWeight:  8 bytes (uint64_be)
+```
+
+**Multi-proof layout (v5):**
+```
+signerLeaves: k × (1 + 20 + 96 + 8) bytes per signer
+  - index:        1 byte  (uint8, committee position)
+  - address:     20 bytes (raw)
+  - blsPublicKey: 96 bytes (raw G2 point)
+  - weight:       8 bytes (uint64_be)
+
+auxiliaryNodeCount: 1 byte (uint8)
+auxiliaryNodes: count × (1 + 1 + 32 + 8) bytes per node
+  - level:    1 byte (uint8, 0 = leaf layer)
+  - index:    1 byte (uint8, position at that level)
+  - hash:    32 bytes (raw SHA-256)
+  - sumWeight: 8 bytes (uint64_be)
+```
+
+Multi-proof shares sibling nodes across signers, achieving ~O(N) total vs O(k·log₂N) for individual proofs. Tree depth is derived from `committeeSize`: `treeDepth = ⌈log₂(committeeSize)⌉`.
+
+**Profile C v4 (JSON - Legacy/Debug):**
 ```
 rinku://sp/{base64url(deflate(json({
   version: 4,
+  chainId: uint32,
   txHash: string,
   txSignature: string,
   txFrom: string,
@@ -694,46 +786,47 @@ rinku://sp/{base64url(deflate(json({
   tipCount: uint8,
   merkleProof: string[],
   merkleIndex: uint16,
-  blsAggregatedSig: string,      // base64url-encoded 48-byte G1 signature
-  blsSignerBitmap: string,       // base64url-encoded bitmap
+  blsAggregatedSig: string,
+  blsSignerBitmap: string,
   blsSignerCount: uint8,
-  signerMembershipProofs: [{     // MerkleSumTree membership proof per signer
-    leaf: {
-      index: uint8,
-      address: string,
-      blsPublicKey: string,      // base64url-encoded 96-byte G2 pubkey
-      weight: uint64
-    },
+  signerMembershipProofs: [{
+    leaf: { index: uint8, address: string, blsPublicKey: string, weight: uint64 },
     siblings: [{ hash: string, sumWeight: uint64 }],
     pathBits: boolean[]
   }],
-  validatorSumTreeRoot: {        // Cryptographically binds totalWeight
-    hash: string,
-    totalWeight: uint64
-  }
+  validatorSumTreeRoot: { hash: string, totalWeight: uint64 }
 })))}
 ```
 
+JSON v4 is useful for debugging but does NOT fit in QR codes. Implementations MUST support packed v5 for production use.
+
 ## Appendix C: Genesis Configuration
+
+All values in µRKU (1 RKU = 1,000,000 µRKU) or basis points where noted:
 
 ```json
 {
-  "maxSupply": 30000000,
+  "maxSupply": 30000000000000,
   "genesisAllocation": {
-    "treasury": 3000000,
-    "stakingReserve": 2000000,
-    "faucet": 1000000
+    "treasury": 3000000000000,
+    "stakingReserve": 2000000000000,
+    "faucet": 1000000000000
   },
-  "initialReward": 150,
+  "initialReward": 150000000,
   "halvingInterval": 210000,
-  "minReward": 4.6875,
+  "minReward": 4687500,
   "emissionStopsAtCap": true,
   "checkpointInterval": 15000,
   "unbondingPeriod": 1209600000,
-  "quorumThreshold": 0.67,
+  "quorumThresholdBps": 6700,
   "ageWeightCap": 365
 }
 ```
+
+**Units:**
+- `maxSupply`, `genesisAllocation.*`, `initialReward`, `minReward`: µRKU (uint64)
+- `quorumThresholdBps`: basis points (6700 = 67.00%, uint16)
+- `halvingInterval`, `checkpointInterval`, `unbondingPeriod`, `ageWeightCap`: integers as documented
 
 ## Appendix D: Proof Size Benchmarks
 
