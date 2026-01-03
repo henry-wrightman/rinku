@@ -8,8 +8,8 @@ const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "3000");
 const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "100");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "3");
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "20");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "10");
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "50");
 const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.6");
 const CONTRACT_INTERVAL_MS = parseInt(
   process.env.CONTRACT_INTERVAL || "120000",
@@ -63,7 +63,9 @@ async function fetchGasPrice(): Promise<number> {
         lastGasPriceFetch = now;
       }
     }
-  } catch {}
+  } catch (ex) {
+    log(`Failed to fetch gas price, using cached: ${currentGasPrice} ${ex}`);
+  }
   return currentGasPrice;
 }
 
@@ -93,6 +95,7 @@ async function faucetRequest(fingerprint: string): Promise<boolean> {
     });
     return res.ok;
   } catch (err: any) {
+    log(`Faucet error: ${err.message}`);
     if (err.name === "AbortError") {
       log(`Faucet timeout for ${fingerprint.slice(0, 8)}...`);
     }
@@ -124,6 +127,7 @@ async function createNewWallet(): Promise<void> {
         `New wallet: ${fingerprint.slice(0, 16)}... (${wallets.length} total)`,
       );
     } else {
+      log(`Failed to create wallet: faucet request failed`);
       errors++;
     }
   } finally {
@@ -152,6 +156,7 @@ async function doRandomFaucetDrop(): Promise<void> {
       totalFaucetHits++;
       log(`Faucet drop: ${recipient.fingerprint.slice(0, 16)}...`);
     } else {
+      log(`Faucet drop failed for ${recipient.fingerprint.slice(0, 16)}...`);
       errors++;
     }
   } finally {
@@ -170,6 +175,7 @@ async function doSingleTransaction(
     totalTransactions++;
     return true;
   } catch (err: any) {
+    log(`Transaction failed: ${err?.message}`);
     errors++;
     return false;
   }
@@ -444,6 +450,7 @@ async function callContract(): Promise<void> {
       }
     }
   } catch (err: any) {
+    log(`Contract call error: ${err.message}`);
     errors++;
   } finally {
     pendingOperations--;
@@ -483,6 +490,7 @@ async function doStaking(): Promise<void> {
       );
     }
   } catch (err: any) {
+    log(`Staking error: ${err.message}`);
     errors++;
   } finally {
     pendingOperations--;
@@ -496,14 +504,23 @@ async function claimRewards(): Promise<void> {
   pendingOperations++;
   try {
     const claimer = pickRandom(wallets);
+    log(`Rewards check: ${claimer.fingerprint.slice(0, 16)}...`);
 
     const summaryRes = await fetchWithTimeout(
       `${NODE_URL}/api/rewards/${claimer.fingerprint}`,
     );
-    if (!summaryRes.ok) return;
+    if (!summaryRes.ok) {
+      log(`Rewards check failed: endpoint returned ${summaryRes.status}`);
+      return;
+    }
 
     const summary = (await summaryRes.json()) as { pending: number };
-    if (summary.pending < 1) return;
+    if (summary.pending < 1) {
+      log(`Rewards check: no pending rewards for ${claimer.fingerprint.slice(0, 16)}...`);
+      return;
+    }
+
+    log(`Rewards found: ${summary.pending} pending for ${claimer.fingerprint.slice(0, 16)}...`);
 
     const res = await fetchWithTimeout(
       `${NODE_URL}/api/rewards/${claimer.fingerprint}/claim`,
@@ -520,9 +537,14 @@ async function claimRewards(): Promise<void> {
         log(
           `Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.amount} coins`,
         );
+      } else {
+        log(`Rewards claim returned success=false for ${claimer.fingerprint.slice(0, 16)}...`);
       }
+    } else {
+      log(`Rewards claim failed: ${res.status} for ${claimer.fingerprint.slice(0, 16)}...`);
     }
   } catch (err: any) {
+    log(`Rewards claim error: ${err.message}`);
   } finally {
     pendingOperations--;
   }
