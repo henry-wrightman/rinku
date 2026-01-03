@@ -35,6 +35,8 @@ export interface ForkRemediationConfig {
   branchPruningEnabled: boolean;
   minWeightAdvantageForPruning: number;
   maxUnfinalizedTxAge: number;
+  logSummaryIntervalMs: number;
+  verboseLogging: boolean;
 }
 
 const DEFAULT_CONFIG: ForkRemediationConfig = {
@@ -42,6 +44,8 @@ const DEFAULT_CONFIG: ForkRemediationConfig = {
   branchPruningEnabled: true,
   minWeightAdvantageForPruning: 0.2,
   maxUnfinalizedTxAge: 60000,
+  logSummaryIntervalMs: 30000,
+  verboseLogging: false,
 };
 
 export class ForkRemediationService {
@@ -56,6 +60,11 @@ export class ForkRemediationService {
   private nonceIndex: Map<string, Map<number, string[]>> = new Map();
   
   private checkInterval: NodeJS.Timeout | null = null;
+  private summaryInterval: NodeJS.Timeout | null = null;
+  
+  private detectionsSinceLastSummary = 0;
+  private resolutionsSinceLastSummary = 0;
+  private prunesSinceLastSummary = 0;
 
   constructor(
     consensus: Consensus,
@@ -82,6 +91,12 @@ export class ForkRemediationService {
       () => this.runDoubleSpendCheck(),
       this.config.doubleSpendCheckIntervalMs
     );
+    
+    this.summaryInterval = setInterval(
+      () => this.logSummary(),
+      this.config.logSummaryIntervalMs
+    );
+    
     console.log('Fork remediation service started');
   }
 
@@ -90,6 +105,20 @@ export class ForkRemediationService {
       clearInterval(this.checkInterval);
       this.checkInterval = null;
     }
+    if (this.summaryInterval) {
+      clearInterval(this.summaryInterval);
+      this.summaryInterval = null;
+    }
+  }
+  
+  private logSummary(): void {
+    const stats = this.getStats();
+    if (this.detectionsSinceLastSummary > 0 || this.resolutionsSinceLastSummary > 0 || stats.activeForks > 0) {
+      console.log(`[Fork] Summary: ${this.detectionsSinceLastSummary} detected, ${this.resolutionsSinceLastSummary} resolved, ${this.prunesSinceLastSummary} pruned | Active: ${stats.activeForks} forks, ${stats.activeDoubleSpends} double-spends`);
+    }
+    this.detectionsSinceLastSummary = 0;
+    this.resolutionsSinceLastSummary = 0;
+    this.prunesSinceLastSummary = 0;
   }
 
   indexTransaction(tx: SignedTransaction): void {
@@ -127,7 +156,10 @@ export class ForkRemediationService {
           };
           
           this.doubleSpends.set(key, info);
-          console.log(`Double-spend detected: account=${account.slice(0, 16)}..., nonce=${nonce}`);
+          this.detectionsSinceLastSummary++;
+          if (this.config.verboseLogging) {
+            console.log(`[Fork] Double-spend detected: account=${account.slice(0, 16)}..., nonce=${nonce}`);
+          }
           
           if (this.gossip) {
             this.gossip.detectConflict(txHashes[i], txHashes[j], account);
@@ -148,8 +180,11 @@ export class ForkRemediationService {
     
     info.winnerHash = winnerHash;
     info.resolvedAt = Date.now();
+    this.resolutionsSinceLastSummary++;
     
-    console.log(`Double-spend resolved locally: winner=${winnerHash.slice(0, 16)}...`);
+    if (this.config.verboseLogging) {
+      console.log(`[Fork] Double-spend resolved locally: winner=${winnerHash.slice(0, 16)}...`);
+    }
     
     if (this.config.branchPruningEnabled) {
       this.pruneBranch(loserHash);
@@ -173,8 +208,11 @@ export class ForkRemediationService {
     descendants.add(txHash);
     
     this.prunedBranches.set(txHash, descendants);
+    this.prunesSinceLastSummary++;
     
-    console.log(`Pruned branch starting at ${txHash.slice(0, 16)}... (${descendants.size} transactions)`);
+    if (this.config.verboseLogging) {
+      console.log(`[Fork] Pruned branch starting at ${txHash.slice(0, 16)}... (${descendants.size} transactions)`);
+    }
   }
 
   isPruned(txHash: string): boolean {
@@ -272,7 +310,10 @@ export class ForkRemediationService {
             detectedAt: Date.now()
           });
           
-          console.log(`Fork detected: ${forkId.slice(0, 32)}... with ${conflictingNonces.length} conflicts`);
+          this.detectionsSinceLastSummary++;
+          if (this.config.verboseLogging) {
+            console.log(`[Fork] Fork detected: ${forkId.slice(0, 32)}... with ${conflictingNonces.length} conflicts`);
+          }
           
           this.attemptForkResolution(forkId);
         }
@@ -406,14 +447,20 @@ export class ForkRemediationService {
       if (this.config.branchPruningEnabled) {
         this.pruneBranch(branch2.tipHash);
       }
-      console.log(`Fork ${forkId.slice(0, 16)}... resolved: branch1 wins (${(weight1Ratio * 100).toFixed(1)}%)`);
+      this.resolutionsSinceLastSummary++;
+      if (this.config.verboseLogging) {
+        console.log(`[Fork] Fork ${forkId.slice(0, 16)}... resolved: branch1 wins (${(weight1Ratio * 100).toFixed(1)}%)`);
+      }
     } else if (weight2Ratio >= threshold) {
       fork.winningBranch = branch2.tipHash;
       fork.resolvedAt = Date.now();
       if (this.config.branchPruningEnabled) {
         this.pruneBranch(branch1.tipHash);
       }
-      console.log(`Fork ${forkId.slice(0, 16)}... resolved: branch2 wins (${(weight2Ratio * 100).toFixed(1)}%)`);
+      this.resolutionsSinceLastSummary++;
+      if (this.config.verboseLogging) {
+        console.log(`[Fork] Fork ${forkId.slice(0, 16)}... resolved: branch2 wins (${(weight2Ratio * 100).toFixed(1)}%)`);
+      }
     }
   }
 
