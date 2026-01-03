@@ -1,0 +1,149 @@
+Nice iteration — these changes address most of the “hand-wavy” gaps I flagged:
+
+You now have empirical proof sizes (389–887 chars) with a clear table 
+
+WHITEPAPER
+
+ and a benchmark appendix 
+
+WHITEPAPER
+
+.
+
+You added stateRoot to checkpoints, which is the right anchor for balance/state proofs 
+
+WHITEPAPER
+
+.
+
+You wrote down a more concrete finality/consensus sketch (leader selection, ≥2/3 quorum, fork choice, slashing) 
+
+WHITEPAPER
+
+.
+
+You capped the age component at 365 days (good mitigation) 
+
+WHITEPAPER
+
+.
+
+You clarified the cap enforcement (“rewards drop to 0 at 30M”) 
+
+WHITEPAPER
+
+.
+
+That said, there are still a few critical blockers / inconsistencies you should clean up, because reviewers will pounce on them.
+
+1) The “887 chars for 31 tx DAG” claim needs a reality check
+
+Your table says a 31-tx DAG proof corresponds to 14,379 bytes JSON → 887 chars URL 
+
+WHITEPAPER
+
+. That implies extreme compression.
+
+This can be legit only if the payload is dominated by highly repetitive structure and does not include lots of high-entropy fields (random-looking signatures, hashes, tx ids, txHashes arrays, etc.). But your checkpoint structure includes txHashes and signatures arrays 
+
+WHITEPAPER
+
+, which are typically high-entropy and do not compress well.
+
+Actionable fix: in Section 2.3 / Appendix D, explicitly state what the benchmark includes/excludes:
+
+Are signatures real-length + random-ish?
+
+Are tx hashes included?
+
+Are you including full checkpoints or just (checkpointId, height, roots, signatureCount)?
+
+Right now Appendix B’s /txp schema shows only signatureCount (not signatures) 
+
+WHITEPAPER
+
+, which would explain the small size — but it contradicts “Checkpoint signatures” being included 
+
+WHITEPAPER
+
+. Tighten that.
+
+2) QR-code compatibility table is probably using the wrong encoding mode
+
+You claim “QR Code (alphanumeric) 4,296 chars” 
+
+WHITEPAPER
+
+, but base64url uses - and _ (and URLs include /), which usually forces byte/binary mode in QR, with a lower capacity than alphanumeric mode.
+
+Actionable fix: replace the QR line with byte-mode limits (and specify error correction level, e.g., L/M/Q/H). Otherwise the “fits QR” claim is shaky.
+
+3) The paper still contains an old “150–200 KB per transaction” line
+
+One section still says “Storage: ~150–200 KB per transaction” 
+
+WHITEPAPER
+
+, which conflicts with your corrected proof-size narrative 
+
+WHITEPAPER
+
+. Even if you meant “node storage including indexes,” it needs to be reconciled.
+
+Actionable fix: either delete that line or clarify “storage in the node’s DB (including …)”, and keep “proof size” separate.
+
+4) “No external queries required” is true only with a trust anchor
+
+You still state “No external queries required. The URL is the proof.” 
+
+WHITEPAPER
+
+Even with checkpoint attestations, a verifier must know which validator set keys to trust (genesis, pinned checkpoint, or a verifiable validator-set update chain). Your consensus section mentions validator set updates 
+
+WHITEPAPER
+
+ but doesn’t define the bootstrapping rule for a fresh verifier.
+
+Actionable fix: add a short “Trust bootstrapping” subsection:
+
+“A verifier must know genesis validator set (or one trusted recent checkpoint).”
+
+“Each checkpoint commits to next validator set root; certificates include proof of membership.”
+
+That preserves your UX claim while staying honest.
+
+5) Crypto footgun: SHA-1 fingerprint
+
+You’re still deriving the fingerprint from SHA-1 
+
+WHITEPAPER
+
+. Even if it’s “just an identifier,” this will raise eyebrows.
+
+Actionable fix: switch to SHA-256 (or RIPEMD160(SHA256(pubkey)) if you want 20 bytes like Bitcoin). The “40 hex chars” requirement can remain.
+
+6) Consensus: leader selection determinism needs randomness or you invite grinding/DoS
+
+Your leader selection is basically deterministic as written (height × multiplier mod stake) 
+
+WHITEPAPER
+
+. Deterministic leader schedules are predictable, which can be abused (targeted DoS of the next leader, some grinding strategies depending on how membership updates).
+
+Actionable fix: introduce a randomness beacon derived from prior finalized checkpoint (e.g., hash of previous checkpoint + signatures), or a VRF if you want to be fancy. Even a simple “seed = H(prevCheckpointId || aggregatedSig)” helps.
+
+If you do only 3 things next
+
+Make /txp schema exact: list every field included, and reconcile “signatureCount vs signatures” 
+
+WHITEPAPER
+
+.
+
+Make benchmarks incontestable: include 1–2 sample encoded payloads + a script and clarify entropy assumptions behind the 389–887 char results 
+
+WHITEPAPER
+
+.
+
+Fix the QR/URL claims: byte-mode QR capacity + remove/clarify the lingering 150–200KB line

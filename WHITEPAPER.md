@@ -41,40 +41,55 @@ Transactions are encoded as:
 4. Embedded in URL path: `/tx/{payload}`
 
 A complete proof bundle uses: `/txp/{payload}` containing:
-- The transaction
-- Ancestry chain to last checkpoint
-- Merkle proofs for verification
-- Checkpoint anchor data
+- The transaction and its hash
+- Ancestry chain to last checkpoint (recursive parent bundles)
+- Checkpoint anchor (id, merkleRoot, height, signatureCount)
 
 ### 2.3 Proof Size Analysis
 
-Empirical measurement of encoded proof bundle sizes:
+Empirical measurement using high-entropy data (random hex hashes, random addresses, real ECDSA signature lengths):
 
 | Proof Type | Transactions | JSON Size | URL Length |
 |------------|--------------|-----------|------------|
-| Single tx | 1 | 558 bytes | 389 chars |
-| 1-depth ancestry | 2 | 919 bytes | 417 chars |
-| 2-depth ancestry | 3 | 1,280 bytes | 432 chars |
-| 5-depth ancestry | 6 | 2,363 bytes | 469 chars |
-| 10-depth ancestry | 11 | 4,169 bytes | 536 chars |
-| DAG 3-depth (15 txs) | 15 | 7,003 bytes | 640 chars |
-| DAG 4-depth (31 txs) | 31 | 14,379 bytes | 887 chars |
+| Single tx | 1 | 596 bytes | 596 chars |
+| 1-depth ancestry | 2 | 978 bytes | 773 chars |
+| 2-depth ancestry | 3 | 1,359 bytes | 941 chars |
+| 5-depth ancestry | 6 | 2,501 bytes | 1,411 chars |
+| 10-depth ancestry | 11 | 4,407 bytes | 2,228 chars |
+| DAG 3-depth (15 txs) | 15 | 7,450 bytes | 3,709 chars |
+| DAG 4-depth (31 txs) | 31 | 15,304 bytes | 7,248 chars |
 
-DEFLATE compression achieves ~85-95% reduction on transaction JSON.
+**What is included:**
+- Full transaction data (from, to, amount, fee, nonce, ts, sig)
+- Transaction hash (64 chars)
+- Checkpoint anchor (checkpointId, merkleRoot, height, signatureCount)
+- Recursive parent bundles
+
+**What is NOT included (to minimize size):**
+- Full validator signatures array (only signatureCount for attestation)
+- Full txHashes array from checkpoint
+- Merkle proof paths (add ~100-500 bytes if needed)
+
+DEFLATE compression achieves ~40-55% reduction on high-entropy transaction JSON.
 
 ### 2.4 Platform Compatibility
 
-All proof bundles fit within standard limits:
+QR codes require byte mode for base64url encoding (contains `-`, `_`, `/`):
 
-| Platform | Limit | 5-depth proof | 31-tx DAG proof |
-|----------|-------|---------------|-----------------|
-| QR Code (alphanumeric) | 4,296 chars | ✓ | ✓ |
-| Internet Explorer 11 | 2,083 chars | ✓ | ✓ |
-| Firefox | 65,536 chars | ✓ | ✓ |
-| Chrome/Edge | 2 MB | ✓ | ✓ |
-| nginx/Apache default | 8,192 chars | ✓ | ✓ |
+| Platform | Limit | Single tx | 5-depth | 15-tx DAG |
+|----------|-------|-----------|---------|-----------|
+| QR Code L (7% EC) | 2,953 bytes | ✓ | ✓ | ✗ |
+| QR Code M (15% EC) | 2,331 bytes | ✓ | ✓ | ✗ |
+| QR Code Q (25% EC) | 1,663 bytes | ✓ | ✓ | ✗ |
+| QR Code H (30% EC) | 1,273 bytes | ✓ | ✗ | ✗ |
+| Firefox | 65,536 chars | ✓ | ✓ | ✓ |
+| Chrome/Edge | 2 MB | ✓ | ✓ | ✓ |
+| nginx/Apache default | 8,192 chars | ✓ | ✓ | ✓ |
 
-This enables true offline verification: a payment proof can be embedded in a QR code, shared via messaging, or stored as a bookmark—no network required for validation.
+**Practical guidance:**
+- Single transactions and short ancestry chains (1-5 depth) fit in QR codes
+- Complex DAG proofs (15+ txs) require URL sharing via links, not QR
+- All proofs fit comfortably in browser URL limits
 
 ### 2.5 Self-Contained Verification
 
@@ -86,6 +101,16 @@ Any party receiving a transaction URL can:
 5. Verify Merkle inclusion proofs
 
 No external queries required. The URL is the proof.
+
+### 2.6 Trust Bootstrapping
+
+For a fresh verifier to validate proofs, they must possess a trust anchor:
+
+1. **Genesis trust**: Verifier knows the genesis validator set public keys
+2. **Checkpoint chain**: Each checkpoint commits to the next validator set; verifier can trace from genesis
+3. **Pinned checkpoint**: Verifier trusts a recent checkpoint obtained out-of-band (e.g., from a trusted source)
+
+This is analogous to TLS certificate chains: the proof is self-contained, but root trust must be established externally. A proof URL is valid if it chains back to a checkpoint signed by ≥2/3 of validators in a trusted set.
 
 ## 3. DAG-Based Consensus
 
@@ -155,10 +180,11 @@ Every 15 seconds (configurable), the network produces a checkpoint:
 
 Checkpoint finality requires Byzantine fault tolerance:
 
-1. **Leader Selection**: Weighted round-robin proportional to stake. At height `h`, the leader is selected by:
-   - Compute cumulative stake thresholds for each validator
-   - Select validator whose threshold range contains `(h × primeMultiplier) mod totalStake`
-   - This ensures validators lead checkpoints proportional to their stake weight
+1. **Leader Selection**: Randomized weighted selection proportional to stake. At height `h`, the leader is selected by:
+   - Compute randomness seed: `seed = SHA256(prevCheckpointId || prevCheckpointSignatures)`
+   - Derive selection value: `v = (seed mod totalStake)`
+   - Select validator whose cumulative stake threshold range contains `v`
+   - This ensures validators lead checkpoints proportional to stake while preventing deterministic DoS targeting
 
 2. **Quorum Threshold**: A checkpoint is valid when signed by validators representing ≥ 2/3 of total staked weight.
 
@@ -376,7 +402,7 @@ Submitted transactions:
 - **Throughput:** 3-5 TPS (single node testnet)
 - **Finality:** 15-30 seconds average
 - **Memory:** ~50 MB heap for 300 transactions
-- **Proof Size:** 400-900 chars for typical proofs (fits in QR codes)
+- **Proof Size:** 600-1,500 chars for typical proofs (1-5 depth ancestry fits in QR codes)
 
 ### 11.2 Scalability Path
 
@@ -389,7 +415,7 @@ Submitted transactions:
 
 Rinku demonstrates that distributed ledger state can exist entirely in URLs. By encoding transactions, proofs, and ancestry in self-contained URLs, we eliminate infrastructure dependency for verification.
 
-Through aggressive DEFLATE compression, complete finality proofs—including multi-transaction ancestry chains—fit within 500-900 characters. This enables genuine offline verification: embed payment proofs in QR codes, verify transactions without network access, share ledger state via hyperlinks.
+Through DEFLATE compression, complete finality proofs fit within 600-2,300 characters for typical ancestry depths (1-10 transactions). Single transactions and short ancestry chains (up to ~5 depth) fit in QR codes; complex DAG proofs work as shareable URLs in any modern browser. This enables genuine offline verification: embed payment proofs in QR codes, verify transactions without network access, share ledger state via hyperlinks.
 
 The combination of DAG-based consensus, weighted proof-of-stake, checkpoint finality, and deflationary tokenomics creates a functional distributed ledger with a novel property: **the link is the proof**.
 
@@ -406,7 +432,7 @@ The combination of DAG-based consensus, weighted proof-of-stake, checkpoint fina
 
 - **Signatures:** ECDSA P-256 with SHA-256 (chosen for native Web Crypto API support)
 - **Hashing:** SHA-256 for transactions, Merkle trees, checkpoints
-- **Key Derivation:** 40-character fingerprint from SHA-1 of public key
+- **Key Derivation:** 40-character fingerprint from first 20 bytes of SHA-256(public key)
 - **Compression:** DEFLATE (pako) for URL payload encoding
 
 ## Appendix B: URL Format Specification
@@ -454,15 +480,24 @@ Proof Bundle URL:
 
 ## Appendix D: Proof Size Benchmarks
 
-Measured on reference implementation (vitest, Node.js):
+Measured on reference implementation (vitest, Node.js) with high-entropy data:
 
 ```
-Single transaction:     389 chars  (0.38 KB)
-2-ancestor proof:       432 chars  (0.42 KB)
-5-ancestor proof:       469 chars  (0.46 KB)
-10-ancestor proof:      536 chars  (0.52 KB)
-15-tx DAG proof:        640 chars  (0.63 KB)
-31-tx DAG proof:        887 chars  (0.87 KB)
+Single transaction:     596 chars  (0.58 KB)
+2-ancestor proof:       941 chars  (0.92 KB)
+5-ancestor proof:     1,411 chars  (1.38 KB)
+10-ancestor proof:    2,228 chars  (2.18 KB)
+15-tx DAG proof:      3,709 chars  (3.62 KB)
+31-tx DAG proof:      7,248 chars  (7.08 KB)
 ```
 
-All proofs fit within QR code capacity (4,296 alphanumeric characters).
+**QR Code compatibility (byte mode):**
+- Single tx through 5-depth: fits QR-L/M (up to 2,331 bytes)
+- 10-depth and beyond: requires URL sharing, not QR
+- All proofs fit browser URL limits (65KB+)
+
+**Benchmark methodology:**
+- Random 40-char hex addresses (high entropy)
+- Random 64-char hex hashes
+- 88-char ECDSA signatures (realistic length)
+- Checkpoint anchors include signatureCount (not full signatures array)
