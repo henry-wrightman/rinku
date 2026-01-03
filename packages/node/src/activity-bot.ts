@@ -5,12 +5,12 @@ const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3002";
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
 const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "3000");
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "50");
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "100");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
 const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "3");
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "10");
-const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.3");
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "20");
+const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.6");
 const CONTRACT_INTERVAL_MS = parseInt(
   process.env.CONTRACT_INTERVAL || "120000",
 );
@@ -240,7 +240,7 @@ async function doBatchTransactions(): Promise<void> {
   try {
     const gasPrice = await fetchGasPrice();
     const batchCount = Math.min(BATCH_TX_COUNT, Math.floor(wallets.length / 2));
-    
+
     const preparedTxs: Array<{
       sender: BotWallet;
       recipient: BotWallet;
@@ -248,7 +248,7 @@ async function doBatchTransactions(): Promise<void> {
       signedTx: any;
       publicKey: number[];
     }> = [];
-    
+
     const usedSenders = new Set<string>();
 
     for (let i = 0; i < batchCount; i++) {
@@ -275,9 +275,9 @@ async function doBatchTransactions(): Promise<void> {
         const signedTx = await sender.wallet.createSignedTransaction(
           recipient.fingerprint,
           amount,
-          gasPrice
+          gasPrice,
         );
-        
+
         if (signedTx) {
           const publicKey = await sender.wallet.getPublicKey();
           preparedTxs.push({
@@ -285,7 +285,7 @@ async function doBatchTransactions(): Promise<void> {
             recipient,
             amount,
             signedTx,
-            publicKey: Array.from(publicKey)
+            publicKey: Array.from(publicKey),
           });
         }
       } catch {
@@ -299,15 +299,15 @@ async function doBatchTransactions(): Promise<void> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        transactions: preparedTxs.map(p => ({
+        transactions: preparedTxs.map((p) => ({
           tx: p.signedTx,
-          publicKey: p.publicKey
-        }))
+          publicKey: p.publicKey,
+        })),
       }),
     });
 
     if (res.ok) {
-      const result = await res.json() as {
+      const result = (await res.json()) as {
         total: number;
         successful: number;
         failed: number;
@@ -587,7 +587,9 @@ async function main() {
   console.log(`Staking interval: ${STAKING_INTERVAL_MS / 1000}s`);
   console.log(`Rewards interval: ${REWARDS_INTERVAL_MS / 1000}s`);
   console.log(`Max wallets: ${MAX_WALLETS}`);
-  console.log(`Batch TX: ${BATCH_TX_COUNT} per batch, ${Math.round(BATCH_TX_CHANCE * 100)}% chance`);
+  console.log(
+    `Batch TX: ${BATCH_TX_COUNT} per batch, ${Math.round(BATCH_TX_CHANCE * 100)}% chance`,
+  );
   console.log("=".repeat(55) + "\n");
 
   log("Starting enhanced activity simulation...");
