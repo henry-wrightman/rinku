@@ -3,9 +3,9 @@ import type { StakePosition } from '@rinku/core';
 export const TOKENOMICS_CONFIG = {
   MAX_SUPPLY: 30_000_000,
   GENESIS_ALLOCATION: 6_000_000,
-  INITIAL_CHECKPOINT_REWARD: 3.934,
+  INITIAL_CHECKPOINT_REWARD: 3.93241,
   HALVING_INTERVAL: 3_150_000,
-  MIN_CHECKPOINT_REWARD: 0.123,
+  MIN_CHECKPOINT_REWARD: 0.122888,
   HALVINGS_COUNT: 5,
   UNBONDING_PERIOD_MS: 14 * 24 * 60 * 60 * 1000,
   SLASH_DOUBLE_SIGN_PERCENT: 0.15,
@@ -91,8 +91,9 @@ export class EmissionService {
   getCheckpointReward(checkpointHeight: number): number {
     const halvings = Math.floor(checkpointHeight / TOKENOMICS_CONFIG.HALVING_INTERVAL);
     const effectiveHalvings = Math.min(halvings, TOKENOMICS_CONFIG.HALVINGS_COUNT);
-    const reward = TOKENOMICS_CONFIG.INITIAL_CHECKPOINT_REWARD / Math.pow(2, effectiveHalvings);
-    return Math.max(reward, TOKENOMICS_CONFIG.MIN_CHECKPOINT_REWARD);
+    const rewardMicro = Math.floor(TOKENOMICS_CONFIG.INITIAL_CHECKPOINT_REWARD * 1_000_000 / Math.pow(2, effectiveHalvings));
+    const minRewardMicro = Math.floor(TOKENOMICS_CONFIG.MIN_CHECKPOINT_REWARD * 1_000_000);
+    return Math.max(rewardMicro, minRewardMicro) / 1_000_000;
   }
 
   getHalvingEpoch(checkpointHeight: number): number {

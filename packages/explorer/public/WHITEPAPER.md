@@ -386,24 +386,24 @@ Rewards halve every 3,150,000 checkpoints (~18 months at 15s intervals):
 
 | Epoch | Checkpoints | Reward (µRKU) | Reward (RKU) | Epoch Emission | Cumulative |
 |-------|-------------|---------------|--------------|----------------|------------|
-| 0 | 0 – 3,149,999 | 3,934,000 | 3.934 | 12,392,100 RKU | 12,392,100 RKU |
-| 1 | 3,150,000 – 6,299,999 | 1,967,000 | 1.967 | 6,196,050 RKU | 18,588,150 RKU |
-| 2 | 6,300,000 – 9,449,999 | 983,500 | 0.984 | 3,098,025 RKU | 21,686,175 RKU |
-| 3 | 9,450,000 – 12,599,999 | 491,750 | 0.492 | 1,549,013 RKU | 23,235,188 RKU |
-| 4 | 12,600,000 – 15,749,999 | 245,875 | 0.246 | 774,506 RKU | 24,009,694 RKU |
-| 5+ | 15,750,000+ | 123,000 | 0.123 | floor until cap | ≤24,000,000 RKU |
+| 0 | 0 – 3,149,999 | 3,932,410 | 3.93241 | 12,387,091.50 RKU | 12,387,092 RKU |
+| 1 | 3,150,000 – 6,299,999 | 1,966,205 | 1.966205 | 6,193,545.75 RKU | 18,580,638 RKU |
+| 2 | 6,300,000 – 9,449,999 | 983,102 | 0.983102 | 3,096,771.30 RKU | 21,677,409 RKU |
+| 3 | 9,450,000 – 12,599,999 | 491,551 | 0.491551 | 1,548,385.65 RKU | 23,225,795 RKU |
+| 4 | 12,600,000 – 15,749,999 | 245,775 | 0.245775 | 774,191.25 RKU | 23,999,986 RKU |
+| 5+ | 15,750,000+ | 122,888 | 0.122888 | floor until cap | ≤24,000,000 RKU |
 
-**Derivation:** To emit ~24,000,000 RKU over 5 halving epochs:
+**Derivation (see Appendix C for authoritative constants):**
 ```
-totalEmission = R0 × 3,150,000 × (1 + 1/2 + 1/4 + 1/8 + 1/16)
-             = R0 × 3,150,000 × 1.9375
-             = R0 × 6,103,125
-R0 = 24,000,000 / 6,103,125 ≈ 3.934 RKU per checkpoint
+emissionPool = 24,000,000,000,000 µRKU
+epochMultiplier = 3,150,000 × 1.9375 = 6,103,125
+initialReward = floor(emissionPool / epochMultiplier) = 3,932,410 µRKU
+minReward = floor(initialReward / 32) = 122,888 µRKU
 ```
 
-*Note: Epoch totals are calculated as reward × 3,150,000 checkpoints. Values may differ slightly due to rounding. Actual emission stops when hard cap is reached.*
+*Note: Rewards at each epoch = floor(initialReward / 2^epoch). Emission halts when cumulative reaches cap. ~14 RKU headroom remains after epoch 4; epoch 5+ operates at floor rate until exhausted.*
 
-**Hard Cap Enforcement**: Once total circulating supply reaches 30,000,000 RKU, checkpoint rewards drop to 0. The floor reward of 123,000 µRKU only applies while supply remains below the cap.
+**Hard Cap Enforcement**: Once total circulating supply reaches 30,000,000 RKU, checkpoint rewards drop to 0. The floor reward of 122,888 µRKU only applies while supply remains below the cap.
 
 ### 6.4 Halving Rationale
 
@@ -927,7 +927,7 @@ JSON encoding is human-readable for debugging but does NOT fit in QR codes due t
 
 ## Appendix C: Genesis Configuration
 
-All values in µRKU (1 RKU = 1,000,000 µRKU) or basis points where noted:
+All values in µRKU (1 RKU = 1,000,000 µRKU) or basis points where noted. This is the **authoritative source of truth**—narrative tables are derived from these constants.
 
 ```json
 {
@@ -937,21 +937,38 @@ All values in µRKU (1 RKU = 1,000,000 µRKU) or basis points where noted:
     "stakingReserve": 2000000000000,
     "faucet": 1000000000000
   },
-  "initialReward": 150000000,
-  "halvingInterval": 210000,
-  "minReward": 4687500,
+  "initialReward": 3932410,
+  "halvingInterval": 3150000,
+  "minReward": 122888,
   "emissionStopsAtCap": true,
   "checkpointInterval": 15000,
   "unbondingPeriod": 1209600000,
   "quorumThresholdBps": 6700,
-  "ageWeightCap": 365
+  "ageWeightCap": 365,
+  "validatorFeeFloorBps": 7000,
+  "burnCeilingBps": 3000,
+  "supplyTargetForFullBurnBps": 5000,
+  "minBondForAgeWeight": 100000000,
+  "ageDecayPerMissBps": 1000
 }
 ```
 
+**Derivation of `initialReward`:**
+```
+emissionPool = maxSupply - sum(genesisAllocation) = 24,000,000,000,000 µRKU
+epochMultiplier = halvingInterval × (1 + 1/2 + 1/4 + 1/8 + 1/16) = 3,150,000 × 1.9375 = 6,103,125
+initialReward = floor(emissionPool / epochMultiplier) = floor(3,932,409.878...) = 3,932,410 µRKU
+minReward = floor(initialReward / 32) = floor(122,887.8125) = 122,888 µRKU
+
+Runtime uses: 3.93241 RKU (µRKU / 1,000,000)
+```
+
 **Units:**
-- `maxSupply`, `genesisAllocation.*`, `initialReward`, `minReward`: µRKU (uint64)
-- `quorumThresholdBps`: basis points (6700 = 67.00%, uint16)
-- `halvingInterval`, `checkpointInterval`, `unbondingPeriod`, `ageWeightCap`: integers as documented
+- `maxSupply`, `genesisAllocation.*`, `initialReward`, `minReward`, `minBondForAgeWeight`: µRKU (uint64)
+- `*Bps`: basis points (7000 = 70.00%, uint16)
+- `halvingInterval`: checkpoints (uint32)
+- `checkpointInterval`, `unbondingPeriod`: milliseconds (uint64)
+- `ageWeightCap`: days (uint16)
 
 ## Appendix D: Proof Size Benchmarks
 

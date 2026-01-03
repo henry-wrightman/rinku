@@ -39,14 +39,16 @@ describe('Tokenomics Module', () => {
     describe('getCheckpointReward', () => {
       it('should return initial reward for epoch 0', () => {
         const service = new EmissionService();
-        expect(service.getCheckpointReward(0)).toBeCloseTo(3.934, 3);
-        expect(service.getCheckpointReward(1000)).toBeCloseTo(3.934, 3);
+        expect(service.getCheckpointReward(0)).toBe(3.93241);
+        expect(service.getCheckpointReward(1000)).toBe(3.93241);
       });
 
-      it('should halve reward after halving interval', () => {
+      it('should halve reward after halving interval using floor(µRKU)', () => {
         const service = new EmissionService();
-        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL)).toBeCloseTo(1.967, 3);
-        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL * 2)).toBeCloseTo(0.9835, 3);
+        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL)).toBe(1.966205);
+        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL * 2)).toBe(0.983102);
+        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL * 3)).toBe(0.491551);
+        expect(service.getCheckpointReward(TOKENOMICS_CONFIG.HALVING_INTERVAL * 4)).toBe(0.245775);
       });
 
       it('should not go below minimum reward', () => {

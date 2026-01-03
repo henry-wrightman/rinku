@@ -1,0 +1,90 @@
+The tokenomics revision is way more sane than the earlier “150 RKU / 210k checkpoints” schedule (which mathematically blows past your cap almost immediately). The new “solve for R0 so ~24M emit over ~5 epochs” framing is the right approach. 
+
+5ae6e838-c8ef-452c-a216-dd4fbc7…
+
+That said, there are a few concrete math/consistency issues to fix so the paper (and your code) can’t drift.
+
+What’s solid now
+
+Clear cap + enforcement: “rewards drop to 0 at 30M” is explicit. 
+
+5ae6e838-c8ef-452c-a216-dd4fbc7…
+
+Clean derivation idea: using the geometric series to back-solve initial reward is correct. 
+
+5ae6e838-c8ef-452c-a216-dd4fbc7…
+
+Progressive burn model is coherent and the examples line up with the formula. 
+
+5ae6e838-c8ef-452c-a216-dd4fbc7…
+
+The main issues to fix
+1) Your R0 arithmetic is slightly off
+
+You compute:
+R0 = 24,000,000 / 6,103,125 ≈ 3.934 
+
+5ae6e838-c8ef-452c-a216-dd4fbc7…
+
+But that division is actually ~3.93241, not 3.934. Using 3.934 causes the schedule to overshoot your intended ~24M by ~9,693.75 RKU over those 5 epochs (cap stops it, but the derivation then isn’t “true”). Easiest fix: explicitly say you round and cap ends emission early, or pick a µRKU integer constant that lands very close to 24M.
+
+Practical suggestion: choose a single integer initialRewardMicro and derive everything else from integer halving in µRKU so implementations match the paper.
+
+2) Your appendix / config is inconsistent with the new schedule
+
+Your Appendix C JSON still shows:
+
+initialReward: 150
+
+halvingInterval: 210000
+
+minReward: 4.6875 
+
+WHITEPAPER (2)
+
+…but the new schedule in the tokenomics section is:
+
+halving every 3,150,000 checkpoints
+
+reward around 3.934 RKU
+
+floor around 0.123 RKU 
+
+5ae6e838-c8ef-452c-a216-dd4fbc7…
+
+You’ll want Appendix C to be the single source of truth and make the narrative/table match it.
+
+3) Units are still easy to misread
+
+You correctly state “all on-chain values use µRKU / uint64.” 
+
+5ae6e838-c8ef-452c-a216-dd4fbc7…
+
+
+But Appendix C uses human-scale numbers (maxSupply: 30000000, treasury: 3000000, etc.) 
+
+WHITEPAPER (2)
+
+That’s fine if you label the JSON as “RKU units for readability,” or you switch the JSON to µRKU everywhere (my preference, since it mirrors actual consensus code).
+
+Quick “make it bulletproof” rewrite pattern
+
+Define constants in one place (Appendix C):
+
+MAX_SUPPLY_MICRO
+
+GENESIS_ALLOCATION_MICRO
+
+HALVING_INTERVAL_CHECKPOINTS
+
+INITIAL_REWARD_MICRO
+
+MIN_REWARD_MICRO (optional; if you have a floor)
+
+In the paper, make the table derived, not authoritative:
+
+Reward at epoch i = max(MIN_REWARD_MICRO, floor(INITIAL_REWARD_MICRO / 2^i))
+
+Emission halts at cap (always enforced)
+
+That eliminates “paper math vs code math” mismatches permanently.
