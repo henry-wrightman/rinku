@@ -36,7 +36,9 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Validator Key Management:** AES-256-GCM encrypted key storage with scrypt key derivation (N=16384, r=8, p=1). Keys persist across restarts when password is consistent. Production requires `VALIDATOR_KEY_PASSWORD` environment variable; development uses a consistent default password.
 - **Proof Slashing Service:** Validates Profile B proofs cryptographically, detecting duplicate signatures, weight mismatches, and forged validators. Triggers automatic slashing for invalid proofs (20%), invalid witnesses (15%), and receipt tampering (25%).
 - **Gossip Protocol:** Real-time peer-to-peer transaction propagation, tip announcements, checkpoint signature aggregation, and validator set synchronization. Broadcasts transactions when submitted and periodically syncs with online peers.
-- **Fork Remediation Service:** Nonce-based double-spend detection, weight-based conflict resolution with cumulative descendant weights, and branch pruning for losing forks. Automatically resolves forks when weight advantage exceeds 67%.
+- **Fork Remediation Service:** Nonce-based double-spend detection, weight-based conflict resolution with cumulative descendant weights, and branch pruning for losing forks. Automatically resolves forks when weight advantage exceeds 67%. Uses periodic summary logging (30s intervals) to reduce log verbosity.
+- **BLS Signature Aggregation:** Uses BLS12-381 shortSignatures (48-byte G1 signatures, 96-byte G2 public keys) via @noble/curves for checkpoint validator signatures. Achieves 94.9% compression for 21 validators (1008B → 51B aggregated). Enables QR-compatible compact proofs.
+- **Compact Proof Format (Profile B Compact):** Self-contained finality proofs that fit in QR v15 codes (~688 chars for 10-level Merkle + any validator count). Includes: version(1B) + txHash(32B) + txSig(64B ECDSA) + cpHeight(varint) + merkleProof(320B) + aggSig(48B BLS) + bitmap(3B) + valRoot(32B). Uses DEFLATE compression and base64url encoding.
 
 ### Multi-Node Configuration
 To run multiple nodes that can reconcile:
@@ -53,6 +55,8 @@ To run multiple nodes that can reconcile:
 - **Vite:** Fast frontend tooling.
 - **Express:** Backend API servers for nodes and faucet.
 - **Web Crypto API:** Cryptographic operations (ECDSA P-256 signatures, SHA-256 hashing).
+- **@noble/curves:** BLS12-381 signature aggregation for compact checkpoint proofs.
+- **@noble/hashes:** SHA-256 hashing for BLS key fingerprints.
 - **Whitepaper:** See WHITEPAPER.md for complete technical specification.
 - **pako:** DEFLATE compression for URL payloads.
 - **vitest:** Testing framework.
