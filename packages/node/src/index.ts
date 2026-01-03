@@ -234,6 +234,8 @@ async function main() {
   }, SNAPSHOT_DEBOUNCE_MS);
 
   checkpointService.onCheckpoint(async (checkpointId, height) => {
+    contractService.setCheckpointHeight(height);
+    
     const checkpoint = checkpointService.getCheckpoint(checkpointId);
     const checkpointTimestamp = checkpoint?.timestamp || Date.now();
     const allNodes = consensus.getAllNodes();

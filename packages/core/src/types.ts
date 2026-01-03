@@ -173,6 +173,74 @@ export interface ExecutionResult {
 }
 
 // ============================================
+// Contract Receipt Types (Layer 1 Extension)
+// ============================================
+
+/** Structured contract event emitted during execution */
+export interface ContractEvent {
+  contractId: string;
+  eventName: string;
+  data: Record<string, unknown>;
+  index: number;  // Position in event sequence
+}
+
+/** Canonical contract execution receipt - the verifiable output of a contract call */
+export interface ContractReceipt {
+  // Unique identification
+  callId: string;              // Hash of (txHash + checkpointHeight) - unique call identifier
+  txHash: string;              // Transaction that triggered this execution
+  contractId: string;          // Contract that was called
+  
+  // Execution details
+  entrypoint: string;          // Function that was called
+  caller: string;              // Address that initiated the call
+  
+  // State transition
+  preStateRoot: string;        // Contract state root before execution
+  postStateRoot: string;       // Contract state root after execution
+  effectsHash: string;         // Hash of touched keys + their deltas
+  
+  // Execution outcome
+  status: 'success' | 'revert' | 'out_of_gas';
+  gasUsed: number;
+  gasLimit: number;
+  
+  // Events (compact form - full events optional)
+  eventsHash: string;          // Hash of all emitted events
+  eventCount: number;          // Number of events emitted
+  events?: ContractEvent[];    // Full events (optional, can be omitted for compact receipts)
+  
+  // Error info (only on failure)
+  revertReason?: string;
+  
+  // Timing
+  executedAt: number;          // Timestamp of execution
+}
+
+/** Touched storage key with before/after values for witness proofs */
+export interface TouchedKey {
+  contractId: string;
+  key: string;
+  preValue: unknown;
+  postValue: unknown;
+}
+
+/** State witness for Profile B proofs - proves specific state changes */
+export interface StateWitness {
+  touchedKeys: TouchedKey[];
+  merkleProofs: {
+    key: string;
+    proof: string[];   // Merkle path from key to stateRoot
+    index: number;
+  }[];
+}
+
+/** Extended receipt with witness for Profile B verification */
+export interface ContractReceiptWithWitness extends ContractReceipt {
+  witness: StateWitness;
+}
+
+// ============================================
 // Rewards & Staking Types
 // ============================================
 
@@ -272,6 +340,8 @@ export interface Checkpoint {
   merkleRoot: string;
   txMerkleRoot?: string;
   txHashes?: string[];
+  stateRoot?: string;           // Root of global contract state trie
+  receiptRoot?: string;         // Root of receipts trie for this checkpoint
   tipCount: number;
   totalTransactions: number;
   totalWeight: number;
@@ -317,6 +387,8 @@ export interface CheckpointAnchor {
   checkpointId: string;
   merkleRoot: string;
   txMerkleRoot?: string;
+  stateRoot?: string;           // For contract state proofs
+  receiptRoot?: string;         // For receipt inclusion proofs
   height: number;
   signatureCount: number;
 }

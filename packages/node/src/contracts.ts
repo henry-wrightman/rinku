@@ -5,6 +5,8 @@ import {
   type ContractTransaction,
   type ExecutionResult,
   type StateDiff,
+  type ContractReceipt,
+  type ContractEvent,
   createContractState,
   computeStateHash,
   computeStateDiff,
@@ -12,16 +14,31 @@ import {
   validateContractCall,
   createContractURL,
   parseContractURL,
-  type WasmHostBindings
+  type WasmHostBindings,
+  type ExtendedExecutionResult,
+  StateTrie,
+  ReceiptsTrie,
+  createContractReceipt
 } from '@rinku/core';
 import { StateManager } from './state.js';
 
 export class ContractService {
   private contracts: Map<string, ContractState> = new Map();
   private executionHistory: Map<string, StateDiff[]> = new Map();
+  private receipts: Map<string, ContractReceipt> = new Map();
   private runtime = createMockRuntime();
+  private stateTrie: StateTrie;
+  private receiptsTrie: ReceiptsTrie;
+  private currentCheckpointHeight: number = 0;
 
-  constructor(private stateManager: StateManager) {}
+  constructor(private stateManager: StateManager) {
+    this.stateTrie = new StateTrie();
+    this.receiptsTrie = new ReceiptsTrie();
+  }
+
+  setCheckpointHeight(height: number): void {
+    this.currentCheckpointHeight = height;
+  }
 
   async deployContract(deploy: ContractDeploy): Promise<{
     success: boolean;
@@ -48,41 +65,51 @@ export class ContractService {
 
   async executeCall(
     tx: ContractTransaction
-  ): Promise<ExecutionResult> {
+  ): Promise<{ result: ExtendedExecutionResult; receipt?: ContractReceipt }> {
     const call = tx.contract;
     if (!call) {
       return {
-        success: false,
-        stateDiff: null,
-        gasUsed: 0,
-        error: 'No contract call in transaction',
-        logs: []
+        result: {
+          success: false,
+          stateDiff: null,
+          gasUsed: 0,
+          error: 'No contract call in transaction',
+          logs: [],
+          events: []
+        }
       };
     }
 
     const contract = this.contracts.get(call.contractId);
     if (!contract) {
       return {
-        success: false,
-        stateDiff: null,
-        gasUsed: 0,
-        error: `Contract not found: ${call.contractId}`,
-        logs: []
+        result: {
+          success: false,
+          stateDiff: null,
+          gasUsed: 0,
+          error: `Contract not found: ${call.contractId}`,
+          logs: [],
+          events: []
+        }
       };
     }
 
     const validation = validateContractCall(call, contract);
     if (!validation.valid) {
       return {
-        success: false,
-        stateDiff: null,
-        gasUsed: 0,
-        error: validation.error,
-        logs: []
+        result: {
+          success: false,
+          stateDiff: null,
+          gasUsed: 0,
+          error: validation.error,
+          logs: [],
+          events: []
+        }
       };
     }
 
     const bindings = this.createHostBindings();
+    const preStateRoot = await this.stateTrie.getRoot();
     
     const result = this.runtime.execute(
       call.contractId,
@@ -99,11 +126,14 @@ export class ContractService {
 
       if (diff.postHash !== call.postStateHash) {
         return {
-          success: false,
-          stateDiff: null,
-          gasUsed: result.gasUsed,
-          error: `Post-state hash mismatch. Expected: ${call.postStateHash}, Got: ${diff.postHash}`,
-          logs: result.logs
+          result: {
+            success: false,
+            stateDiff: null,
+            gasUsed: result.gasUsed,
+            error: `Post-state hash mismatch. Expected: ${call.postStateHash}, Got: ${diff.postHash}`,
+            logs: result.logs,
+            events: result.events
+          }
         };
       }
 
@@ -111,19 +141,83 @@ export class ContractService {
       contract.stateHash = diff.postHash;
       contract.height++;
 
+      await this.stateTrie.setContractState(call.contractId, contract.state);
+      const postStateRoot = await this.stateTrie.getRoot();
+
       const history = this.executionHistory.get(call.contractId) || [];
       history.push(diff);
       this.executionHistory.set(call.contractId, history);
 
-      return {
-        success: true,
+      const events: ContractEvent[] = result.events.map((e, idx) => ({
+        contractId: call.contractId,
+        eventName: e.eventName,
+        data: e.data,
+        index: idx
+      }));
+
+      const receipt = await createContractReceipt({
+        txHash: tx.hash,
+        checkpointHeight: this.currentCheckpointHeight,
+        contractId: call.contractId,
+        entrypoint: call.entrypoint,
+        caller: tx.from,
+        preStateRoot,
+        postStateRoot,
         stateDiff: diff,
+        status: 'success',
         gasUsed: result.gasUsed,
-        logs: result.logs
+        gasLimit: 1_000_000,
+        events
+      });
+
+      this.receipts.set(receipt.callId, receipt);
+      await this.receiptsTrie.addReceipt(receipt.callId, receipt);
+
+      return {
+        result: {
+          success: true,
+          stateDiff: diff,
+          gasUsed: result.gasUsed,
+          logs: result.logs,
+          events: result.events
+        },
+        receipt
       };
     }
 
-    return result;
+    if (!result.success) {
+      const postStateRoot = await this.stateTrie.getRoot();
+      
+      const events: ContractEvent[] = result.events.map((e, idx) => ({
+        contractId: call.contractId,
+        eventName: e.eventName,
+        data: e.data,
+        index: idx
+      }));
+
+      const receipt = await createContractReceipt({
+        txHash: tx.hash,
+        checkpointHeight: this.currentCheckpointHeight,
+        contractId: call.contractId,
+        entrypoint: call.entrypoint,
+        caller: tx.from,
+        preStateRoot,
+        postStateRoot,
+        stateDiff: null,
+        status: result.error?.includes('out of gas') ? 'out_of_gas' : 'revert',
+        gasUsed: result.gasUsed,
+        gasLimit: 1_000_000,
+        events,
+        revertReason: result.error
+      });
+
+      this.receipts.set(receipt.callId, receipt);
+      await this.receiptsTrie.addReceipt(receipt.callId, receipt);
+
+      return { result, receipt };
+    }
+
+    return { result };
   }
 
   private applyDiffToState(
@@ -157,8 +251,40 @@ export class ContractService {
       log: (message: string) => {
         console.log(`[Contract] ${message}`);
       },
-      getCurrentTime: () => Date.now()
+      emit: (eventName: string, data: Record<string, unknown>) => {
+        console.log(`[Contract Event] ${eventName}:`, data);
+      },
+      getCurrentTime: () => Date.now(),
+      getBlockHeight: () => this.currentCheckpointHeight
     };
+  }
+
+  getReceipt(callId: string): ContractReceipt | undefined {
+    return this.receipts.get(callId);
+  }
+
+  getAllReceipts(): ContractReceipt[] {
+    return Array.from(this.receipts.values());
+  }
+
+  async getStateRoot(): Promise<string> {
+    return this.stateTrie.getRoot();
+  }
+
+  async getReceiptRoot(): Promise<string> {
+    return this.receiptsTrie.getRoot();
+  }
+
+  async getStateProof(contractId: string, key: string) {
+    return this.stateTrie.getProof(contractId, key);
+  }
+
+  async getReceiptProof(callId: string) {
+    return this.receiptsTrie.getProof(callId);
+  }
+
+  clearCheckpointReceipts(): void {
+    this.receiptsTrie.clear();
   }
 
   getContract(contractId: string): ContractState | undefined {

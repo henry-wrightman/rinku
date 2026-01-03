@@ -111,7 +111,62 @@ export interface WasmHostBindings {
   getBalance(address: string): number;
   getAccountAge(address: string): number;
   log(message: string): void;
+  emit(eventName: string, data: Record<string, unknown>): void;
   getCurrentTime(): number;
+  getBlockHeight(): number;
+}
+
+export interface WasmRuntimeConfig {
+  maxGas: number;
+  maxMemoryPages: number;
+  maxExecutionTimeMs: number;
+  allowedHostFunctions: string[];
+}
+
+export const DEFAULT_RUNTIME_CONFIG: WasmRuntimeConfig = {
+  maxGas: 1_000_000,
+  maxMemoryPages: 256,
+  maxExecutionTimeMs: 5000,
+  allowedHostFunctions: [
+    'getBalance',
+    'getAccountAge',
+    'log',
+    'emit',
+    'getCurrentTime',
+    'getBlockHeight',
+    'storage_read',
+    'storage_write'
+  ]
+};
+
+export interface WasmExecutionContext {
+  contractId: string;
+  caller: string;
+  gasLimit: number;
+  blockHeight: number;
+  timestamp: number;
+}
+
+export interface WasmRuntimeInterface {
+  execute(
+    wasmCode: Uint8Array,
+    entrypoint: string,
+    input: Record<string, unknown>,
+    state: Record<string, unknown>,
+    context: WasmExecutionContext,
+    bindings: WasmHostBindings
+  ): Promise<ExecutionResult>;
+  
+  validate(wasmCode: Uint8Array): Promise<{ valid: boolean; error?: string }>;
+}
+
+export interface EmittedEvent {
+  eventName: string;
+  data: Record<string, unknown>;
+}
+
+export interface ExtendedExecutionResult extends ExecutionResult {
+  events: EmittedEvent[];
 }
 
 export function createMockRuntime(): {
@@ -123,24 +178,39 @@ export function createMockRuntime(): {
     state: Record<string, unknown>,
     height: number,
     bindings: WasmHostBindings
-  ) => ExecutionResult;
+  ) => ExtendedExecutionResult;
 } {
   return {
     execute: (contractId, wasmBase64, entrypoint, input, state, height, bindings) => {
       const logs: string[] = [];
+      const events: EmittedEvent[] = [];
       const startGas = 1000000;
       let gasUsed = 0;
+      
+      const wrappedBindings: WasmHostBindings = {
+        ...bindings,
+        log: (message: string) => {
+          logs.push(message);
+          bindings.log(message);
+        },
+        emit: (eventName: string, data: Record<string, unknown>) => {
+          events.push({ eventName, data });
+          bindings.emit(eventName, data);
+        }
+      };
       
       try {
         const newState = JSON.parse(JSON.stringify(state));
         
         if (entrypoint === 'init') {
           gasUsed = 1000;
+          events.push({ eventName: 'Initialized', data: { contractId } });
           return {
             success: true,
             stateDiff: computeStateDiff(contractId, height, state, newState),
             gasUsed,
-            logs
+            logs,
+            events
           };
         }
         
@@ -150,12 +220,14 @@ export function createMockRuntime(): {
           
           const fromBalance = balances[from] || 0;
           if (fromBalance < amount) {
+            events.push({ eventName: 'TransferFailed', data: { from, to, amount, reason: 'Insufficient balance' } });
             return {
               success: false,
               stateDiff: null,
               gasUsed: 5000,
               error: 'Insufficient balance',
-              logs
+              logs,
+              events
             };
           }
           
@@ -165,6 +237,7 @@ export function createMockRuntime(): {
           
           gasUsed = 10000;
           logs.push(`Transferred ${amount} from ${from} to ${to}`);
+          events.push({ eventName: 'Transfer', data: { from, to, amount } });
         }
         
         if (entrypoint === 'mint') {
@@ -175,6 +248,7 @@ export function createMockRuntime(): {
           
           gasUsed = 8000;
           logs.push(`Minted ${amount} to ${to}`);
+          events.push({ eventName: 'Mint', data: { to, amount } });
         }
         
         if (entrypoint === 'get_balance') {
@@ -186,7 +260,8 @@ export function createMockRuntime(): {
             success: true,
             stateDiff: null,
             gasUsed,
-            logs
+            logs,
+            events
           };
         }
         
@@ -194,7 +269,8 @@ export function createMockRuntime(): {
           success: true,
           stateDiff: computeStateDiff(contractId, height, state, newState),
           gasUsed,
-          logs
+          logs,
+          events
         };
       } catch (error) {
         return {
@@ -202,7 +278,8 @@ export function createMockRuntime(): {
           stateDiff: null,
           gasUsed: startGas,
           error: error instanceof Error ? error.message : 'Unknown error',
-          logs
+          logs,
+          events
         };
       }
     }

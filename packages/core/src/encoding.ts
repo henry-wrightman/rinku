@@ -1,5 +1,15 @@
 import pako from 'pako';
-import type { Transaction, TransactionURL, ContractDeploy, ContractURL, ContractTransaction, SelfCrawlableBundle } from './types.js';
+import type { 
+  Transaction, 
+  TransactionURL, 
+  ContractDeploy, 
+  ContractURL, 
+  ContractTransaction, 
+  SelfCrawlableBundle,
+  ContractReceipt,
+  CheckpointAnchor,
+  StateWitness
+} from './types.js';
 
 const base64urlChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
@@ -223,6 +233,187 @@ export interface BundleVerification {
 
 const MAX_BUNDLE_DEPTH = 100;
 const MAX_BUNDLE_TRANSACTIONS = 500;
+
+// ============================================
+// Contract Receipt Proof Encoding
+// ============================================
+
+/** Profile A: Compact contract receipt proof (QR-compatible) */
+export interface ContractReceiptProofA {
+  receipt: Omit<ContractReceipt, 'events'>;  // Compact receipt without full events
+  tx: Transaction;
+  txHash: string;
+  checkpointAnchor: CheckpointAnchor;
+}
+
+/** Profile B: Full contract receipt proof with witness */
+export interface ContractReceiptProofB extends ContractReceiptProofA {
+  receipt: ContractReceipt;  // Full receipt with events
+  witness: StateWitness;
+  validatorSignatures: {
+    validator: string;
+    signature: string;
+    weight: number;
+  }[];
+  receiptMerkleProof: {
+    proof: string[];
+    index: number;
+    receiptRoot: string;
+  };
+}
+
+/** Encode contract receipt proof (Profile A) to URL payload */
+export function encodeContractReceiptProof(proof: ContractReceiptProofA): string {
+  const json = JSON.stringify(proof);
+  const compressed = pako.deflate(json);
+  return base64urlEncode(compressed);
+}
+
+/** Decode contract receipt proof (Profile A) from URL payload */
+export function decodeContractReceiptProof(payload: string): ContractReceiptProofA {
+  const compressed = base64urlDecode(payload);
+  const json = pako.inflate(compressed, { to: 'string' });
+  return JSON.parse(json);
+}
+
+/** Create contract receipt proof URL (Profile A) */
+export function createContractReceiptURL(proof: ContractReceiptProofA): { path: string; payload: string } {
+  const payload = encodeContractReceiptProof(proof);
+  return {
+    path: `/rxp/${payload}`,  // rxp = receipt proof
+    payload
+  };
+}
+
+/** Parse contract receipt proof URL */
+export function parseContractReceiptURL(url: string): ContractReceiptProofA | null {
+  try {
+    const match = url.match(/\/rxp\/([A-Za-z0-9_-]+)/);
+    if (!match) return null;
+    return decodeContractReceiptProof(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+/** Encode Profile B contract receipt proof (full witness) */
+export function encodeContractReceiptProofB(proof: ContractReceiptProofB): string {
+  const json = JSON.stringify(proof);
+  const compressed = pako.deflate(json);
+  return base64urlEncode(compressed);
+}
+
+/** Decode Profile B contract receipt proof */
+export function decodeContractReceiptProofB(payload: string): ContractReceiptProofB {
+  const compressed = base64urlDecode(payload);
+  const json = pako.inflate(compressed, { to: 'string' });
+  return JSON.parse(json);
+}
+
+/** Create Profile B contract receipt proof URL */
+export function createContractReceiptURLB(proof: ContractReceiptProofB): { path: string; payload: string } {
+  const payload = encodeContractReceiptProofB(proof);
+  return {
+    path: `/rxpb/${payload}`,  // rxpb = receipt proof B (full)
+    payload
+  };
+}
+
+/** Parse Profile B contract receipt proof URL */
+export function parseContractReceiptURLB(url: string): ContractReceiptProofB | null {
+  try {
+    const match = url.match(/\/rxpb\/([A-Za-z0-9_-]+)/);
+    if (!match) return null;
+    return decodeContractReceiptProofB(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+/** Determine URL type from path (updated to include receipt proofs) */
+export function getURLTypeExtended(url: string): 'tx' | 'txp' | 'sc' | 'sc-chunk' | 'rxp' | 'rxpb' | 'unknown' {
+  if (url.startsWith('/rxpb/')) return 'rxpb';
+  if (url.startsWith('/rxp/')) return 'rxp';
+  if (url.startsWith('/tx/h/')) return 'tx';
+  if (url.startsWith('/txp/')) return 'txp';
+  if (url.startsWith('/tx/')) return 'tx';
+  if (url.startsWith('/sc/chunk/')) return 'sc-chunk';
+  if (url.startsWith('/sc/')) return 'sc';
+  return 'unknown';
+}
+
+/** Verification result for contract receipt proof */
+export interface ReceiptProofVerification {
+  valid: boolean;
+  errors: string[];
+  profile: 'A' | 'B';
+  hasWitness: boolean;
+  hasValidatorSignatures: boolean;
+  signatureCount: number;
+}
+
+/** Verify a contract receipt proof structure */
+export function verifyContractReceiptProof(
+  proof: ContractReceiptProofA | ContractReceiptProofB
+): ReceiptProofVerification {
+  const errors: string[] = [];
+  const isProfileB = 'witness' in proof && 'validatorSignatures' in proof;
+  
+  // Verify receipt structure
+  if (!proof.receipt) {
+    errors.push('Missing receipt');
+  } else {
+    if (!proof.receipt.callId) errors.push('Receipt missing callId');
+    if (!proof.receipt.txHash) errors.push('Receipt missing txHash');
+    if (!proof.receipt.contractId) errors.push('Receipt missing contractId');
+    if (!proof.receipt.status) errors.push('Receipt missing status');
+    if (!proof.receipt.effectsHash) errors.push('Receipt missing effectsHash');
+    if (!proof.receipt.eventsHash) errors.push('Receipt missing eventsHash');
+  }
+  
+  // Verify transaction
+  if (!proof.tx) {
+    errors.push('Missing transaction');
+  }
+  
+  // Verify checkpoint anchor
+  if (!proof.checkpointAnchor) {
+    errors.push('Missing checkpoint anchor');
+  } else {
+    if (!proof.checkpointAnchor.checkpointId) errors.push('Anchor missing checkpointId');
+    if (!proof.checkpointAnchor.stateRoot) errors.push('Anchor missing stateRoot');
+    if (!proof.checkpointAnchor.receiptRoot) errors.push('Anchor missing receiptRoot');
+  }
+  
+  // Profile B specific validation
+  let signatureCount = 0;
+  if (isProfileB) {
+    const proofB = proof as ContractReceiptProofB;
+    
+    if (!proofB.witness) {
+      errors.push('Profile B missing witness');
+    }
+    
+    if (!proofB.validatorSignatures || proofB.validatorSignatures.length === 0) {
+      errors.push('Profile B missing validator signatures');
+    } else {
+      signatureCount = proofB.validatorSignatures.length;
+    }
+    
+    if (!proofB.receiptMerkleProof) {
+      errors.push('Profile B missing receipt Merkle proof');
+    }
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors,
+    profile: isProfileB ? 'B' : 'A',
+    hasWitness: isProfileB && 'witness' in proof,
+    hasValidatorSignatures: isProfileB && 'validatorSignatures' in proof,
+    signatureCount
+  };
+}
 
 /** Verify a self-crawlable bundle structure */
 export function verifySelfCrawlableBundle(bundle: SelfCrawlableBundle): BundleVerification {

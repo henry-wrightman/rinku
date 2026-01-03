@@ -1,0 +1,150 @@
+What’s novel here (and what’s not)
+
+Not novel: deterministic WASM execution, gas metering, receipts/logs—every smart contract chain does that.
+
+Novel: making a self-contained, shareable artifact that includes enough proof material to verify a specific contract outcome offline (or at least without trusting a node).
+
+That’s very aligned with “stateless client / proof-carrying transaction” ideas, but your “URL/QR-first” packaging is a real product wedge.
+
+The 3 main blockers (engineering + cryptography reality)
+1) Data size: receipts + witnesses balloon fast
+
+For a swap, “affected storage slots” can be:
+
+user balance
+
+pool reserves
+
+LP token supply
+
+fee accumulator
+
+global config
+…and if you do it naïvely, the witness becomes huge.
+
+Your current Profile A vs B approach is perfect here: you’ll likely need:
+
+Contract Proof Profile A (Receipt): “trust the checkpoint attestation” style, small, QR-capable for many calls.
+
+Contract Proof Profile B (Full): state witness + inclusion + validator cert (bigger URLs).
+
+But you must design the witness format so “typical DeFi call” stays in the few KB range, not tens/hundreds.
+
+2) True offline “no node queries” depends on a trusted trust anchor + cert format
+
+You already fixed this with bootstrapping language in the paper. 
+
+WHITEPAPER (2)
+
+
+For contracts, it’s the same: the link can be self-contained, but the verifier needs:
+
+trusted genesis/pinned checkpoint, and
+
+a verifiable finality cert (Profile B)
+
+3) Determinism in WASM is harder than it looks
+
+You need a sandboxed WASM runtime with:
+
+no floating-point nondeterminism (or strictly defined)
+
+deterministic memory limits
+
+no host-time, randomness, system calls
+
+stable compilation/execution behavior across platforms
+
+deterministic hashing/serialization rules
+
+This is why chains that use WASM are very strict about host functions and often ban or heavily constrain floats.
+
+What I’d do: “Proof-Carrying Contract Calls” as an incremental roadmap
+Phase 1: Receipt of execution (small, credible, shippable)
+
+Goal: “A link proves this call was executed and finalized, and shows a human-readable receipt.”
+
+Include in the URL:
+
+tx + calldata
+
+preStateRoot, postStateRoot (or checkpointStateRoot + a transition hash)
+
+execution receipt: gas used, status, event hash (maybe full small logs)
+
+checkpoint anchor + signatureCount (Profile A) or full cert (Profile B)
+
+This gives you “portable DeFi receipts” without the witness explosion yet.
+
+Phase 2: Witness for touched keys only
+
+Add a witness that proves the correctness of the post-state for keys affected by the call.
+
+This is where your state structure matters most. A clean scheme:
+
+Global stateRoot commits to a map: (contractId, key) -> value
+
+Witness contains Merkle proofs for each touched (contractId, key) pre and post
+
+Receipt includes the set of touched keys (or a hash thereof)
+
+This makes “offline verification of this call’s effects” possible.
+
+Phase 3: Make witnesses small with a better commitment structure
+
+If you use a simple Merkle Patricia Trie, proofs can be chunky. If you later move to a more proof-friendly tree (or batched proofs), your Profile B becomes much more practical.
+
+Is it “exceptionally powerful for PoS infra”?
+
+Yes, because it enables:
+
+third-party verification without running an indexer
+
+audit trails that are self-contained
+
+bridges that can verify specific transitions with less custom infra
+
+But the power comes only if your Profile B is actually verifiable and not too big to share.
+
+Two crucial design choices you should make early
+A) Define the “receipt” format like a standard
+
+For contract calls, don’t just include “logs/events” arbitrarily. Define:
+
+callId (hash of tx + checkpoint height)
+
+effectsHash (hash of touched keys + deltas)
+
+eventsHash (hash of logs)
+
+gasUsed, status
+
+Then you can have “compact receipts” even when logs are large (logs can be optional or referenced).
+
+B) Decide what you’re willing to require for Profile B signatures
+
+Right now your paper uses ECDSA P-256 for WebCrypto convenience. 
+
+WHITEPAPER (2)
+
+
+For Profile B with many validators, raw ECDSA signatures get big fast.
+
+If you want Profile B links to stay in the 3k–10k chars neighborhood (as your paper targets), you likely need:
+
+aggregated signatures (one sig + bitmap), or
+
+small committees with explicit signatures, or
+
+a “checkpoint cert reference” (hash) plus a retrievable cert blob (sacrifices pure self-containment)
+
+My take: worth pursuing, but frame it as “proof-carrying receipts + optional witnesses”
+
+If you market it as “no node queries ever,” people will nitpick edge cases.
+If you market it as:
+
+“portable receipts that are verifiable with no trusted infra,” and
+
+“upgradeable to full cryptographic witness proofs for high-value interactions,”
+
+…it’s both honest and extremely compelling.

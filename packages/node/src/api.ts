@@ -762,7 +762,7 @@ export function createAPI(
         }
       };
 
-      const result = await contractService.executeCall(contractTx);
+      const { result, receipt } = await contractService.executeCall(contractTx);
 
       res.json({
         success: result.success,
@@ -770,7 +770,14 @@ export function createAPI(
         gasUsed: result.gasUsed,
         logs: result.logs,
         error: result.error,
-        newStateHash: result.stateDiff?.postHash
+        newStateHash: result.stateDiff?.postHash,
+        receipt: receipt ? {
+          callId: receipt.callId,
+          status: receipt.status,
+          effectsHash: receipt.effectsHash,
+          eventsHash: receipt.eventsHash,
+          eventCount: receipt.eventCount
+        } : undefined
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

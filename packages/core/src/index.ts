@@ -7,3 +7,5 @@ export * from './weight.js';
 export * from './contract.js';
 export * from './rewards.js';
 export * from './checkpoint.js';
+export * from './state-trie.js';
+export * from './receipt.js';

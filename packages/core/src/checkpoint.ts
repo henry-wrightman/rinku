@@ -323,3 +323,239 @@ export function extractProofFromUrl(url: string): {
   const proof = decodeCheckpointProof(proofMatch[1]);
   return { txUrl, proof };
 }
+
+// ============================================
+// Profile B Signature Formats
+// ============================================
+
+/** 
+ * Compact signature for Profile B proofs.
+ * Trades validator identity for size reduction.
+ */
+export interface CompactValidatorSignature {
+  idx: number;           // Index into checkpoint's validator array
+  sig: string;           // Signature (88 chars for ECDSA P-256)
+}
+
+/** 
+ * Profile B checkpoint certificate - compact finality proof.
+ * Uses indexed signatures for size efficiency.
+ */
+export interface CheckpointCertificate {
+  checkpointId: string;
+  merkleRoot: string;
+  stateRoot: string;
+  receiptRoot: string;
+  height: number;
+  validatorSetHash: string;
+  totalWeight: number;
+  signerBitmap: string;      // Hex bitmap of which validators signed (bit i = validator[i])
+  signatures: CompactValidatorSignature[];
+}
+
+/** Create a checkpoint certificate from a full checkpoint */
+export function createCheckpointCertificate(
+  checkpoint: Checkpoint,
+  stateRoot: string,
+  receiptRoot: string
+): CheckpointCertificate {
+  const validatorMap = new Map(
+    checkpoint.validators.map((v, i) => [v.address, i])
+  );
+  
+  const signerBitmap = createSignerBitmap(
+    checkpoint.signatures.map(s => s.validator),
+    validatorMap
+  );
+  
+  const compactSigs: CompactValidatorSignature[] = checkpoint.signatures.map(s => ({
+    idx: validatorMap.get(s.validator) ?? -1,
+    sig: s.signature
+  })).filter(s => s.idx >= 0);
+  
+  return {
+    checkpointId: checkpoint.checkpointId,
+    merkleRoot: checkpoint.merkleRoot,
+    stateRoot,
+    receiptRoot,
+    height: checkpoint.height,
+    validatorSetHash: checkpoint.validatorSetHash,
+    totalWeight: checkpoint.totalWeight,
+    signerBitmap,
+    signatures: compactSigs
+  };
+}
+
+/** Create a hex bitmap of which validators signed */
+function createSignerBitmap(
+  signerAddresses: string[],
+  validatorMap: Map<string, number>
+): string {
+  const signerSet = new Set(signerAddresses);
+  const numValidators = validatorMap.size;
+  const numBytes = Math.ceil(numValidators / 8);
+  const bytes = new Uint8Array(numBytes);
+  
+  for (const [address, idx] of validatorMap) {
+    if (signerSet.has(address)) {
+      const byteIdx = Math.floor(idx / 8);
+      const bitIdx = idx % 8;
+      bytes[byteIdx] |= (1 << bitIdx);
+    }
+  }
+  
+  return Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** Parse signer bitmap to get list of validator indices */
+export function parseSignerBitmap(bitmap: string): number[] {
+  const indices: number[] = [];
+  const bytes = bitmap.match(/.{2}/g) || [];
+  
+  for (let byteIdx = 0; byteIdx < bytes.length; byteIdx++) {
+    const byte = parseInt(bytes[byteIdx], 16);
+    for (let bitIdx = 0; bitIdx < 8; bitIdx++) {
+      if (byte & (1 << bitIdx)) {
+        indices.push(byteIdx * 8 + bitIdx);
+      }
+    }
+  }
+  
+  return indices;
+}
+
+/** Verify a checkpoint certificate */
+export async function verifyCheckpointCertificate(
+  cert: CheckpointCertificate,
+  validators: ValidatorEntry[],
+  config: CheckpointConfig = DEFAULT_CHECKPOINT_CONFIG
+): Promise<{ valid: boolean; errors: string[]; weightPercent: number }> {
+  const errors: string[] = [];
+  let verifiedWeight = 0;
+  const totalWeight = validators.reduce((sum, v) => sum + v.weight, 0);
+  
+  const signerIndices = parseSignerBitmap(cert.signerBitmap);
+  
+  if (signerIndices.length !== cert.signatures.length) {
+    errors.push(`Bitmap/signature count mismatch: ${signerIndices.length} vs ${cert.signatures.length}`);
+  }
+  
+  const signingData = JSON.stringify({
+    checkpointId: cert.checkpointId,
+    height: cert.height,
+    merkleRoot: cert.merkleRoot,
+    stateRoot: cert.stateRoot,
+    receiptRoot: cert.receiptRoot,
+    totalWeight: cert.totalWeight,
+    validatorSetHash: cert.validatorSetHash
+  });
+  
+  for (const compactSig of cert.signatures) {
+    if (compactSig.idx < 0 || compactSig.idx >= validators.length) {
+      errors.push(`Invalid validator index: ${compactSig.idx}`);
+      continue;
+    }
+    
+    const validator = validators[compactSig.idx];
+    const publicKeyBytes = new Uint8Array(validator.publicKey);
+    
+    const signerSigningData = signingData + `:${validator.weight}`;
+    
+    try {
+      const isValid = await verify(signerSigningData, compactSig.sig, publicKeyBytes);
+      if (isValid) {
+        verifiedWeight += validator.weight;
+      } else {
+        errors.push(`Invalid signature from validator ${compactSig.idx}`);
+      }
+    } catch (err) {
+      errors.push(`Failed to verify signature from validator ${compactSig.idx}`);
+    }
+  }
+  
+  const weightPercent = totalWeight > 0 ? (verifiedWeight / totalWeight) * 100 : 0;
+  
+  if (weightPercent < config.minValidatorWeightPercent) {
+    errors.push(`Insufficient weight: ${weightPercent.toFixed(1)}% < ${config.minValidatorWeightPercent}% required`);
+  }
+  
+  return {
+    valid: errors.length === 0 && weightPercent >= config.minValidatorWeightPercent,
+    errors,
+    weightPercent
+  };
+}
+
+/** Encode checkpoint certificate for URL embedding */
+export function encodeCheckpointCertificate(cert: CheckpointCertificate): string {
+  const compact = {
+    c: cert.checkpointId,
+    m: cert.merkleRoot,
+    s: cert.stateRoot,
+    r: cert.receiptRoot,
+    h: cert.height,
+    v: cert.validatorSetHash,
+    w: cert.totalWeight,
+    b: cert.signerBitmap,
+    g: cert.signatures.map(s => `${s.idx}:${s.sig}`)
+  };
+  return Buffer.from(JSON.stringify(compact)).toString('base64url');
+}
+
+/** Decode checkpoint certificate from URL */
+export function decodeCheckpointCertificate(encoded: string): CheckpointCertificate | null {
+  try {
+    const json = Buffer.from(encoded, 'base64url').toString('utf-8');
+    const compact = JSON.parse(json);
+    return {
+      checkpointId: compact.c,
+      merkleRoot: compact.m,
+      stateRoot: compact.s,
+      receiptRoot: compact.r,
+      height: compact.h,
+      validatorSetHash: compact.v,
+      totalWeight: compact.w,
+      signerBitmap: compact.b,
+      signatures: compact.g.map((s: string) => {
+        const [idx, sig] = s.split(':');
+        return { idx: parseInt(idx), sig };
+      })
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Estimate URL size for different signature approaches */
+export function estimateProfileBSize(
+  numValidators: number,
+  numSigners: number,
+  avgReceiptSize: number = 400
+): {
+  fullSignatures: number;      // All sigs with full validator info
+  compactSignatures: number;   // Indexed sigs with bitmap
+  perSignatureBytes: number;
+} {
+  const validatorEntrySize = 50;      // Address + weight
+  const fullSignatureSize = 130;      // Validator address + sig + weight + pubkey ref
+  const compactSignatureSize = 92;    // Index (2) + signature (88)
+  const bitmapSize = Math.ceil(numValidators / 8) * 2;  // Hex encoding
+  
+  const fullSignatures = 
+    avgReceiptSize + 
+    (numValidators * validatorEntrySize) + 
+    (numSigners * fullSignatureSize);
+    
+  const compactSignatures = 
+    avgReceiptSize + 
+    bitmapSize + 
+    (numSigners * compactSignatureSize);
+  
+  return {
+    fullSignatures,
+    compactSignatures,
+    perSignatureBytes: compactSignatureSize
+  };
+}
