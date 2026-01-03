@@ -41,6 +41,13 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Compact Proof Format (Profile B Compact):** Self-contained finality proofs that fit in QR v15 codes (~688 chars for 10-level Merkle + any validator count). Includes: version(1B) + txHash(32B) + txSig(64B ECDSA) + cpHeight(varint) + merkleProof(320B) + aggSig(48B BLS) + bitmap(3B) + valRoot(32B). Uses DEFLATE compression and base64url encoding.
 - **Self-Contained Proof System (v5 - MerkleSumTree Multi-Proof):** Fully offline-verifiable transaction proofs with chain identity binding. Each proof contains: chainId (network identifier), transaction data, checkpoint header (txMerkleRoot, stateRoot, receiptRoot, tipCount), Merkle inclusion proof, BLS aggregated signature, MerkleSumTree multi-proof (batched signer membership proofs with shared siblings), and validatorSumTreeRoot (hash + totalWeight). Verification derives totalWeight from the MerkleSumTree root (cryptographically bound), recomputes signer weight from membership proofs, verifies 67% weight threshold, and confirms chainId matches expected network. Multi-proof optimization achieves 60-75% size reduction by sharing sibling nodes. Format: `rinku://sp/{base64url-deflate-packed}`. QR-compatible with packed encoding + multi-proof for committees N ≤ 21.
 
+### Node TUI Dashboard
+Interactive terminal dashboard for node operators. Enable with `NODE_TUI=true` environment variable.
+- **Dashboard View:** Real-time stats for DAG, consensus, system resources, and network
+- **Key Bindings:** `L` (logs), `P` (peers), `D` (DAG details), `S` (system specs), `T` (thread config), `Q` (quit), `ESC` (back)
+- **Thread Configuration:** Use ↑/↓ arrows in thread view to dynamically resize the crypto worker pool
+- **Telemetry:** CPU usage, memory (heap/RSS), network I/O rates, disk usage
+
 ### Multi-Node Configuration
 To run multiple nodes that can reconcile:
 - Set `NODE_PEERS` to comma-separated peer URLs
@@ -49,6 +56,7 @@ To run multiple nodes that can reconcile:
 - Set `GOSSIP_ENABLED=true` (default)
 - Set `GOSSIP_INTERVAL_MS` for gossip frequency (default: 200ms)
 - Set `CRYPTO_WORKERS` for parallel signature verification threads (default: CPU cores - 1)
+- Set `NODE_TUI=true` to enable interactive terminal dashboard
 
 ### External Dependencies
 - **npm workspaces:** Monorepo management.

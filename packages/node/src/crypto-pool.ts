@@ -28,6 +28,7 @@ interface PendingTask {
 interface WorkerInfo {
   worker: Worker;
   busy: boolean;
+  currentTaskId: number | null;
   taskQueue: Array<{ task: any; pending: PendingTask }>;
 }
 
@@ -62,6 +63,7 @@ export class CryptoPool {
     const workerInfo: WorkerInfo = {
       worker,
       busy: false,
+      currentTaskId: null,
       taskQueue: []
     };
 
@@ -76,6 +78,7 @@ export class CryptoPool {
         }
       }
       workerInfo.busy = false;
+      workerInfo.currentTaskId = null;
       this.processQueue(workerInfo);
     });
 
@@ -90,6 +93,7 @@ export class CryptoPool {
     if (workerInfo.taskQueue.length > 0 && !workerInfo.busy) {
       const { task, pending } = workerInfo.taskQueue.shift()!;
       workerInfo.busy = true;
+      workerInfo.currentTaskId = task.id;
       this.pendingTasks.set(task.id, pending);
       workerInfo.worker.postMessage(task);
     }
@@ -154,6 +158,7 @@ export class CryptoPool {
       worker.taskQueue.push({ task, pending });
     } else {
       worker.busy = true;
+      worker.currentTaskId = taskId;
       this.pendingTasks.set(taskId, pending);
       worker.worker.postMessage(task);
     }
@@ -182,6 +187,7 @@ export class CryptoPool {
         worker.taskQueue.push({ task, pending });
       } else {
         worker.busy = true;
+        worker.currentTaskId = taskId;
         this.pendingTasks.set(taskId, pending);
         worker.worker.postMessage(task);
       }
@@ -205,6 +211,7 @@ export class CryptoPool {
         worker.taskQueue.push({ task, pending });
       } else {
         worker.busy = true;
+        worker.currentTaskId = taskId;
         this.pendingTasks.set(taskId, pending);
         worker.worker.postMessage(task);
       }
@@ -234,6 +241,7 @@ export class CryptoPool {
         worker.taskQueue.push({ task, pending });
       } else {
         worker.busy = true;
+        worker.currentTaskId = taskId;
         this.pendingTasks.set(taskId, pending);
         worker.worker.postMessage(task);
       }
@@ -246,6 +254,77 @@ export class CryptoPool {
       pending: this.pendingTasks.size,
       queued: this.workers.reduce((sum, w) => sum + w.taskQueue.length, 0) + this.batchQueue.length
     };
+  }
+
+  getWorkerCount(): number {
+    return this.workers.length;
+  }
+
+  async resize(targetCount: number): Promise<void> {
+    const currentCount = this.workers.length;
+    const maxCount = cpus().length;
+    const newCount = Math.max(1, Math.min(targetCount, maxCount));
+
+    if (newCount === currentCount) return;
+
+    if (newCount > currentCount) {
+      for (let i = currentCount; i < newCount; i++) {
+        this.createWorker();
+      }
+    } else {
+      const toRemove = currentCount - newCount;
+      const workersToRemove: WorkerInfo[] = [];
+      
+      for (let i = 0; i < toRemove; i++) {
+        const workerInfo = this.workers.pop();
+        if (workerInfo) {
+          workersToRemove.push(workerInfo);
+        }
+      }
+      
+      this.roundRobin = 0;
+      
+      for (const workerInfo of workersToRemove) {
+        for (const { task, pending } of workerInfo.taskQueue) {
+          if (this.workers.length > 0) {
+            const remainingWorker = this.getNextWorker();
+            if (remainingWorker.busy) {
+              remainingWorker.taskQueue.push({ task, pending });
+            } else {
+              remainingWorker.busy = true;
+              remainingWorker.currentTaskId = task.id;
+              this.pendingTasks.set(task.id, pending);
+              remainingWorker.worker.postMessage(task);
+            }
+          } else {
+            pending.reject(new Error('No workers available'));
+          }
+        }
+        
+        if (workerInfo.busy && workerInfo.currentTaskId !== null) {
+          const inFlightTaskId = workerInfo.currentTaskId;
+          await new Promise<void>((resolve) => {
+            const onComplete = () => {
+              workerInfo.worker.removeListener('message', onComplete);
+              resolve();
+            };
+            workerInfo.worker.once('message', onComplete);
+            
+            setTimeout(() => {
+              workerInfo.worker.removeListener('message', onComplete);
+              const pending = this.pendingTasks.get(inFlightTaskId);
+              if (pending) {
+                pending.reject(new Error('Worker terminated during resize'));
+                this.pendingTasks.delete(inFlightTaskId);
+              }
+              resolve();
+            }, 2000);
+          });
+        }
+        
+        await workerInfo.worker.terminate();
+      }
+    }
   }
 
   async shutdown(): Promise<void> {

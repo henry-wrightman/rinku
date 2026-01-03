@@ -631,7 +631,6 @@ async function main() {
   }
 
   const telemetry = new TelemetryService(DATA_DIR);
-  let currentCryptoWorkers = CRYPTO_WORKERS;
 
   if (NODE_TUI && process.stdin.isTTY) {
     const tui = new NodeTui({
@@ -644,10 +643,11 @@ async function main() {
       getCheckpointHeight: () => checkpointService?.getLatestCheckpoint()?.height ?? 0,
       getPendingCount: () => mempool.size(),
       getWitnessedCount: () => rewardsService?.getStats().witnessedCount ?? 0,
-      getCryptoWorkers: () => currentCryptoWorkers,
+      getCryptoWorkers: () => cryptoPool.getWorkerCount(),
       setCryptoWorkers: (count: number) => {
-        currentCryptoWorkers = count;
-        console.log(`[Config] Crypto workers set to ${count}`);
+        cryptoPool.resize(count).then(() => {
+          console.log(`[Config] Crypto workers resized to ${cryptoPool.getWorkerCount()}`);
+        });
       },
       nodeId: NODE_ID,
       version: NODE_VERSION,
