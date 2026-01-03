@@ -10,6 +10,8 @@ import { CheckpointService } from './checkpoint.js';
 import { GasService } from './gas.js';
 import { EmissionService, SlashingService, TOKENOMICS_CONFIG } from './tokenomics.js';
 import { FinalityMetricsService } from './finality.js';
+import { GossipService, type GossipMessage } from './gossip.js';
+import { ForkRemediationService } from './fork-remediation.js';
 import { 
   parseTransactionURL, 
   parseContractURL,
@@ -26,6 +28,11 @@ export interface TokenomicsServices {
   slashingService?: SlashingService;
 }
 
+export interface ForkServices {
+  gossipService?: GossipService;
+  forkRemediationService?: ForkRemediationService;
+}
+
 export function createAPI(
   state: StateManager,
   consensus: Consensus,
@@ -37,7 +44,8 @@ export function createAPI(
   gasService?: GasService,
   onTransaction?: () => Promise<void>,
   tokenomics?: TokenomicsServices,
-  finalityMetrics?: FinalityMetricsService
+  finalityMetrics?: FinalityMetricsService,
+  forkServices?: ForkServices
 ) {
   const app = express();
 
@@ -340,6 +348,13 @@ export function createAPI(
 
       await consensus.addTransaction(tx);
 
+      if (forkServices?.gossipService) {
+        forkServices.gossipService.broadcastTransaction(tx, pubKeyArray);
+      }
+      if (forkServices?.forkRemediationService) {
+        forkServices.forkRemediationService.indexTransaction(tx);
+      }
+
       if (finalityMetrics && tx.hash) {
         finalityMetrics.recordTxSubmission(tx.hash);
       }
@@ -584,6 +599,13 @@ export function createAPI(
       }
 
       await consensus.addTransaction(tx);
+
+      if (forkServices?.gossipService) {
+        forkServices.gossipService.broadcastTransaction(tx);
+      }
+      if (forkServices?.forkRemediationService) {
+        forkServices.forkRemediationService.indexTransaction(tx);
+      }
 
       if (onTransaction) {
         onTransaction();
@@ -1114,6 +1136,56 @@ export function createAPI(
       txUrl,
       finalizedUrl,
       proof
+    });
+  });
+
+  app.post('/api/gossip', async (req, res) => {
+    if (!forkServices?.gossipService) {
+      res.status(501).json({ error: 'Gossip not enabled' });
+      return;
+    }
+    try {
+      const message = req.body as GossipMessage;
+      await forkServices.gossipService.receiveGossipMessage(message);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/gossip/stats', (_req, res) => {
+    if (!forkServices?.gossipService) {
+      res.status(501).json({ error: 'Gossip not enabled' });
+      return;
+    }
+    res.json(forkServices.gossipService.getStats());
+  });
+
+  app.get('/api/fork/stats', (_req, res) => {
+    if (!forkServices?.forkRemediationService) {
+      res.status(501).json({ error: 'Fork remediation not enabled' });
+      return;
+    }
+    res.json(forkServices.forkRemediationService.getStats());
+  });
+
+  app.get('/api/fork/double-spends', (_req, res) => {
+    if (!forkServices?.forkRemediationService) {
+      res.status(501).json({ error: 'Fork remediation not enabled' });
+      return;
+    }
+    res.json({
+      doubleSpends: forkServices.forkRemediationService.getDoubleSpends()
+    });
+  });
+
+  app.get('/api/fork/events', (_req, res) => {
+    if (!forkServices?.forkRemediationService) {
+      res.status(501).json({ error: 'Fork remediation not enabled' });
+      return;
+    }
+    res.json({
+      forks: forkServices.forkRemediationService.getForkEvents()
     });
   });
 

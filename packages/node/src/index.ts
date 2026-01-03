@@ -1,4 +1,4 @@
-import { createAPI, type TokenomicsServices } from './api.js';
+import { createAPI, type TokenomicsServices, type ForkServices } from './api.js';
 import { StateManager } from './state.js';
 import { Consensus } from './consensus.js';
 import { Mempool } from './mempool.js';
@@ -12,6 +12,8 @@ import { EmissionService, SlashingService, distributeCheckpointReward, TOKENOMIC
 import { FinalityMetricsService } from './finality.js';
 import { ValidatorKeyManager } from './validator-keys.js';
 import { ProofSlashingService } from './proof-slashing.js';
+import { GossipService } from './gossip.js';
+import { ForkRemediationService } from './fork-remediation.js';
 import { hashTransaction, type SignedTransaction, DEFAULT_CHECKPOINT_CONFIG } from '@rinku/core';
 import { randomBytes } from 'crypto';
 
@@ -27,6 +29,8 @@ const PRUNE_INTERVAL_MS = parseInt(process.env.PRUNE_INTERVAL_MS || '30000', 10)
 const SELF_URL = process.env.SELF_URL || '';
 const MAX_PEERS = parseInt(process.env.MAX_PEERS || '50', 10);
 const DISCOVERY_ENABLED = process.env.DISCOVERY_ENABLED !== 'false';
+const GOSSIP_ENABLED = process.env.GOSSIP_ENABLED !== 'false';
+const GOSSIP_INTERVAL_MS = parseInt(process.env.GOSSIP_INTERVAL_MS || '1000', 10);
 
 async function main() {
   console.log('Starting Rinku Node...');
@@ -223,6 +227,65 @@ async function main() {
 
   console.log('Validator key management and proof slashing enabled');
 
+  const gossipService = new GossipService(
+    consensus,
+    state,
+    peerSync,
+    NODE_ID,
+    { gossipIntervalMs: GOSSIP_INTERVAL_MS }
+  );
+
+  let forkRemediationService: ForkRemediationService;
+  if (snapshot?.forkRemediation) {
+    forkRemediationService = ForkRemediationService.fromJSON(
+      snapshot.forkRemediation,
+      consensus,
+      state
+    );
+    console.log('Restored fork remediation service from snapshot');
+  } else {
+    forkRemediationService = new ForkRemediationService(consensus, state);
+  }
+
+  forkRemediationService.setGossipService(gossipService);
+
+  gossipService.setTxReceivedCallback(async (tx, publicKey) => {
+    if (consensus.hasTransaction(tx.hash)) return false;
+    
+    if (publicKey) {
+      consensus.registerPublicKey(tx.from, publicKey);
+    }
+    
+    const skipValidation = tx.from === 'genesis' || tx.from === 'faucet';
+    if (!skipValidation) {
+      const validation = await consensus.validateTransaction(tx, state.getAllAccounts(), publicKey);
+      if (!validation.valid) {
+        return false;
+      }
+    }
+    
+    await state.applyTransaction(tx, { skipChecks: skipValidation });
+    await consensus.addTransaction(tx);
+    forkRemediationService.indexTransaction(tx);
+    
+    return true;
+  });
+
+  gossipService.setCheckpointQuorumCallback(async (checkpointId, signatures) => {
+    console.log(`Checkpoint ${checkpointId.slice(0, 16)}... reached quorum with ${signatures.size} signatures`);
+  });
+
+  const forkServices: ForkServices = {
+    gossipService,
+    forkRemediationService
+  };
+
+  if (GOSSIP_ENABLED) {
+    gossipService.start();
+    forkRemediationService.start();
+    console.log(`Gossip and fork remediation enabled (interval: ${GOSSIP_INTERVAL_MS}ms)`);
+  }
+
   let gasService: GasService;
   if (snapshot?.gas) {
     gasService = GasService.fromJSON(snapshot.gas);
@@ -247,7 +310,7 @@ async function main() {
   finalityMetrics.setCheckpointInterval(CHECKPOINT_INTERVAL_MS);
 
   peerSync.onSyncComplete(async () => {
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService, gossipService, forkRemediationService);
   });
 
   let snapshotPending = false;
@@ -262,18 +325,18 @@ async function main() {
     }
     snapshotPending = false;
     lastSnapshotTime = now;
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService, gossipService, forkRemediationService);
   };
   
-  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave, tokenomics, finalityMetrics);
+  const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave, tokenomics, finalityMetrics, forkServices);
   
-  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService);
+  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService, gossipService, forkRemediationService);
   
   setInterval(async () => {
     if (snapshotPending) {
       snapshotPending = false;
       lastSnapshotTime = Date.now();
-      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService);
+      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService, gossipService, forkRemediationService);
     }
   }, SNAPSHOT_DEBOUNCE_MS);
 
@@ -453,7 +516,9 @@ async function saveSnapshot(
   finalityMetrics?: FinalityMetricsService,
   contractService?: ContractService,
   keyManager?: ValidatorKeyManager,
-  proofSlashing?: ProofSlashingService
+  proofSlashing?: ProofSlashingService,
+  gossipService?: GossipService,
+  forkRemediationService?: ForkRemediationService
 ): Promise<void> {
   const stateJson = state.toJSON() as { accounts: [string, any][]; merkleRoot: string };
   const consensusJson = consensus.toJSON();
@@ -474,7 +539,9 @@ async function saveSnapshot(
     finality: finalityMetrics?.toJSON(),
     contracts: contractService?.toJSON() as NodeSnapshot['contracts'],
     validatorKeys: keyManager?.toJSON(),
-    proofSlashing: proofSlashing?.toJSON()
+    proofSlashing: proofSlashing?.toJSON(),
+    gossip: gossipService?.toJSON(),
+    forkRemediation: forkRemediationService?.toJSON()
   };
 
   await storage.save(snapshot);
@@ -494,4 +561,6 @@ export { GasService } from './gas.js';
 export { EmissionService, SlashingService, TOKENOMICS_CONFIG, distributeCheckpointReward } from './tokenomics.js';
 export { ValidatorKeyManager } from './validator-keys.js';
 export { ProofSlashingService } from './proof-slashing.js';
+export { GossipService } from './gossip.js';
+export { ForkRemediationService } from './fork-remediation.js';
 export { createAPI } from './api.js';

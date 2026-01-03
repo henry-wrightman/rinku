@@ -30,6 +30,8 @@ export interface NodeSnapshot {
   };
   validatorKeys?: object;
   proofSlashing?: object;
+  gossip?: object;
+  forkRemediation?: object;
 }
 
 export class Storage {

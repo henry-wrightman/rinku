@@ -35,6 +35,16 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Finality Metrics System:** Tracks time-to-finality, pending transaction counts, and checkpoint latency to monitor network performance.
 - **Validator Key Management:** AES-256-GCM encrypted key storage with scrypt key derivation (N=16384, r=8, p=1). Keys persist across restarts when password is consistent. Production requires `VALIDATOR_KEY_PASSWORD` environment variable; development uses a consistent default password.
 - **Proof Slashing Service:** Validates Profile B proofs cryptographically, detecting duplicate signatures, weight mismatches, and forged validators. Triggers automatic slashing for invalid proofs (20%), invalid witnesses (15%), and receipt tampering (25%).
+- **Gossip Protocol:** Real-time peer-to-peer transaction propagation, tip announcements, checkpoint signature aggregation, and validator set synchronization. Broadcasts transactions when submitted and periodically syncs with online peers.
+- **Fork Remediation Service:** Nonce-based double-spend detection, weight-based conflict resolution with cumulative descendant weights, and branch pruning for losing forks. Automatically resolves forks when weight advantage exceeds 67%.
+
+### Multi-Node Configuration
+To run multiple nodes that can reconcile:
+- Set `NODE_PEERS` to comma-separated peer URLs
+- Set `NODE_ID` to a unique identifier per node
+- Set `SELF_URL` to the node's public URL
+- Set `GOSSIP_ENABLED=true` (default)
+- Set `GOSSIP_INTERVAL_MS` for gossip frequency (default: 1000ms)
 
 ### External Dependencies
 - **npm workspaces:** Monorepo management.
