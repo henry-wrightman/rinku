@@ -420,24 +420,42 @@ Gas fees create deflation:
 
 Net supply decreases when burn rate exceeds emission rate.
 
-## 7. Dynamic Gas Fees
+## 7. Dynamic Gas Fees (EIP-1559 Style)
 
 ### 7.1 Pricing Model
 
-Gas price adjusts based on network demand:
+Rinku uses an EIP-1559-inspired pricing mechanism that adjusts based on **utilization vs target**, not paid fees. This prevents runaway feedback loops where high fees compound into higher fees.
 
 ```
-currentPrice = baseFee × demandMultiplier
-demandMultiplier = 1 + (recentTxCount / targetTxCount)
+if (txsThisPeriod > targetTxs):
+    baseFee = baseFee × (1 + changePercent)
+else:
+    baseFee = baseFee × (1 - changePercent)
+
+changePercent = min(12.5%, |utilization - 1| / elasticity)
 ```
 
-Bounded by (in µRKU):
+**Key Parameters:**
+- **Target:** 15 transactions per 15-second checkpoint period (~1 TPS baseline)
+- **Max change:** ±12.5% per period (prevents spikes > ~3× in 10 periods)
+- **Elasticity:** 2× (price increases maximally when load is 2× target)
+
+**Bounds (in µRKU):**
 - Minimum: 1,000 µRKU (0.001 RKU)
-- Maximum: 100,000,000 µRKU (100 RKU)
+- Maximum: 10,000,000 µRKU (10 RKU)
 
-### 7.2 Fee Validation
+### 7.2 Self-Correcting Behavior
 
-Transactions must include a fee meeting current minimum. Insufficient fees result in rejection. This prevents spam while allowing market-based pricing.
+Unlike fee-averaging models that compound:
+- **Under target load:** Price decreases 12.5% per period until minimum
+- **At target load:** Price remains stable
+- **Above target load:** Price increases 12.5% per period toward maximum
+
+This ensures fees remain affordable for URL-sized receipts while still providing spam resistance during high demand.
+
+### 7.3 Fee Validation
+
+Transactions must include a fee meeting current minimum. Insufficient fees result in rejection. Priority is first-come-first-served at the current base fee—no fee auctions or tip bidding.
 
 ## 8. Staking and Slashing
 
