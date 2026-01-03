@@ -565,13 +565,13 @@ rinku://sp/{base64url(deflate(json({
   tipCount: number,
   merkleProof: string[],
   merkleIndex: number,
-  blsAggregatedSig: number[],    // 48 bytes
-  blsSignerBitmap: number[],
+  blsAggregatedSig: string,      // base64url-encoded 48-byte G1 signature
+  blsSignerBitmap: string,       // base64url-encoded bitmap
   blsSignerCount: number,
   validatorWitnesses: [{
     index: number,
     address: string,
-    blsPublicKey: number[],      // 96 bytes
+    blsPublicKey: string,        // base64url-encoded 96-byte G2 pubkey
     weight: number
   }],
   validatorSetRoot: string       // SHA-256 of witnesses

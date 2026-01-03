@@ -12,11 +12,12 @@ import type {
   BLSCheckpointSignature,
   SignedTransaction,
 } from "./types.js";
+import { base64urlEncode, base64urlDecode } from "./encoding.js";
 
 export interface ValidatorWitness {
   index: number;
   address: string;
-  blsPublicKey: number[];
+  blsPublicKey: string; // base64url-encoded 96-byte G2 point
   weight: number;
 }
 
@@ -38,8 +39,8 @@ export interface SelfContainedProof {
   tipCount: number;
   merkleProof: string[];
   merkleIndex: number;
-  blsAggregatedSig: number[];
-  blsSignerBitmap: number[];
+  blsAggregatedSig: string; // base64url-encoded 48-byte G1 signature
+  blsSignerBitmap: string; // base64url-encoded bitmap
   blsSignerCount: number;
   validatorWitnesses: ValidatorWitness[];
   validatorSetRoot: string;
@@ -64,7 +65,7 @@ export function computeValidatorSetRoot(witnesses: ValidatorWitness[]): string {
   const sorted = [...witnesses].sort((a, b) => a.index - b.index);
   const entries = sorted.map(
     (w) =>
-      `${w.index}:${w.address}:${bytesToHex(new Uint8Array(w.blsPublicKey))}:${w.weight}`,
+      `${w.index}:${w.address}:${w.blsPublicKey}:${w.weight}`,
   );
   const combined = entries.join("|");
   const hash = sha256(new TextEncoder().encode(combined));
@@ -113,7 +114,7 @@ export function createSelfContainedProof(
       validatorWitnesses.push({
         index: i,
         address: v.address,
-        blsPublicKey: v.blsPublicKey,
+        blsPublicKey: base64urlEncode(new Uint8Array(v.blsPublicKey)),
         weight: v.weight,
       });
     }
@@ -139,8 +140,8 @@ export function createSelfContainedProof(
     tipCount: checkpoint.tipCount,
     merkleProof,
     merkleIndex,
-    blsAggregatedSig: blsSig.aggregatedSignature,
-    blsSignerBitmap: blsSig.signerBitmap,
+    blsAggregatedSig: base64urlEncode(new Uint8Array(blsSig.aggregatedSignature)),
+    blsSignerBitmap: base64urlEncode(new Uint8Array(blsSig.signerBitmap)),
     blsSignerCount: blsSig.signerCount,
     validatorWitnesses,
     validatorSetRoot,
@@ -216,12 +217,12 @@ export function verifySelfContainedProof(
     );
 
     const signerPubKeys = proof.validatorWitnesses.map(
-      (w) => new Uint8Array(w.blsPublicKey),
+      (w) => base64urlDecode(w.blsPublicKey),
     );
 
     const blsValid = verifyAggregatedSignature(
       checkpointHash,
-      new Uint8Array(proof.blsAggregatedSig),
+      base64urlDecode(proof.blsAggregatedSig),
       signerPubKeys,
     );
 

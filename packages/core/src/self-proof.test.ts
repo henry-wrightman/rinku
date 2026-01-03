@@ -13,7 +13,12 @@ import {
 } from './self-proof.js';
 import { blsSign, aggregateSignatures, createSignerBitmap, bytesToHex, generateBLSKeyPair } from './bls.js';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { base64urlEncode, base64urlDecode } from './encoding.js';
 import type { SignedTransaction, Checkpoint, BLSCheckpointSignature } from './types.js';
+
+function uint8ToBase64url(data: Uint8Array): string {
+  return base64urlEncode(data);
+}
 
 function createMockTransaction(): SignedTransaction {
   return {
@@ -70,7 +75,7 @@ describe('Self-Contained Proof', () => {
       const witnesses: ValidatorWitness[] = validators.map((v, i) => ({
         index: i,
         address: v.address,
-        blsPublicKey: Array.from(v.blsPublicKey),
+        blsPublicKey: uint8ToBase64url(v.blsPublicKey),
         weight: v.weight
       }));
       const validatorSetRoot = computeValidatorSetRoot(witnesses);
@@ -115,6 +120,9 @@ describe('Self-Contained Proof', () => {
       expect(proof!.totalWeight).toBe(300);
       expect(proof!.stateRoot).toBe('state-root-hash');
       expect(proof!.receiptRoot).toBe('receipt-root-hash');
+      expect(typeof proof!.blsAggregatedSig).toBe('string');
+      expect(typeof proof!.blsSignerBitmap).toBe('string');
+      expect(typeof proof!.validatorWitnesses[0].blsPublicKey).toBe('string');
     });
 
     it('should return null if checkpoint has no BLS signature', () => {
@@ -155,9 +163,9 @@ describe('Self-Contained Proof', () => {
       const tipCount = 5;
 
       const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: Array.from(key1.publicKey), weight: 100 },
-        { index: 1, address: 'val2', blsPublicKey: Array.from(key2.publicKey), weight: 100 },
-        { index: 2, address: 'val3', blsPublicKey: Array.from(key3.publicKey), weight: 100 }
+        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 },
+        { index: 1, address: 'val2', blsPublicKey: uint8ToBase64url(key2.publicKey), weight: 100 },
+        { index: 2, address: 'val3', blsPublicKey: uint8ToBase64url(key3.publicKey), weight: 100 }
       ];
       const validatorSetRoot = computeValidatorSetRoot(witnesses);
 
@@ -197,8 +205,8 @@ describe('Self-Contained Proof', () => {
         tipCount,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: Array.from(aggregatedSig),
-        blsSignerBitmap: Array.from(bitmap),
+        blsAggregatedSig: uint8ToBase64url(aggregatedSig),
+        blsSignerBitmap: uint8ToBase64url(bitmap),
         blsSignerCount: 3,
         validatorWitnesses: witnesses,
         validatorSetRoot
@@ -236,10 +244,10 @@ describe('Self-Contained Proof', () => {
         tipCount: 1,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: Array.from(new Uint8Array(48)),
-        blsSignerBitmap: [1],
+        blsAggregatedSig: uint8ToBase64url(new Uint8Array(48)),
+        blsSignerBitmap: uint8ToBase64url(new Uint8Array([1])),
         blsSignerCount: 1,
-        validatorWitnesses: [{ index: 0, address: 'val1', blsPublicKey: Array.from(key1.publicKey), weight: 100 }],
+        validatorWitnesses: [{ index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 }],
         validatorSetRoot: fakeTamperedRoot
       };
 
@@ -253,7 +261,7 @@ describe('Self-Contained Proof', () => {
       const key1 = generateBLSKeyPair();
 
       const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: Array.from(key1.publicKey), weight: 50 }
+        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 50 }
       ];
       const validatorSetRoot = computeValidatorSetRoot(witnesses);
 
@@ -275,8 +283,8 @@ describe('Self-Contained Proof', () => {
         tipCount: 1,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: Array.from(new Uint8Array(48)),
-        blsSignerBitmap: [1],
+        blsAggregatedSig: uint8ToBase64url(new Uint8Array(48)),
+        blsSignerBitmap: uint8ToBase64url(new Uint8Array([1])),
         blsSignerCount: 1,
         validatorWitnesses: witnesses,
         validatorSetRoot
@@ -293,7 +301,7 @@ describe('Self-Contained Proof', () => {
     it('should encode and decode proof correctly', () => {
       const key1 = generateBLSKeyPair();
       const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: Array.from(key1.publicKey), weight: 100 }
+        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 }
       ];
       const validatorSetRoot = computeValidatorSetRoot(witnesses);
 
@@ -315,8 +323,8 @@ describe('Self-Contained Proof', () => {
         tipCount: 5,
         merkleProof: ['proof1', 'proof2'],
         merkleIndex: 3,
-        blsAggregatedSig: [1, 2, 3, 4],
-        blsSignerBitmap: [5],
+        blsAggregatedSig: uint8ToBase64url(new Uint8Array([1, 2, 3, 4])),
+        blsSignerBitmap: uint8ToBase64url(new Uint8Array([5])),
         blsSignerCount: 1,
         validatorWitnesses: witnesses,
         validatorSetRoot
@@ -336,7 +344,7 @@ describe('Self-Contained Proof', () => {
     it('should create URL format', () => {
       const key1 = generateBLSKeyPair();
       const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: Array.from(key1.publicKey), weight: 100 }
+        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 }
       ];
       const validatorSetRoot = computeValidatorSetRoot(witnesses);
 
@@ -358,8 +366,8 @@ describe('Self-Contained Proof', () => {
         tipCount: 5,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: [1, 2, 3],
-        blsSignerBitmap: [1],
+        blsAggregatedSig: uint8ToBase64url(new Uint8Array([1, 2, 3])),
+        blsSignerBitmap: uint8ToBase64url(new Uint8Array([1])),
         blsSignerCount: 1,
         validatorWitnesses: witnesses,
         validatorSetRoot
@@ -376,7 +384,7 @@ describe('Self-Contained Proof', () => {
     it('should analyze proof size for QR viability', () => {
       const key1 = generateBLSKeyPair();
       const witnesses: ValidatorWitness[] = [
-        { index: 0, address: 'val1', blsPublicKey: Array.from(key1.publicKey), weight: 100 }
+        { index: 0, address: 'val1', blsPublicKey: uint8ToBase64url(key1.publicKey), weight: 100 }
       ];
       const validatorSetRoot = computeValidatorSetRoot(witnesses);
 
@@ -398,8 +406,8 @@ describe('Self-Contained Proof', () => {
         tipCount: 5,
         merkleProof: [],
         merkleIndex: 0,
-        blsAggregatedSig: Array.from(new Uint8Array(48)),
-        blsSignerBitmap: [1],
+        blsAggregatedSig: uint8ToBase64url(new Uint8Array(48)),
+        blsSignerBitmap: uint8ToBase64url(new Uint8Array([1])),
         blsSignerCount: 1,
         validatorWitnesses: witnesses,
         validatorSetRoot
