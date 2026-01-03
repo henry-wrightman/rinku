@@ -7,7 +7,7 @@ import {
 
 const PORT = parseInt(process.env.FAUCET_PORT || '3002', 10);
 const NODE_URL = process.env.NODE_URL || 'http://localhost:3001';
-const FAUCET_AMOUNT = 100;
+const FAUCET_AMOUNT = 1000;
 const RATE_LIMIT_MS = 60000;
 const FETCH_TIMEOUT_MS = 10000;
 const CLEANUP_INTERVAL_MS = 300000;
