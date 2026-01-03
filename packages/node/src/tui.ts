@@ -1,4 +1,5 @@
 import * as readline from 'readline';
+import { cpus } from 'os';
 import { TelemetryService, SystemTelemetry, formatBytes, formatDuration } from './telemetry.js';
 import type { Consensus } from './consensus.js';
 import type { StateManager } from './state.js';
@@ -182,7 +183,7 @@ export class NodeTui {
       case 'up':
         if (this.currentView === 'threads') {
           const current = this.deps.getCryptoWorkers();
-          const max = require('os').cpus().length;
+          const max = cpus().length;
           if (current < max) {
             this.deps.setCryptoWorkers(current + 1);
             this.renderThreads();
@@ -382,7 +383,7 @@ export class NodeTui {
     process.stdout.write(`${COLORS.cyan}${COLORS.bold}═══ THREAD CONFIGURATION ═══${COLORS.reset}  ${COLORS.dim}[ESC] Back to Dashboard${COLORS.reset}\n\n`);
 
     const currentWorkers = this.deps.getCryptoWorkers();
-    const maxWorkers = require('os').cpus().length;
+    const maxWorkers = cpus().length;
 
     process.stdout.write(`${COLORS.bold}Crypto Worker Threads${COLORS.reset}\n\n`);
     
