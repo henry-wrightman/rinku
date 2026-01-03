@@ -142,6 +142,63 @@ async function createNewWallet(): Promise<void> {
   }
 }
 
+async function getAverageWalletBalance(): Promise<number> {
+  if (wallets.length === 0) return 0;
+  let total = 0;
+  for (const w of wallets) {
+    try {
+      total += await w.wallet.getBalance();
+    } catch {
+      // Skip failed balance checks
+    }
+  }
+  return total / wallets.length;
+}
+
+async function doAggressiveFaucetRefill(): Promise<void> {
+  if (wallets.length === 0) return;
+  
+  const avgBalance = await getAverageWalletBalance();
+  const minNeeded = currentGasPrice + 10; // gas + small tx + buffer
+  
+  if (avgBalance >= minNeeded * 2) return; // Wallets have enough
+  
+  log(`Low balance detected! Avg: ${avgBalance.toFixed(2)}, need: ${minNeeded.toFixed(2)} - refilling wallets...`);
+  
+  const now = Date.now();
+  const eligible = wallets.filter(
+    (w) => now - w.lastFaucetHit >= FAUCET_COOLDOWN_MS,
+  );
+  
+  if (eligible.length === 0) {
+    log(`No wallets eligible for faucet yet (cooldown)`);
+    return;
+  }
+  
+  // Refill up to 3 wallets at once
+  const toRefill = eligible.slice(0, Math.min(3, eligible.length));
+  let refilled = 0;
+  
+  for (const wallet of toRefill) {
+    if (pendingOperations >= maxPendingOps) break;
+    pendingOperations++;
+    try {
+      const success = await faucetRequest(wallet.fingerprint);
+      if (success) {
+        wallet.lastFaucetHit = now;
+        totalFaucetHits++;
+        refilled++;
+      }
+    } finally {
+      pendingOperations--;
+    }
+  }
+  
+  if (refilled > 0) {
+    log(`Emergency refill: ${refilled}/${toRefill.length} wallets topped up`);
+  }
+}
+
 async function doRandomFaucetDrop(): Promise<void> {
   if (wallets.length === 0) return;
   if (pendingOperations >= maxPendingOps) return;
@@ -596,8 +653,16 @@ function printStats(): void {
   );
   console.log(`  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT}`);
   console.log(`  Gas Price: ${currentGasPrice.toFixed(4)}`);
+  
+  // Show average balance async
+  getAverageWalletBalance().then(avg => {
+    const needed = currentGasPrice + 10;
+    const status = avg >= needed * 2 ? '✓' : avg >= needed ? '⚠' : '✗';
+    console.log(`  Avg Balance: ${avg.toFixed(2)} (need ~${needed.toFixed(2)} per tx) ${status}`);
+    console.log("=".repeat(55) + "\n");
+  });
+  
   skippedDueToBalance = 0; // Reset after display
-  console.log("=".repeat(55) + "\n");
 }
 
 async function checkTipCount(): Promise<void> {
@@ -672,6 +737,11 @@ async function main() {
 
   setInterval(printStats, 60000);
   setInterval(checkTipCount, 30000);
+  
+  // Check wallet balances and refill if needed every 15s
+  setInterval(async () => {
+    await doAggressiveFaucetRefill();
+  }, 15000);
 
   log("Enhanced bot running!");
   log("Features: Concurrent TX, Contracts, Staking, Rewards");
