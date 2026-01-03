@@ -1,15 +1,28 @@
 import type { GasPrice, GasConfig, FeeStats } from '@rinku/core';
 
+/**
+ * EIP-1559 style gas pricing
+ * - Price adjusts based on utilization vs target, not paid fees
+ * - Prevents runaway feedback loops
+ * - Smooth adjustments capped at ~12.5% per period
+ */
 export class GasService {
-  private recentFees: number[] = [];
-  private readonly MAX_RECENT_FEES = 100;
   private totalBurned = 0;
   private totalToValidators = 0;
   private txCount = 0;
   
+  // EIP-1559 style tracking
+  private baseFee: number;
+  private txsThisPeriod = 0;
+  private periodStartTime = Date.now();
+  private readonly PERIOD_MS = 15000; // 15s checkpoint interval
+  private readonly TARGET_TXS_PER_PERIOD = 15; // Target ~1 TPS
+  private readonly MAX_CHANGE_PERCENT = 0.125; // 12.5% max change per period
+  private readonly ELASTICITY = 2; // How much over target before max increase
+  
   private config: GasConfig = {
     minFee: 0.001,
-    maxFee: 100,
+    maxFee: 10, // Reduced from 100 - more reasonable cap
     baseFee: 0.01,
     feeMultiplier: 1.0,
     burnPercent: 50,
@@ -20,6 +33,7 @@ export class GasService {
     if (config) {
       this.config = { ...this.config, ...config };
     }
+    this.baseFee = this.config.baseFee;
   }
 
   getConfig(): GasConfig {
@@ -30,22 +44,50 @@ export class GasService {
     this.config = { ...this.config, ...config };
   }
 
-  getCurrentGasPrice(): GasPrice {
-    const avgFee = this.recentFees.length > 0
-      ? this.recentFees.reduce((a, b) => a + b, 0) / this.recentFees.length
-      : this.config.baseFee;
+  /**
+   * EIP-1559 style price adjustment
+   * - If utilization > target: increase baseFee
+   * - If utilization < target: decrease baseFee
+   * - Change capped at 12.5% per period
+   */
+  private adjustBaseFee(): void {
+    const now = Date.now();
+    if (now - this.periodStartTime < this.PERIOD_MS) {
+      return; // Still in current period
+    }
 
-    const demandMultiplier = Math.min(2, 1 + (this.recentFees.length / this.MAX_RECENT_FEES));
+    // Calculate utilization ratio
+    const utilization = this.txsThisPeriod / this.TARGET_TXS_PER_PERIOD;
+    
+    // Calculate change factor (-12.5% to +12.5%)
+    // At 0 txs: -12.5%, at target: 0%, at 2x target: +12.5%
+    const changeRatio = Math.max(-1, Math.min(1, (utilization - 1) / (this.ELASTICITY - 1)));
+    const changeFactor = 1 + (changeRatio * this.MAX_CHANGE_PERCENT);
+    
+    // Apply change with bounds
+    this.baseFee = Math.max(
+      this.config.minFee,
+      Math.min(this.config.maxFee, this.baseFee * changeFactor)
+    );
+    
+    // Reset period
+    this.txsThisPeriod = 0;
+    this.periodStartTime = now;
+  }
+
+  getCurrentGasPrice(): GasPrice {
+    this.adjustBaseFee();
+    
     const currentPrice = Math.max(
       this.config.minFee,
-      Math.min(this.config.maxFee, avgFee * demandMultiplier * this.config.feeMultiplier)
+      Math.min(this.config.maxFee, this.baseFee * this.config.feeMultiplier)
     );
 
     return {
       current: Math.round(currentPrice * 1000000) / 1000000,
       min: this.config.minFee,
       max: this.config.maxFee,
-      avgLast100: Math.round(avgFee * 1000000) / 1000000,
+      avgLast100: Math.round(this.baseFee * 1000000) / 1000000, // Now shows baseFee
       lastUpdated: Date.now()
     };
   }
@@ -55,10 +97,8 @@ export class GasService {
       return { burned: 0, toValidators: 0 };
     }
 
-    this.recentFees.push(fee);
-    if (this.recentFees.length > this.MAX_RECENT_FEES) {
-      this.recentFees.shift();
-    }
+    // Track for EIP-1559 adjustment
+    this.txsThisPeriod++;
 
     const burned = fee * (this.config.burnPercent / 100);
     const toValidators = fee * (this.config.validatorPercent / 100);
@@ -74,9 +114,7 @@ export class GasService {
     return {
       totalBurned: Math.round(this.totalBurned * 1000000) / 1000000,
       totalToValidators: Math.round(this.totalToValidators * 1000000) / 1000000,
-      avgFee: this.recentFees.length > 0
-        ? Math.round((this.recentFees.reduce((a, b) => a + b, 0) / this.recentFees.length) * 1000000) / 1000000
-        : 0,
+      avgFee: Math.round(this.baseFee * 1000000) / 1000000,
       txCount: this.txCount
     };
   }
@@ -97,7 +135,9 @@ export class GasService {
   toJSON(): object {
     return {
       config: this.config,
-      recentFees: this.recentFees,
+      baseFee: this.baseFee,
+      txsThisPeriod: this.txsThisPeriod,
+      periodStartTime: this.periodStartTime,
       totalBurned: this.totalBurned,
       totalToValidators: this.totalToValidators,
       txCount: this.txCount
@@ -106,7 +146,9 @@ export class GasService {
 
   static fromJSON(data: any): GasService {
     const service = new GasService(data.config);
-    service.recentFees = data.recentFees || [];
+    service.baseFee = data.baseFee ?? data.config?.baseFee ?? 0.01;
+    service.txsThisPeriod = data.txsThisPeriod || 0;
+    service.periodStartTime = data.periodStartTime || Date.now();
     service.totalBurned = data.totalBurned || 0;
     service.totalToValidators = data.totalToValidators || 0;
     service.txCount = data.txCount || 0;

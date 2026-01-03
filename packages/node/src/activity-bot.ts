@@ -4,12 +4,12 @@ const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3002";
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "3000");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "2000");
 const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "100");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "10");
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "50");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "30");
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "20");
 const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.6");
 const CONTRACT_INTERVAL_MS = parseInt(
   process.env.CONTRACT_INTERVAL || "120000",
@@ -64,7 +64,11 @@ async function fetchGasPrice(): Promise<number> {
         currentGasPrice = data.current;
         lastGasPriceFetch = now;
         // Only log if gas changed by >5%
-        if (Math.abs(currentGasPrice - lastLoggedGasPrice) / Math.max(lastLoggedGasPrice, 0.001) > 0.05) {
+        if (
+          Math.abs(currentGasPrice - lastLoggedGasPrice) /
+            Math.max(lastLoggedGasPrice, 0.001) >
+          0.05
+        ) {
           log(`Gas price: ${currentGasPrice.toFixed(4)}`);
           lastLoggedGasPrice = currentGasPrice;
         }
@@ -157,28 +161,30 @@ async function getAverageWalletBalance(): Promise<number> {
 
 async function doAggressiveFaucetRefill(): Promise<void> {
   if (wallets.length === 0) return;
-  
+
   const avgBalance = await getAverageWalletBalance();
   const minNeeded = currentGasPrice + 10; // gas + small tx + buffer
-  
+
   if (avgBalance >= minNeeded * 2) return; // Wallets have enough
-  
-  log(`Low balance detected! Avg: ${avgBalance.toFixed(2)}, need: ${minNeeded.toFixed(2)} - refilling wallets...`);
-  
+
+  log(
+    `Low balance detected! Avg: ${avgBalance.toFixed(2)}, need: ${minNeeded.toFixed(2)} - refilling wallets...`,
+  );
+
   const now = Date.now();
   const eligible = wallets.filter(
     (w) => now - w.lastFaucetHit >= FAUCET_COOLDOWN_MS,
   );
-  
+
   if (eligible.length === 0) {
     log(`No wallets eligible for faucet yet (cooldown)`);
     return;
   }
-  
+
   // Refill up to 3 wallets at once
   const toRefill = eligible.slice(0, Math.min(3, eligible.length));
   let refilled = 0;
-  
+
   for (const wallet of toRefill) {
     if (pendingOperations >= maxPendingOps) break;
     pendingOperations++;
@@ -193,7 +199,7 @@ async function doAggressiveFaucetRefill(): Promise<void> {
       pendingOperations--;
     }
   }
-  
+
   if (refilled > 0) {
     log(`Emergency refill: ${refilled}/${toRefill.length} wallets topped up`);
   }
@@ -588,11 +594,15 @@ async function claimRewards(): Promise<void> {
 
     const summary = (await summaryRes.json()) as { pendingRewards: number };
     if (summary.pendingRewards < 1) {
-      log(`Rewards check: no pending rewards for ${claimer.fingerprint.slice(0, 16)}...`);
+      log(
+        `Rewards check: no pending rewards for ${claimer.fingerprint.slice(0, 16)}...`,
+      );
       return;
     }
 
-    log(`Rewards found: ${summary.pendingRewards.toFixed(4)} pending for ${claimer.fingerprint.slice(0, 16)}...`);
+    log(
+      `Rewards found: ${summary.pendingRewards.toFixed(4)} pending for ${claimer.fingerprint.slice(0, 16)}...`,
+    );
 
     const res = await fetchWithTimeout(
       `${NODE_URL}/api/rewards/${claimer.fingerprint}/claim`,
@@ -610,10 +620,14 @@ async function claimRewards(): Promise<void> {
           `Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.amount} coins`,
         );
       } else {
-        log(`Rewards claim returned success=false for ${claimer.fingerprint.slice(0, 16)}...`);
+        log(
+          `Rewards claim returned success=false for ${claimer.fingerprint.slice(0, 16)}...`,
+        );
       }
     } else {
-      log(`Rewards claim failed: ${res.status} for ${claimer.fingerprint.slice(0, 16)}...`);
+      log(
+        `Rewards claim failed: ${res.status} for ${claimer.fingerprint.slice(0, 16)}...`,
+      );
     }
   } catch (err: any) {
     log(`Rewards claim error: ${err.message}`);
@@ -653,15 +667,17 @@ function printStats(): void {
   );
   console.log(`  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT}`);
   console.log(`  Gas Price: ${currentGasPrice.toFixed(4)}`);
-  
+
   // Show average balance async
-  getAverageWalletBalance().then(avg => {
+  getAverageWalletBalance().then((avg) => {
     const needed = currentGasPrice + 10;
-    const status = avg >= needed * 2 ? '✓' : avg >= needed ? '⚠' : '✗';
-    console.log(`  Avg Balance: ${avg.toFixed(2)} (need ~${needed.toFixed(2)} per tx) ${status}`);
+    const status = avg >= needed * 2 ? "✓" : avg >= needed ? "⚠" : "✗";
+    console.log(
+      `  Avg Balance: ${avg.toFixed(2)} (need ~${needed.toFixed(2)} per tx) ${status}`,
+    );
     console.log("=".repeat(55) + "\n");
   });
-  
+
   skippedDueToBalance = 0; // Reset after display
 }
 
@@ -737,7 +753,7 @@ async function main() {
 
   setInterval(printStats, 60000);
   setInterval(checkTipCount, 30000);
-  
+
   // Check wallet balances and refill if needed every 15s
   setInterval(async () => {
     await doAggressiveFaucetRefill();
