@@ -4,11 +4,11 @@ const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3002";
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "3000");
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "50");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "2000");
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "100");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "3");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "20");
 const CONTRACT_INTERVAL_MS = parseInt(
   process.env.CONTRACT_INTERVAL || "120000",
 );
@@ -54,8 +54,8 @@ async function fetchGasPrice(): Promise<number> {
   try {
     const res = await fetchWithTimeout(`${NODE_URL}/api/gas/price`, {}, 3000);
     if (res.ok) {
-      const data = await res.json() as { currentPrice: number };
-      if (typeof data.currentPrice === 'number') {
+      const data = (await res.json()) as { currentPrice: number };
+      if (typeof data.currentPrice === "number") {
         currentGasPrice = data.currentPrice;
         lastGasPriceFetch = now;
       }
@@ -83,7 +83,7 @@ function fetchWithTimeout(
 
 async function faucetRequest(fingerprint: string): Promise<boolean> {
   try {
-    const res = await fetchWithTimeout(`${FAUCET_URL}/api/request`, {
+    const res = await fetchWithTimeout(`${FAUCET_URL}/request`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address: fingerprint }),
@@ -290,7 +290,7 @@ async function callContract(): Promise<void> {
   try {
     const contract = pickRandom(deployedContracts);
     const caller = pickRandom(wallets);
-    
+
     const balance = await caller.wallet.getBalance();
     if (balance < 10) return;
 

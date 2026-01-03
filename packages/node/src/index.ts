@@ -14,8 +14,10 @@ import { ValidatorKeyManager } from './validator-keys.js';
 import { ProofSlashingService } from './proof-slashing.js';
 import { GossipService } from './gossip.js';
 import { ForkRemediationService } from './fork-remediation.js';
+import { CryptoPool } from './crypto-pool.js';
 import { hashTransaction, type SignedTransaction, DEFAULT_CHECKPOINT_CONFIG } from '@rinku/core';
 import { randomBytes } from 'crypto';
+import { cpus } from 'os';
 
 const CHECKPOINT_INTERVAL_MS = parseInt(process.env.CHECKPOINT_INTERVAL_MS || '15000', 10);
 
@@ -30,7 +32,8 @@ const SELF_URL = process.env.SELF_URL || '';
 const MAX_PEERS = parseInt(process.env.MAX_PEERS || '50', 10);
 const DISCOVERY_ENABLED = process.env.DISCOVERY_ENABLED !== 'false';
 const GOSSIP_ENABLED = process.env.GOSSIP_ENABLED !== 'false';
-const GOSSIP_INTERVAL_MS = parseInt(process.env.GOSSIP_INTERVAL_MS || '1000', 10);
+const GOSSIP_INTERVAL_MS = parseInt(process.env.GOSSIP_INTERVAL_MS || '200', 10);
+const CRYPTO_WORKERS = parseInt(process.env.CRYPTO_WORKERS || String(Math.max(2, cpus().length - 1)), 10);
 
 async function main() {
   console.log('Starting Rinku Node...');
@@ -69,6 +72,10 @@ async function main() {
     consensus = new Consensus();
     await createGenesis(state, consensus);
   }
+
+  const cryptoPool = new CryptoPool(CRYPTO_WORKERS);
+  consensus.setCryptoPool(cryptoPool);
+  console.log(`Crypto pool initialized with ${CRYPTO_WORKERS} worker threads`);
 
   const rewardsDeps = {
     getDAGNodeByUrl: (url: string) => consensus.getNodeByUrl(url),

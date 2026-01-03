@@ -1189,5 +1189,128 @@ export function createAPI(
     });
   });
 
+  app.post('/api/tx/batch', async (req, res) => {
+    try {
+      const { transactions } = req.body as {
+        transactions: Array<{
+          tx: SignedTransaction;
+          publicKey?: number[];
+        }>;
+      };
+
+      if (!transactions || !Array.isArray(transactions)) {
+        res.status(400).json({ error: 'Transactions array required' });
+        return;
+      }
+
+      if (transactions.length > 100) {
+        res.status(400).json({ error: 'Maximum 100 transactions per batch' });
+        return;
+      }
+
+      const results: Array<{
+        hash: string;
+        success: boolean;
+        error?: string;
+      }> = [];
+
+      const validationPromises = transactions.map(async ({ tx, publicKey }) => {
+        const pubKeyArray = publicKey ? new Uint8Array(publicKey) : undefined;
+        if (pubKeyArray) {
+          consensus.registerPublicKey(tx.from, pubKeyArray);
+        }
+        
+        const validation = await consensus.validateTransaction(
+          tx,
+          state.getAllAccounts(),
+          pubKeyArray
+        );
+        
+        return { tx, pubKeyArray, validation };
+      });
+
+      const validations = await Promise.all(validationPromises);
+
+      for (const { tx, pubKeyArray, validation } of validations) {
+        if (!validation.valid) {
+          results.push({
+            hash: tx.hash,
+            success: false,
+            error: validation.error
+          });
+          continue;
+        }
+
+        try {
+          const isFaucetOrGenesis = tx.from === 'faucet' || tx.from === 'genesis';
+          if (gasService && !isFaucetOrGenesis) {
+            const feeValidation = gasService.validateFee(tx.fee || 0);
+            if (!feeValidation.valid) {
+              results.push({
+                hash: tx.hash,
+                success: false,
+                error: feeValidation.error
+              });
+              continue;
+            }
+          }
+
+          const applied = state.applyTransaction(tx);
+          if (!applied) {
+            results.push({
+              hash: tx.hash,
+              success: false,
+              error: 'Failed to apply transaction'
+            });
+            continue;
+          }
+
+          await consensus.addTransaction(tx);
+
+          if (forkServices?.gossipService) {
+            forkServices.gossipService.broadcastTransaction(tx, pubKeyArray);
+          }
+          if (forkServices?.forkRemediationService) {
+            forkServices.forkRemediationService.indexTransaction(tx);
+          }
+
+          if (gasService && tx.fee && tx.fee > 0) {
+            const { toValidators } = gasService.recordFee(tx.fee);
+            if (rewardsService && toValidators > 0) {
+              await rewardsService.distributeFeeToValidators(toValidators);
+            }
+          }
+
+          results.push({
+            hash: tx.hash,
+            success: true
+          });
+        } catch (error: any) {
+          results.push({
+            hash: tx.hash,
+            success: false,
+            error: error.message
+          });
+        }
+      }
+
+      if (onTransaction) {
+        onTransaction();
+      }
+
+      const successful = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+
+      res.json({
+        total: transactions.length,
+        successful,
+        failed,
+        results
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return app;
 }

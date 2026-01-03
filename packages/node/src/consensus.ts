@@ -7,6 +7,7 @@ import {
   type AccountState,
   type SelfCrawlableBundle
 } from '@rinku/core';
+import { CryptoPool } from './crypto-pool.js';
 
 export interface ValidationResult {
   valid: boolean;
@@ -35,9 +36,14 @@ export class Consensus {
   private publicKeys: Map<string, Uint8Array> = new Map();
   private prunedTxIndex: Map<string, PrunedTxInfo> = new Map();
   private readonly MAX_PRUNED_INDEX = 5000;
+  private cryptoPool: CryptoPool | null = null;
 
   constructor() {
     this.dag = new DAG();
+  }
+
+  setCryptoPool(pool: CryptoPool): void {
+    this.cryptoPool = pool;
   }
 
   registerPublicKey(fingerprint: string, publicKey: Uint8Array): void {
@@ -92,7 +98,9 @@ export class Consensus {
     const key = publicKey || this.publicKeys.get(tx.from);
     if (key && tx.from !== 'faucet' && tx.from !== 'genesis') {
       const txHash = await hashTransaction(tx);
-      const isValid = await verify(txHash, tx.sig, key);
+      const isValid = this.cryptoPool 
+        ? await this.cryptoPool.verify(txHash, tx.sig, key)
+        : await verify(txHash, tx.sig, key);
       if (!isValid) {
         return { valid: false, error: 'Invalid signature' };
       }
