@@ -21,7 +21,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Dynamic Gas Fee Model:** A demand-based pricing model with a portion of fees burned for deflation and the remainder distributed to active validators.
 - **Tokenomics System:** Features a hard-capped supply, genesis allocation, checkpoint-based emission with a halving schedule, and a Weighted Proof-of-Stake (WPoS) reward distribution.
 - **Multi-Node Networking:** A gossip protocol for peer discovery and a peer sync protocol for state synchronization.
-- **Performance Optimizations:** Includes in-memory DAG pruning, snapshot optimizations using hash-based URLs, checkpoint-bounded self-crawlable URLs for efficient proof bundles, per-transaction finality, self-contained Merkle proofs, and batched operations.
+- **Performance Optimizations:** Includes in-memory DAG pruning, snapshot optimizations using hash-based URLs, checkpoint-bounded self-crawlable URLs for efficient proof bundles, per-transaction finality, self-contained Merkle proofs, batched operations, parallel signature verification with worker threads, and batch transaction API.
 
 **Technical Implementations:**
 - **Core Library:** A shared library for types, cryptography (Web Crypto API), encoding, Merkle trees, DAG structures, and weight calculation.
@@ -44,7 +44,8 @@ To run multiple nodes that can reconcile:
 - Set `NODE_ID` to a unique identifier per node
 - Set `SELF_URL` to the node's public URL
 - Set `GOSSIP_ENABLED=true` (default)
-- Set `GOSSIP_INTERVAL_MS` for gossip frequency (default: 1000ms)
+- Set `GOSSIP_INTERVAL_MS` for gossip frequency (default: 200ms)
+- Set `CRYPTO_WORKERS` for parallel signature verification threads (default: CPU cores - 1)
 
 ### External Dependencies
 - **npm workspaces:** Monorepo management.

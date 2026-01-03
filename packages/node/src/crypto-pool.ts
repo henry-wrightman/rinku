@@ -2,10 +2,23 @@ import { Worker } from 'worker_threads';
 import { cpus } from 'os';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const isDevMode = __dirname.includes('/src');
+
+function findWorkerPath(): string {
+  const distPath = join(__dirname, 'crypto-worker.js');
+  if (existsSync(distPath)) return distPath;
+  
+  const devDistPath = join(__dirname, '..', 'dist', 'crypto-worker.js');
+  if (existsSync(devDistPath)) return devDistPath;
+  
+  const srcDistPath = join(__dirname, '..', '..', 'dist', 'crypto-worker.js');
+  if (existsSync(srcDistPath)) return srcDistPath;
+  
+  return distPath;
+}
 
 interface PendingTask {
   resolve: (result: any) => void;
@@ -43,9 +56,7 @@ export class CryptoPool {
   }
 
   private createWorker(): void {
-    const workerPath = isDevMode 
-      ? join(__dirname, '..', 'dist', 'crypto-worker.js')
-      : join(__dirname, 'crypto-worker.js');
+    const workerPath = findWorkerPath();
     const worker = new Worker(workerPath);
     
     const workerInfo: WorkerInfo = {
@@ -126,11 +137,13 @@ export class CryptoPool {
 
     const pending: PendingTask = {
       resolve: (results: boolean[]) => {
+        this.pendingTasks.delete(taskId);
         for (let i = 0; i < batch.length; i++) {
           batch[i].resolve(results[i]);
         }
       },
       reject: (error: Error) => {
+        this.pendingTasks.delete(taskId);
         for (const item of batch) {
           item.reject(error);
         }
