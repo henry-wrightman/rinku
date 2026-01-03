@@ -17,6 +17,43 @@ const CONTRACT_INTERVAL_MS = parseInt(
 const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "180000");
 const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "300000");
 
+// Global sender lock - prevents same sender from being used in overlapping operations
+const globalLockedSenders = new Set<string>();
+
+// Lock a sender for the duration of a transaction
+function lockSender(fingerprint: string): boolean {
+  if (globalLockedSenders.has(fingerprint)) return false;
+  globalLockedSenders.add(fingerprint);
+  return true;
+}
+
+function unlockSender(fingerprint: string): void {
+  globalLockedSenders.delete(fingerprint);
+}
+
+// Cached tips with auto-refresh
+let cachedTipUrls: string[] = [];
+let lastTipFetch = 0;
+const TIP_CACHE_MS = 1000; // Refresh tips every 1s
+
+async function getFreshTips(): Promise<string[]> {
+  const now = Date.now();
+  if (now - lastTipFetch < TIP_CACHE_MS && cachedTipUrls.length > 0) {
+    return cachedTipUrls;
+  }
+  try {
+    const res = await fetchWithTimeout(`${NODE_URL}/api/tipUrls`, {}, 3000);
+    if (res.ok) {
+      const data = (await res.json()) as { tipUrls: string[] };
+      cachedTipUrls = data.tipUrls || [];
+      lastTipFetch = now;
+    }
+  } catch {
+    // Use cached tips on error
+  }
+  return cachedTipUrls;
+}
+
 interface BotWallet {
   wallet: Wallet;
   fingerprint: string;
@@ -256,6 +293,7 @@ async function doConcurrentTransactions(): Promise<void> {
   if (pendingOperations >= maxPendingOps) return;
 
   pendingOperations++;
+  const lockedForThisBatch: string[] = [];
   try {
     const gasPrice = await fetchGasPrice();
     const txPromises: Promise<boolean>[] = [];
@@ -264,16 +302,16 @@ async function doConcurrentTransactions(): Promise<void> {
       Math.floor(wallets.length / 2),
     );
 
-    const usedSenders = new Set<string>();
-
     for (let i = 0; i < txCount; i++) {
+      // Find sender not locked globally
       const availableSenders = wallets.filter(
-        (w) => !usedSenders.has(w.fingerprint),
+        (w) => !globalLockedSenders.has(w.fingerprint),
       );
       if (availableSenders.length < 1) break;
 
       const sender = pickRandom(availableSenders);
-      usedSenders.add(sender.fingerprint);
+      if (!lockSender(sender.fingerprint)) continue; // Race protection
+      lockedForThisBatch.push(sender.fingerprint);
 
       const recipients = wallets.filter(
         (w) => w.fingerprint !== sender.fingerprint,
@@ -294,7 +332,8 @@ async function doConcurrentTransactions(): Promise<void> {
             }
             return doSingleTransaction(sender, recipient, amount, gasPrice);
           })
-          .catch(() => false),
+          .catch(() => false)
+          .finally(() => unlockSender(sender.fingerprint)),
       );
     }
 
@@ -308,6 +347,10 @@ async function doConcurrentTransactions(): Promise<void> {
       }
     }
   } finally {
+    // Unlock any senders that didn't get into a promise
+    for (const fp of lockedForThisBatch) {
+      unlockSender(fp);
+    }
     pendingOperations--;
   }
 }
@@ -317,6 +360,7 @@ async function doBatchTransactions(): Promise<void> {
   if (pendingOperations >= maxPendingOps) return;
 
   pendingOperations++;
+  const lockedForThisBatch: string[] = [];
   try {
     const gasPrice = await fetchGasPrice();
     const batchCount = Math.min(BATCH_TX_COUNT, Math.floor(wallets.length / 2));
@@ -329,16 +373,16 @@ async function doBatchTransactions(): Promise<void> {
       publicKey: number[];
     }> = [];
 
-    const usedSenders = new Set<string>();
-
     for (let i = 0; i < batchCount; i++) {
+      // Find sender not locked globally
       const availableSenders = wallets.filter(
-        (w) => !usedSenders.has(w.fingerprint),
+        (w) => !globalLockedSenders.has(w.fingerprint),
       );
       if (availableSenders.length < 1) break;
 
       const sender = pickRandom(availableSenders);
-      usedSenders.add(sender.fingerprint);
+      if (!lockSender(sender.fingerprint)) continue; // Race protection
+      lockedForThisBatch.push(sender.fingerprint);
 
       const recipients = wallets.filter(
         (w) => w.fingerprint !== sender.fingerprint,
@@ -377,6 +421,12 @@ async function doBatchTransactions(): Promise<void> {
       }
     }
 
+    // Unlock senders before submitting batch
+    for (const fp of lockedForThisBatch) {
+      unlockSender(fp);
+    }
+    lockedForThisBatch.length = 0;
+
     if (preparedTxs.length === 0) return;
 
     const res = await fetchWithTimeout(`${NODE_URL}/api/tx/batch`, {
@@ -409,6 +459,10 @@ async function doBatchTransactions(): Promise<void> {
   } catch (err: any) {
     errors++;
   } finally {
+    // Safety cleanup
+    for (const fp of lockedForThisBatch) {
+      unlockSender(fp);
+    }
     pendingOperations--;
   }
 }
@@ -665,7 +719,7 @@ function printStats(): void {
   console.log(
     `  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps} | Skipped (low bal): ${skippedDueToBalance}`,
   );
-  console.log(`  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT}`);
+  console.log(`  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT} | Locked: ${globalLockedSenders.size}`);
   console.log(`  Gas Price: ${currentGasPrice.toFixed(4)}`);
 
   // Show average balance async
