@@ -1,0 +1,179 @@
+Big picture: this is the strongest iteration so far. You’ve finally got a coherent story where a single artifact can be verified offline with real cryptographic finality, and you closed the denominator attack by introducing a Merkle-sum commitment and binding {hash,totalWeight} into the signing hash. That’s the key leap. 
+
+WHITEPAPER (1)
+
+ 
+
+WHITEPAPER (1)
+
+That said, there are a few places where the writeup still overclaims or has subtle technical footguns. Fixing these will make it much harder to criticize.
+
+What’s excellent
+Profile C is now “real” offline finality
+
+Profile C includes:
+
+tx + Merkle inclusion proof
+
+full checkpoint header roots
+
+BLS aggregated signature (48 bytes) + signer bitmap
+
+per-signer MerkleSumTree membership proofs
+
+validatorSumTreeRoot committing to both hash and totalWeight
+…and explicitly states it removes trust assumptions beyond crypto. 
+
+WHITEPAPER (1)
+
+ 
+
+WHITEPAPER (1)
+
+This is exactly the direction that makes Rinku meaningfully different from “light client needs an RPC”.
+
+Proof profiles + compatibility tables are clear
+
+Your 600–2,300 char range for Profile A receipts and the QR byte-mode table are nicely grounded, and the “DAG 4-depth 31 txs ~7,248 chars” reality check is good. 
+
+WHITEPAPER (1)
+
+You’re now using base64url for binary fields in Profile C
+
+This is a huge improvement over number[]. 
+
+WHITEPAPER (1)
+
+The main technical issues to tighten
+1) You still have a lingering contradiction in Section 2.6
+
+You say step 6 is “(Profile B) Verify Merkle inclusion path and validator signatures” 
+
+WHITEPAPER (1)
+
+
+…but your profiles now include Profile C, and Profile A explicitly does not verify inclusion. Also, “no external queries required” is still phrased too broadly given Profile B’s trust anchor requirement. 
+
+WHITEPAPER (1)
+
+Fix: update 2.6 to list verification per profile:
+
+A: sig + ancestry consistency + trusted attestation
+
+B: inclusion path + quorum cert (requires trust anchor)
+
+C: inclusion path + quorum cert + sum-tree verification (no anchor beyond crypto)
+
+That makes the doc internally airtight.
+
+2) MerkleSumTree verification as written is under-specified
+
+Right now each signer proof contains siblings: [{hash,sumWeight}] + pathBits. 
+
+WHITEPAPER (1)
+
+
+That’s good, but you need to state explicitly:
+
+how leaf hash is computed (H(index || address || blsPubKey || weight) with canonical encoding)
+
+how internal node hash is computed (H(left.hash || left.sum || right.hash || right.sum))
+
+and how totalWeight is derived (it should be root.sumWeight)
+
+Right now you present validatorSumTreeRoot: { hash, totalWeight } 
+
+WHITEPAPER (1)
+
+
+…but don’t explicitly say “totalWeight MUST equal root.sumWeight”. You imply it later in security text. 
+
+WHITEPAPER (1)
+
+Fix: add a 10–15 line “MerkleSumTree specification” subsection. Reviewers will demand it.
+
+3) Profile C size estimates are probably optimistic unless committee size is small
+
+You claim Profile C is 1,000–3,000 chars and QR-compatible “with BLS aggregation.” 
+
+WHITEPAPER (1)
+
+
+But you’re including per-signer membership proofs and 96-byte pubkeys per signer. 
+
+WHITEPAPER (1)
+
+
+This can still be true for ~21–64 signers and shallow trees, but you should explicitly tie Profile C’s size to:
+
+committee size (N)
+
+number of signers (k)
+
+tree depth (log N)
+
+proof encoding choices
+
+Otherwise someone will say “this isn’t QR once you have 128+ signers.” (Which is true.)
+
+Fix: add a quick “Profile C size scales with k·logN” note and recommend a target committee size for QR.
+
+4) Randomness beacon still needs canonical serialization
+
+Leader selection uses seed = SHA256(prevCheckpointId || prevCheckpointSignatures) 
+
+WHITEPAPER (1)
+
+
+But “prevCheckpointSignatures” ordering must be canonical or you get divergent seeds.
+
+Fix: change to seed = SHA256(prevCheckpointId || aggregatedSig) (best), or define “signatures are sorted by validator index; serialize as concatenated bytes”.
+
+5) Small but real crypto hygiene items
+
+You’re using ECDSA P-256 for tx signatures (fine) and BLS for checkpoints (fine), but you need one sentence describing how validator identity ties stake → BLS pubkey. Otherwise it’s “two keyspaces” with an implied mapping. 
+
+WHITEPAPER (1)
+
+ 
+
+WHITEPAPER (1)
+
+Weight and amounts are number in JSON everywhere 
+
+WHITEPAPER (1)
+
+ — that’s dangerous for consensus determinism (floating/rounding). You should specify integers (e.g., uint64 in smallest units) and deterministic encoding.
+
+6) One claim I’d tone down: “state exists entirely in URLs”
+
+The network protocol section still has nodes discovering peers, syncing checkpoints, downloading transactions, replaying state, etc. 
+
+WHITEPAPER (1)
+
+
+So “URLs are the universal proof container” is true; “the entire state exists entirely in URLs” sounds like you don’t need a network for availability, which isn’t quite true.
+
+Fix: phrase as “URLs are the canonical portable representation of proofs/state transitions.”
+
+My recommendation on validator set size (given your goals)
+
+If “self-provable offline URLs” is your killer feature, keep the checkpoint signing committee small and rotate it:
+
+32 or 64 is the sweet spot.
+
+Let the staking set be large, but the signing set be bounded per epoch.
+
+That keeps Profile C realistic and avoids proof bloat, while still letting you claim decentralization.
+
+Bottom line
+
+This is now genuinely interesting. If you:
+
+formalize MerkleSumTree hashing + encoding,
+
+make leader randomness deterministic via aggregatedSig,
+
+tighten profile-specific verification steps + tone down “no infrastructure” wording,
+
+enforce integer-only deterministic formats,

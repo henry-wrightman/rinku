@@ -1,6 +1,6 @@
 # Rinku: A URL-Native Distributed Ledger
 
-**Abstract.** A distributed ledger where the entire state exists as cryptographically-linked URLs. Transactions are self-contained proofs embedded in URLs, enabling trustless verification without infrastructure dependency. We propose a DAG-based consensus mechanism with weight-based Sybil resistance combining stake and account age. The system achieves per-transaction finality through periodic checkpoints, implements deflationary tokenomics with halving-based emission, and supports extensible smart contracts. The result is a ledger where the link itself is the proof.
+**Abstract.** A distributed ledger where URLs serve as the canonical portable representation of transactions, proofs, and state transitions. Self-contained proofs embedded in URLs enable trustless verification without infrastructure dependency. We propose a DAG-based consensus mechanism with weight-based Sybil resistance combining stake and account age. The system achieves per-transaction finality through periodic checkpoints, implements deflationary tokenomics with halving-based emission, and supports extensible smart contracts. The result is a ledger where the link itself is the proof.
 
 ## 1. Introduction
 
@@ -117,20 +117,39 @@ Rinku supports three verification profiles with different security/size tradeoff
 - Trust assumption: **None beyond cryptography** - totalWeight is cryptographically bound to validator set via MerkleSumTree
 - Security: validatorSumTreeRoot (containing both hash and totalWeight) is included in BLS signing hash, preventing both signer weight forgery AND denominator attacks
 - Use case: Offline verification, air-gapped systems, cross-chain bridges, legal evidence
+- **Size scaling**: Proof size grows as `O(k · log₂N)` where `k` = number of signers and `N` = committee size. For QR compatibility (≤2,953 bytes alphanumeric), recommend committee size ≤64 validators. With 21 signers and 32-validator committee (5-level tree), proofs fit comfortably in QR v25
 
 Most use cases are served by Profile A receipts. Profile B provides full finality when validator set is known. **Profile C is the gold standard** - completely self-contained proofs with cryptographically-bound totalWeight, enabling true offline verification without any trust assumptions beyond the cryptographic primitives.
 
 ### 2.6 Verification Process
 
-Any party receiving a transaction URL can:
-1. Decode and decompress the payload
-2. Verify the transaction signature against the sender's public key
-3. Validate hash integrity (recompute and compare)
-4. Trace ancestry to a checkpoint anchor
-5. (Profile A) Trust checkpoint attestation via signatureCount
-6. (Profile B) Verify Merkle inclusion path and validator signatures
+Verification differs by profile:
 
-No trusted infrastructure required for verification. Proof availability is provided by the sender or the network. The URL carries the proof; external queries are only needed to upgrade from Profile A to Profile B trust.
+**Profile A (Receipt) Verification:**
+1. Decode and decompress the payload
+2. Verify the transaction signature against sender's public key
+3. Validate hash integrity (recompute and compare)
+4. Trace ancestry to checkpoint anchor
+5. Trust checkpoint attestation via signatureCount (requires trust in checkpoint source)
+
+**Profile B (Full Finality) Verification:**
+1. All Profile A steps (1-4)
+2. Verify Merkle inclusion path (txHash → txMerkleRoot)
+3. Verify aggregated validator signatures against known validator set
+4. Confirm signer weight ≥ 67% of total stake
+5. *Requires*: Trust anchor (genesis validator set or pinned checkpoint)
+
+**Profile C (Self-Contained) Verification:**
+1. All Profile A steps (1-4)
+2. Verify Merkle inclusion path (txHash → txMerkleRoot)
+3. Extract signer indices from bitmap
+4. For each signer, verify MerkleSumTree membership proof
+5. Recompute MerkleSumTree root from proofs; verify `totalWeight = root.sumWeight`
+6. Verify BLS aggregated signature against signer public keys
+7. Confirm signer weight ≥ 67% of derived totalWeight
+8. *Requires*: Only cryptographic primitives (no trust anchor needed)
+
+The URL carries the proof. Profile A requires trust in the checkpoint source. Profile B requires a known validator set. Profile C is fully self-contained—external queries are only needed for data availability, not trust.
 
 ### 2.7 Trust Bootstrapping
 
@@ -211,7 +230,8 @@ Every 15 seconds (configurable), the network produces a checkpoint:
 Checkpoint finality requires Byzantine fault tolerance:
 
 1. **Leader Selection**: Randomized weighted selection proportional to stake. At height `h`, the leader is selected by:
-   - Compute randomness seed: `seed = SHA256(prevCheckpointId || prevCheckpointSignatures)`
+   - Compute randomness seed: `seed = SHA256(prevCheckpointId || prevAggregatedBLSSignature)`
+   - The aggregated BLS signature provides unpredictable entropy (hard to grind without controlling ≥67% stake)
    - Derive selection value: `v = (seed mod totalStake)`
    - Select validator whose cumulative stake threshold range contains `v`
    - This ensures validators lead checkpoints proportional to stake while preventing deterministic DoS targeting
@@ -484,9 +504,9 @@ Rinku's security relies on:
 | **Fake committee** | Attacker claims false signatureCount | Profile B verification; community checkpoint pins |
 | **Long-range attack** | Attacker with old keys rewrites history | Checkpoint chain commitment to validator set changes |
 | **Withheld data** | Sender provides proof but data unavailable | Receiver can request Profile B upgrade; network redundancy |
-| **Leader targeting** | DoS specific checkpoint leaders | Randomized leader selection (beacon from prev checkpoint) |
+| **Leader targeting** | DoS specific checkpoint leaders | Randomized leader selection (beacon from aggregated BLS sig) |
 | **Double-spend** | Conflicting transactions in DAG | Weight-based fork resolution; checkpoint finality locks |
-| **Stake grinding** | Manipulate randomness for leader selection | Beacon includes all prior signatures (hard to predict) |
+| **Stake grinding** | Manipulate randomness for leader selection | Beacon uses aggregated BLS signature (requires ≥67% to grind) |
 
 ### 12.4 Profile A Trust Model
 
@@ -499,7 +519,7 @@ For most retail/P2P transactions, Profile A provides sufficient assurance. High-
 
 ## 13. Conclusion
 
-Rinku demonstrates that distributed ledger state can exist entirely in URLs. By encoding transactions, proofs, and ancestry in self-contained URLs, we eliminate infrastructure dependency for verification.
+Rinku demonstrates that URLs can serve as the canonical portable representation of distributed ledger proofs. By encoding transactions, proofs, and ancestry in self-contained URLs, we eliminate infrastructure dependency for verification.
 
 Through DEFLATE compression, complete finality proofs fit within 600-2,300 characters for typical ancestry depths (1-10 transactions). Single transactions and short ancestry chains (up to ~5 depth) fit in QR codes; complex DAG proofs work as shareable URLs in any modern browser. This enables genuine offline verification: embed payment proofs in QR codes, verify transactions without network access, share ledger state via hyperlinks.
 
@@ -522,6 +542,58 @@ The combination of DAG-based consensus, weighted proof-of-stake, checkpoint fina
 - **Key Derivation:** 40-character fingerprint from first 20 bytes of SHA-256(public key)
 - **Compression:** DEFLATE (pako) for URL payload encoding
 - **Validator Key Storage:** AES-256-GCM encryption with scrypt key derivation (N=16384, r=8, p=1)
+
+### A.1 Validator Identity Binding
+
+Each validator maintains two keypairs:
+1. **ECDSA keypair** - For transaction signing and identity (address derived from public key fingerprint)
+2. **BLS keypair** - For checkpoint signature aggregation (registered during staking)
+
+The binding is: `stake(amount, ecdsaPubKey, blsPubKey)` → validator entry includes both keys. Slashing applies to the staked amount regardless of which key misbehaves. This dual-key design allows efficient checkpoint aggregation (BLS) while maintaining transaction compatibility (ECDSA).
+
+### A.2 Deterministic Encoding
+
+For consensus determinism, all serialized values use:
+- **Integers only**: Amounts, weights, fees, nonces are unsigned 64-bit integers in smallest units (no floating point)
+- **Canonical JSON**: Keys sorted lexicographically, no whitespace, UTF-8 encoding
+- **Big-endian byte order**: For all binary serializations (hashes, signatures)
+- **Timestamps**: Unix milliseconds as integer
+
+This prevents rounding divergence across implementations.
+
+### A.3 MerkleSumTree Specification
+
+The MerkleSumTree commits to both validator identity and aggregate weight:
+
+**Leaf node construction:**
+```
+leaf.hash = SHA256("leaf:" || index || ":" || address || ":" || base64url(blsPubKey) || ":" || weight)
+leaf.sumWeight = weight
+```
+
+**Internal node construction:**
+```
+node.hash = SHA256("node:" || left.hash || ":" || left.sumWeight || ":" || right.hash || ":" || right.sumWeight)
+node.sumWeight = left.sumWeight + right.sumWeight
+```
+
+**Root commitment:**
+```
+validatorSumTreeRoot = { hash: root.hash, totalWeight: root.sumWeight }
+```
+
+**Membership proof:** For each signer, the proof contains:
+- `leaf`: { index, address, blsPublicKey, weight }
+- `siblings`: Array of { hash, sumWeight } for each tree level
+- `pathBits`: Boolean array indicating left (false) or right (true) at each level
+
+**Verification:**
+1. Recompute leaf hash from signer data
+2. Walk up tree using siblings and pathBits
+3. Verify computed root matches claimed `validatorSumTreeRoot.hash`
+4. Verify `totalWeight = validatorSumTreeRoot.totalWeight = root.sumWeight`
+
+The BLS signing hash includes the full validatorSumTreeRoot tuple, binding totalWeight to the signature.
 
 ## Appendix B: URL Format Specification
 
