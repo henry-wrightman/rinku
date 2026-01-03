@@ -25,6 +25,8 @@ import { ProofSlashingService } from "./proof-slashing.js";
 import { GossipService } from "./gossip.js";
 import { ForkRemediationService } from "./fork-remediation.js";
 import { CryptoPool } from "./crypto-pool.js";
+import { TelemetryService } from "./telemetry.js";
+import { NodeTui } from "./tui.js";
 import {
   hashTransaction,
   type SignedTransaction,
@@ -61,6 +63,8 @@ const CRYPTO_WORKERS = parseInt(
   process.env.CRYPTO_WORKERS || String(Math.max(2, cpus().length - 1)),
   10,
 );
+const NODE_TUI = process.env.NODE_TUI === "true";
+const NODE_VERSION = "0.1.0";
 
 async function main() {
   console.log("Starting Rinku Node...");
@@ -626,6 +630,32 @@ async function main() {
     peerSync.start(5000);
   }
 
+  const telemetry = new TelemetryService(DATA_DIR);
+  let currentCryptoWorkers = CRYPTO_WORKERS;
+
+  if (NODE_TUI && process.stdin.isTTY) {
+    const tui = new NodeTui({
+      consensus,
+      state,
+      gossip: gossipService || null,
+      peerSync,
+      gas: gasService || null,
+      telemetry,
+      getCheckpointHeight: () => checkpointService?.getLatestCheckpoint()?.height ?? 0,
+      getPendingCount: () => mempool.size(),
+      getWitnessedCount: () => rewardsService?.getStats().witnessedCount ?? 0,
+      getCryptoWorkers: () => currentCryptoWorkers,
+      setCryptoWorkers: (count: number) => {
+        currentCryptoWorkers = count;
+        console.log(`[Config] Crypto workers set to ${count}`);
+      },
+      nodeId: NODE_ID,
+      version: NODE_VERSION,
+    });
+    tui.start();
+    console.log("TUI dashboard enabled");
+  }
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Rinku Node running on port ${PORT}`);
     console.log(`API available at http://0.0.0.0:${PORT}/api`);
@@ -767,3 +797,5 @@ export { ProofSlashingService } from "./proof-slashing.js";
 export { GossipService } from "./gossip.js";
 export { ForkRemediationService } from "./fork-remediation.js";
 export { createAPI } from "./api.js";
+export { TelemetryService } from "./telemetry.js";
+export { NodeTui } from "./tui.js";
