@@ -81,7 +81,7 @@ export function Header({ connected }: HeaderProps) {
             </span>
           ))}
         </span>
-        : where the link is the ledger
+        : where the link is the proof
       </p>
       <div className="status-indicator">
         <span
