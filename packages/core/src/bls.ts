@@ -3,6 +3,8 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 
 const sigs = bls.shortSignatures;
+const G1 = bls.G1;
+const G2 = bls.G2;
 
 export interface BLSKeyPair {
   publicKey: Uint8Array;
@@ -17,8 +19,9 @@ export interface AggregatedSignature {
 }
 
 export function generateBLSKeyPair(): BLSKeyPair {
-  const { secretKey, publicKey } = sigs.keygen();
-  const pubKeyBytes = sigs.Signature.toBytes(publicKey as any);
+  const secretKey = bls.utils.randomSecretKey();
+  const publicKeyPoint = sigs.getPublicKey(secretKey);
+  const pubKeyBytes = publicKeyPoint.toBytes(true);
   const fingerprint = computeBLSFingerprint(pubKeyBytes);
   
   return {
@@ -35,7 +38,7 @@ export function computeBLSFingerprint(publicKey: Uint8Array): string {
 
 export function blsGetPublicKey(privateKey: Uint8Array): Uint8Array {
   const pubKeyPoint = sigs.getPublicKey(privateKey);
-  return sigs.Signature.toBytes(pubKeyPoint as any);
+  return pubKeyPoint.toBytes(true);
 }
 
 export function blsSign(message: Uint8Array, privateKey: Uint8Array): Uint8Array {
@@ -70,7 +73,7 @@ export function aggregatePublicKeys(publicKeys: Uint8Array[]): Uint8Array {
     throw new Error('No public keys to aggregate');
   }
   const aggPoint = sigs.aggregatePublicKeys(publicKeys);
-  return sigs.Signature.toBytes(aggPoint as any);
+  return aggPoint.toBytes(true);
 }
 
 export function verifyAggregatedSignature(
@@ -81,7 +84,7 @@ export function verifyAggregatedSignature(
   try {
     const aggPubKey = sigs.aggregatePublicKeys(publicKeys);
     const msgPoint = sigs.hash(message);
-    return sigs.verify(aggregatedSig, msgPoint, sigs.Signature.toBytes(aggPubKey as any));
+    return sigs.verify(aggregatedSig, msgPoint, aggPubKey.toBytes(true));
   } catch {
     return false;
   }
