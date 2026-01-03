@@ -5,6 +5,7 @@ export * from './compact-proof.js';
 export * from './self-proof.js';
 export * from './encoding.js';
 export * from './merkle.js';
+export * from './merkle-sum-tree.js';
 export * from './dag.js';
 export * from './weight.js';
 export * from './contract.js';
