@@ -265,9 +265,10 @@ describe('MerkleSumTree', () => {
       expect(multiProof).not.toBeNull();
       expect(multiProof!.leaves.length).toBe(4);
 
-      const result = verifyMerkleSumMultiProof(multiProof!, root, 8);
+      const result = verifyMerkleSumMultiProof(multiProof!, root);
       expect(result.valid).toBe(true);
       expect(result.signerWeight).toBe(100 + 120 + 150 + 170);
+      expect(multiProof!.committeeSize).toBe(8);
     });
 
     it('should verify multi-proof against expected root', () => {
@@ -276,9 +277,10 @@ describe('MerkleSumTree', () => {
       const signerIndices = [0, 1, 4, 5, 8, 9, 12, 13, 14, 15];
 
       const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
-      const result = verifyMerkleSumMultiProof(multiProof!, root, 16);
+      const result = verifyMerkleSumMultiProof(multiProof!, root);
 
       expect(result.valid).toBe(true);
+      expect(multiProof!.committeeSize).toBe(16);
     });
 
     it('should reject multi-proof with wrong root', () => {
@@ -289,7 +291,7 @@ describe('MerkleSumTree', () => {
       const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
       const wrongRoot: MerkleSumRoot = { hash: 'wrong', totalWeight: 999 };
 
-      const result = verifyMerkleSumMultiProof(multiProof!, wrongRoot, 8);
+      const result = verifyMerkleSumMultiProof(multiProof!, wrongRoot);
       expect(result.valid).toBe(false);
     });
 
@@ -322,8 +324,9 @@ describe('MerkleSumTree', () => {
         const signerIndices = Array.from({ length: k }, (_, i) => Math.floor(i * N / k));
 
         const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
-        const result = verifyMerkleSumMultiProof(multiProof!, root, N);
+        const result = verifyMerkleSumMultiProof(multiProof!, root);
         expect(result.valid).toBe(true);
+        expect(multiProof!.committeeSize).toBe(N);
 
         const multiNodes = multiProofNodeCount(multiProof!);
         const individualNodes = individualProofNodeCount(k, N);
@@ -340,10 +343,11 @@ describe('MerkleSumTree', () => {
       const expectedWeight = leaves[1].weight + leaves[3].weight + leaves[5].weight;
 
       const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
-      const result = verifyMerkleSumMultiProof(multiProof!, root, 8);
+      const result = verifyMerkleSumMultiProof(multiProof!, root);
 
       expect(result.valid).toBe(true);
       expect(result.signerWeight).toBe(expectedWeight);
+      expect(multiProof!.committeeSize).toBe(8);
     });
 
     it('should return null for empty signer list', () => {

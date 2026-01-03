@@ -114,11 +114,11 @@ Rinku supports three verification profiles with different security/size tradeoff
 - URL format: `rinku://sp/{base64url-deflate-packed}` (canonical scheme; HTTP URLs are transport wrappers)
 - Includes: chainId (network identifier), tx data, full checkpoint header, Merkle inclusion proof, BLS aggregated signature (48 bytes), MerkleSumTree multi-proof (signer leaves + shared auxiliary nodes), validatorSumTreeRoot (hash + totalWeight)
 - Guarantees: **Fully offline verification** - verifier derives totalWeight from MerkleSumTree root
-- Trust assumption: **Chain identity only** - verifier must know expected chainId; totalWeight is cryptographically bound to validator set via MerkleSumTree
+- Trust assumption: **Chain identity only** - verifier must know expected chainId; totalWeight is cryptographically bound to validator set via MerkleSumTree; BLS public keys are PoP-verified at registration (see E.2.1)
 - Security: validatorSumTreeRoot (containing both hash and totalWeight) is included in BLS signing hash, preventing both signer weight forgery AND denominator attacks
 - Use case: Offline verification, air-gapped systems, cross-chain bridges, legal evidence
-- **Size scaling**: Individual proofs grow as `O(k · log₂N)` where `k` = number of signers and `N` = committee size
-  - **Multi-proof optimization** (default in v5): Share sibling nodes across signers, reducing to `~N` nodes total (60-75% savings). See Appendix F.3.1 and F.5
+- **Size scaling**: With multi-proof (v5 default), proof size is `~O(N)` where `N` = committee size. Without multi-proof (v4), size grows as `O(k · log₂N)` where `k` = signers
+  - **Multi-proof optimization** (default in v5): Share sibling nodes across signers, reducing to `~N` nodes total (60-75% smaller than per-signer proofs). See Appendix F.3.1 and F.5
   - **QR-compatible** (≤2,953 bytes): Requires packed binary + multi-proof AND committee N ≤ 21. JSON encoding will NOT fit QR
   - **URL-shareable** (always): All proofs fit browser URL limits (65KB+) with any reasonable committee size
   - **Packed encoding required for QR**: Parallel byte arrays for siblings (32B hash + 8B weight each), varint indices, raw bytes for pubkeys. See Appendix F
@@ -154,8 +154,8 @@ Verification differs by profile:
 7. Compute aggregate public key: `pk_agg = Σ pk_i` (G2 point addition)
 8. Verify BLS aggregated signature: `BLS.verify(pk_agg, signingHash, σ_agg)`
 9. Sum signer weights from multi-proof leaves; confirm ≥ 67% of derived totalWeight
-10. Verify chainId/genesisHash in signing hash matches expected network
-11. *Requires*: Chain identity (chainId or genesisHash) + cryptographic primitives; PoP assumed at registration
+10. Verify chainId in signing hash matches expected network
+11. *Requires*: Chain identity (chainId) + cryptographic primitives; BLS keys must be PoP-verified at registration (see E.2.1)
 
 The URL carries the proof. Profile A requires trust in the checkpoint source. Profile B requires a known validator set. Profile C is self-contained for *finality verification*—but chain identity binding is required to prevent cross-network proof replay. External queries are only needed for data availability, not trust in the validator set.
 
@@ -785,7 +785,7 @@ The 48-byte aggregated signature plus 3-byte signer bitmap enables QR-compatible
 1. **Checkpoint Creation:** Leader computes checkpoint header including txMerkleRoot, stateRoot, receiptRoot, tipCount
 2. **Validator Set Commitment:** Build MerkleSumTree from validators (per Appendix A.3); extract `validatorSumTreeRoot = { hash, totalWeight }`
 3. **Signing Hash:** Compute SHA-256 of: `chainId || checkpointId || height || txMerkleRoot || stateRoot || receiptRoot || tipCount || validatorSumTreeRoot.hash || validatorSumTreeRoot.totalWeight` (all fields in canonical byte encoding per A.2)
-   - **Chain identity binding:** The `chainId` (4 bytes) or `genesisHash` (32 bytes) is the first field, preventing cross-network proof replay
+   - **Chain identity binding:** The `chainId` (4 bytes, network-specific constant) is the first field, preventing cross-network proof replay
 4. **Individual Signatures:** Each validator signs the hash with their BLS private key
 5. **Aggregation:** Combine all signatures into single 48-byte aggregated signature
 6. **Bitmap:** Create signer bitmap indicating which validators signed
@@ -939,7 +939,8 @@ BLS Aggregation:
 Validator Commitment:
   valRootHash:    32 bytes
   totalWeight:    8 bytes (uint64 BE)
-  treeDepth:      1 byte (log₂N rounded up)
+  committeeSize:  1 byte (N, the total number of validators in committee)
+  // Note: treeDepth = ⌈log₂N⌉ is derived from committeeSize, not transmitted
 
 Multi-Proof Signer Leaves (signerCount derived from bitmap popcount):
   For each signer (in index order):
@@ -957,12 +958,14 @@ Multi-Proof Auxiliary Nodes:
 ```
 
 **Reconstruction Algorithm:**
-1. Initialize layer[0] with signer leaves at their bitmap indices
-2. Place auxiliary nodes at specified (level, index) positions
-3. For each level from 0 to treeDepth-1:
-   - For each pair (i, i+1): if both present, compute parent = hash(left || right)
+1. Parse committeeSize (N) from proof header; compute treeDepth = ⌈log₂N⌉ (not transmitted, derived)
+2. Initialize layer[0] with signer leaves at their bitmap indices (0 to N-1)
+3. Place auxiliary nodes at specified (level, index) positions in canonical order (sorted by level ascending, then index ascending)
+4. For each level from 0 to treeDepth-1:
+   - For each pair (i, i+1) where i is even: if both children present, compute parent = hash(left || right)
+   - If only left child present and index < ⌈layerSize/2⌉, use padding node {hash:"padding", sumWeight:0} for right
    - Place computed parent at layer[level+1][i/2]
-4. Verify layer[treeDepth][0] == valRootHash
+5. Verify layer[treeDepth][0] == valRootHash (both hash AND sumWeight must match)
 
 ### F.4 QR Compatibility Matrix (Without Multi-Proof)
 

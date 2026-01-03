@@ -243,6 +243,7 @@ export interface AuxiliaryNode {
 }
 
 export interface MerkleSumMultiProof {
+  committeeSize: number;  // N - total number of validators in committee
   leaves: MerkleSumLeaf[];
   auxiliaryNodes: AuxiliaryNode[];
 }
@@ -258,6 +259,9 @@ export function getMerkleSumMultiProof(
 
   const signerLeaves = sortedLeaves.filter((l) => signerSet.has(l.index));
   if (signerLeaves.length !== signerIndices.length) return null;
+
+  // Sort signer leaves by index for canonical ordering
+  signerLeaves.sort((a, b) => a.index - b.index);
 
   let currentLayer: MerkleSumNode[] = sortedLeaves.map((leaf) => ({
     hash: hashLeaf(leaf),
@@ -316,7 +320,14 @@ export function getMerkleSumMultiProof(
     level++;
   }
 
+  // Sort auxiliary nodes by (level, index) for canonical ordering per spec F.3.1
+  auxiliaryNodes.sort((a, b) => {
+    if (a.level !== b.level) return a.level - b.level;
+    return a.index - b.index;
+  });
+
   return {
+    committeeSize: sortedLeaves.length,  // N - included per spec F.3.1
     leaves: signerLeaves,
     auxiliaryNodes,
   };
@@ -324,8 +335,7 @@ export function getMerkleSumMultiProof(
 
 export function verifyMerkleSumMultiProof(
   multiProof: MerkleSumMultiProof,
-  expectedRoot: MerkleSumRoot,
-  totalLeafCount: number
+  expectedRoot: MerkleSumRoot
 ): { valid: boolean; signerWeight: number; errors: string[] } {
   const errors: string[] = [];
 
@@ -334,7 +344,8 @@ export function verifyMerkleSumMultiProof(
     return { valid: false, signerWeight: 0, errors };
   }
 
-  const depth = Math.ceil(Math.log2(totalLeafCount));
+  // Derive treeDepth from committeeSize per spec F.3.1
+  const depth = Math.ceil(Math.log2(multiProof.committeeSize));
   const layers: Map<number, MerkleSumNode>[] = [];
   for (let i = 0; i <= depth; i++) {
     layers.push(new Map());
@@ -356,7 +367,7 @@ export function verifyMerkleSumMultiProof(
   }
 
   for (let level = 0; level < depth; level++) {
-    const currentLayerSize = Math.ceil(totalLeafCount / Math.pow(2, level));
+    const currentLayerSize = Math.ceil(multiProof.committeeSize / Math.pow(2, level));
 
     for (let i = 0; i < currentLayerSize; i += 2) {
       const parentIdx = Math.floor(i / 2);
