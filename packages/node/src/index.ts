@@ -95,7 +95,13 @@ async function main() {
     console.log(`Peer discovery enabled (max ${MAX_PEERS} peers)`);
   }
   
-  const contractService = new ContractService(state);
+  let contractService: ContractService;
+  if (snapshot?.contracts) {
+    contractService = await ContractService.fromJSON(snapshot.contracts, state);
+    console.log('Restored contract service from snapshot');
+  } else {
+    contractService = new ContractService(state);
+  }
 
   const checkpointDeps = {
     getMerkleRoot: () => state.getMerkleRoot(),
@@ -113,7 +119,9 @@ async function main() {
     getPublicKey: (address: string) => consensus.getPublicKeys().get(address),
     getPrivateKey: () => undefined,
     getNodeAddress: () => NODE_ID,
-    getAllTransactionHashes: () => consensus.getAllNodes().map(n => n.tx.hash)
+    getAllTransactionHashes: () => consensus.getAllNodes().map(n => n.tx.hash),
+    getStateRoot: () => contractService.getStateRoot(),
+    getReceiptRoot: () => contractService.getReceiptRoot()
   };
 
   let checkpointService: CheckpointService;
@@ -203,7 +211,7 @@ async function main() {
   finalityMetrics.setCheckpointInterval(CHECKPOINT_INTERVAL_MS);
 
   peerSync.onSyncComplete(async () => {
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService);
   });
 
   let snapshotPending = false;
@@ -218,18 +226,18 @@ async function main() {
     }
     snapshotPending = false;
     lastSnapshotTime = now;
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService);
   };
   
   const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave, tokenomics, finalityMetrics);
   
-  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics);
+  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService);
   
   setInterval(async () => {
     if (snapshotPending) {
       snapshotPending = false;
       lastSnapshotTime = Date.now();
-      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics);
+      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService);
     }
   }, SNAPSHOT_DEBOUNCE_MS);
 
@@ -406,7 +414,8 @@ async function saveSnapshot(
   checkpointService?: CheckpointService,
   gasService?: GasService,
   tokenomics?: TokenomicsServices,
-  finalityMetrics?: FinalityMetricsService
+  finalityMetrics?: FinalityMetricsService,
+  contractService?: ContractService
 ): Promise<void> {
   const stateJson = state.toJSON() as { accounts: [string, any][]; merkleRoot: string };
   const consensusJson = consensus.toJSON();
@@ -424,7 +433,8 @@ async function saveSnapshot(
       emission: tokenomics?.emissionService?.toJSON(),
       slashing: tokenomics?.slashingService?.toJSON()
     },
-    finality: finalityMetrics?.toJSON()
+    finality: finalityMetrics?.toJSON(),
+    contracts: contractService?.toJSON() as NodeSnapshot['contracts']
   };
 
   await storage.save(snapshot);

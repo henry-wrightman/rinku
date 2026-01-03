@@ -8,8 +8,13 @@ import type {
   SelfCrawlableBundle,
   ContractReceipt,
   CheckpointAnchor,
-  StateWitness
+  StateWitness,
+  ValidatorEntry,
+  CheckpointConfig
 } from './types.js';
+import { hash as cryptoHash, verify as cryptoVerify, computeFingerprint } from './crypto.js';
+import { StateTrie } from './state-trie.js';
+import { DEFAULT_CHECKPOINT_CONFIG, computeValidatorSetHash } from './checkpoint.js';
 
 const base64urlChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
@@ -484,5 +489,272 @@ export function verifySelfCrawlableBundle(bundle: SelfCrawlableBundle): BundleVe
     maxDepth,
     hasCheckpointAnchor: !!bundle.checkpointAnchor,
     checkpointId: bundle.checkpointAnchor?.checkpointId
+  };
+}
+
+export interface CryptographicVerificationResult {
+  valid: boolean;
+  errors: string[];
+  receiptMerkleValid: boolean;
+  stateWitnessValid: boolean;
+  stateRootMatch: boolean;
+  receiptRootMatch: boolean;
+  validatorSetMatch: boolean;
+  signaturesValid: boolean;
+  signatureWeight: number;
+  totalTrustedWeight: number;
+  weightPercentAchieved: number;
+  requiredWeightPercent: number;
+}
+
+export async function verifyReceiptMerkleProof(
+  callId: string,
+  receipt: ContractReceipt,
+  proof: string[],
+  index: number,
+  expectedRoot: string
+): Promise<boolean> {
+  const leafData = JSON.stringify({ id: callId, receipt });
+  let currentHash = await cryptoHash(leafData);
+  let idx = index;
+  
+  for (const sibling of proof) {
+    if (idx % 2 === 0) {
+      currentHash = await cryptoHash(currentHash + sibling);
+    } else {
+      currentHash = await cryptoHash(sibling + currentHash);
+    }
+    idx = Math.floor(idx / 2);
+  }
+  
+  return currentHash === expectedRoot;
+}
+
+export async function verifyStateWitness(
+  witness: StateWitness,
+  expectedStateRoot: string
+): Promise<{ valid: boolean; errors: string[] }> {
+  const errors: string[] = [];
+  
+  if (!witness.touchedKeys || witness.touchedKeys.length === 0) {
+    return { valid: true, errors: [] };
+  }
+  
+  if (!witness.merkleProofs || witness.merkleProofs.length === 0) {
+    errors.push('Witness has touched keys but no Merkle proofs');
+    return { valid: false, errors };
+  }
+  
+  const trie = new StateTrie();
+  
+  for (const tk of witness.touchedKeys) {
+    const matchingProof = witness.merkleProofs.find(p => p.key === `${tk.contractId}:${tk.key}`);
+    if (!matchingProof) {
+      errors.push(`Missing Merkle proof for key ${tk.contractId}:${tk.key}`);
+      continue;
+    }
+    
+    const isValid = await trie.verifyProof(
+      matchingProof.key,
+      tk.postValue,
+      matchingProof.proof,
+      matchingProof.index,
+      expectedStateRoot
+    );
+    
+    if (!isValid) {
+      errors.push(`Invalid Merkle proof for key ${tk.contractId}:${tk.key}`);
+    }
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+export async function verifyProfileBProofCryptographic(
+  proof: ContractReceiptProofB,
+  trustedValidators: ValidatorEntry[],
+  config: CheckpointConfig = DEFAULT_CHECKPOINT_CONFIG
+): Promise<CryptographicVerificationResult> {
+  const errors: string[] = [];
+  let receiptMerkleValid = false;
+  let stateWitnessValid = false;
+  let stateRootMatch = false;
+  let receiptRootMatch = false;
+  let validatorSetMatch = false;
+  let signaturesValid = false;
+  let signatureWeight = 0;
+  const totalTrustedWeight = trustedValidators.reduce((sum, v) => sum + v.weight, 0);
+  const requiredWeightPercent = config.minValidatorWeightPercent;
+  let weightPercentAchieved = 0;
+  
+  if (!trustedValidators || trustedValidators.length === 0) {
+    errors.push('Trusted validators required for Profile B verification');
+    return {
+      valid: false,
+      errors,
+      receiptMerkleValid,
+      stateWitnessValid,
+      stateRootMatch,
+      receiptRootMatch,
+      validatorSetMatch,
+      signaturesValid,
+      signatureWeight,
+      totalTrustedWeight,
+      weightPercentAchieved,
+      requiredWeightPercent
+    };
+  }
+  
+  if (!proof.receipt || !proof.checkpointAnchor) {
+    errors.push('Missing receipt or checkpoint anchor');
+    return {
+      valid: false,
+      errors,
+      receiptMerkleValid,
+      stateWitnessValid,
+      stateRootMatch,
+      receiptRootMatch,
+      validatorSetMatch,
+      signaturesValid,
+      signatureWeight,
+      totalTrustedWeight,
+      weightPercentAchieved,
+      requiredWeightPercent
+    };
+  }
+  
+  const trustedValidatorSetHash = await computeValidatorSetHash(trustedValidators);
+  if ('validatorSetHash' in proof.checkpointAnchor) {
+    const anchorSetHash = (proof.checkpointAnchor as any).validatorSetHash;
+    if (anchorSetHash && anchorSetHash !== trustedValidatorSetHash) {
+      errors.push(`Validator set hash mismatch: anchor has ${anchorSetHash.slice(0, 8)}..., trusted is ${trustedValidatorSetHash.slice(0, 8)}...`);
+    } else {
+      validatorSetMatch = true;
+    }
+  } else {
+    validatorSetMatch = true;
+  }
+  
+  stateRootMatch = proof.receipt.postStateRoot === proof.checkpointAnchor.stateRoot;
+  if (!stateRootMatch) {
+    errors.push(`State root mismatch: receipt has ${proof.receipt.postStateRoot}, anchor has ${proof.checkpointAnchor.stateRoot}`);
+  }
+  
+  receiptRootMatch = proof.receiptMerkleProof?.receiptRoot === proof.checkpointAnchor.receiptRoot;
+  if (!receiptRootMatch) {
+    errors.push(`Receipt root mismatch: proof has ${proof.receiptMerkleProof?.receiptRoot}, anchor has ${proof.checkpointAnchor.receiptRoot}`);
+  }
+  
+  if (proof.receiptMerkleProof) {
+    try {
+      receiptMerkleValid = await verifyReceiptMerkleProof(
+        proof.receipt.callId,
+        proof.receipt,
+        proof.receiptMerkleProof.proof,
+        proof.receiptMerkleProof.index,
+        proof.receiptMerkleProof.receiptRoot
+      );
+      
+      if (!receiptMerkleValid) {
+        errors.push('Receipt Merkle proof verification failed');
+      }
+    } catch (e) {
+      errors.push(`Receipt Merkle proof error: ${e}`);
+    }
+  }
+  
+  if (proof.witness && proof.checkpointAnchor.stateRoot) {
+    try {
+      const witnessResult = await verifyStateWitness(
+        proof.witness,
+        proof.checkpointAnchor.stateRoot
+      );
+      stateWitnessValid = witnessResult.valid;
+      errors.push(...witnessResult.errors);
+    } catch (e) {
+      errors.push(`State witness verification error: ${e}`);
+    }
+  }
+  
+  if (proof.validatorSignatures && proof.validatorSignatures.length > 0) {
+    const trustedValidatorMap = new Map(
+      trustedValidators.map(v => [v.address, v])
+    );
+    const seenValidators = new Set<string>();
+    
+    const signingData = JSON.stringify({
+      checkpointId: proof.checkpointAnchor.checkpointId,
+      height: proof.checkpointAnchor.height,
+      merkleRoot: proof.checkpointAnchor.merkleRoot,
+      stateRoot: proof.checkpointAnchor.stateRoot,
+      receiptRoot: proof.checkpointAnchor.receiptRoot
+    });
+    
+    for (const sig of proof.validatorSignatures) {
+      if (seenValidators.has(sig.validator)) {
+        errors.push(`Duplicate signature from validator: ${sig.validator.slice(0, 8)}...`);
+        continue;
+      }
+      seenValidators.add(sig.validator);
+      
+      const trustedValidator = trustedValidatorMap.get(sig.validator);
+      if (!trustedValidator) {
+        errors.push(`Unknown validator: ${sig.validator.slice(0, 8)}...`);
+        continue;
+      }
+      
+      if (Math.abs(trustedValidator.weight - sig.weight) > 0.001) {
+        errors.push(`Weight mismatch for ${sig.validator.slice(0, 8)}...: claimed ${sig.weight}, trusted ${trustedValidator.weight}`);
+        continue;
+      }
+      
+      if (trustedValidator.publicKey && trustedValidator.publicKey.length > 0) {
+        try {
+          const publicKeyBytes = new Uint8Array(trustedValidator.publicKey);
+          const isValidSig = await cryptoVerify(
+            signingData + `:${sig.weight}`,
+            sig.signature,
+            publicKeyBytes
+          );
+          
+          if (isValidSig) {
+            signatureWeight += trustedValidator.weight;
+          } else {
+            errors.push(`Invalid signature from validator ${sig.validator.slice(0, 8)}...`);
+          }
+        } catch (e) {
+          errors.push(`Signature verification error for ${sig.validator.slice(0, 8)}...: ${e}`);
+        }
+      } else {
+        signatureWeight += trustedValidator.weight;
+      }
+    }
+    
+    weightPercentAchieved = totalTrustedWeight > 0 ? (signatureWeight / totalTrustedWeight) * 100 : 0;
+    signaturesValid = weightPercentAchieved >= requiredWeightPercent;
+    
+    if (!signaturesValid) {
+      errors.push(`Insufficient validator weight: got ${weightPercentAchieved.toFixed(1)}%, need ${requiredWeightPercent}%`);
+    }
+  } else {
+    errors.push('Profile B proof missing validator signatures');
+  }
+  
+  return {
+    valid: errors.length === 0 && receiptMerkleValid && stateRootMatch && receiptRootMatch && validatorSetMatch && signaturesValid,
+    errors,
+    receiptMerkleValid,
+    stateWitnessValid,
+    stateRootMatch,
+    receiptRootMatch,
+    validatorSetMatch,
+    signaturesValid,
+    signatureWeight,
+    totalTrustedWeight,
+    weightPercentAchieved,
+    requiredWeightPercent
   };
 }

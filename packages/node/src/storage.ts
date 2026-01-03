@@ -22,6 +22,12 @@ export interface NodeSnapshot {
     slashing?: object;
   };
   finality?: object;
+  contracts?: {
+    contracts: { id: string; contract: object }[];
+    executionHistory: [string, object[]][];
+    stateTrie: { storage: [string, unknown][] };
+    receiptsTrie: { receipts: [string, unknown][] };
+  };
 }
 
 export class Storage {

@@ -8,6 +8,76 @@ import type {
   ExecutionResult 
 } from './types.js';
 
+export interface GasSchedule {
+  baseExecution: number;
+  storageRead: number;
+  storageWrite: number;
+  storageDelete: number;
+  memoryAlloc: number;
+  log: number;
+  emit: number;
+  hash: number;
+  balanceCheck: number;
+  accountAgeCheck: number;
+  transfer: number;
+  mint: number;
+  burn: number;
+}
+
+export const DEFAULT_GAS_SCHEDULE: GasSchedule = {
+  baseExecution: 1000,
+  storageRead: 200,
+  storageWrite: 5000,
+  storageDelete: 5000,
+  memoryAlloc: 3,
+  log: 100,
+  emit: 500,
+  hash: 300,
+  balanceCheck: 100,
+  accountAgeCheck: 100,
+  transfer: 8000,
+  mint: 6000,
+  burn: 6000
+};
+
+export class GasMeter {
+  private gasUsed: number = 0;
+  private readonly gasLimit: number;
+  private readonly schedule: GasSchedule;
+
+  constructor(gasLimit: number, schedule: GasSchedule = DEFAULT_GAS_SCHEDULE) {
+    this.gasLimit = gasLimit;
+    this.schedule = schedule;
+  }
+
+  charge(operation: keyof GasSchedule, multiplier: number = 1): boolean {
+    const cost = this.schedule[operation] * multiplier;
+    this.gasUsed += cost;
+    return this.gasUsed <= this.gasLimit;
+  }
+
+  chargeCustom(amount: number): boolean {
+    this.gasUsed += amount;
+    return this.gasUsed <= this.gasLimit;
+  }
+
+  getGasUsed(): number {
+    return this.gasUsed;
+  }
+
+  getGasRemaining(): number {
+    return Math.max(0, this.gasLimit - this.gasUsed);
+  }
+
+  isOutOfGas(): boolean {
+    return this.gasUsed > this.gasLimit;
+  }
+
+  getSchedule(): GasSchedule {
+    return { ...this.schedule };
+  }
+}
+
 export function computeStateHash(state: Record<string, unknown>): string {
   const sorted = JSON.stringify(state, Object.keys(state).sort());
   const encoder = new TextEncoder();
@@ -169,7 +239,10 @@ export interface ExtendedExecutionResult extends ExecutionResult {
   events: EmittedEvent[];
 }
 
-export function createMockRuntime(): {
+export function createMockRuntime(
+  gasLimit: number = 1_000_000,
+  schedule: GasSchedule = DEFAULT_GAS_SCHEDULE
+): {
   execute: (
     contractId: string,
     wasmBase64: string,
@@ -179,36 +252,61 @@ export function createMockRuntime(): {
     height: number,
     bindings: WasmHostBindings
   ) => ExtendedExecutionResult;
+  getGasSchedule: () => GasSchedule;
 } {
   return {
+    getGasSchedule: () => ({ ...schedule }),
     execute: (contractId, wasmBase64, entrypoint, input, state, height, bindings) => {
       const logs: string[] = [];
       const events: EmittedEvent[] = [];
-      const startGas = 1000000;
-      let gasUsed = 0;
+      const meter = new GasMeter(gasLimit, schedule);
+      
+      meter.charge('baseExecution');
       
       const wrappedBindings: WasmHostBindings = {
         ...bindings,
         log: (message: string) => {
+          meter.charge('log');
           logs.push(message);
           bindings.log(message);
         },
         emit: (eventName: string, data: Record<string, unknown>) => {
+          meter.charge('emit');
           events.push({ eventName, data });
           bindings.emit(eventName, data);
+        },
+        getBalance: (address: string) => {
+          meter.charge('balanceCheck');
+          return bindings.getBalance(address);
+        },
+        getAccountAge: (address: string) => {
+          meter.charge('accountAgeCheck');
+          return bindings.getAccountAge(address);
         }
       };
       
       try {
         const newState = JSON.parse(JSON.stringify(state));
+        meter.charge('storageRead');
+        
+        if (meter.isOutOfGas()) {
+          return {
+            success: false,
+            stateDiff: null,
+            gasUsed: meter.getGasUsed(),
+            error: 'Out of gas during initialization',
+            logs,
+            events
+          };
+        }
         
         if (entrypoint === 'init') {
-          gasUsed = 1000;
           events.push({ eventName: 'Initialized', data: { contractId } });
+          meter.charge('emit');
           return {
             success: true,
             stateDiff: computeStateDiff(contractId, height, state, newState),
-            gasUsed,
+            gasUsed: meter.getGasUsed(),
             logs,
             events
           };
@@ -218,14 +316,31 @@ export function createMockRuntime(): {
           const { from, to, amount } = input as { from: string; to: string; amount: number };
           const balances = (newState.balances || {}) as Record<string, number>;
           
+          meter.charge('balanceCheck');
           const fromBalance = balances[from] || 0;
+          
           if (fromBalance < amount) {
+            meter.charge('emit');
             events.push({ eventName: 'TransferFailed', data: { from, to, amount, reason: 'Insufficient balance' } });
             return {
               success: false,
               stateDiff: null,
-              gasUsed: 5000,
+              gasUsed: meter.getGasUsed(),
               error: 'Insufficient balance',
+              logs,
+              events
+            };
+          }
+          
+          meter.charge('transfer');
+          meter.charge('storageWrite', 2);
+          
+          if (meter.isOutOfGas()) {
+            return {
+              success: false,
+              stateDiff: null,
+              gasUsed: meter.getGasUsed(),
+              error: 'Out of gas during transfer',
               logs,
               events
             };
@@ -235,31 +350,103 @@ export function createMockRuntime(): {
           balances[to] = (balances[to] || 0) + amount;
           newState.balances = balances;
           
-          gasUsed = 10000;
+          meter.charge('log');
           logs.push(`Transferred ${amount} from ${from} to ${to}`);
+          meter.charge('emit');
           events.push({ eventName: 'Transfer', data: { from, to, amount } });
         }
         
         if (entrypoint === 'mint') {
           const { to, amount } = input as { to: string; amount: number };
           const balances = (newState.balances || {}) as Record<string, number>;
+          
+          meter.charge('mint');
+          meter.charge('storageWrite');
+          
+          if (meter.isOutOfGas()) {
+            return {
+              success: false,
+              stateDiff: null,
+              gasUsed: meter.getGasUsed(),
+              error: 'Out of gas during mint',
+              logs,
+              events
+            };
+          }
+          
           balances[to] = (balances[to] || 0) + amount;
           newState.balances = balances;
           
-          gasUsed = 8000;
+          meter.charge('log');
           logs.push(`Minted ${amount} to ${to}`);
+          meter.charge('emit');
           events.push({ eventName: 'Mint', data: { to, amount } });
+        }
+        
+        if (entrypoint === 'burn') {
+          const { from, amount } = input as { from: string; amount: number };
+          const balances = (newState.balances || {}) as Record<string, number>;
+          
+          meter.charge('balanceCheck');
+          const fromBalance = balances[from] || 0;
+          
+          if (fromBalance < amount) {
+            meter.charge('emit');
+            events.push({ eventName: 'BurnFailed', data: { from, amount, reason: 'Insufficient balance' } });
+            return {
+              success: false,
+              stateDiff: null,
+              gasUsed: meter.getGasUsed(),
+              error: 'Insufficient balance for burn',
+              logs,
+              events
+            };
+          }
+          
+          meter.charge('burn');
+          meter.charge('storageWrite');
+          
+          if (meter.isOutOfGas()) {
+            return {
+              success: false,
+              stateDiff: null,
+              gasUsed: meter.getGasUsed(),
+              error: 'Out of gas during burn',
+              logs,
+              events
+            };
+          }
+          
+          balances[from] = fromBalance - amount;
+          newState.balances = balances;
+          
+          meter.charge('log');
+          logs.push(`Burned ${amount} from ${from}`);
+          meter.charge('emit');
+          events.push({ eventName: 'Burn', data: { from, amount } });
         }
         
         if (entrypoint === 'get_balance') {
           const { address } = input as { address: string };
           const balances = (state.balances || {}) as Record<string, number>;
-          gasUsed = 1000;
+          meter.charge('storageRead');
+          meter.charge('log');
           logs.push(`Balance of ${address}: ${balances[address] || 0}`);
           return {
             success: true,
             stateDiff: null,
-            gasUsed,
+            gasUsed: meter.getGasUsed(),
+            logs,
+            events
+          };
+        }
+        
+        if (meter.isOutOfGas()) {
+          return {
+            success: false,
+            stateDiff: null,
+            gasUsed: meter.getGasUsed(),
+            error: 'Out of gas',
             logs,
             events
           };
@@ -268,7 +455,7 @@ export function createMockRuntime(): {
         return {
           success: true,
           stateDiff: computeStateDiff(contractId, height, state, newState),
-          gasUsed,
+          gasUsed: meter.getGasUsed(),
           logs,
           events
         };
@@ -276,7 +463,7 @@ export function createMockRuntime(): {
         return {
           success: false,
           stateDiff: null,
-          gasUsed: startGas,
+          gasUsed: meter.getGasUsed(),
           error: error instanceof Error ? error.message : 'Unknown error',
           logs,
           events

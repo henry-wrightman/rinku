@@ -7,6 +7,12 @@ import {
   type StateDiff,
   type ContractReceipt,
   type ContractEvent,
+  type StateWitness,
+  type ContractReceiptWithWitness,
+  type TouchedKey,
+  type SignedTransaction,
+  type Checkpoint,
+  type ContractReceiptProofB,
   createContractState,
   computeStateHash,
   computeStateDiff,
@@ -18,7 +24,8 @@ import {
   type ExtendedExecutionResult,
   StateTrie,
   ReceiptsTrie,
-  createContractReceipt
+  createContractReceipt,
+  createReceiptWithWitness
 } from '@rinku/core';
 import { StateManager } from './state.js';
 
@@ -333,6 +340,93 @@ export class ContractService {
     );
   }
 
+  async assembleWitness(receipt: ContractReceipt): Promise<StateWitness | null> {
+    const contract = this.contracts.get(receipt.contractId);
+    if (!contract) return null;
+
+    const history = this.executionHistory.get(receipt.contractId) || [];
+    const lastDiff = history[history.length - 1];
+    
+    const touchedKeys: TouchedKey[] = lastDiff?.changes.map(change => ({
+      contractId: receipt.contractId,
+      key: change.key,
+      preValue: change.oldValue,
+      postValue: change.newValue
+    })) || [];
+
+    const merkleProofs: StateWitness['merkleProofs'] = [];
+    
+    for (const tk of touchedKeys) {
+      const proof = await this.stateTrie.getProof(tk.contractId, tk.key);
+      if (proof) {
+        merkleProofs.push({
+          key: proof.key,
+          proof: proof.proof,
+          index: proof.index
+        });
+      }
+    }
+
+    return {
+      touchedKeys,
+      merkleProofs
+    };
+  }
+
+  async getReceiptWithWitness(callId: string): Promise<ContractReceiptWithWitness | null> {
+    const receipt = this.receipts.get(callId);
+    if (!receipt) return null;
+
+    const witness = await this.assembleWitness(receipt);
+    if (!witness) return null;
+
+    return createReceiptWithWitness(receipt, witness);
+  }
+
+  async assembleProfileBProof(
+    callId: string,
+    tx: SignedTransaction,
+    checkpoint: Checkpoint
+  ): Promise<ContractReceiptProofB | null> {
+    const receipt = this.receipts.get(callId);
+    if (!receipt) return null;
+
+    const witness = await this.assembleWitness(receipt);
+    if (!witness) return null;
+
+    const receiptProof = await this.receiptsTrie.getProof(callId);
+    if (!receiptProof) return null;
+
+    const receiptRoot = await this.receiptsTrie.getRoot();
+
+    const validatorSignatures = checkpoint.signatures.map(sig => ({
+      validator: sig.validator,
+      signature: sig.signature,
+      weight: sig.weight
+    }));
+
+    return {
+      receipt,
+      tx,
+      txHash: tx.hash,
+      checkpointAnchor: {
+        checkpointId: checkpoint.checkpointId,
+        merkleRoot: checkpoint.merkleRoot,
+        stateRoot: checkpoint.stateRoot,
+        receiptRoot: checkpoint.receiptRoot,
+        height: checkpoint.height,
+        signatureCount: checkpoint.signatures.length
+      },
+      witness,
+      validatorSignatures,
+      receiptMerkleProof: {
+        proof: receiptProof.proof,
+        index: receiptProof.index,
+        receiptRoot
+      }
+    };
+  }
+
   toJSON(): object {
     return {
       contracts: Array.from(this.contracts.entries()).map(([id, contract]) => ({
@@ -342,11 +436,13 @@ export class ContractService {
           state: contract.state
         }
       })),
-      executionHistory: Array.from(this.executionHistory.entries())
+      executionHistory: Array.from(this.executionHistory.entries()),
+      stateTrie: this.stateTrie.toJSON(),
+      receiptsTrie: this.receiptsTrie.toJSON()
     };
   }
 
-  static fromJSON(data: any, stateManager: StateManager): ContractService {
+  static async fromJSON(data: any, stateManager: StateManager): Promise<ContractService> {
     const service = new ContractService(stateManager);
     
     if (data.contracts) {
@@ -359,6 +455,14 @@ export class ContractService {
       for (const [id, history] of data.executionHistory) {
         service.executionHistory.set(id, history);
       }
+    }
+    
+    if (data.stateTrie) {
+      service.stateTrie = await StateTrie.fromJSON(data.stateTrie);
+    }
+    
+    if (data.receiptsTrie) {
+      service.receiptsTrie = await ReceiptsTrie.fromJSON(data.receiptsTrie);
     }
     
     return service;

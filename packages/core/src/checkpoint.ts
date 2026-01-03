@@ -63,7 +63,9 @@ export async function createCheckpoint(
   validators: ValidatorEntry[],
   previousCheckpointId: string | null,
   txMerkleRoot?: string,
-  txHashes?: string[]
+  txHashes?: string[],
+  stateRoot?: string,
+  receiptRoot?: string
 ): Promise<Checkpoint> {
   const timestamp = Date.now();
   return {
@@ -72,6 +74,8 @@ export async function createCheckpoint(
     merkleRoot,
     txMerkleRoot,
     txHashes,
+    stateRoot,
+    receiptRoot,
     tipCount,
     totalTransactions,
     totalWeight,

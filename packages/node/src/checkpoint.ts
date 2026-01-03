@@ -27,6 +27,8 @@ export interface CheckpointServiceDeps {
   getPrivateKey: () => Uint8Array | undefined;
   getNodeAddress: () => string;
   getAllTransactionHashes?: () => string[];
+  getStateRoot?: () => Promise<string>;
+  getReceiptRoot?: () => Promise<string>;
 }
 
 export class CheckpointService {
@@ -98,6 +100,9 @@ export class CheckpointService {
     
     const txHashes = this.deps.getAllTransactionHashes?.() || [];
     const txMerkleRoot = txHashes.length > 0 ? await getTransactionMerkleRoot(txHashes) : undefined;
+    
+    const stateRoot = this.deps.getStateRoot ? await this.deps.getStateRoot() : undefined;
+    const receiptRoot = this.deps.getReceiptRoot ? await this.deps.getReceiptRoot() : undefined;
 
     const checkpoint = await createCheckpoint(
       this.checkpointHeight,
@@ -108,7 +113,9 @@ export class CheckpointService {
       validators,
       previousCheckpointId,
       txMerkleRoot,
-      txHashes.length > 0 ? txHashes : undefined
+      txHashes.length > 0 ? txHashes : undefined,
+      stateRoot,
+      receiptRoot
     );
 
     this.checkpoints.set(checkpoint.checkpointId, checkpoint);
