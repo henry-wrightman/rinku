@@ -12,6 +12,7 @@ import {
   getCheckpointSigningData,
   getBLSCheckpointSigningData,
   computeValidatorSetHash,
+  computeValidatorSumTreeRoot,
   DEFAULT_CHECKPOINT_CONFIG,
   GENESIS_CHECKPOINT_ID,
   sign,
@@ -250,7 +251,7 @@ export class CheckpointService {
     const validatorIndex = validators.findIndex(v => v.address === validatorAddress);
     if (validatorIndex === -1) return null;
 
-    const validatorSumTreeRoot = this.computeValidatorSumTreeRoot(validators);
+    const validatorSumTreeRoot = computeValidatorSumTreeRoot(validators);
 
     const checkpointHash = this.getBLSCheckpointSigningHash(checkpointId, validatorSumTreeRoot.hash, validatorSumTreeRoot.totalWeight);
     if (!checkpointHash) return null;
@@ -271,7 +272,7 @@ export class CheckpointService {
     const sortedSigs = [...blsSignatures].sort((a, b) => a.validatorIndex - b.validatorIndex);
     const signerIndices = sortedSigs.map(s => s.validatorIndex);
 
-    const validatorSumTreeRoot = this.computeValidatorSumTreeRoot(validators);
+    const validatorSumTreeRoot = computeValidatorSumTreeRoot(validators);
 
     const checkpointHash = this.getBLSCheckpointSigningHash(checkpointId, validatorSumTreeRoot.hash, validatorSumTreeRoot.totalWeight);
     if (!checkpointHash) return null;
@@ -288,54 +289,12 @@ export class CheckpointService {
       aggregatedSignature: Array.from(aggregatedSig),
       signerBitmap: Array.from(signerBitmap),
       signerCount: blsSignatures.length,
-      validatorSetRoot: validatorSumTreeRoot.hash
+      validatorSetRoot: validatorSumTreeRoot.hash,
+      validatorSetRootTotalWeight: validatorSumTreeRoot.totalWeight
     };
 
     checkpoint.blsSignature = blsSig;
     return blsSig;
-  }
-
-  private computeValidatorSumTreeRoot(validators: ValidatorEntry[]): { hash: string; totalWeight: number } {
-    const leaves = validators.map((v, i) => ({
-      index: i,
-      address: v.address,
-      blsPublicKey: v.blsPublicKey ? Buffer.from(v.blsPublicKey).toString('base64url') : '',
-      weight: v.weight
-    }));
-
-    if (leaves.length === 0) {
-      return { hash: createHash('sha256').update('empty').digest('hex'), totalWeight: 0 };
-    }
-
-    const hashLeaf = (leaf: typeof leaves[0]): string => {
-      const data = `leaf:${leaf.index}:${leaf.address}:${leaf.blsPublicKey}:${leaf.weight}`;
-      return createHash('sha256').update(data).digest('hex');
-    };
-
-    const hashInternal = (left: { hash: string; sumWeight: number }, right: { hash: string; sumWeight: number }): string => {
-      const data = `node:${left.hash}:${left.sumWeight}:${right.hash}:${right.sumWeight}`;
-      return createHash('sha256').update(data).digest('hex');
-    };
-
-    let currentLayer = leaves.map(leaf => ({
-      hash: hashLeaf(leaf),
-      sumWeight: leaf.weight
-    }));
-
-    while (currentLayer.length > 1) {
-      const nextLayer: typeof currentLayer = [];
-      for (let i = 0; i < currentLayer.length; i += 2) {
-        const left = currentLayer[i];
-        const right = currentLayer[i + 1] || { hash: 'padding', sumWeight: 0 };
-        nextLayer.push({
-          hash: hashInternal(left, right),
-          sumWeight: left.sumWeight + right.sumWeight
-        });
-      }
-      currentLayer = nextLayer;
-    }
-
-    return { hash: currentLayer[0].hash, totalWeight: currentLayer[0].sumWeight };
   }
 
   async getTransactionMerkleProof(

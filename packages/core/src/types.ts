@@ -339,7 +339,8 @@ export interface BLSCheckpointSignature {
   aggregatedSignature: number[];  // BLS12-381 G1 aggregated sig (48 bytes)
   signerBitmap: number[];         // Bitmap of which validators signed
   signerCount: number;            // Number of signers
-  validatorSetRoot: string;       // Merkle root of validator public keys
+  validatorSetRoot: string;       // MerkleSumTree root hash
+  validatorSetRootTotalWeight: number;  // Total weight from MerkleSumTree root (cryptographically bound)
 }
 
 /** A checkpoint representing network consensus at a point in time */

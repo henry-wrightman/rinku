@@ -101,7 +101,8 @@ describe('Self-Contained Proof v4 (MerkleSumTree)', () => {
         aggregatedSignature: Array.from(aggregatedSig),
         signerBitmap: Array.from(bitmap),
         signerCount: 3,
-        validatorSetRoot: validatorSumTreeRoot.hash
+        validatorSetRoot: validatorSumTreeRoot.hash,
+        validatorSetRootTotalWeight: validatorSumTreeRoot.totalWeight
       };
 
       const checkpoint = createMockCheckpointWithBLS(validators, blsSig);

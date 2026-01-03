@@ -12,6 +12,7 @@ import {
   parseBLSSignerBitmap,
   bytesToHex,
   hexToBytes,
+  computeValidatorSumTreeRoot,
   type BLSKeyPair
 } from '@rinku/core';
 import type { ValidatorEntry, ValidatorSignature, BLSCheckpointSignature } from '@rinku/core';
@@ -325,22 +326,15 @@ export class ValidatorKeyManager {
     const aggregatedSig = aggregateSignatures(sigs);
     const signerBitmap = createSignerBitmap(signerIndices, validators.length);
     
-    const blsKeys = validators
-      .filter(v => v.blsPublicKey)
-      .map(v => bytesToHex(new Uint8Array(v.blsPublicKey!)));
-    const validatorSetRoot = this.computeValidatorSetRoot(blsKeys);
+    const validatorSumTreeRoot = computeValidatorSumTreeRoot(validators);
     
     return {
       aggregatedSignature: Array.from(aggregatedSig),
       signerBitmap: Array.from(signerBitmap),
       signerCount: blsSignatures.length,
-      validatorSetRoot
+      validatorSetRoot: validatorSumTreeRoot.hash,
+      validatorSetRootTotalWeight: validatorSumTreeRoot.totalWeight
     };
-  }
-  
-  private computeValidatorSetRoot(blsKeyHexes: string[]): string {
-    const combined = blsKeyHexes.sort().join('|');
-    return createHash('sha256').update(combined).digest('hex');
   }
   
   verifyAggregatedBLSSignature(
