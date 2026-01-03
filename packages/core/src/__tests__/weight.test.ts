@@ -47,12 +47,13 @@ describe('Weight Module', () => {
       expect(richWeight.total).toBeGreaterThan(poorWeight.total);
     });
 
-    it('should handle zero balance', () => {
+    it('should handle zero balance (age gated behind stake)', () => {
       const account = createAccount(0, 30);
       const weight = calculateWeight(account);
       
       expect(weight.balance).toBe(0);
-      expect(weight.accountAge).toBeGreaterThan(0);
+      expect(weight.accountAge).toBe(0);
+      expect(weight.total).toBe(0);
     });
 
     it('should handle new account (zero age)', () => {

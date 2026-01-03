@@ -1,10 +1,10 @@
 # Rinku: A URL-Native Distributed Ledger
 
-**Abstract.** A distributed ledger where URLs serve as the canonical portable representation of transactions, proofs, and state transitions. Self-contained proofs embedded in URLs enable trustless verification without infrastructure dependency. We propose a DAG-based consensus mechanism with weight-based Sybil resistance combining stake and account age. The system achieves per-transaction finality through periodic checkpoints, implements deflationary tokenomics with halving-based emission, and supports extensible smart contracts. The result is a ledger where the link itself is the proof.
+**Abstract.** A distributed ledger where URLs serve as the canonical portable representation of transactions, proofs, and state transitions. Self-contained proofs embedded in URLs enable trustless verification without trusted infrastructure—data availability is provided by the sender or network. We propose a DAG-based consensus mechanism with weight-based Sybil resistance combining stake and account age. The system achieves per-transaction finality through periodic checkpoints, implements deflationary tokenomics with halving-based emission, and supports extensible smart contracts. The result is a ledger where the link itself is the proof.
 
 ## 1. Introduction
 
-Traditional blockchains require nodes to verify state. Users must trust infrastructure providers or run their own nodes. We eliminate this dependency by encoding the complete verification path in URLs.
+Traditional blockchains require nodes to verify state. Users must trust infrastructure providers or run their own nodes. We eliminate the need for trusted infrastructure by encoding the complete verification path in URLs—data availability is provided by the sender or network, but trust is not required.
 
 The problem with existing systems:
 1. **Infrastructure dependency** - Verification requires trusted nodes
@@ -110,14 +110,17 @@ Rinku supports three verification profiles with different security/size tradeoff
 - Use case: High-value settlements, cross-chain bridges, legal evidence
 
 **Profile C: Self-Contained Proof (v4 - MerkleSumTree)**
-- Size: 1,000-3,000 chars (QR-compatible with BLS aggregation)
-- URL format: `rinku://sp/{base64url-deflate-json}`
+- Size: 1,000-3,000 chars typical; QR-compatible for small committees, URL-shareable for larger
+- URL format: `rinku://sp/{base64url-deflate-json}` (canonical scheme; HTTP URLs are transport wrappers)
 - Includes: tx data, full checkpoint header, Merkle inclusion proof, BLS aggregated signature (48 bytes), MerkleSumTree membership proofs for each signer, validatorSumTreeRoot (hash + totalWeight)
 - Guarantees: **Fully offline verification** - verifier derives totalWeight from MerkleSumTree root
 - Trust assumption: **None beyond cryptography** - totalWeight is cryptographically bound to validator set via MerkleSumTree
 - Security: validatorSumTreeRoot (containing both hash and totalWeight) is included in BLS signing hash, preventing both signer weight forgery AND denominator attacks
 - Use case: Offline verification, air-gapped systems, cross-chain bridges, legal evidence
-- **Size scaling**: Proof size grows as `O(k · log₂N)` where `k` = number of signers and `N` = committee size. For QR compatibility (≤2,953 bytes alphanumeric), recommend committee size ≤64 validators. With 21 signers and 32-validator committee (5-level tree), proofs fit comfortably in QR v25
+- **Size scaling**: Proof size grows as `O(k · log₂N)` where `k` = number of signers and `N` = committee size
+  - **QR-compatible** (≤2,953 bytes): k ≤ 14 signers with N ≤ 32 committee, or k ≤ 21 with N ≤ 21
+  - **URL-shareable** (≤65KB): Supports larger committees; all proofs fit in browser URL limits
+  - **Recommendation**: For guaranteed QR compatibility, use compact sibling encoding (parallel arrays or packed bytes) and limit N ≤ 64
 
 Most use cases are served by Profile A receipts. Profile B provides full finality when validator set is known. **Profile C is the gold standard** - completely self-contained proofs with cryptographically-bound totalWeight, enabling true offline verification without any trust assumptions beyond the cryptographic primitives.
 
@@ -187,16 +190,18 @@ When conflicting transactions exist (e.g., double-spend attempts), the transacti
 Transaction weight derives from the originating account's weighted proof-of-stake:
 
 ```
-weight = (0.7 × stakeWeight) + (0.3 × ageWeight)
+weight = stakeWeight × (0.7 + 0.3 × ageWeight)
 ```
 
 Where:
 - `stakeWeight` = Account's staked balance / Total staked
 - `ageWeight` = min(accountAgeDays, 365) / 365
 
-The age component is capped at 1 year to prevent early-adopter lock-in and reduce incentive for account farming.
+**Key property:** Age weight is gated behind stake. An account with zero stake has zero weight regardless of age, preventing farming of old zero-stake accounts for consensus influence.
 
-This creates Sybil resistance: new accounts with no stake have minimal weight. Established, staked accounts anchor consensus.
+The age component is capped at 1 year to prevent early-adopter lock-in. Staked accounts earn a 0-30% bonus based on account age, rewarding long-term participation while ensuring stake remains the primary weight factor.
+
+This creates Sybil resistance: new accounts with no stake have zero weight. Established, staked accounts anchor consensus.
 
 ### 3.4 Age Weight Mitigations
 
@@ -563,17 +568,29 @@ This prevents rounding divergence across implementations.
 
 ### A.3 MerkleSumTree Specification
 
-The MerkleSumTree commits to both validator identity and aggregate weight:
+The MerkleSumTree commits to both validator identity and aggregate weight using canonical byte encoding (no string concatenation ambiguity):
 
-**Leaf node construction:**
+**Leaf node construction (byte encoding):**
 ```
-leaf.hash = SHA256("leaf:" || index || ":" || address || ":" || base64url(blsPubKey) || ":" || weight)
+leaf.hash = SHA256(
+  0x00 ||                    // 1-byte domain separator (leaf)
+  uint32_be(index) ||        // 4 bytes, big-endian
+  address_bytes ||           // 20 bytes (raw, not hex)
+  blsPubKey_bytes ||         // 96 bytes (raw G2 point)
+  uint64_be(weight)          // 8 bytes, big-endian
+)
 leaf.sumWeight = weight
 ```
 
-**Internal node construction:**
+**Internal node construction (byte encoding):**
 ```
-node.hash = SHA256("node:" || left.hash || ":" || left.sumWeight || ":" || right.hash || ":" || right.sumWeight)
+node.hash = SHA256(
+  0x01 ||                    // 1-byte domain separator (internal)
+  left.hash ||               // 32 bytes
+  uint64_be(left.sumWeight) ||  // 8 bytes, big-endian
+  right.hash ||              // 32 bytes
+  uint64_be(right.sumWeight)    // 8 bytes, big-endian
+)
 node.sumWeight = left.sumWeight + right.sumWeight
 ```
 
@@ -583,17 +600,19 @@ validatorSumTreeRoot = { hash: root.hash, totalWeight: root.sumWeight }
 ```
 
 **Membership proof:** For each signer, the proof contains:
-- `leaf`: { index, address, blsPublicKey, weight }
-- `siblings`: Array of { hash, sumWeight } for each tree level
+- `leaf`: { index (uint32), address (20 bytes), blsPublicKey (96 bytes), weight (uint64) }
+- `siblings`: Array of { hash (32 bytes), sumWeight (uint64) } for each tree level
 - `pathBits`: Boolean array indicating left (false) or right (true) at each level
 
 **Verification:**
-1. Recompute leaf hash from signer data
-2. Walk up tree using siblings and pathBits
+1. Recompute leaf hash from signer data using byte encoding above
+2. Walk up tree using siblings and pathBits, applying internal node hash formula
 3. Verify computed root matches claimed `validatorSumTreeRoot.hash`
-4. Verify `totalWeight = validatorSumTreeRoot.totalWeight = root.sumWeight`
+4. Verify `totalWeight == validatorSumTreeRoot.totalWeight == root.sumWeight`
 
-The BLS signing hash includes the full validatorSumTreeRoot tuple, binding totalWeight to the signature.
+**Canonical encoding:** All integer fields use unsigned big-endian encoding. Address and public key fields are raw bytes (not hex strings). This ensures cross-implementation determinism.
+
+The BLS signing hash includes the full validatorSumTreeRoot tuple (hash + totalWeight), binding both signer weights AND total denominator to the signature.
 
 ## Appendix B: URL Format Specification
 
@@ -734,22 +753,23 @@ The 48-byte aggregated signature plus 3-byte signer bitmap enables QR-compatible
 
 ### E.4 Signing Process
 
-1. **Checkpoint Creation:** Leader computes checkpoint header including txMerkleRoot, stateRoot, receiptRoot, totalWeight, tipCount
-2. **Validator Set Root:** Compute SHA-256 hash of sorted validator witnesses: `index:address:blsPubKey:weight|...`
-3. **Signing Hash:** Compute SHA-256 of: `checkpointId:height:txMerkleRoot:stateRoot:receiptRoot:totalWeight:tipCount:validatorSetRoot`
+1. **Checkpoint Creation:** Leader computes checkpoint header including txMerkleRoot, stateRoot, receiptRoot, tipCount
+2. **Validator Set Commitment:** Build MerkleSumTree from validators (per Appendix A.3); extract `validatorSumTreeRoot = { hash, totalWeight }`
+3. **Signing Hash:** Compute SHA-256 of: `checkpointId || height || txMerkleRoot || stateRoot || receiptRoot || tipCount || validatorSumTreeRoot.hash || validatorSumTreeRoot.totalWeight` (all fields in canonical byte encoding per A.2)
 4. **Individual Signatures:** Each validator signs the hash with their BLS private key
 5. **Aggregation:** Combine all signatures into single 48-byte aggregated signature
 6. **Bitmap:** Create signer bitmap indicating which validators signed
 
 ### E.5 Verification Process
 
-1. **Recompute validatorSetRoot:** Hash the embedded ValidatorWitness array
-2. **Verify root matches:** Ensures validator data hasn't been tampered
-3. **Recompute signing hash:** Using checkpoint fields + validatorSetRoot
-4. **Extract signer public keys:** From ValidatorWitness array based on bitmap
-5. **Verify aggregated signature:** BLS verification against signer public keys
-6. **Compute signer weight:** Sum weights from ValidatorWitness entries
-7. **Check threshold:** Verify signerWeight ≥ 67% of totalWeight
+1. **Extract signer membership proofs:** From embedded MerkleSumTree proofs
+2. **Recompute MerkleSumTree root:** Walk each proof upward; all must converge to same root
+3. **Verify root matches:** `computedRoot == validatorSumTreeRoot.hash` AND `computedTotalWeight == validatorSumTreeRoot.totalWeight`
+4. **Recompute signing hash:** Using checkpoint fields + validatorSumTreeRoot (hash AND totalWeight)
+5. **Extract signer public keys:** From membership proof leaf data
+6. **Verify aggregated signature:** BLS verification against signer public keys
+7. **Compute signer weight:** Sum weights from membership proof leaves
+8. **Check threshold:** Verify signerWeight ≥ 67% of derived totalWeight
 
 ### E.6 Security Properties
 
