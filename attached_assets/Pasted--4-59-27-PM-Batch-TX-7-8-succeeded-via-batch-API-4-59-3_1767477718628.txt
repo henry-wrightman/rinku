@@ -1,0 +1,79 @@
+[4:59:27 PM] Batch TX: 7/8 succeeded via batch API
+[4:59:30 PM] Transaction failed: Invalid tip URL reference: /tx/h/74ac1e887b2f9201d320cf79...
+[4:59:30 PM] Batch TX: 0/8 succeeded via batch API
+[4:59:30 PM] Concurrent TX batch: 7/8 succeeded (creating 7 potential tips)
+[4:59:33 PM] Batch TX: 8/8 succeeded via batch API
+[4:59:35 PM] Gas price: 0.8835
+[4:59:35 PM] Batch TX: 8/8 succeeded via batch API
+[4:59:38 PM] Batch TX: 5/8 succeeded via batch API
+[4:59:38 PM] Concurrent TX batch: 8/8 succeeded (creating 8 potential tips)
+[4:59:41 PM] Batch TX: 8/8 succeeded via batch API
+[4:59:43 PM] Batch TX: 8/8 succeeded via batch API
+[4:59:46 PM] Batch TX: 5/8 succeeded via batch API
+[4:59:46 PM] Transaction failed: Invalid nonce
+[4:59:46 PM] Concurrent TX batch: 7/8 succeeded (creating 7 potential tips)
+[4:59:49 PM] Batch TX: 8/8 succeeded via batch API
+[4:59:50 PM] DAG Status: 372 nodes, 350 tips
+[4:59:51 PM] Batch TX: 6/8 succeeded via batch API
+[4:59:53 PM] Gas price: 0.9939
+[4:59:53 PM] Batch TX: 8/8 succeeded via batch API
+[4:59:53 PM] Transaction failed: Invalid nonce
+[4:59:54 PM] Transaction failed: Invalid nonce
+[4:59:54 PM] Concurrent TX batch: 6/8 succeeded (creating 6 potential tips)
+[4:59:55 PM] Concurrent TX batch: 8/8 succeeded (creating 8 potential tips)
+[5:00:00 PM] Transaction failed: Invalid tip URL reference: /tx/h/f89bf983d424c131364b5f44...
+[5:00:00 PM] Batch TX: 0/8 succeeded via batch API
+[5:00:00 PM] Transaction failed: Invalid tip URL reference: /tx/h/f89bf983d424c131364b5f44...
+[5:00:00 PM] Transaction failed: Invalid tip URL reference: /tx/h/f89bf983d424c131364b5f44...
+[5:00:00 PM] Transaction failed: Invalid tip URL reference: /tx/h/f89bf983d424c131364b5f44...
+[5:00:00 PM] Concurrent TX batch: 4/8 succeeded (creating 4 potential tips)
+[5:00:03 PM] Batch TX: 8/8 succeeded via batch API
+[5:00:05 PM] Batch TX: 8/8 succeeded via batch API
+[5:00:07 PM] Batch TX: 8/8 succeeded via batch API
+[5:00:09 PM] Batch TX: 8/8 succeeded via batch API
+[5:00:11 PM] Gas price: 1.1182
+[5:00:11 PM] Batch TX: 8/8 succeeded via batch API
+[5:00:12 PM] Transaction failed: Invalid nonce
+[5:00:12 PM] Transaction failed: Invalid nonce
+[5:00:12 PM] Concurrent TX batch: 6/8 succeeded (creating 6 potential tips)
+[5:00:13 PM] Concurrent TX batch: 8/8 succeeded (creating 8 potential tips)
+[5:00:15 PM] Concurrent TX batch: 8/8 succeeded (creating 8 potential tips)
+[5:00:19 PM] Batch TX: 8/8 succeeded via batch API
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 16/500 (6 staking, 3 w/contracts)
+  Transactions: 2938 (1801 via batch) | Faucet: 26
+  Contracts: 3 deployed, 5 calls
+  Staking: 6 stakes, 0 rewards claimed
+  Errors: 27 | Pending: 3/5 | Skipped (low bal): 0
+  Heap: 22 MB | Concurrent TX: 30
+  Gas Price: 1.1182
+[5:00:20 PM] DAG Status: 374 nodes, 354 tips
+[5:00:21 PM] Staked: 650ef1e64cc24a13... staked 298 RKU
+[5:00:21 PM] New wallet: 239f19fa1dc5c9ad... (17 total)
+[5:00:22 PM] Batch TX: 8/8 succeeded via batch API
+  Avg Balance: 1397.94 (need ~11.12 per tx) ✓
+=======================================================
+
+[5:00:23 PM] Batch TX: 7/8 succeeded via batch API
+[5:00:26 PM] Transaction failed: Invalid nonce
+[5:00:26 PM] Concurrent TX batch: 7/8 succeeded (creating 7 potential tips)
+[5:00:26 PM] Batch TX: 5/8 succeeded via batch API
+[5:00:27 PM] Concurrent TX batch: 8/8 succeeded (creating 8 potential tips)
+[5:00:29 PM] Gas price: 1.2579
+[5:00:31 PM] Concurrent TX batch: 8/8 succeeded (creating 8 potential tips)
+[5:00:32 PM] Batch TX: 4/8 succeeded via batch API
+[5:00:35 PM] Batch TX: 8/8 succeeded via batch API
+[5:00:37 PM] Batch TX: 8/8 succeeded via batch API
+[5:00:39 PM] Batch TX: 8/8 succeeded via batch API
+[5:00:41 PM] Batch TX: 7/8 succeeded via batch API
+[5:00:44 PM] Batch TX: 6/8 succeeded via batch API
+[5:00:44 PM] Transaction failed: Failed to apply transaction
+[5:00:44 PM] Transaction failed: Invalid nonce
+[5:00:44 PM] Concurrent TX batch: 6/8 succeeded (creating 6 potential tips)
+[5:00:45 PM] Concurrent TX batch: 8/8 succeeded (creating 8 potential tips)
+[5:00:47 PM] Gas price: 1.4152
+[5:00:48 PM] Concurrent TX batch: 8/8 succeeded (creating 8 potential tips)
+[5:00:50 PM] DAG Status: 371 nodes, 351 tips

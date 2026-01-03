@@ -1,10 +1,10 @@
 # Rinku: A URL-Native Distributed Ledger
 
-**Abstract.** A distributed ledger where URLs serve as the canonical portable representation of transactions, proofs, and state transitions. Self-contained proofs embedded in URLs enable trustless verification without trusted infrastructure—data availability is provided by the sender or network. We propose a DAG-based consensus mechanism with weight-based Sybil resistance combining stake and account age. The system achieves per-transaction finality through periodic checkpoints, implements deflationary tokenomics with halving-based emission, and supports extensible smart contracts. The result is a ledger where the link itself is the proof.
+**Abstract.** A distributed ledger where URLs serve as the canonical portable representation of transactions, proofs, and state transitions. Self-contained proofs embedded in URLs enable trustless verification without trusted infrastructure - data availability is provided by the sender or network. We propose a DAG-based consensus mechanism with weight-based Sybil resistance combining stake and account age. The system achieves per-transaction finality through periodic checkpoints, implements deflationary tokenomics with halving-based emission, and supports extensible smart contracts. The result is a ledger where the link itself is the proof.
 
 ## 1. Introduction
 
-Traditional blockchains require nodes to verify state. Users must trust infrastructure providers or run their own nodes. We eliminate the need to trust infrastructure for verification by encoding the complete verification path in URLs—data availability is provided by the sender or network, but trust is not required.
+Traditional blockchains require nodes to verify state. Users must trust infrastructure providers or run their own nodes. We eliminate the need to trust infrastructure for verification by encoding the complete verification path in URLs - data availability is provided by the sender or network, but trust is not required.
 
 The problem with existing systems:
 1. **Infrastructure dependency** - Verification requires trusted nodes
@@ -70,7 +70,7 @@ Empirical measurement using high-entropy data (random hex hashes, random address
 - Full txHashes array from checkpoint
 - Merkle proof paths (add ~100-500 bytes if needed)
 
-DEFLATE compression achieves ~40-55% reduction on transaction JSON. Compression gains come primarily from repeated field names and structural redundancy (keys like "from", "to", "amount" appear in every transaction), even when values are high-entropy hex strings.
+DEFLATE compression achieves ~40-55% reduction on transaction JSON. Compression gains come primarily from repeated field names and structural redundancy (keys like "from", "to", "amount" appear in every transaction), even when values are high-entropy hex strings (e.g signatures).
 
 ### 2.4 Platform Compatibility
 
@@ -143,7 +143,7 @@ Most use cases are served by Profile A receipts. Profile B provides full finalit
 > 3. **Root reconstruction is deterministic** - Given signer leaves + auxiliary nodes, there's exactly one way to rebuild the tree and compute the root
 > 4. **Denominator is cryptographically bound** - The `totalWeight` in `validatorSumTreeRoot` is verified by reconstruction, not trusted from the proof; and the entire tuple is signed by validators, preventing forgery
 >
-> Result: The verifier knows (a) the exact signers who attested, (b) their individual weights, and (c) the total committee weight—all without transmitting non-signer public keys.
+> Result: The verifier knows (a) the exact signers who attested, (b) their individual weights, and (c) the total committee weight - all without transmitting non-signer public keys.
 
 ### 2.6 Verification Process
 
@@ -176,7 +176,7 @@ Verification differs by profile:
 10. Verify chainId in signing hash matches expected network
 11. *Requires*: Chain identity (chainId) + cryptographic primitives; BLS keys must be PoP-verified at registration (see E.2.1)
 
-The URL carries the proof. Profile A requires trust in the checkpoint source. Profile B requires a known validator set. Profile C is self-contained for *finality verification*—but chain identity binding is required to prevent cross-network proof replay. External queries are only needed for data availability, not trust in the validator set.
+The URL carries the proof. Profile A requires trust in the checkpoint source. Profile B requires a known validator set. Profile C is self-contained for *finality verification* - but chain identity binding is required to prevent cross-network proof replay. External queries are only needed for data availability, not trust in the validator set.
 
 ### 2.7 Trust Bootstrapping
 
@@ -184,7 +184,7 @@ For a fresh verifier to validate proofs, they must possess a trust anchor:
 
 1. **Genesis trust**: Verifier knows the genesis validator set public keys
 2. **Checkpoint chain**: Each checkpoint commits to the next validator set; verifier can trace from genesis
-3. **Pinned checkpoint**: Verifier trusts a recent checkpoint obtained out-of-band (e.g., from a trusted source)
+3. **Pinned checkpoint**: Verifier trusts a recent checkpoint obtained out-of-band (e.g from a trusted source)
 
 This is analogous to TLS certificate chains: the proof is self-contained, but root trust must be established externally. A proof URL is valid if it chains back to a checkpoint signed by ≥2/3 of validators in a trusted set.
 
@@ -207,7 +207,7 @@ Benefits:
 
 ### 3.2 Conflict Resolution
 
-When conflicting transactions exist (e.g., double-spend attempts), the transaction with greater cumulative weight wins. Weight flows from tips backward through the DAG.
+When conflicting transactions exist (e.g double-spend attempts), the transaction with greater cumulative weight wins. Weight flows from tips backward through the DAG.
 
 ### 3.3 Weight Calculation
 
@@ -220,7 +220,7 @@ weightBps = (stakeBalance * 10000 / totalStaked) * (7000 + 3000 * ageBps / 10000
 Where (all fixed-point integers in basis points, 1 bps = 0.01%):
 - `stakeBalance` = Account's staked balance (uint64, smallest units)
 - `totalStaked` = Network total staked balance (uint64)
-- `ageBps` = min(accountAgeDays * 10000 / 365, 10000) — age factor in basis points, capped at 10000 (1 year)
+- `ageBps` = min(accountAgeDays * 10000 / 365, 10000) - age factor in basis points, capped at 10000 (1 year)
 - Integer division truncates toward zero (floor rounding)
 
 Equivalent floating-point formula (for clarity only): `weight = stake% × (0.7 + 0.3 × ageWeight)`
@@ -313,7 +313,7 @@ Checkpoint finality requires Byzantine fault tolerance:
    - **Selection**: Top N validators by stake weight at checkpoint h-1
    - **Rotation via beacon**: For pools larger than N, use rotating selection: `selectedIndices = beaconShuffle(seed, poolSize).slice(0, N)` where `seed = SHA256(prevCheckpointId || prevAggBLSSig)`. This prevents ossification into "top-N forever" while maintaining stake-weighted influence
    - **Index Assignment**: Committee indices (0 to N-1) are assigned by sorting selected validators deterministically: `(stakeWeight DESC, ecdsaFingerprint ASC)`. This ensures all nodes build identical MerkleSumTree roots
-   - **Threshold (k)**: At least ⌈2N/3⌉ committee members must sign (e.g., k ≥ 43 for N = 64)
+   - **Threshold (k)**: At least ⌈2N/3⌉ committee members must sign (e.g k ≥ 43 for N = 64)
    - With multi-proof optimization, proof size is ~O(N) rather than O(k · log₂N)
 
 ### 4.3 Finality
@@ -330,9 +330,9 @@ The network tracks:
 - Median and P95 finality times
 - Pending transaction count
 - Checkpoint latency
-- Throughput (transactions per second)
+- Throughput (tps)
 
-Expected performance: ~15-30s average finality under normal network conditions. Finality rate depends on validator availability and network partition tolerance. Testnet telemetry will inform production targets.
+Expected performance: ~10-15s average finality under normal network conditions. Finality rate depends on validator availability and network partition tolerance. Testnet telemetry will inform production targets.
 
 ## 5. State Management
 
@@ -438,8 +438,7 @@ where:
   circulatingSupply = GENESIS_ALLOCATION + totalEmitted - totalBurned
   
   Note: GENESIS_ALLOCATION (6M RKU) includes treasury (3M), staking reserve (2M), 
-  and faucet (1M). All are counted as "circulating" for fee split calculation—
-  treasury funds are not excluded because they may enter circulation at any time.
+  and faucet (1M). All are counted as "circulating" for fee split calculation - treasury funds are not excluded because they may enter circulation at any time.
   
   BURN_CEILING = 30%
   SUPPLY_TARGET = 50%
@@ -459,7 +458,7 @@ burnShare = 100% - validatorShare
 
 **Key Properties:**
 - **Validator Floor:** Validators always receive at least 70% of fees
-- **Progressive Burn:** LINEAR function—burn percentage scales linearly from genesis to 50% supply target
+- **Progressive Burn:** LINEAR function - burn percentage scales linearly from genesis to 50% supply target
 - **Supply-Aware:** Prioritizes validator incentives during early growth phase
 - **Deflationary Pressure:** Net supply decreases when burn rate exceeds emission rate
 
@@ -500,7 +499,7 @@ This ensures fees remain affordable for URL-sized receipts while still providing
 
 ### 7.3 Fee Validation
 
-Transactions must include a fee meeting current minimum. Insufficient fees result in rejection. Priority is first-come-first-served at the current base fee—no fee auctions or tip bidding.
+Transactions must include a fee meeting current minimum. Insufficient fees result in rejection. Priority is first-come-first-served at the current base fee - no fee auctions or tip bidding.
 
 ## 8. Staking and Slashing
 
@@ -928,7 +927,7 @@ JSON encoding is human-readable for debugging but does NOT fit in QR codes due t
 
 ## Appendix C: Genesis Configuration
 
-All values in µRKU (1 RKU = 1,000,000 µRKU) or basis points where noted. This is the **authoritative source of truth**—narrative tables are derived from these constants.
+All values in µRKU (1 RKU = 1,000,000 µRKU) or basis points where noted. This is the **authoritative source of truth** - narrative tables are derived from these constants.
 
 ```json
 {
@@ -1144,13 +1143,13 @@ Per-signer proofs repeat full Merkle paths for each signer, resulting in `O(k ×
 
 Multi-proof format shares sibling nodes across signers, reducing payload by 60-75%.
 
-**Canonical format defined in Appendix B.1** — this section provides additional context.
+**Canonical format defined in Appendix B.1** - this section provides additional context.
 
 Key design choices:
 - **All fields fixed-width** (no varints in canonical format) for simpler parsing
-- `checkpointHeight`: 4 bytes (uint32_be) — sufficient for billions of checkpoints
-- `merkleIndex`: 2 bytes (uint16_be) — supports up to 65,535 txs per checkpoint
-- `auxiliaryNodes[].index`: 1 byte (uint8) — committee capped at 255
+- `checkpointHeight`: 4 bytes (uint32_be) - sufficient for billions of checkpoints
+- `merkleIndex`: 2 bytes (uint16_be) - supports up to 65,535 txs per checkpoint
+- `auxiliaryNodes[].index`: 1 byte (uint8) - committee capped at 255
 
 See B.1 for byte-level layout. The canonical format uses version byte `0x01`.
 
@@ -1166,8 +1165,8 @@ The verifier reconstructs the tree using a layer-by-layer sparse map:
    - Compute `layerSize = ⌈N / 2^l⌉`
    - For each parent index `p` in 0..⌈layerSize/2⌉-1:
      - `leftIdx = 2p`, `rightIdx = 2p + 1`
-     - `left = layers[l].get(leftIdx)` — MUST be present (error if missing)
-     - `right = rightIdx >= layerSize ? EMPTY_NODE : layers[l].get(rightIdx)` — EMPTY_NODE only for structural padding
+     - `left = layers[l].get(leftIdx)` - MUST be present (error if missing)
+     - `right = rightIdx >= layerSize ? EMPTY_NODE : layers[l].get(rightIdx)` - EMPTY_NODE only for structural padding
      - Compute `parent = { hash: H(left, right), sumWeight: left.sumWeight + right.sumWeight }`
      - Place at `layers[l+1][p]`
 6. Verify `layers[treeDepth][0] == valRootHash` (both hash AND sumWeight must match)
@@ -1202,7 +1201,7 @@ Where `EMPTY_NODE = { hash: SHA256("rinku:empty_node:v1"), sumWeight: 0 }` per A
 
 **Conclusion:** With multi-proof optimization, QR codes are compatible with committees up to N ≤ 21. For N > 21, use URL sharing. Multi-proof is the recommended default for all Profile C proofs.
 
-**Protocol Committee Limits:** The packed format uses uint8 for committeeSize, signerCount, and auxiliary (level, index) fields. This intentionally caps committees at 255 validators with tree depth ≤8. This aligns with the product goal of portable URL/QR proofs—larger committees would exceed size budgets. Future format revisions may use varints if needed.
+**Protocol Committee Limits:** The packed format uses uint8 for committeeSize, signerCount, and auxiliary (level, index) fields. This intentionally caps committees at 255 validators with tree depth ≤8. This aligns with the product goal of portable URL/QR proofs - larger committees would exceed size budgets. Future format revisions may use varints if needed.
 
 ### F.5 Merkle Multi-Proof Optimization
 
