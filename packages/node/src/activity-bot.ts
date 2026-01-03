@@ -515,13 +515,13 @@ async function claimRewards(): Promise<void> {
       return;
     }
 
-    const summary = (await summaryRes.json()) as { pending: number };
-    if (summary.pending < 1) {
+    const summary = (await summaryRes.json()) as { pendingRewards: number };
+    if (summary.pendingRewards < 1) {
       log(`Rewards check: no pending rewards for ${claimer.fingerprint.slice(0, 16)}...`);
       return;
     }
 
-    log(`Rewards found: ${summary.pending} pending for ${claimer.fingerprint.slice(0, 16)}...`);
+    log(`Rewards found: ${summary.pendingRewards.toFixed(4)} pending for ${claimer.fingerprint.slice(0, 16)}...`);
 
     const res = await fetchWithTimeout(
       `${NODE_URL}/api/rewards/${claimer.fingerprint}/claim`,
