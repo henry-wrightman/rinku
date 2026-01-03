@@ -23,11 +23,11 @@ A transaction contains:
 {
   from: string,      // Sender fingerprint (40-char hex)
   to: string,        // Recipient fingerprint
-  amount: number,    // Transfer amount
-  fee: number,       // Gas fee
-  nonce: number,     // Sender's sequence number
+  amount: uint64,    // Transfer amount (smallest units, per A.2)
+  fee: uint64,       // Gas fee (smallest units)
+  nonce: uint64,     // Sender's sequence number
   tipUrls: string[], // References to DAG tips (0-2 parents)
-  ts: number,        // Unix timestamp
+  ts: uint64,        // Unix timestamp (milliseconds)
   sig: string        // ECDSA signature
 }
 ```
@@ -110,7 +110,7 @@ Rinku supports three verification profiles with different security/size tradeoff
 - Use case: High-value settlements, cross-chain bridges, legal evidence
 
 **Profile C: Self-Contained Proof (v5 - MerkleSumTree Multi-Proof)**
-- Size: 1,000-2,500 chars typical; QR-compatible for committees N ≤ 21, URL-shareable for larger
+- Size: 1,600-2,100 bytes (packed v5 + DEFLATE) for N ≤ 21; ~2,100-2,800 URL chars after base64url encoding; QR-compatible for committees N ≤ 21, URL-shareable for larger
 - URL format: `rinku://sp/{base64url-deflate-packed}` (canonical scheme; HTTP URLs are transport wrappers)
 - Includes: chainId (network identifier), tx data, full checkpoint header, Merkle inclusion proof, BLS aggregated signature (48 bytes), MerkleSumTree multi-proof (signer leaves + shared auxiliary nodes), validatorSumTreeRoot (hash + totalWeight)
 - Guarantees: **Fully offline verification** - verifier derives totalWeight from MerkleSumTree root
@@ -626,6 +626,19 @@ validatorSumTreeRoot = { hash: root.hash, totalWeight: root.sumWeight }
 
 **Canonical encoding:** All integer fields use unsigned big-endian encoding. Address and public key fields are raw bytes (not hex strings). This ensures cross-implementation determinism.
 
+**Non-Power-of-Two Committee Padding:**
+
+When committee size N is not a power of two, the tree requires canonical padding for missing right children. Use the deterministic `EMPTY_NODE`:
+
+```
+EMPTY_NODE = {
+  hash: SHA256("rinku:empty_node:v1"),   // Domain-separated, deterministic
+  sumWeight: 0
+}
+```
+
+During tree construction, if a node at position `2i` has no sibling at `2i+1`, use `EMPTY_NODE` as the right child. This ensures all implementations compute identical roots regardless of committee size.
+
 The BLS signing hash includes the full validatorSumTreeRoot tuple (hash + totalWeight), binding both signer weights AND total denominator to the signature.
 
 ## Appendix B: URL Format Specification
@@ -957,15 +970,27 @@ Multi-Proof Auxiliary Nodes:
     sumWeight:      8 bytes (uint64 BE)
 ```
 
-**Reconstruction Algorithm:**
-1. Parse committeeSize (N) from proof header; compute treeDepth = ⌈log₂N⌉ (not transmitted, derived)
-2. Initialize layer[0] with signer leaves at their bitmap indices (0 to N-1)
-3. Place auxiliary nodes at specified (level, index) positions in canonical order (sorted by level ascending, then index ascending)
-4. For each level from 0 to treeDepth-1:
-   - For each pair (i, i+1) where i is even: if both children present, compute parent = hash(left || right)
-   - If only left child present and index < ⌈layerSize/2⌉, use padding node {hash:"padding", sumWeight:0} for right
-   - Place computed parent at layer[level+1][i/2]
-5. Verify layer[treeDepth][0] == valRootHash (both hash AND sumWeight must match)
+**Reconstruction Algorithm (Deterministic Sparse-Map):**
+
+The verifier reconstructs the tree using a layer-by-layer sparse map:
+
+1. Parse `committeeSize` (N) from proof header; compute `treeDepth = ⌈log₂N⌉`
+2. Initialize `layers[0..treeDepth]` as empty maps (level → index → node)
+3. Place signer leaves at `layers[0][bitmap_index]` for each signer (derived from bitmap)
+4. Place auxiliary nodes at `layers[aux.level][aux.index]` in canonical order (sorted by level ascending, then index ascending)
+5. For each level `l` from 0 to `treeDepth-1`:
+   - Compute `layerSize = ⌈N / 2^l⌉`
+   - For each parent index `p` in 0..⌈layerSize/2⌉-1:
+     - `leftIdx = 2p`, `rightIdx = 2p + 1`
+     - `left = layers[l].get(leftIdx)` — MUST be present (error if missing)
+     - `right = layers[l].get(rightIdx) || EMPTY_NODE` — use canonical empty node if absent
+     - Compute `parent = { hash: H(left, right), sumWeight: left.sumWeight + right.sumWeight }`
+     - Place at `layers[l+1][p]`
+6. Verify `layers[treeDepth][0] == valRootHash` (both hash AND sumWeight must match)
+
+Where `EMPTY_NODE = { hash: SHA256("rinku:empty_node:v1"), sumWeight: 0 }` per Appendix A.3.
+
+**Invariant:** At each level, the verifier MUST have sufficient nodes (from signer leaves or auxiliary nodes) to compute all required parents. If a left child is missing, the proof is invalid.
 
 ### F.4 QR Compatibility Matrix (Without Multi-Proof)
 

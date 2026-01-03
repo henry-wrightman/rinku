@@ -40,6 +40,16 @@ function hashInternal(left: MerkleSumNode, right: MerkleSumNode): string {
   return bytesToHex(sha256(new TextEncoder().encode(data)));
 }
 
+/**
+ * Canonical empty node for non-power-of-two tree padding.
+ * Uses domain-separated hash to ensure deterministic behavior across implementations.
+ * Per spec Appendix A.3: EMPTY_NODE = { hash: SHA256("rinku:empty_node:v1"), sumWeight: 0 }
+ */
+export const EMPTY_NODE: MerkleSumNode = {
+  hash: bytesToHex(sha256(new TextEncoder().encode("rinku:empty_node:v1"))),
+  sumWeight: 0,
+};
+
 export function buildMerkleSumTree(leaves: MerkleSumLeaf[]): {
   root: MerkleSumRoot;
   layers: MerkleSumNode[][];
@@ -65,7 +75,7 @@ export function buildMerkleSumTree(leaves: MerkleSumLeaf[]): {
 
     for (let i = 0; i < currentLayer.length; i += 2) {
       const left = currentLayer[i];
-      const right = currentLayer[i + 1] || { hash: "padding", sumWeight: 0 };
+      const right = currentLayer[i + 1] || EMPTY_NODE;
 
       nextLayer.push({
         hash: hashInternal(left, right),
@@ -111,7 +121,7 @@ export function getMerkleSumProof(
     const sibling =
       siblingPos < currentLayer.length
         ? currentLayer[siblingPos]
-        : { hash: "padding", sumWeight: 0 };
+        : EMPTY_NODE;
 
     siblings.push(sibling);
     pathBits.push(isRight);
@@ -119,7 +129,7 @@ export function getMerkleSumProof(
     const nextLayer: MerkleSumNode[] = [];
     for (let i = 0; i < currentLayer.length; i += 2) {
       const left = currentLayer[i];
-      const right = currentLayer[i + 1] || { hash: "padding", sumWeight: 0 };
+      const right = currentLayer[i + 1] || EMPTY_NODE;
       nextLayer.push({
         hash: hashInternal(left, right),
         sumWeight: left.sumWeight + right.sumWeight,
@@ -308,7 +318,7 @@ export function getMerkleSumMultiProof(
     const nextLayer: MerkleSumNode[] = [];
     for (let i = 0; i < currentLayer.length; i += 2) {
       const left = currentLayer[i];
-      const right = currentLayer[i + 1] || { hash: "padding", sumWeight: 0 };
+      const right = currentLayer[i + 1] || EMPTY_NODE;
       nextLayer.push({
         hash: hashInternal(left, right),
         sumWeight: left.sumWeight + right.sumWeight,
@@ -375,7 +385,7 @@ export function verifyMerkleSumMultiProof(
       if (layers[level + 1].has(parentIdx)) continue;
 
       const left = layers[level].get(i);
-      const right = layers[level].get(i + 1) || { hash: "padding", sumWeight: 0 };
+      const right = layers[level].get(i + 1) || EMPTY_NODE;
 
       if (!left) {
         continue;

@@ -1,0 +1,187 @@
+The multi-proof tweaks are a big improvement, and this draft is now much closer to internally consistent + implementable. A few things are genuinely “locked in” now (nice), and a few remaining issues are worth fixing before you sink more time into code. 
+
+WHITEPAPER (8)
+
+What’s strong now
+1) Profile C v5 story is finally coherent end-to-end
+
+You now have:
+
+chainId binding in the signing hash (prevents cross-network replay) 
+
+WHITEPAPER (8)
+
+MerkleSumTree root committing {hash,totalWeight} and included in the signing hash (closes denominator attacks) 
+
+WHITEPAPER (8)
+
+BLS PoP requirement (rogue-key mitigation) 
+
+WHITEPAPER (8)
+
+Multi-proof encoding (v5) + explicit QR matrix with/without multi-proof (nice, resolves the earlier contradiction cleanly) 
+
+WHITEPAPER (8)
+
+2) You correctly reframed the committee guidance
+
+Now it’s explicit:
+
+N=32–64 is “decentralization + manageable URL proof sizes”
+
+QR mode is a smaller committee (N≤21) with packed+multi-proof 
+
+WHITEPAPER (8)
+
+3) Verification steps for Profile C are basically right
+
+You now include:
+
+bitmap → signer indices
+
+multi-proof reconstruction
+
+derive signer pubkeys + aggregate pubkey
+
+verify agg sig
+
+check signerWeight ≥ 67% of derived totalWeight
+
+chainId check 
+
+WHITEPAPER (8)
+
+That’s the correct verification skeleton.
+
+The biggest remaining gap (important): padding / non-power-of-two trees
+
+In the v5 reconstruction algorithm you introduce:
+
+“If only left child present… use padding node {hash:"padding", sumWeight:0} for right.” 
+
+WHITEPAPER (8)
+
+This is dangerous unless precisely specified, because:
+
+the exact padding hash must be deterministic and domain-separated,
+
+and your MerkleSumTree spec (Appendix A.3) currently assumes a full binary structure with explicit left/right hashing. 
+
+WHITEPAPER (8)
+
+If different implementations choose different padding conventions, they will compute different roots → consensus break or verification failures.
+
+Fix (simple and robust)
+
+Pick one explicit rule and make it canonical everywhere (tree construction and verification). Common choices:
+
+Option A: next power-of-two padding with zero leaves
+
+Define N’ = nextPow2(N).
+
+Append (N’−N) dummy leaves with:
+
+index = originalIndex, or special index, but must be stable
+
+address = 20 zero bytes
+
+pubkey = 96 zero bytes
+
+weight = 0
+
+Their leaf hash is computed using the normal leaf-hash formula, so no special “padding hash” constant is needed.
+
+Option B: define EMPTY_NODE(level) deterministically
+
+EMPTY_NODE(0).hash = SHA256(0x02) (example) and sum=0
+
+EMPTY_NODE(l+1) = H(0x01 || EMPTY(l).hash || 0 || EMPTY(l).hash || 0)
+
+Then missing right child uses EMPTY_NODE(level)
+
+Option A is easiest to implement and avoids special-case internal hashing. If you keep Option B, you must write it down explicitly in Appendix A.3.
+
+Right now, “hash:'padding'” is just a placeholder string; that will not survive review or independent implementations.
+
+Second big gap: multi-proof reconstruction needs a canonical “consumption rule”
+
+Your v5 encoding gives:
+
+signer leaves (in bitmap index order)
+
+auxiliary nodes (sorted by level, then index) 
+
+WHITEPAPER (8)
+
+That’s a good start. But the reconstruction algorithm still leaves room for ambiguity about:
+
+how to treat “present vs absent” nodes at each layer,
+
+whether you’re allowed to compute parents early,
+
+and how to handle missing nodes (especially when N isn’t a power of two).
+
+A safer approach is to define the multi-proof as a sparse map per level (which you’re already doing), and then define reconstruction as:
+
+For level l from 0..depth-1, for every i in [0..ceil(layerSize/2)-1], the verifier MUST have child nodes at positions (2i) and (2i+1) either from provided map or from canonical EMPTY nodes. Compute parent(i). Repeat.
+
+If you write that in one paragraph, you eliminate subtle verifier differences.
+
+QR + size claims: you’re in a good place, but tighten wording
+
+You now have three different size discussions:
+
+the general /txp ancestry benchmarks (596–7,248 chars) 
+
+WHITEPAPER (8)
+
+Profile C size claim (1,000–2,500 chars typical) 
+
+WHITEPAPER (8)
+
+packed v5 matrices (e.g., N=21 ≈ 2,100 bytes) 
+
+WHITEPAPER (8)
+
+That’s fine, but one sentence will make it bulletproof:
+
+“Profile C QR feasibility is measured on packed-v5+DEFLATE bytes, not URL chars; the ‘1,000–2,500 chars typical’ refers to URL-length after base64url wrapping.”
+
+Right now readers might still mix “bytes” vs “chars.”
+
+Redundant prior feedback you still haven’t addressed (still matters)
+1) You still use amount: number, fee: number, etc. in the main spec
+
+Appendix A.2 says uint64 smallest units, no floats 
+
+WHITEPAPER (8)
+
+ — but Section 2.1 transaction schema still uses number. 
+
+WHITEPAPER (8)
+
+
+People will nitpick this.
+
+Fix: change the schema to uint64 / “integer (smallest units)” everywhere the transaction is defined.
+
+2) Tokenomics table still visually screams “wrong”
+
+Epoch 0 “31.5M” even with the footnote will keep distracting reviewers. 
+
+WHITEPAPER (8)
+
+
+You already said tokenomics is placeholder; I’d honestly just mark the whole section “draft / simulation pending” and make the table show “capped actual” so nobody derails.
+
+Net assessment
+
+Multi-proofs were a big win, and your new Appendix F is finally self-consistent: packed v4 vs packed v5, QR matrices, and quantitative savings all align. 
+
+WHITEPAPER (8)
+
+If you do just two fixes next, do these:
+
+Canonical empty/padding rule for non-power-of-two committee sizes (and use it consistently in tree build + verifier).
+
+Specify multi-proof reconstruction as a deterministic sparse-map algorithm (no “hash:'padding'” placeholder).
