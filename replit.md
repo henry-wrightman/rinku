@@ -33,6 +33,8 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Dynamic Gas Fees:** Demand-based pricing for transaction fees, with 50% burned and 50% distributed to validators.
 - **Tokenomics:** Implements a fixed maximum supply, genesis allocation, emission schedule with halvings, and a reward distribution mechanism based on stake weight and account age. Includes slashing penalties for validator misconduct.
 - **Finality Metrics System:** Tracks time-to-finality, pending transaction counts, and checkpoint latency to monitor network performance.
+- **Validator Key Management:** AES-256-GCM encrypted key storage with scrypt key derivation (N=16384, r=8, p=1). Keys persist across restarts when password is consistent. Production requires `VALIDATOR_KEY_PASSWORD` environment variable; development uses a consistent default password.
+- **Proof Slashing Service:** Validates Profile B proofs cryptographically, detecting duplicate signatures, weight mismatches, and forged validators. Triggers automatic slashing for invalid proofs (20%), invalid witnesses (15%), and receipt tampering (25%).
 
 ### External Dependencies
 - **npm workspaces:** Monorepo management.
