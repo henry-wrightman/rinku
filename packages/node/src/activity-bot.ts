@@ -48,6 +48,8 @@ const MAX_CONTRACTS = 3;
 let currentGasPrice = 0.01;
 const GAS_PRICE_CACHE_MS = 5000;
 let lastGasPriceFetch = 0;
+let lastLoggedGasPrice = 0;
+let skippedDueToBalance = 0;
 
 async function fetchGasPrice(): Promise<number> {
   const now = Date.now();
@@ -61,7 +63,11 @@ async function fetchGasPrice(): Promise<number> {
       if (typeof data.current === "number") {
         currentGasPrice = data.current;
         lastGasPriceFetch = now;
-        log(`Gas price updated: ${currentGasPrice.toFixed(4)}`);
+        // Only log if gas changed by >5%
+        if (Math.abs(currentGasPrice - lastLoggedGasPrice) / Math.max(lastLoggedGasPrice, 0.001) > 0.05) {
+          log(`Gas price: ${currentGasPrice.toFixed(4)}`);
+          lastLoggedGasPrice = currentGasPrice;
+        }
       }
     }
   } catch (ex) {
@@ -218,7 +224,11 @@ async function doConcurrentTransactions(): Promise<void> {
         sender.wallet
           .getBalance()
           .then(async (balance) => {
-            if (balance < amount + gasPrice + 5) return false;
+            const needed = amount + gasPrice + 5;
+            if (balance < needed) {
+              skippedDueToBalance++;
+              return false;
+            }
             return doSingleTransaction(sender, recipient, amount, gasPrice);
           })
           .catch(() => false),
@@ -277,7 +287,11 @@ async function doBatchTransactions(): Promise<void> {
 
       try {
         const balance = await sender.wallet.getBalance();
-        if (balance < amount + gasPrice + 5) continue;
+        const needed = amount + gasPrice + 5;
+        if (balance < needed) {
+          skippedDueToBalance++;
+          continue;
+        }
 
         const signedTx = await sender.wallet.createSignedTransaction(
           recipient.fingerprint,
@@ -578,10 +592,11 @@ function printStats(): void {
     `  Staking: ${totalStakes} stakes, ${totalRewardsClaimed} rewards claimed`,
   );
   console.log(
-    `  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps}`,
+    `  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps} | Skipped (low bal): ${skippedDueToBalance}`,
   );
   console.log(`  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT}`);
   console.log(`  Gas Price: ${currentGasPrice.toFixed(4)}`);
+  skippedDueToBalance = 0; // Reset after display
   console.log("=".repeat(55) + "\n");
 }
 
