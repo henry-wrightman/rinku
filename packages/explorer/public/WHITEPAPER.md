@@ -1052,95 +1052,27 @@ For QR compatibility, Profile C proofs require compact binary encoding instead o
 - Packed binary: ~150 + 200 + 128 + 48 + 3 + (14 × 300) = **~4,730 bytes** (URL only)
 - Packed + DEFLATE: ~2,200-2,800 bytes (**QR-L feasible**)
 
-### F.3 Packed Format Specification (v4 - Per-Signer Proofs)
+### F.3 Packed Format History
 
-*Note: This format is superseded by v5 (F.3.1) which uses multi-proofs for smaller payloads.*
+*Per-signer proofs (without multi-proof optimization) are not recommended for production use due to size. They are documented here for comparison only.*
 
-```
-Profile C Packed Format v4 (binary):
+Per-signer proofs repeat full Merkle paths for each signer, resulting in `O(k × log₂N)` sibling nodes. Multi-proof (F.3.1) reduces this to `~O(N)` by sharing siblings.
 
-Header (fixed):
-  version:        1 byte (0x04 for v4)
-  chainId:        4 bytes (network identifier)
-  txHash:         32 bytes
-  txSig:          64 bytes (ECDSA)
-  cpHeight:       varint
-  txMerkleRoot:   32 bytes
-  stateRoot:      32 bytes
-  receiptRoot:    32 bytes
-  tipCount:       varint
-  
-Merkle Proof:
-  proofLength:    1 byte (number of levels)
-  proofHashes:    proofLength × 32 bytes
-  proofIndex:     varint
+**Recommendation:** Use multi-proof format (B.1) for all Profile C proofs.
 
-BLS Aggregation:
-  aggSig:         48 bytes
-  signerCount:    1 byte
-  signerBitmap:   ceil(N/8) bytes
-
-Validator Commitment:
-  valRootHash:    32 bytes
-  totalWeight:    8 bytes (uint64 BE)
-
-Per-Signer Membership Proofs (repeated signerCount times):
-  leafIndex:      varint
-  leafAddress:    20 bytes
-  leafBlsPubKey:  96 bytes
-  leafWeight:     8 bytes (uint64 BE)
-  siblingCount:   1 byte
-  siblings:       siblingCount × 40 bytes (32B hash + 8B weight)
-  pathBits:       ceil(siblingCount/8) bytes
-```
-
-### F.3.1 Packed Format Specification (v5 - Multi-Proof)
+### F.3.1 Packed Format Specification (Multi-Proof)
 
 Multi-proof format shares sibling nodes across signers, reducing payload by 60-75%.
 
-```
-Profile C Packed Format v5 (binary):
+**Canonical format defined in Appendix B.1** — this section provides additional context.
 
-Header (fixed):
-  version:        1 byte (0x05 for v5)
-  chainId:        4 bytes (network identifier - prevents cross-chain replay)
-  txHash:         32 bytes
-  txSig:          64 bytes (ECDSA)
-  cpHeight:       varint
-  txMerkleRoot:   32 bytes
-  stateRoot:      32 bytes
-  receiptRoot:    32 bytes
-  tipCount:       varint
-  
-Transaction Merkle Proof:
-  proofLength:    1 byte (number of levels)
-  proofHashes:    proofLength × 32 bytes
-  proofIndex:     varint
+Key design choices:
+- **All fields fixed-width** (no varints in canonical format) for simpler parsing
+- `checkpointHeight`: 4 bytes (uint32_be) — sufficient for billions of checkpoints
+- `merkleIndex`: 2 bytes (uint16_be) — supports up to 65,535 txs per checkpoint
+- `auxiliaryNodes[].index`: 1 byte (uint8) — committee capped at 255
 
-BLS Aggregation:
-  aggSig:         48 bytes
-  signerBitmap:   ceil(N/8) bytes (signer indices encoded as bitmap)
-
-Validator Commitment:
-  valRootHash:    32 bytes
-  totalWeight:    8 bytes (uint64 BE)
-  committeeSize:  1 byte (N, the total number of validators in committee)
-  // Note: treeDepth = ⌈log₂N⌉ is derived from committeeSize, not transmitted
-
-Multi-Proof Signer Leaves (signerCount derived from bitmap popcount):
-  For each signer (in index order):
-    leafAddress:    20 bytes
-    leafBlsPubKey:  96 bytes
-    leafWeight:     8 bytes (uint64 BE)
-
-Multi-Proof Auxiliary Nodes:
-  auxCount:       varint
-  For each auxiliary node (sorted by level, then index):
-    level:          1 byte
-    index:          varint
-    hash:           32 bytes
-    sumWeight:      8 bytes (uint64 BE)
-```
+See B.1 for byte-level layout. The canonical format uses version byte `0x01`.
 
 **Reconstruction Algorithm (Deterministic Sparse-Map):**
 
@@ -1155,7 +1087,7 @@ The verifier reconstructs the tree using a layer-by-layer sparse map:
    - For each parent index `p` in 0..⌈layerSize/2⌉-1:
      - `leftIdx = 2p`, `rightIdx = 2p + 1`
      - `left = layers[l].get(leftIdx)` — MUST be present (error if missing)
-     - `right = layers[l].get(rightIdx) || EMPTY_NODE` — use canonical empty node if absent
+     - `right = rightIdx >= layerSize ? EMPTY_NODE : layers[l].get(rightIdx)` — EMPTY_NODE only for structural padding
      - Compute `parent = { hash: H(left, right), sumWeight: left.sumWeight + right.sumWeight }`
      - Place at `layers[l+1][p]`
 6. Verify `layers[treeDepth][0] == valRootHash` (both hash AND sumWeight must match)
