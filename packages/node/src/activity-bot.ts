@@ -18,8 +18,12 @@ const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "180000");
 const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "300000");
 
 // Gas-aware throttling - pause when gas gets too high
-const GAS_THROTTLE_THRESHOLD = parseFloat(process.env.GAS_THROTTLE_THRESHOLD || "3"); // Pause when gas > 3 RKU
-const GAS_RESUME_THRESHOLD = parseFloat(process.env.GAS_RESUME_THRESHOLD || "1"); // Resume when gas < 1 RKU
+const GAS_THROTTLE_THRESHOLD = parseFloat(
+  process.env.GAS_THROTTLE_THRESHOLD || "1000",
+); // Pause when gas > 1000 RKU (uncapped for testnet testing)
+const GAS_RESUME_THRESHOLD = parseFloat(
+  process.env.GAS_RESUME_THRESHOLD || "1",
+); // Resume when gas < 1 RKU
 let gasThrottled = false;
 
 // Global sender lock - prevents same sender from being used in overlapping operations
@@ -105,23 +109,29 @@ async function fetchGasPrice(): Promise<number> {
       if (typeof data.current === "number") {
         currentGasPrice = data.current;
         lastGasPriceFetch = now;
-        
+
         // Gas-aware throttling
         if (!gasThrottled && currentGasPrice > GAS_THROTTLE_THRESHOLD) {
           gasThrottled = true;
-          log(`Gas throttle ACTIVATED: ${currentGasPrice.toFixed(4)} > ${GAS_THROTTLE_THRESHOLD} threshold`);
+          log(
+            `Gas throttle ACTIVATED: ${currentGasPrice.toFixed(4)} > ${GAS_THROTTLE_THRESHOLD} threshold`,
+          );
         } else if (gasThrottled && currentGasPrice < GAS_RESUME_THRESHOLD) {
           gasThrottled = false;
-          log(`Gas throttle RELEASED: ${currentGasPrice.toFixed(4)} < ${GAS_RESUME_THRESHOLD} threshold`);
+          log(
+            `Gas throttle RELEASED: ${currentGasPrice.toFixed(4)} < ${GAS_RESUME_THRESHOLD} threshold`,
+          );
         }
-        
+
         // Only log if gas changed by >5%
         if (
           Math.abs(currentGasPrice - lastLoggedGasPrice) /
             Math.max(lastLoggedGasPrice, 0.001) >
           0.05
         ) {
-          log(`Gas price: ${currentGasPrice.toFixed(4)}${gasThrottled ? ' [THROTTLED]' : ''}`);
+          log(
+            `Gas price: ${currentGasPrice.toFixed(4)}${gasThrottled ? " [THROTTLED]" : ""}`,
+          );
           lastLoggedGasPrice = currentGasPrice;
         }
       }
@@ -306,9 +316,9 @@ async function doSingleTransaction(
 async function doConcurrentTransactions(): Promise<void> {
   if (wallets.length < 2) return;
   if (pendingOperations >= maxPendingOps) return;
-  
+
   const gasPrice = await fetchGasPrice();
-  
+
   // Skip if gas throttled - let price recover
   if (gasThrottled) return;
 
@@ -377,9 +387,9 @@ async function doConcurrentTransactions(): Promise<void> {
 async function doBatchTransactions(): Promise<void> {
   if (wallets.length < 2) return;
   if (pendingOperations >= maxPendingOps) return;
-  
+
   const gasPrice = await fetchGasPrice();
-  
+
   // Skip if gas throttled - let price recover
   if (gasThrottled) return;
 
@@ -742,7 +752,9 @@ function printStats(): void {
   console.log(
     `  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps} | Skipped (low bal): ${skippedDueToBalance}`,
   );
-  console.log(`  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT} | Locked: ${globalLockedSenders.size}`);
+  console.log(
+    `  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT} | Locked: ${globalLockedSenders.size}`,
+  );
   console.log(`  Gas Price: ${currentGasPrice.toFixed(4)}`);
 
   // Show average balance async

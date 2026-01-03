@@ -1,4 +1,4 @@
-import type { GasPrice, GasConfig, FeeStats } from '@rinku/core';
+import type { GasPrice, GasConfig, FeeStats } from "@rinku/core";
 
 /**
  * EIP-1559 style gas pricing
@@ -7,31 +7,33 @@ import type { GasPrice, GasConfig, FeeStats } from '@rinku/core';
  * - Smooth adjustments capped at ~12.5% per period
  */
 // Env-configurable gas parameters for stress testing
-const GAS_TARGET_TPS = parseFloat(process.env.GAS_TARGET_TPS || '5'); // Target TPS (default 5 for stress testing)
-const GAS_PERIOD_MS = parseInt(process.env.GAS_PERIOD_MS || '15000'); // Period length
-const GAS_MAX_FEE = parseFloat(process.env.GAS_MAX_FEE || '10'); // Max fee cap
+const GAS_TARGET_TPS = parseFloat(process.env.GAS_TARGET_TPS || "1000"); // Target TPS (default 1000 for uncapped testnet testing)
+const GAS_PERIOD_MS = parseInt(process.env.GAS_PERIOD_MS || "15000"); // Period length
+const GAS_MAX_FEE = parseFloat(process.env.GAS_MAX_FEE || "10"); // Max fee cap
 
 export class GasService {
   private totalBurned = 0;
   private totalToValidators = 0;
   private txCount = 0;
-  
+
   // EIP-1559 style tracking
   private baseFee: number;
   private txsThisPeriod = 0;
   private periodStartTime = Date.now();
   private readonly PERIOD_MS = GAS_PERIOD_MS;
-  private readonly TARGET_TXS_PER_PERIOD = Math.round(GAS_TARGET_TPS * (GAS_PERIOD_MS / 1000)); // TPS × period seconds
+  private readonly TARGET_TXS_PER_PERIOD = Math.round(
+    GAS_TARGET_TPS * (GAS_PERIOD_MS / 1000),
+  ); // TPS × period seconds
   private readonly MAX_CHANGE_PERCENT = 0.125; // 12.5% max change per period
   private readonly ELASTICITY = 2; // How much over target before max increase
-  
+
   private config: GasConfig = {
     minFee: 0.001,
     maxFee: GAS_MAX_FEE,
     baseFee: 0.01,
     feeMultiplier: 1.0,
     burnPercent: 50,
-    validatorPercent: 50
+    validatorPercent: 50,
   };
 
   constructor(config?: Partial<GasConfig>) {
@@ -63,18 +65,21 @@ export class GasService {
 
     // Calculate utilization ratio
     const utilization = this.txsThisPeriod / this.TARGET_TXS_PER_PERIOD;
-    
+
     // Calculate change factor (-12.5% to +12.5%)
     // At 0 txs: -12.5%, at target: 0%, at 2x target: +12.5%
-    const changeRatio = Math.max(-1, Math.min(1, (utilization - 1) / (this.ELASTICITY - 1)));
-    const changeFactor = 1 + (changeRatio * this.MAX_CHANGE_PERCENT);
-    
+    const changeRatio = Math.max(
+      -1,
+      Math.min(1, (utilization - 1) / (this.ELASTICITY - 1)),
+    );
+    const changeFactor = 1 + changeRatio * this.MAX_CHANGE_PERCENT;
+
     // Apply change with bounds
     this.baseFee = Math.max(
       this.config.minFee,
-      Math.min(this.config.maxFee, this.baseFee * changeFactor)
+      Math.min(this.config.maxFee, this.baseFee * changeFactor),
     );
-    
+
     // Reset period
     this.txsThisPeriod = 0;
     this.periodStartTime = now;
@@ -82,10 +87,10 @@ export class GasService {
 
   getCurrentGasPrice(): GasPrice {
     this.adjustBaseFee();
-    
+
     const currentPrice = Math.max(
       this.config.minFee,
-      Math.min(this.config.maxFee, this.baseFee * this.config.feeMultiplier)
+      Math.min(this.config.maxFee, this.baseFee * this.config.feeMultiplier),
     );
 
     return {
@@ -93,7 +98,7 @@ export class GasService {
       min: this.config.minFee,
       max: this.config.maxFee,
       avgLast100: Math.round(this.baseFee * 1000000) / 1000000, // Now shows baseFee
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
     };
   }
 
@@ -120,19 +125,25 @@ export class GasService {
       totalBurned: Math.round(this.totalBurned * 1000000) / 1000000,
       totalToValidators: Math.round(this.totalToValidators * 1000000) / 1000000,
       avgFee: Math.round(this.baseFee * 1000000) / 1000000,
-      txCount: this.txCount
+      txCount: this.txCount,
     };
   }
 
   validateFee(fee: number): { valid: boolean; error?: string } {
     if (fee < 0) {
-      return { valid: false, error: 'Fee cannot be negative' };
+      return { valid: false, error: "Fee cannot be negative" };
     }
     if (fee < this.config.minFee && fee !== 0) {
-      return { valid: false, error: `Fee ${fee} below minimum ${this.config.minFee}` };
+      return {
+        valid: false,
+        error: `Fee ${fee} below minimum ${this.config.minFee}`,
+      };
     }
     if (fee > this.config.maxFee) {
-      return { valid: false, error: `Fee ${fee} exceeds maximum ${this.config.maxFee}` };
+      return {
+        valid: false,
+        error: `Fee ${fee} exceeds maximum ${this.config.maxFee}`,
+      };
     }
     return { valid: true };
   }
@@ -145,7 +156,7 @@ export class GasService {
       periodStartTime: this.periodStartTime,
       totalBurned: this.totalBurned,
       totalToValidators: this.totalToValidators,
-      txCount: this.txCount
+      txCount: this.txCount,
     };
   }
 
