@@ -28,6 +28,8 @@ export interface NodeSnapshot {
     stateTrie: { storage: [string, unknown][] };
     receiptsTrie: { receipts: [string, unknown][] };
   };
+  validatorKeys?: object;
+  proofSlashing?: object;
 }
 
 export class Storage {

@@ -10,6 +10,9 @@ export const TOKENOMICS_CONFIG = {
   UNBONDING_PERIOD_MS: 14 * 24 * 60 * 60 * 1000,
   SLASH_DOUBLE_SIGN_PERCENT: 0.15,
   SLASH_INVALID_CHECKPOINT_PERCENT: 0.25,
+  SLASH_INVALID_PROOF_PERCENT: 0.20,
+  SLASH_INVALID_WITNESS_PERCENT: 0.15,
+  SLASH_RECEIPT_TAMPERING_PERCENT: 0.25,
   SLASH_LIVENESS_PERCENT: 0.05,
   SLASH_LIVENESS_REPEAT_PERCENT: 0.10,
   LIVENESS_MISS_THRESHOLD: 3,
@@ -21,6 +24,9 @@ export const TOKENOMICS_CONFIG = {
 export type SlashReason = 
   | 'double_sign'
   | 'invalid_checkpoint'
+  | 'invalid_proof'
+  | 'invalid_witness'
+  | 'receipt_tampering'
   | 'liveness_failure'
   | 'liveness_repeat';
 
@@ -160,6 +166,15 @@ export class SlashingService {
         break;
       case 'invalid_checkpoint':
         percentToSlash = TOKENOMICS_CONFIG.SLASH_INVALID_CHECKPOINT_PERCENT;
+        break;
+      case 'invalid_proof':
+        percentToSlash = TOKENOMICS_CONFIG.SLASH_INVALID_PROOF_PERCENT;
+        break;
+      case 'invalid_witness':
+        percentToSlash = TOKENOMICS_CONFIG.SLASH_INVALID_WITNESS_PERCENT;
+        break;
+      case 'receipt_tampering':
+        percentToSlash = TOKENOMICS_CONFIG.SLASH_RECEIPT_TAMPERING_PERCENT;
         break;
       case 'liveness_failure':
         percentToSlash = TOKENOMICS_CONFIG.SLASH_LIVENESS_PERCENT;

@@ -10,7 +10,9 @@ import { CheckpointService } from './checkpoint.js';
 import { GasService } from './gas.js';
 import { EmissionService, SlashingService, distributeCheckpointReward, TOKENOMICS_CONFIG, type SlashingServiceDeps } from './tokenomics.js';
 import { FinalityMetricsService } from './finality.js';
-import { hashTransaction, type SignedTransaction } from '@rinku/core';
+import { ValidatorKeyManager } from './validator-keys.js';
+import { ProofSlashingService } from './proof-slashing.js';
+import { hashTransaction, type SignedTransaction, DEFAULT_CHECKPOINT_CONFIG } from '@rinku/core';
 import { randomBytes } from 'crypto';
 
 const CHECKPOINT_INTERVAL_MS = parseInt(process.env.CHECKPOINT_INTERVAL_MS || '15000', 10);
@@ -187,6 +189,40 @@ async function main() {
 
   console.log('Tokenomics service enabled (30M max supply, halving every 210k checkpoints)');
 
+  let validatorKeyManager: ValidatorKeyManager;
+  if (snapshot?.validatorKeys) {
+    validatorKeyManager = await ValidatorKeyManager.fromJSON(snapshot.validatorKeys as any);
+    console.log('Validator key manager initialized from snapshot');
+  } else {
+    validatorKeyManager = new ValidatorKeyManager();
+    await validatorKeyManager.generateNewKey();
+    console.log(`Generated validator key: ${validatorKeyManager.getAddress()?.slice(0, 16)}...`);
+  }
+
+  for (const validator of rewardsService.getActiveValidators()) {
+    const pubKey = consensus.getPublicKeys().get(validator.staker);
+    if (pubKey) {
+      validatorKeyManager.registerValidator(validator.staker, pubKey, validator.amount);
+    }
+  }
+
+  const proofSlashingDeps = {
+    slashingService,
+    keyManager: validatorKeyManager,
+    getCurrentCheckpointHeight: () => checkpointService.getLatestCheckpoint()?.height || 0,
+    getCheckpointConfig: () => DEFAULT_CHECKPOINT_CONFIG
+  };
+
+  let proofSlashingService: ProofSlashingService;
+  if (snapshot?.proofSlashing) {
+    proofSlashingService = ProofSlashingService.fromJSON(snapshot.proofSlashing as any, proofSlashingDeps);
+    console.log('Restored proof slashing service from snapshot');
+  } else {
+    proofSlashingService = new ProofSlashingService(proofSlashingDeps);
+  }
+
+  console.log('Validator key management and proof slashing enabled');
+
   let gasService: GasService;
   if (snapshot?.gas) {
     gasService = GasService.fromJSON(snapshot.gas);
@@ -211,7 +247,7 @@ async function main() {
   finalityMetrics.setCheckpointInterval(CHECKPOINT_INTERVAL_MS);
 
   peerSync.onSyncComplete(async () => {
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService);
   });
 
   let snapshotPending = false;
@@ -226,18 +262,18 @@ async function main() {
     }
     snapshotPending = false;
     lastSnapshotTime = now;
-    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService);
+    await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService);
   };
   
   const app = createAPI(state, consensus, mempool, peerSync, contractService, rewardsService, checkpointService, gasService, debouncedSave, tokenomics, finalityMetrics);
   
-  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService);
+  await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService);
   
   setInterval(async () => {
     if (snapshotPending) {
       snapshotPending = false;
       lastSnapshotTime = Date.now();
-      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService);
+      await saveSnapshot(storage, state, consensus, rewardsService, checkpointService, gasService, tokenomics, finalityMetrics, contractService, validatorKeyManager, proofSlashingService);
     }
   }, SNAPSHOT_DEBOUNCE_MS);
 
@@ -415,7 +451,9 @@ async function saveSnapshot(
   gasService?: GasService,
   tokenomics?: TokenomicsServices,
   finalityMetrics?: FinalityMetricsService,
-  contractService?: ContractService
+  contractService?: ContractService,
+  keyManager?: ValidatorKeyManager,
+  proofSlashing?: ProofSlashingService
 ): Promise<void> {
   const stateJson = state.toJSON() as { accounts: [string, any][]; merkleRoot: string };
   const consensusJson = consensus.toJSON();
@@ -434,7 +472,9 @@ async function saveSnapshot(
       slashing: tokenomics?.slashingService?.toJSON()
     },
     finality: finalityMetrics?.toJSON(),
-    contracts: contractService?.toJSON() as NodeSnapshot['contracts']
+    contracts: contractService?.toJSON() as NodeSnapshot['contracts'],
+    validatorKeys: keyManager?.toJSON(),
+    proofSlashing: proofSlashing?.toJSON()
   };
 
   await storage.save(snapshot);
@@ -452,4 +492,6 @@ export { RewardsService } from './rewards.js';
 export { CheckpointService } from './checkpoint.js';
 export { GasService } from './gas.js';
 export { EmissionService, SlashingService, TOKENOMICS_CONFIG, distributeCheckpointReward } from './tokenomics.js';
+export { ValidatorKeyManager } from './validator-keys.js';
+export { ProofSlashingService } from './proof-slashing.js';
 export { createAPI } from './api.js';
