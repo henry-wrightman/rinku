@@ -4,7 +4,7 @@
 
 ## 1. Introduction
 
-Traditional blockchains require nodes to verify state. Users must trust infrastructure providers or run their own nodes. We eliminate the need for trusted infrastructure by encoding the complete verification path in URLs—data availability is provided by the sender or network, but trust is not required.
+Traditional blockchains require nodes to verify state. Users must trust infrastructure providers or run their own nodes. We eliminate the need to trust infrastructure for verification by encoding the complete verification path in URLs—data availability is provided by the sender or network, but trust is not required.
 
 The problem with existing systems:
 1. **Infrastructure dependency** - Verification requires trusted nodes
@@ -224,14 +224,14 @@ Every 15 seconds (configurable), the network produces a checkpoint:
 ```
 {
   id: string,           // SHA-256 hash
-  height: number,       // Sequential checkpoint number
-  timestamp: number,    // Creation time
+  height: uint32,       // Sequential checkpoint number
+  timestamp: uint64,    // Creation time (Unix ms)
   txMerkleRoot: string, // Merkle root of transaction hashes
   stateRoot: string,    // Merkle root of account states
   previousId: string,   // Link to prior checkpoint
   txHashes: string[],   // Transactions in this checkpoint
   signatures: string[], // Validator signatures
-  signatureCount: number
+  signatureCount: uint8
 }
 ```
 
@@ -259,6 +259,7 @@ Checkpoint finality requires Byzantine fault tolerance:
    - **Committee size (N)**: 32-64 validators recommended for decentralization + manageable URL proof sizes
    - **QR mode**: For QR-compatible proofs, use smaller committees (N ≤ 21) with packed + multi-proof encoding
    - **Selection**: Top N validators by stake weight, or rotating selection using beacon randomness for larger pools
+   - **Index Assignment**: Committee indices (0 to N-1) are assigned by sorting selected validators deterministically: `(stakeWeight DESC, ecdsaFingerprint ASC)` as of checkpoint h-1. This ensures all nodes build identical MerkleSumTree roots from the same committee set.
    - **Threshold (k)**: At least ⌈2N/3⌉ committee members must sign (e.g., k ≥ 43 for N = 64)
    - **Rotation**: Committee membership updates each checkpoint based on stake changes
    - With multi-proof optimization, proof size is ~O(N) rather than O(k · log₂N)
@@ -290,9 +291,9 @@ Each account maintains:
 ```
 {
   fingerprint: string,    // 40-char public key hash
-  balance: number,        // Current balance
-  nonce: number,          // Transaction counter
-  firstTxTimestamp: number // Account creation time
+  balance: uint64,        // Current balance (smallest units)
+  nonce: uint64,          // Transaction counter
+  firstTxTimestamp: uint64 // Account creation time (Unix ms)
 }
 ```
 
@@ -538,7 +539,7 @@ For most retail/P2P transactions, Profile A provides sufficient assurance. High-
 
 ## 13. Conclusion
 
-Rinku demonstrates that URLs can serve as the canonical portable representation of distributed ledger proofs. By encoding transactions, proofs, and ancestry in self-contained URLs, we eliminate infrastructure dependency for verification.
+Rinku demonstrates that URLs can serve as the canonical portable representation of distributed ledger proofs. By encoding transactions, proofs, and ancestry in self-contained URLs, we eliminate the need to trust infrastructure for verification.
 
 Through DEFLATE compression, complete finality proofs fit within 600-2,300 characters for typical ancestry depths (1-10 transactions). Single transactions and short ancestry chains (up to ~5 depth) fit in QR codes; complex DAG proofs work as shareable URLs in any modern browser. This enables genuine offline verification: embed payment proofs in QR codes, verify transactions without network access, share ledger state via hyperlinks.
 
@@ -639,6 +640,11 @@ EMPTY_NODE = {
 
 During tree construction, if a node at position `2i` has no sibling at `2i+1`, use `EMPTY_NODE` as the right child. This ensures all implementations compute identical roots regardless of committee size.
 
+**Tree Geometry:**
+- Tree depth: `⌈log₂N⌉` where N is committee size
+- Layer size at level `l`: `⌈N / 2^l⌉`
+- Builder and verifier MUST use identical layer size calculations
+
 The BLS signing hash includes the full validatorSumTreeRoot tuple (hash + totalWeight), binding both signer weights AND total denominator to the signature.
 
 ## Appendix B: URL Format Specification
@@ -657,8 +663,8 @@ Proof Bundle URL:
   checkpointAnchor: {
     checkpointId: string,
     merkleRoot: string,
-    height: number,
-    signatureCount: number
+    height: uint32,
+    signatureCount: uint8
   }
 })))}
 ```
@@ -671,33 +677,33 @@ rinku://sp/{base64url(deflate(json({
   txSignature: string,
   txFrom: string,
   txTo: string,
-  txAmount: number,
-  txNonce: number,
-  txTimestamp: number,
-  checkpointHeight: number,
+  txAmount: uint64,
+  txNonce: uint64,
+  txTimestamp: uint64,
+  checkpointHeight: uint32,
   checkpointId: string,
   txMerkleRoot: string,
   stateRoot: string,
   receiptRoot: string,
-  tipCount: number,
+  tipCount: uint8,
   merkleProof: string[],
-  merkleIndex: number,
+  merkleIndex: uint16,
   blsAggregatedSig: string,      // base64url-encoded 48-byte G1 signature
   blsSignerBitmap: string,       // base64url-encoded bitmap
-  blsSignerCount: number,
+  blsSignerCount: uint8,
   signerMembershipProofs: [{     // MerkleSumTree membership proof per signer
     leaf: {
-      index: number,
+      index: uint8,
       address: string,
       blsPublicKey: string,      // base64url-encoded 96-byte G2 pubkey
-      weight: number
+      weight: uint64
     },
-    siblings: [{ hash: string, sumWeight: number }],
+    siblings: [{ hash: string, sumWeight: uint64 }],
     pathBits: boolean[]
   }],
   validatorSumTreeRoot: {        // Cryptographically binds totalWeight
     hash: string,
-    totalWeight: number
+    totalWeight: uint64
   }
 })))}
 ```
@@ -1038,8 +1044,8 @@ Individual membership proofs repeat many sibling nodes across the tree. A **mult
 MerkleSumMultiProof {
   leaves: MerkleSumLeaf[],      // k signer leaves
   auxiliaryNodes: {             // Non-signer nodes needed for reconstruction
-    level: number,              // Tree level (0 = leaf level)
-    index: number,              // Position at that level
+    level: uint8,               // Tree level (0 = leaf level)
+    index: uint8,               // Position at that level
     node: MerkleSumNode         // {hash, sumWeight}
   }[]
 }
