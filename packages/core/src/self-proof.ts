@@ -1,17 +1,17 @@
-import { deflate, inflate } from 'pako';
-import { sha256 } from '@noble/hashes/sha2.js';
+import { deflate, inflate } from "pako";
+import { sha256 } from "@noble/hashes/sha2.js";
 import {
   verifyAggregatedSignature,
   parseBLSSignerBitmap,
   bytesToHex,
-  hexToBytes
-} from './bls.js';
-import type { 
-  ValidatorEntry, 
-  Checkpoint, 
+  hexToBytes,
+} from "./bls.js";
+import type {
+  ValidatorEntry,
+  Checkpoint,
   BLSCheckpointSignature,
-  SignedTransaction
-} from './types.js';
+  SignedTransaction,
+} from "./types.js";
 
 export interface ValidatorWitness {
   index: number;
@@ -62,10 +62,11 @@ const SELF_PROOF_VERSION = 3;
 
 export function computeValidatorSetRoot(witnesses: ValidatorWitness[]): string {
   const sorted = [...witnesses].sort((a, b) => a.index - b.index);
-  const entries = sorted.map(w => 
-    `${w.index}:${w.address}:${bytesToHex(new Uint8Array(w.blsPublicKey))}:${w.weight}`
+  const entries = sorted.map(
+    (w) =>
+      `${w.index}:${w.address}:${bytesToHex(new Uint8Array(w.blsPublicKey))}:${w.weight}`,
   );
-  const combined = entries.join('|');
+  const combined = entries.join("|");
   const hash = sha256(new TextEncoder().encode(combined));
   return bytesToHex(hash);
 }
@@ -78,7 +79,7 @@ export function computeCheckpointSigningHash(
   receiptRoot: string,
   totalWeight: number,
   tipCount: number,
-  validatorSetRoot: string
+  validatorSetRoot: string,
 ): Uint8Array {
   const signingData = `${checkpointId}:${height}:${txMerkleRoot}:${stateRoot}:${receiptRoot}:${totalWeight}:${tipCount}:${validatorSetRoot}`;
   return sha256(new TextEncoder().encode(signingData));
@@ -88,7 +89,7 @@ export function createSelfContainedProof(
   tx: SignedTransaction,
   checkpoint: Checkpoint,
   merkleProof: string[],
-  merkleIndex: number
+  merkleIndex: number,
 ): SelfContainedProof | null {
   if (!checkpoint.blsSignature) {
     return null;
@@ -100,20 +101,20 @@ export function createSelfContainedProof(
   const blsSig = checkpoint.blsSignature;
   const signerIndices = parseBLSSignerBitmap(
     new Uint8Array(blsSig.signerBitmap),
-    checkpoint.validators.length
+    checkpoint.validators.length,
   );
 
   const validatorWitnesses: ValidatorWitness[] = [];
 
   for (let i = 0; i < checkpoint.validators.length; i++) {
     const v = checkpoint.validators[i];
-    
+
     if (signerIndices.includes(i) && v.blsPublicKey) {
       validatorWitnesses.push({
         index: i,
         address: v.address,
         blsPublicKey: v.blsPublicKey,
-        weight: v.weight
+        weight: v.weight,
       });
     }
   }
@@ -132,8 +133,8 @@ export function createSelfContainedProof(
     checkpointHeight: checkpoint.height,
     checkpointId: checkpoint.checkpointId,
     txMerkleRoot: checkpoint.txMerkleRoot,
-    stateRoot: checkpoint.stateRoot || '',
-    receiptRoot: checkpoint.receiptRoot || '',
+    stateRoot: checkpoint.stateRoot || "",
+    receiptRoot: checkpoint.receiptRoot || "",
     totalWeight: checkpoint.totalWeight,
     tipCount: checkpoint.tipCount,
     merkleProof,
@@ -142,16 +143,18 @@ export function createSelfContainedProof(
     blsSignerBitmap: blsSig.signerBitmap,
     blsSignerCount: blsSig.signerCount,
     validatorWitnesses,
-    validatorSetRoot
+    validatorSetRoot,
   };
 }
 
-export function verifySelfContainedProof(proof: SelfContainedProof): ProofVerificationResult {
+export function verifySelfContainedProof(
+  proof: SelfContainedProof,
+): ProofVerificationResult {
   let computedSignerWeight = 0;
   for (const w of proof.validatorWitnesses) {
     computedSignerWeight += w.weight;
   }
-  
+
   const result: ProofVerificationResult = {
     valid: false,
     errors: [],
@@ -162,7 +165,7 @@ export function verifySelfContainedProof(proof: SelfContainedProof): ProofVerifi
     signerCount: proof.blsSignerCount,
     merkleVerified: false,
     blsVerified: false,
-    validatorSetVerified: false
+    validatorSetVerified: false,
   };
 
   if (proof.version !== SELF_PROOF_VERSION) {
@@ -170,10 +173,14 @@ export function verifySelfContainedProof(proof: SelfContainedProof): ProofVerifi
     return result;
   }
 
-  const recomputedValidatorSetRoot = computeValidatorSetRoot(proof.validatorWitnesses);
-  
+  const recomputedValidatorSetRoot = computeValidatorSetRoot(
+    proof.validatorWitnesses,
+  );
+
   if (recomputedValidatorSetRoot !== proof.validatorSetRoot) {
-    result.errors.push('Validator set root mismatch - validator data may have been tampered');
+    result.errors.push(
+      "Validator set root mismatch - validator data may have been tampered",
+    );
     return result;
   }
   result.validatorSetVerified = true;
@@ -183,17 +190,20 @@ export function verifySelfContainedProof(proof: SelfContainedProof): ProofVerifi
       proof.txHash,
       proof.merkleProof,
       proof.merkleIndex,
-      proof.txMerkleRoot
+      proof.txMerkleRoot,
     );
     result.merkleVerified = merkleValid;
     if (!merkleValid) {
-      result.errors.push('Merkle proof verification failed - tx not included in checkpoint');
+      result.errors.push(
+        "Merkle proof verification failed - tx not included in checkpoint",
+      );
     }
   } catch (e: any) {
     result.errors.push(`Merkle verification error: ${e.message}`);
   }
 
   try {
+    // binds validator weights (via validatorSetRoot) to the BLS signature, preventing weight forgery attacks
     const checkpointHash = computeCheckpointSigningHash(
       proof.checkpointId,
       proof.checkpointHeight,
@@ -202,35 +212,45 @@ export function verifySelfContainedProof(proof: SelfContainedProof): ProofVerifi
       proof.receiptRoot,
       proof.totalWeight,
       proof.tipCount,
-      proof.validatorSetRoot
+      proof.validatorSetRoot,
     );
 
-    const signerPubKeys = proof.validatorWitnesses.map(w => new Uint8Array(w.blsPublicKey));
-    
+    const signerPubKeys = proof.validatorWitnesses.map(
+      (w) => new Uint8Array(w.blsPublicKey),
+    );
+
     const blsValid = verifyAggregatedSignature(
       checkpointHash,
       new Uint8Array(proof.blsAggregatedSig),
-      signerPubKeys
+      signerPubKeys,
     );
-    
+
     result.blsVerified = blsValid;
     if (!blsValid) {
-      result.errors.push('BLS signature verification failed - checkpoint signature invalid');
+      result.errors.push(
+        "BLS signature verification failed - checkpoint signature invalid",
+      );
     }
   } catch (e: any) {
     result.errors.push(`BLS verification error: ${e.message}`);
   }
 
   if (proof.totalWeight <= 0) {
-    result.errors.push('Invalid total weight');
+    result.errors.push("Invalid total weight");
   } else {
     const weightRatio = computedSignerWeight / proof.totalWeight;
     if (weightRatio < 0.67) {
-      result.errors.push(`Insufficient signer weight: ${(weightRatio * 100).toFixed(1)}% (need 67%)`);
+      result.errors.push(
+        `Insufficient signer weight: ${(weightRatio * 100).toFixed(1)}% (need 67%)`,
+      );
     }
   }
 
-  result.valid = result.merkleVerified && result.blsVerified && result.validatorSetVerified && result.errors.length === 0;
+  result.valid =
+    result.merkleVerified &&
+    result.blsVerified &&
+    result.validatorSetVerified &&
+    result.errors.length === 0;
   return result;
 }
 
@@ -238,7 +258,7 @@ function verifyMerkleProof(
   txHash: string,
   proof: string[],
   index: number,
-  expectedRoot: string
+  expectedRoot: string,
 ): boolean {
   let current = txHash;
   let idx = index;
@@ -262,7 +282,7 @@ export function encodeSelfContainedProof(proof: SelfContainedProof): string {
 }
 
 export function decodeSelfContainedProof(encoded: string): SelfContainedProof {
-  if (encoded.startsWith('rinku://sp/')) {
+  if (encoded.startsWith("rinku://sp/")) {
     encoded = encoded.slice(11);
   }
   const compressed = base64UrlToUint8Array(encoded);
@@ -275,20 +295,20 @@ export function createSelfProofURL(proof: SelfContainedProof): string {
 }
 
 function uint8ArrayToBase64Url(data: Uint8Array): string {
-  let binary = '';
+  let binary = "";
   for (let i = 0; i < data.length; i++) {
     binary += String.fromCharCode(data[i]);
   }
   return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 function base64UrlToUint8Array(base64url: string): Uint8Array {
-  let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  let base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
   while (base64.length % 4) {
-    base64 += '=';
+    base64 += "=";
   }
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -309,25 +329,25 @@ export function analyzeSelfProofSize(proof: SelfContainedProof): {
   const compressed = deflate(new TextEncoder().encode(json), { level: 9 });
   const base64 = uint8ArrayToBase64Url(compressed);
   const url = `rinku://sp/${base64}`;
-  
-  let qrViability = 'Unknown';
-  if (base64.length <= 395) qrViability = 'v10 - Easy scan';
-  else if (base64.length <= 758) qrViability = 'v15 - Good';
-  else if (base64.length <= 1249) qrViability = 'v20 - Large QR';
-  else if (base64.length <= 1853) qrViability = 'v25 - Very large';
-  else if (base64.length <= 2520) qrViability = 'v30 - Huge';
-  else if (base64.length <= 4296) qrViability = 'v40 - Max QR';
-  else qrViability = '>v40 - Too big for QR';
-  
+
+  let qrViability = "Unknown";
+  if (base64.length <= 395) qrViability = "v10 - Easy scan";
+  else if (base64.length <= 758) qrViability = "v15 - Good";
+  else if (base64.length <= 1249) qrViability = "v20 - Large QR";
+  else if (base64.length <= 1853) qrViability = "v25 - Very large";
+  else if (base64.length <= 2520) qrViability = "v30 - Huge";
+  else if (base64.length <= 4296) qrViability = "v40 - Max QR";
+  else qrViability = ">v40 - Too big for QR";
+
   return {
     jsonSize: json.length,
     compressedSize: compressed.length,
     base64Size: base64.length,
     urlSize: url.length,
-    qrViability
+    qrViability,
   };
 }
 
 export function getSelfProofSigningData(checkpoint: Checkpoint): string {
-  return `${checkpoint.checkpointId}:${checkpoint.height}:${checkpoint.txMerkleRoot || ''}:${checkpoint.stateRoot || ''}:${checkpoint.receiptRoot || ''}:${checkpoint.totalWeight}:${checkpoint.tipCount}`;
+  return `${checkpoint.checkpointId}:${checkpoint.height}:${checkpoint.txMerkleRoot || ""}:${checkpoint.stateRoot || ""}:${checkpoint.receiptRoot || ""}:${checkpoint.totalWeight}:${checkpoint.tipCount}`;
 }
