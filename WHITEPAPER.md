@@ -149,9 +149,10 @@ Verification differs by profile:
 3. Extract signer indices from bitmap
 4. For each signer, verify MerkleSumTree membership proof
 5. Recompute MerkleSumTree root from proofs; verify `totalWeight = root.sumWeight`
-6. Verify BLS aggregated signature against signer public keys
-7. Confirm signer weight ≥ 67% of derived totalWeight
-8. *Requires*: Only cryptographic primitives (no trust anchor needed)
+6. Compute aggregate public key: sum signer BLS public keys from membership proofs
+7. Verify BLS aggregated signature against aggregate public key (single-pairing verification)
+8. Confirm signer weight ≥ 67% of derived totalWeight
+9. *Requires*: Only cryptographic primitives (no trust anchor needed; PoP assumed at registration)
 
 The URL carries the proof. Profile A requires trust in the checkpoint source. Profile B requires a known validator set. Profile C is fully self-contained—external queries are only needed for data availability, not trust.
 
@@ -745,7 +746,22 @@ Rinku uses BLS12-381 shortSignatures (G1 signatures, G2 public keys):
 Implementation via @noble/curves library, which provides:
 - Constant-time operations for side-channel resistance
 - Pure JavaScript with no native dependencies
-- WebAssembly-free for maximum portability
+
+### E.2.1 Proof-of-Possession (Rogue-Key Mitigation)
+
+BLS signature aggregation is vulnerable to rogue-key attacks where an attacker chooses a malicious public key that cancels legitimate keys during aggregation. Rinku mitigates this via proof-of-possession:
+
+1. **Registration requirement:** When staking, validators must submit a proof-of-possession: `PoP = BLS.sign(blsPrivateKey, blsPublicKey)`
+2. **Verification at stake time:** The staking contract verifies `BLS.verify(blsPublicKey, blsPublicKey, PoP)` before accepting the validator
+3. **Commitment in MerkleSumTree:** Only PoP-verified public keys are included in the validator sum tree
+
+This ensures all aggregated public keys are honestly generated (the signer knows the corresponding private key), preventing rogue-key attacks on aggregate signature verification.
+
+**Aggregate verification:** Given signer public keys `{pk_1, ..., pk_k}` and aggregated signature `σ_agg`:
+1. Compute aggregate public key: `pk_agg = pk_1 + pk_2 + ... + pk_k` (G2 point addition)
+2. Verify: `BLS.verify(pk_agg, message, σ_agg)`
+
+This single-pairing verification is efficient and secure under PoP. The @noble/curves library is also WebAssembly-free for maximum portability.
 
 ### E.3 Compression Ratios
 
@@ -775,9 +791,12 @@ The 48-byte aggregated signature plus 3-byte signer bitmap enables QR-compatible
 3. **Verify root matches:** `computedRoot == validatorSumTreeRoot.hash` AND `computedTotalWeight == validatorSumTreeRoot.totalWeight`
 4. **Recompute signing hash:** Using checkpoint fields + validatorSumTreeRoot (hash AND totalWeight)
 5. **Extract signer public keys:** From membership proof leaf data
-6. **Verify aggregated signature:** BLS verification against signer public keys
-7. **Compute signer weight:** Sum weights from membership proof leaves
-8. **Check threshold:** Verify signerWeight ≥ 67% of derived totalWeight
+6. **Compute aggregate public key:** `pk_agg = Σ pk_i` (sum signer BLS public keys via G2 point addition)
+7. **Verify aggregated signature:** `BLS.verify(pk_agg, signingHash, σ_agg)` (single-pairing verification)
+8. **Compute signer weight:** Sum weights from membership proof leaves
+9. **Check threshold:** Verify signerWeight ≥ 67% of derived totalWeight
+
+Note: This verification is secure because all validator BLS public keys are PoP-verified at registration time (see E.2.1), preventing rogue-key attacks on the aggregate signature.
 
 ### E.6 Security Properties
 
