@@ -117,11 +117,12 @@ Rinku supports three verification profiles with different security/size tradeoff
 - Trust assumption: **None beyond cryptography** - totalWeight is cryptographically bound to validator set via MerkleSumTree
 - Security: validatorSumTreeRoot (containing both hash and totalWeight) is included in BLS signing hash, preventing both signer weight forgery AND denominator attacks
 - Use case: Offline verification, air-gapped systems, cross-chain bridges, legal evidence
-- **Size scaling**: Proof size grows as `O(k · log₂N)` where `k` = number of signers and `N` = committee size
-  - **QR-compatible** (≤2,953 bytes): Requires packed binary encoding AND small committee (N ≤ 16, k ≤ 11). JSON encoding will NOT fit QR
+- **Size scaling**: Individual proofs grow as `O(k · log₂N)` where `k` = number of signers and `N` = committee size
+  - **Multi-proof optimization** (recommended): Share sibling nodes across signers, reducing to `~N` nodes total (60-75% savings). See Appendix F.5
+  - **QR-compatible** (≤2,953 bytes): Requires packed binary + multi-proof AND committee N ≤ 21. JSON encoding will NOT fit QR
   - **URL-shareable** (always): All proofs fit browser URL limits (65KB+) with any reasonable committee size
   - **Packed encoding required for QR**: Parallel byte arrays for siblings (32B hash + 8B weight each), varint indices, raw bytes for pubkeys. See Appendix F
-  - **Recommendation**: Default to URL sharing; QR codes are viable only for small committees (N ≤ 16) with packed encoding
+  - **Recommendation**: Default to URL sharing; QR codes viable for committees N ≤ 21 with packed + multi-proof
 
 Most use cases are served by Profile A receipts. Profile B provides full finality when validator set is known. **Profile C is the gold standard** - completely self-contained proofs with cryptographically-bound totalWeight, enabling true offline verification without any trust assumptions beyond the cryptographic primitives.
 
@@ -906,3 +907,56 @@ Membership Proofs (repeated signerCount times):
 | 64 | 43 | ~21,500 | ~10,700 | ✗ |
 
 **Conclusion:** QR codes require packed encoding AND committee size N ≤ 16 with threshold k ≤ 11. Larger committees are URL-shareable only. For N > 16, use URL sharing or reduce signer count via optimistic finality (accept fewer signatures for lower-value transactions).
+
+### F.5 Merkle Multi-Proof Optimization
+
+Individual membership proofs repeat many sibling nodes across the tree. A **multi-proof** (batch proof) shares common siblings, reducing proof size substantially when k is large.
+
+**Complexity Analysis:**
+- **Individual proofs:** `k × log₂N` sibling nodes (each signer carries full path)
+- **Multi-proof:** `~N` nodes total (leaves + sparse auxiliary nodes not on any signer path)
+
+**Savings by Committee Size:**
+
+| N | k (⅔N) | Individual Nodes | Multi-Proof Nodes | Savings |
+|---|--------|------------------|-------------------|---------|
+| 16 | 11 | 44 | ~16 | **63.6%** |
+| 21 | 14 | 70 | ~21 | **70.0%** |
+| 32 | 22 | 110 | ~32 | **70.9%** |
+| 64 | 43 | 258 | ~64 | **75.2%** |
+
+**Multi-Proof Structure:**
+```
+MerkleSumMultiProof {
+  leaves: MerkleSumLeaf[],      // k signer leaves
+  auxiliaryNodes: {             // Non-signer nodes needed for reconstruction
+    level: number,              // Tree level (0 = leaf level)
+    index: number,              // Position at that level
+    node: MerkleSumNode         // {hash, sumWeight}
+  }[]
+}
+```
+
+**Verification Algorithm:**
+1. Place all k leaves at their indices in level 0
+2. Place auxiliary nodes at their specified positions
+3. Compute parent level: for each pair, hash children → parent
+4. Repeat until root is computed
+5. Verify computed root matches expected validatorSumTreeRoot
+
+**Updated Size Estimates (Packed + Multi-Proof + DEFLATE):**
+
+| N | k | Without Multi-Proof | With Multi-Proof | Improvement |
+|---|---|---------------------|------------------|-------------|
+| 16 | 11 | ~2,500 bytes | ~1,600 bytes | 36% smaller |
+| 21 | 14 | ~3,400 bytes | ~2,100 bytes | 38% smaller |
+| 32 | 22 | ~5,100 bytes | ~2,900 bytes | **43% smaller** |
+| 64 | 43 | ~10,700 bytes | ~5,400 bytes | **50% smaller** |
+
+**QR Compatibility with Multi-Proof:**
+
+With multi-proof optimization, QR compatibility extends to:
+- **N ≤ 21** (vs N ≤ 16 without): ~2,100 bytes fits QR-L (2,953 bytes)
+- Larger committees remain URL-only but significantly more compact
+
+**Security:** Multi-proofs provide identical security guarantees—the verifier still reconstructs the full MerkleSumTree root and verifies all signer weights are cryptographically bound.

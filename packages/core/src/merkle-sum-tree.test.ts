@@ -8,6 +8,10 @@ import {
   decodeMerkleSumProof,
   encodeMerkleSumRoot,
   decodeMerkleSumRoot,
+  getMerkleSumMultiProof,
+  verifyMerkleSumMultiProof,
+  multiProofNodeCount,
+  individualProofNodeCount,
   type MerkleSumLeaf,
   type MerkleSumRoot
 } from './merkle-sum-tree.js';
@@ -248,6 +252,110 @@ describe('MerkleSumTree', () => {
       const attackResult = verifyMerkleSumProof(proof, attackerRoot);
       expect(attackResult.valid).toBe(false);
       expect(attackResult.errors.some(e => e.includes('Total weight mismatch'))).toBe(true);
+    });
+  });
+
+  describe('Multi-Proof Optimization', () => {
+    it('should generate valid multi-proof for subset of signers', () => {
+      const leaves = createMockLeaves(8);
+      const { root } = buildMerkleSumTree(leaves);
+      const signerIndices = [0, 2, 5, 7];
+
+      const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
+      expect(multiProof).not.toBeNull();
+      expect(multiProof!.leaves.length).toBe(4);
+
+      const result = verifyMerkleSumMultiProof(multiProof!, root, 8);
+      expect(result.valid).toBe(true);
+      expect(result.signerWeight).toBe(100 + 120 + 150 + 170);
+    });
+
+    it('should verify multi-proof against expected root', () => {
+      const leaves = createMockLeaves(16);
+      const { root } = buildMerkleSumTree(leaves);
+      const signerIndices = [0, 1, 4, 5, 8, 9, 12, 13, 14, 15];
+
+      const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
+      const result = verifyMerkleSumMultiProof(multiProof!, root, 16);
+
+      expect(result.valid).toBe(true);
+    });
+
+    it('should reject multi-proof with wrong root', () => {
+      const leaves = createMockLeaves(8);
+      const { root } = buildMerkleSumTree(leaves);
+      const signerIndices = [0, 2, 5];
+
+      const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
+      const wrongRoot: MerkleSumRoot = { hash: 'wrong', totalWeight: 999 };
+
+      const result = verifyMerkleSumMultiProof(multiProof!, wrongRoot, 8);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should have fewer nodes than individual proofs for large k', () => {
+      const N = 32;
+      const k = 22;
+      const leaves = createMockLeaves(N);
+      const signerIndices = Array.from({ length: k }, (_, i) => Math.floor(i * N / k));
+
+      const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
+      const multiNodes = multiProofNodeCount(multiProof!);
+      const individualNodes = individualProofNodeCount(k, N);
+
+      expect(multiNodes).toBeLessThan(individualNodes);
+      const savings = 1 - multiNodes / individualNodes;
+      expect(savings).toBeGreaterThan(0.5);
+    });
+
+    it('should achieve >60% savings for typical committee sizes', () => {
+      const testCases = [
+        { N: 16, k: 11 },
+        { N: 21, k: 14 },
+        { N: 32, k: 22 },
+        { N: 64, k: 43 },
+      ];
+
+      for (const { N, k } of testCases) {
+        const leaves = createMockLeaves(N);
+        const { root } = buildMerkleSumTree(leaves);
+        const signerIndices = Array.from({ length: k }, (_, i) => Math.floor(i * N / k));
+
+        const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
+        const result = verifyMerkleSumMultiProof(multiProof!, root, N);
+        expect(result.valid).toBe(true);
+
+        const multiNodes = multiProofNodeCount(multiProof!);
+        const individualNodes = individualProofNodeCount(k, N);
+        const savings = 1 - multiNodes / individualNodes;
+
+        expect(savings).toBeGreaterThan(0.5);
+      }
+    });
+
+    it('should correctly compute signer weight from multi-proof', () => {
+      const leaves = createMockLeaves(8);
+      const { root } = buildMerkleSumTree(leaves);
+      const signerIndices = [1, 3, 5];
+      const expectedWeight = leaves[1].weight + leaves[3].weight + leaves[5].weight;
+
+      const multiProof = getMerkleSumMultiProof(leaves, signerIndices);
+      const result = verifyMerkleSumMultiProof(multiProof!, root, 8);
+
+      expect(result.valid).toBe(true);
+      expect(result.signerWeight).toBe(expectedWeight);
+    });
+
+    it('should return null for empty signer list', () => {
+      const leaves = createMockLeaves(8);
+      const multiProof = getMerkleSumMultiProof(leaves, []);
+      expect(multiProof).toBeNull();
+    });
+
+    it('should return null for invalid signer indices', () => {
+      const leaves = createMockLeaves(8);
+      const multiProof = getMerkleSumMultiProof(leaves, [0, 99]);
+      expect(multiProof).toBeNull();
     });
   });
 });

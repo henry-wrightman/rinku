@@ -235,3 +235,180 @@ export function decodeMerkleSumRoot(encoded: string): MerkleSumRoot {
   const [hash, weight] = encoded.split(":");
   return { hash, totalWeight: parseInt(weight, 10) };
 }
+
+export interface AuxiliaryNode {
+  level: number;
+  index: number;
+  node: MerkleSumNode;
+}
+
+export interface MerkleSumMultiProof {
+  leaves: MerkleSumLeaf[];
+  auxiliaryNodes: AuxiliaryNode[];
+}
+
+export function getMerkleSumMultiProof(
+  allLeaves: MerkleSumLeaf[],
+  signerIndices: number[]
+): MerkleSumMultiProof | null {
+  if (signerIndices.length === 0) return null;
+
+  const sortedLeaves = [...allLeaves].sort((a, b) => a.index - b.index);
+  const signerSet = new Set(signerIndices);
+
+  const signerLeaves = sortedLeaves.filter((l) => signerSet.has(l.index));
+  if (signerLeaves.length !== signerIndices.length) return null;
+
+  let currentLayer: MerkleSumNode[] = sortedLeaves.map((leaf) => ({
+    hash: hashLeaf(leaf),
+    sumWeight: leaf.weight,
+  }));
+
+  const auxiliaryNodes: AuxiliaryNode[] = [];
+  let coveredIndices = new Set(
+    sortedLeaves
+      .map((l, i) => (signerSet.has(l.index) ? i : -1))
+      .filter((i) => i >= 0)
+  );
+
+  let level = 0;
+  while (currentLayer.length > 1) {
+    const nextCovered = new Set<number>();
+
+    for (let i = 0; i < currentLayer.length; i += 2) {
+      const leftCovered = coveredIndices.has(i);
+      const rightCovered = coveredIndices.has(i + 1);
+      const parentIdx = Math.floor(i / 2);
+
+      if (leftCovered || rightCovered) {
+        nextCovered.add(parentIdx);
+      }
+
+      if (leftCovered && !rightCovered && i + 1 < currentLayer.length) {
+        auxiliaryNodes.push({
+          level,
+          index: i + 1,
+          node: currentLayer[i + 1],
+        });
+      }
+
+      if (rightCovered && !leftCovered) {
+        auxiliaryNodes.push({
+          level,
+          index: i,
+          node: currentLayer[i],
+        });
+      }
+    }
+
+    const nextLayer: MerkleSumNode[] = [];
+    for (let i = 0; i < currentLayer.length; i += 2) {
+      const left = currentLayer[i];
+      const right = currentLayer[i + 1] || { hash: "padding", sumWeight: 0 };
+      nextLayer.push({
+        hash: hashInternal(left, right),
+        sumWeight: left.sumWeight + right.sumWeight,
+      });
+    }
+
+    coveredIndices = nextCovered;
+    currentLayer = nextLayer;
+    level++;
+  }
+
+  return {
+    leaves: signerLeaves,
+    auxiliaryNodes,
+  };
+}
+
+export function verifyMerkleSumMultiProof(
+  multiProof: MerkleSumMultiProof,
+  expectedRoot: MerkleSumRoot,
+  totalLeafCount: number
+): { valid: boolean; signerWeight: number; errors: string[] } {
+  const errors: string[] = [];
+
+  if (multiProof.leaves.length === 0) {
+    errors.push("No leaves in multi-proof");
+    return { valid: false, signerWeight: 0, errors };
+  }
+
+  const depth = Math.ceil(Math.log2(totalLeafCount));
+  const layers: Map<number, MerkleSumNode>[] = [];
+  for (let i = 0; i <= depth; i++) {
+    layers.push(new Map());
+  }
+
+  const sortedLeaves = [...multiProof.leaves].sort((a, b) => a.index - b.index);
+  let signerWeight = 0;
+  for (const leaf of sortedLeaves) {
+    const positionInLayer = leaf.index;
+    layers[0].set(positionInLayer, {
+      hash: hashLeaf(leaf),
+      sumWeight: leaf.weight,
+    });
+    signerWeight += leaf.weight;
+  }
+
+  for (const aux of multiProof.auxiliaryNodes) {
+    layers[aux.level].set(aux.index, aux.node);
+  }
+
+  for (let level = 0; level < depth; level++) {
+    const currentLayerSize = Math.ceil(totalLeafCount / Math.pow(2, level));
+
+    for (let i = 0; i < currentLayerSize; i += 2) {
+      const parentIdx = Math.floor(i / 2);
+
+      if (layers[level + 1].has(parentIdx)) continue;
+
+      const left = layers[level].get(i);
+      const right = layers[level].get(i + 1) || { hash: "padding", sumWeight: 0 };
+
+      if (!left) {
+        continue;
+      }
+
+      const parent: MerkleSumNode = {
+        hash: hashInternal(left, right),
+        sumWeight: left.sumWeight + right.sumWeight,
+      };
+
+      layers[level + 1].set(parentIdx, parent);
+    }
+  }
+
+  const computedRoot = layers[depth].get(0);
+  if (!computedRoot) {
+    errors.push("Failed to compute root from multi-proof");
+    return { valid: false, signerWeight, errors };
+  }
+
+  if (computedRoot.hash !== expectedRoot.hash) {
+    errors.push(
+      `Root hash mismatch: computed ${computedRoot.hash.slice(0, 16)}..., expected ${expectedRoot.hash.slice(0, 16)}...`
+    );
+  }
+
+  if (computedRoot.sumWeight !== expectedRoot.totalWeight) {
+    errors.push(
+      `Total weight mismatch: computed ${computedRoot.sumWeight}, expected ${expectedRoot.totalWeight}`
+    );
+  }
+
+  return {
+    valid: errors.length === 0,
+    signerWeight,
+    errors,
+  };
+}
+
+export function multiProofNodeCount(multiProof: MerkleSumMultiProof): number {
+  return multiProof.leaves.length + multiProof.auxiliaryNodes.length;
+}
+
+export function individualProofNodeCount(k: number, N: number): number {
+  const depth = Math.ceil(Math.log2(N));
+  return k * depth;
+}
