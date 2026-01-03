@@ -386,24 +386,25 @@ Rewards halve every 3,150,000 checkpoints (~18 months at 15s intervals):
 
 | Epoch | Checkpoints | Reward (µRKU) | Reward (RKU) | Epoch Emission | Cumulative |
 |-------|-------------|---------------|--------------|----------------|------------|
-| 0 | 0 – 3,149,999 | 3,932,410 | 3.93241 | 12,387,091.50 RKU | 12,387,092 RKU |
-| 1 | 3,150,000 – 6,299,999 | 1,966,205 | 1.966205 | 6,193,545.75 RKU | 18,580,638 RKU |
-| 2 | 6,300,000 – 9,449,999 | 983,102 | 0.983102 | 3,096,771.30 RKU | 21,677,409 RKU |
-| 3 | 9,450,000 – 12,599,999 | 491,551 | 0.491551 | 1,548,385.65 RKU | 23,225,795 RKU |
-| 4 | 12,600,000 – 15,749,999 | 245,775 | 0.245775 | 774,191.25 RKU | 23,999,986 RKU |
-| 5+ | 15,750,000+ | 122,888 | 0.122888 | floor until cap | ≤24,000,000 RKU |
+| 0 | 0 – 3,149,999 | 3,932,411 | 3.932411 | 12,387,094.65 RKU | 12,387,095 RKU |
+| 1 | 3,150,000 – 6,299,999 | 1,966,205 | 1.966205 | 6,193,545.75 RKU | 18,580,641 RKU |
+| 2 | 6,300,000 – 9,449,999 | 983,102 | 0.983102 | 3,096,771.30 RKU | 21,677,412 RKU |
+| 3 | 9,450,000 – 12,599,999 | 491,551 | 0.491551 | 1,548,385.65 RKU | 23,225,798 RKU |
+| 4 | 12,600,000 – 15,749,999 | 245,775 | 0.245775 | 774,191.25 RKU | 23,999,989 RKU |
+| 5+ | 15,750,000+ | 122,887 | 0.122887 | floor until cap | ≤24,000,000 RKU |
 
 **Derivation (see Appendix C for authoritative constants):**
 ```
 emissionPool = 24,000,000,000,000 µRKU
 epochMultiplier = 3,150,000 × 1.9375 = 6,103,125
-initialReward = floor(emissionPool / epochMultiplier) = 3,932,410 µRKU
-minReward = floor(initialReward / 32) = 122,888 µRKU
+initialReward = emissionPool // epochMultiplier = 3,932,411 µRKU
+reward(epoch) = max(minReward, initialReward >> epoch)
+minReward = initialReward >> 5 = 122,887 µRKU
 ```
 
-*Note: Rewards at each epoch = floor(initialReward / 2^epoch). Emission halts when cumulative reaches cap. ~14 RKU headroom remains after epoch 4; epoch 5+ operates at floor rate until exhausted.*
+*Note: `//` = integer division, `>>` = right shift (floor division by 2^n). Emission halts when cumulative reaches cap. ~11 RKU headroom remains after epoch 4; epoch 5+ operates at floor rate until exhausted.*
 
-**Hard Cap Enforcement**: Once total circulating supply reaches 30,000,000 RKU, checkpoint rewards drop to 0. The floor reward of 122,888 µRKU only applies while supply remains below the cap.
+**Hard Cap Enforcement**: Once total circulating supply reaches 30,000,000 RKU, checkpoint rewards drop to 0. The floor reward of 122,887 µRKU only applies while supply remains below the cap.
 
 ### 6.4 Halving Rationale
 
@@ -937,9 +938,9 @@ All values in µRKU (1 RKU = 1,000,000 µRKU) or basis points where noted. This 
     "stakingReserve": 2000000000000,
     "faucet": 1000000000000
   },
-  "initialReward": 3932410,
+  "initialReward": 3932411,
   "halvingInterval": 3150000,
-  "minReward": 122888,
+  "minReward": 122887,
   "emissionStopsAtCap": true,
   "checkpointInterval": 15000,
   "unbondingPeriod": 1209600000,
@@ -957,10 +958,10 @@ All values in µRKU (1 RKU = 1,000,000 µRKU) or basis points where noted. This 
 ```
 emissionPool = maxSupply - sum(genesisAllocation) = 24,000,000,000,000 µRKU
 epochMultiplier = halvingInterval × (1 + 1/2 + 1/4 + 1/8 + 1/16) = 3,150,000 × 1.9375 = 6,103,125
-initialReward = floor(emissionPool / epochMultiplier) = floor(3,932,409.878...) = 3,932,410 µRKU
-minReward = floor(initialReward / 32) = floor(122,887.8125) = 122,888 µRKU
+initialReward = emissionPool // epochMultiplier = 3,932,411 µRKU
+minReward = initialReward >> 5 = 122,887 µRKU
 
-Runtime uses: 3.93241 RKU (µRKU / 1,000,000)
+(// = integer division, >> = right shift = floor division by 2^n)
 ```
 
 **Units:**

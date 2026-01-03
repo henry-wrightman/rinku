@@ -39,8 +39,8 @@ describe('Tokenomics Module', () => {
     describe('getCheckpointReward', () => {
       it('should return initial reward for epoch 0', () => {
         const service = new EmissionService();
-        expect(service.getCheckpointReward(0)).toBe(3.93241);
-        expect(service.getCheckpointReward(1000)).toBe(3.93241);
+        expect(service.getCheckpointReward(0)).toBe(3.932411);
+        expect(service.getCheckpointReward(1000)).toBe(3.932411);
       });
 
       it('should halve reward after halving interval using floor(µRKU)', () => {
