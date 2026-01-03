@@ -1,0 +1,249 @@
+  Gas Price: 0.0010
+[5:33:24 PM] DAG Status: 215 nodes, 2 tips
+[5:33:24 PM] New wallet: 0c03e902bac21310... (6 total)
+[5:33:24 PM] Contract deployed: sc_5040e541... by ddfdda0fb5e1
+  Avg Balance: 1118.92 (need ~10.00 per tx) ✓
+=======================================================
+
+[5:33:24 PM] Batch TX: 2/2 succeeded via batch API
+[5:33:26 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:33:29 PM] Batch TX: 3/3 succeeded via batch API
+[5:33:30 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:33:33 PM] Batch TX: 3/3 succeeded via batch API
+[5:33:35 PM] Batch TX: 3/3 succeeded via batch API
+[5:33:36 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:33:38 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:33:41 PM] Batch TX: 3/3 succeeded via batch API
+[5:33:42 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:33:45 PM] Batch TX: 3/3 succeeded via batch API
+[5:33:46 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:33:49 PM] Batch TX: 3/3 succeeded via batch API
+[5:33:51 PM] Batch TX: 3/3 succeeded via batch API
+[5:33:53 PM] Batch TX: 3/3 succeeded via batch API
+[5:33:54 PM] DAG Status: 260 nodes, 14 tips
+[5:33:55 PM] Batch TX: 3/3 succeeded via batch API
+[5:33:56 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:33:59 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:01 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:03 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:04 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:07 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:09 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:10 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:13 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:14 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:16 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:19 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:21 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:23 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:24 PM] Rewards check: 0c03e902bac21310...
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 6/500 (1 staking, 1 w/contracts)
+  Transactions: 297 (157 via batch) | Faucet: 7
+  Contracts: 1 deployed, 0 calls
+  Staking: 1 stakes, 0 rewards claimed
+  Errors: 0 | Pending: 2/5 | Skipped (low bal): 0
+  Heap: 14 MB | Concurrent TX: 30 | Locked: 0
+  Gas Price: 0.0010
+[5:34:24 PM] Rewards check: no pending rewards for 0c03e902bac21310...
+[5:34:24 PM] New wallet: 44b2c71db3b2d773... (7 total)
+[5:34:24 PM] DAG Status: 306 nodes, 24 tips
+  Avg Balance: 1104.17 (need ~10.00 per tx) ✓
+=======================================================
+
+[5:34:25 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:27 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:29 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:31 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:32 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:35 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:36 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:38 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:41 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:43 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:45 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:46 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:49 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:51 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:52 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:54 PM] DAG Status: 306 nodes, 35 tips
+[5:34:54 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:34:57 PM] Batch TX: 3/3 succeeded via batch API
+[5:34:58 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:01 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:03 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:05 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:07 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:09 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:11 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:13 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:16 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:17 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:19 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:23 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:23 PM] Batch TX: 3/3 succeeded via batch API
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 7/500 (1 staking, 1 w/contracts)
+  Transactions: 387 (205 via batch) | Faucet: 8
+  Contracts: 1 deployed, 0 calls
+  Staking: 1 stakes, 0 rewards claimed
+  Errors: 0 | Pending: 3/5 | Skipped (low bal): 0
+  Heap: 14 MB | Concurrent TX: 30 | Locked: 0
+  Gas Price: 0.0010
+[5:35:24 PM] DAG Status: 306 nodes, 46 tips
+[5:35:24 PM] Faucet drop: 0c03e902bac21310...
+[5:35:25 PM] Staked: 571de745ad64e07f... staked 295 RKU
+[5:35:25 PM] Contract deployed: sc_3119e388... by 571de745ad64
+  Avg Balance: 1207.13 (need ~10.00 per tx) ✓
+=======================================================
+
+[5:35:26 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:27 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:33 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:35 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:35 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:38 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:40 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:42 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:42 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:44 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:46 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:50 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:53 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:53 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:54 PM] DAG Status: 306 nodes, 57 tips
+[5:35:54 PM] Batch TX: 3/3 succeeded via batch API
+[5:35:56 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:35:59 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:01 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:04 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:06 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:08 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:10 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:14 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:16 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:18 PM] Batch TX: 1/1 succeeded via batch API
+[5:36:18 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:20 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:36:23 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 7/500 (2 staking, 2 w/contracts)
+  Transactions: 466 (257 via batch) | Faucet: 9
+  Contracts: 2 deployed, 0 calls
+  Staking: 2 stakes, 0 rewards claimed
+  Errors: 0 | Pending: 3/5 | Skipped (low bal): 0
+  Heap: 14 MB | Concurrent TX: 30 | Locked: 5
+  Gas Price: 0.0010
+[5:36:24 PM] Faucet drop: 571de745ad64e07f...
+[5:36:24 PM] DAG Status: 301 nodes, 69 tips
+[5:36:25 PM] Batch TX: 1/1 succeeded via batch API
+[5:36:25 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:36:26 PM] Batch TX: 1/1 succeeded via batch API
+  Avg Balance: 1351.80 (need ~10.00 per tx) ✓
+=======================================================
+
+[5:36:26 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:29 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:31 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:33 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:34 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:36:38 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:40 PM] Batch TX: 3/3 succeeded via batch API
+[5:36:40 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:36:42 PM] Concurrent TX batch: 3/3 succeeded (creating 3 potential tips)
+[5:36:49 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+[5:36:51 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+[5:36:53 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+[5:36:55 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 7/500 (2 staking, 2 w/contracts)
+  Transactions: 498 (277 via batch) | Faucet: 10
+  Contracts: 2 deployed, 0 calls
+  Staking: 2 stakes, 0 rewards claimed
+  Errors: 0 | Pending: 5/5 | Skipped (low bal): 0
+  Heap: 17 MB | Concurrent TX: 30 | Locked: 7
+  Gas Price: 0.0010
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 7/500 (2 staking, 2 w/contracts)
+  Transactions: 498 (277 via batch) | Faucet: 10
+  Contracts: 2 deployed, 0 calls
+  Staking: 2 stakes, 0 rewards claimed
+  Errors: 0 | Pending: 5/5 | Skipped (low bal): 0
+  Heap: 17 MB | Concurrent TX: 30 | Locked: 7
+  Gas Price: 0.0010
+[5:38:45 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+[5:38:47 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 7/500 (2 staking, 2 w/contracts)
+  Transactions: 498 (277 via batch) | Faucet: 10
+  Contracts: 2 deployed, 0 calls
+  Staking: 2 stakes, 0 rewards claimed
+  Errors: 1 | Pending: 5/5 | Skipped (low bal): 0
+  Heap: 12 MB | Concurrent TX: 30 | Locked: 7
+  Gas Price: 0.0010
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 7/500 (2 staking, 2 w/contracts)
+  Transactions: 498 (277 via batch) | Faucet: 10
+  Contracts: 2 deployed, 0 calls
+  Staking: 2 stakes, 0 rewards claimed
+  Errors: 1 | Pending: 5/5 | Skipped (low bal): 0
+  Heap: 12 MB | Concurrent TX: 30 | Locked: 7
+  Gas Price: 0.0010
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 7/500 (2 staking, 2 w/contracts)
+  Transactions: 498 (277 via batch) | Faucet: 10
+  Contracts: 2 deployed, 0 calls
+  Staking: 2 stakes, 0 rewards claimed
+  Errors: 1 | Pending: 5/5 | Skipped (low bal): 0
+  Heap: 13 MB | Concurrent TX: 30 | Locked: 7
+  Gas Price: 0.0010
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 7/500 (2 staking, 2 w/contracts)
+  Transactions: 498 (277 via batch) | Faucet: 10
+  Contracts: 2 deployed, 0 calls
+  Staking: 2 stakes, 0 rewards claimed
+  Errors: 1 | Pending: 5/5 | Skipped (low bal): 0
+  Heap: 12 MB | Concurrent TX: 30 | Locked: 7
+  Gas Price: 0.0010
+[5:43:03 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+[5:43:05 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+[5:43:09 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+[5:43:11 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+[5:43:13 PM] Transaction failed: Insufficient balance for amount + fee
+[5:43:17 PM] Transaction failed: Insufficient balance for amount + fee
+[5:43:21 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+[5:43:23 PM] Failed to fetch gas price, using cached: 0.001 AbortError: This operation was aborted
+
+=======================================================
+RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION
+=======================================================
+  Wallets: 7/500 (2 staking, 2 w/contracts)
+  Transactions: 498 (277 via batch) | Faucet: 10
+  Contracts: 2 deployed, 0 calls

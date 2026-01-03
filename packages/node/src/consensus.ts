@@ -113,6 +113,7 @@ export class Consensus {
     await this.dag.addTransaction(tx);
   }
 
+
   selectTips(count: number = 2): string[] {
     const tips = this.dag.selectTips(count);
     return tips.length > 0 ? tips : [];

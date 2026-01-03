@@ -37,6 +37,7 @@ export interface ForkRemediationConfig {
   maxUnfinalizedTxAge: number;
   logSummaryIntervalMs: number;
   verboseLogging: boolean;
+  maxTipsForFullScan: number;
 }
 
 const DEFAULT_CONFIG: ForkRemediationConfig = {
@@ -46,6 +47,7 @@ const DEFAULT_CONFIG: ForkRemediationConfig = {
   maxUnfinalizedTxAge: 60000,
   logSummaryIntervalMs: 30000,
   verboseLogging: false,
+  maxTipsForFullScan: 20,
 };
 
 export class ForkRemediationService {
@@ -65,6 +67,7 @@ export class ForkRemediationService {
   private detectionsSinceLastSummary = 0;
   private resolutionsSinceLastSummary = 0;
   private prunesSinceLastSummary = 0;
+  private pendingTipQueue: string[] = [];
 
   constructor(
     consensus: Consensus,
@@ -274,8 +277,28 @@ export class ForkRemediationService {
   }
 
   private detectForks(): void {
-    const tips = this.consensus.getTips();
-    if (tips.length <= 1) return;
+    const currentTips = new Set(this.consensus.getTips());
+    if (currentTips.size <= 1) {
+      this.pendingTipQueue = [];
+      return;
+    }
+    
+    this.pendingTipQueue = this.pendingTipQueue.filter(t => currentTips.has(t));
+    
+    for (const tip of currentTips) {
+      if (!this.pendingTipQueue.includes(tip)) {
+        this.pendingTipQueue.push(tip);
+      }
+    }
+    
+    let tips: string[];
+    if (this.pendingTipQueue.length > this.config.maxTipsForFullScan) {
+      tips = this.pendingTipQueue.slice(0, this.config.maxTipsForFullScan);
+      this.pendingTipQueue = this.pendingTipQueue.slice(this.config.maxTipsForFullScan);
+    } else {
+      tips = [...this.pendingTipQueue];
+      this.pendingTipQueue = [];
+    }
     
     for (let i = 0; i < tips.length; i++) {
       for (let j = i + 1; j < tips.length; j++) {

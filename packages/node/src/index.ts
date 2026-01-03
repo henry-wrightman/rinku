@@ -44,6 +44,7 @@ const DATA_DIR = process.env.RINKU_DATA_DIR || ".rinku-data";
 const NODE_PEERS = process.env.NODE_PEERS || "";
 const NODE_ID = process.env.NODE_ID || randomBytes(8).toString("hex");
 const MAX_DAG_NODES = parseInt(process.env.MAX_DAG_NODES || "300", 10);
+const MAX_TIPS = parseInt(process.env.MAX_TIPS || "15", 10);
 const PRUNE_INTERVAL_MS = parseInt(
   process.env.PRUNE_INTERVAL_MS || "30000",
   10,
@@ -577,6 +578,14 @@ async function main() {
     consensus.updateWeights(state.getAllAccounts());
     await state.updateMerkleRootIfNeeded();
 
+    const dagStats = consensus.getDAGStats();
+    
+    if (dagStats.tips > MAX_TIPS) {
+      console.log(
+        `[TipWarning] High tip count: ${dagStats.tips} (max: ${MAX_TIPS}). Transactions should reference more tips to consolidate.`,
+      );
+    }
+
     const dagSize = consensus.getDAGSize();
     if (dagSize > MAX_DAG_NODES) {
       const pruned = consensus.pruneDAG(MAX_DAG_NODES);
@@ -599,9 +608,9 @@ async function main() {
     const memUsage = process.memoryUsage();
     const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
     const rewardsStats = rewardsService?.getStats();
-    const dagStats = consensus.getDAGStats();
+    const updatedDagStats = consensus.getDAGStats();
     console.log(
-      `[Stats] DAG: ${dagStats.nodes} nodes, Tips: ${dagStats.tips}, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB, Witnessed: ${rewardsStats?.witnessedCount || 0}`,
+      `[Stats] DAG: ${updatedDagStats.nodes} nodes, Tips: ${updatedDagStats.tips}, Accounts: ${state.getAllAccounts().size}, Heap: ${heapMB} MB, Witnessed: ${rewardsStats?.witnessedCount || 0}`,
     );
 
     if (heapMB > 300 && typeof global.gc === "function") {
@@ -610,7 +619,7 @@ async function main() {
     }
   }, PRUNE_INTERVAL_MS);
   console.log(
-    `DAG pruning enabled (max: ${MAX_DAG_NODES} nodes, interval: ${PRUNE_INTERVAL_MS / 1000}s)`,
+    `DAG pruning enabled (max: ${MAX_DAG_NODES} nodes, max tips: ${MAX_TIPS}, interval: ${PRUNE_INTERVAL_MS / 1000}s)`,
   );
 
   if (peers.length > 0) {

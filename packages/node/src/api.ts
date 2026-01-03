@@ -135,8 +135,9 @@ export function createAPI(
   });
 
   app.get('/api/tips', (_req, res) => {
-    const tips = consensus.getTips();
-    res.json({ tips });
+    const allTips = consensus.getTips();
+    const tips = consensus.selectTips(2);
+    res.json({ tips, totalTips: allTips.length, selected: tips.length });
   });
 
   app.get('/api/gas/price', (_req, res) => {
