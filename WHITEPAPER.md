@@ -118,9 +118,10 @@ Rinku supports three verification profiles with different security/size tradeoff
 - Security: validatorSumTreeRoot (containing both hash and totalWeight) is included in BLS signing hash, preventing both signer weight forgery AND denominator attacks
 - Use case: Offline verification, air-gapped systems, cross-chain bridges, legal evidence
 - **Size scaling**: Proof size grows as `O(k · log₂N)` where `k` = number of signers and `N` = committee size
-  - **QR-compatible** (≤2,953 bytes): k ≤ 14 signers with N ≤ 32 committee, or k ≤ 21 with N ≤ 21
-  - **URL-shareable** (≤65KB): Supports larger committees; all proofs fit in browser URL limits
-  - **Recommendation**: For guaranteed QR compatibility, use compact sibling encoding (parallel arrays or packed bytes) and limit N ≤ 64
+  - **QR-compatible** (≤2,953 bytes): Requires packed binary encoding AND small committee (N ≤ 16, k ≤ 11). JSON encoding will NOT fit QR
+  - **URL-shareable** (always): All proofs fit browser URL limits (65KB+) with any reasonable committee size
+  - **Packed encoding required for QR**: Parallel byte arrays for siblings (32B hash + 8B weight each), varint indices, raw bytes for pubkeys. See Appendix F
+  - **Recommendation**: Default to URL sharing; QR codes are viable only for small committees (N ≤ 16) with packed encoding
 
 Most use cases are served by Profile A receipts. Profile B provides full finality when validator set is known. **Profile C is the gold standard** - completely self-contained proofs with cryptographically-bound totalWeight, enabling true offline verification without any trust assumptions beyond the cryptographic primitives.
 
@@ -249,6 +250,13 @@ Checkpoint finality requires Byzantine fault tolerance:
 
 5. **Validator Set Updates**: The active validator set is determined by stake positions at the previous checkpoint. Changes take effect at the next checkpoint boundary.
 
+6. **Active Signing Committee**: While any account meeting minimum stake can register as a validator, each checkpoint is signed by an active committee selected from the validator pool:
+   - **Committee size (N)**: 32-64 validators recommended for QR-compatible Profile C proofs
+   - **Selection**: Top N validators by stake weight, or rotating selection using beacon randomness for larger pools
+   - **Threshold (k)**: At least ⌈2N/3⌉ committee members must sign (e.g., k ≥ 43 for N = 64)
+   - **Rotation**: Committee membership updates each checkpoint based on stake changes
+   - This bounds Profile C proof size to O(k · log₂N) regardless of total staker count
+
 ### 4.3 Finality
 
 A transaction achieves finality when included in a checkpoint with sufficient validator signatures. The checkpoint's Merkle roots commit to all included transactions and resulting state. Once finalized:
@@ -265,7 +273,7 @@ The network tracks:
 - Checkpoint latency
 - Throughput (transactions per second)
 
-Current performance: ~15-30s average finality, 100% finality rate at steady state.
+Expected performance: ~15-30s average finality under normal network conditions. Finality rate depends on validator availability and network partition tolerance. Testnet telemetry will inform production targets.
 
 ## 5. State Management
 
@@ -798,3 +806,84 @@ Validators maintain both ECDSA (transaction signing) and BLS (checkpoint signing
 ```
 
 Keys are encrypted at rest using AES-256-GCM with scrypt-derived key (N=16384, r=8, p=1). Password required at node startup; development mode uses consistent default for testing.
+
+## Appendix F: Profile C Packed Encoding
+
+For QR compatibility, Profile C proofs require compact binary encoding instead of JSON.
+
+### F.1 Size Estimates (JSON vs Packed)
+
+| Component | JSON Encoding | Packed Binary |
+|-----------|---------------|---------------|
+| Transaction (typical) | ~300 bytes | ~150 bytes |
+| Checkpoint header | ~400 bytes | ~200 bytes |
+| Merkle proof (10 levels) | ~700 bytes | ~320 bytes |
+| BLS aggregated sig | 64 bytes (base64) | 48 bytes |
+| Signer bitmap (64 validators) | 12 bytes | 8 bytes |
+| **Per-signer membership proof:** | | |
+| - Leaf (index + addr + pubkey + weight) | ~220 bytes | 128 bytes |
+| - Siblings (6 levels × {hash,weight}) | ~600 bytes | 240 bytes |
+| - pathBits | ~20 bytes | 1 byte |
+| **Total per signer** | ~840 bytes | ~369 bytes |
+
+### F.2 Profile C Size Examples
+
+**N = 32 committee, k = 22 signers, 6-level tree:**
+- JSON encoding: ~300 + 400 + 350 + 64 + 4 + (22 × 840) = **~19,600 bytes** (URL only)
+- Packed binary: ~150 + 200 + 160 + 48 + 4 + (22 × 369) = **~8,680 bytes** (URL only)
+- Packed + DEFLATE: ~4,500-6,000 bytes (URL only)
+
+**N = 21 committee, k = 14 signers, 5-level tree:**
+- JSON encoding: ~300 + 400 + 280 + 64 + 3 + (14 × 700) = **~10,850 bytes** (URL only)
+- Packed binary: ~150 + 200 + 128 + 48 + 3 + (14 × 300) = **~4,730 bytes** (URL only)
+- Packed + DEFLATE: ~2,200-2,800 bytes (**QR-L feasible**)
+
+### F.3 Packed Format Specification
+
+```
+Profile C Packed Format (binary):
+
+Header (fixed):
+  version:        1 byte (0x04 for v4)
+  txHash:         32 bytes
+  txSig:          64 bytes (ECDSA)
+  cpHeight:       varint
+  txMerkleRoot:   32 bytes
+  stateRoot:      32 bytes
+  receiptRoot:    32 bytes
+  tipCount:       varint
+  
+Merkle Proof:
+  proofLength:    1 byte (number of levels)
+  proofHashes:    proofLength × 32 bytes
+  proofIndex:     varint
+
+BLS Aggregation:
+  aggSig:         48 bytes
+  signerCount:    1 byte
+  signerBitmap:   ceil(N/8) bytes
+
+Validator Commitment:
+  valRootHash:    32 bytes
+  totalWeight:    8 bytes (uint64 BE)
+
+Membership Proofs (repeated signerCount times):
+  leafIndex:      varint
+  leafAddress:    20 bytes
+  leafBlsPubKey:  96 bytes
+  leafWeight:     8 bytes (uint64 BE)
+  siblingCount:   1 byte
+  siblings:       siblingCount × 40 bytes (32B hash + 8B weight)
+  pathBits:       ceil(siblingCount/8) bytes
+```
+
+### F.4 QR Compatibility Matrix
+
+| Committee (N) | Signers (k) | JSON + DEFLATE | Packed + DEFLATE | QR-L (2,953B) |
+|--------------|-------------|----------------|------------------|---------------|
+| 16 | 11 | ~5,000 | ~2,500 | ✓ |
+| 21 | 14 | ~6,800 | ~3,400 | ✗ |
+| 32 | 22 | ~10,200 | ~5,100 | ✗ |
+| 64 | 43 | ~21,500 | ~10,700 | ✗ |
+
+**Conclusion:** QR codes require packed encoding AND committee size N ≤ 16 with threshold k ≤ 11. Larger committees are URL-shareable only. For N > 16, use URL sharing or reduce signer count via optimistic finality (accept fewer signatures for lower-value transactions).

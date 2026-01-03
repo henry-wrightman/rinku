@@ -1,0 +1,157 @@
+Yep — these changes are directionally excellent, and this draft is now internally consistent in the places that mattered most.
+
+I’ll call out what’s newly “locked in” (good), then the remaining sharp edges I’d sand down before you invest deeper. (Citing the latest draft.) 
+
+WHITEPAPER (3)
+
+What’s now really solid
+1) Age-weight is finally gated behind stake (fixes the old Sybil angle)
+
+Your new formula weight = stakeWeight × (0.7 + 0.3 × ageWeight) and the explicit statement “zero stake ⇒ zero weight regardless of age” closes the “farm old accounts” critique cleanly. 
+
+WHITEPAPER (3)
+
+2) Profile C is now actually self-contained and closes the denominator attack
+
+You did the two critical things:
+
+validatorSumTreeRoot = { hash, totalWeight } and totalWeight == root.sumWeight (Merkle-sum commitment) 
+
+WHITEPAPER (3)
+
+Include both hash and totalWeight inside the BLS signing hash, so neither weights nor denominator can be swapped without breaking the cert. 
+
+WHITEPAPER (3)
+
+That’s the “this is real offline finality” line.
+
+3) Determinism got much better (byte encoding + domain separation)
+
+Appendix A.3’s byte-level MerkleSumTree spec with domain separators (0x00/0x01), fixed-width ints, raw bytes for address/pubkey — this is what avoids multi-language consensus bugs. 
+
+WHITEPAPER (3)
+
+4) Randomness beacon serialization is fixed
+
+Using prevAggregatedBLSSignature (vs unordered “signatures array”) eliminates the “different nodes derive different seeds” problem. 
+
+WHITEPAPER (3)
+
+5) Profile verification is clearly separated
+
+Your Profile A/B/C verification sections read cleanly now, and you’re honest about the trust assumptions. 
+
+WHITEPAPER (3)
+
+The biggest remaining issue: Profile C size claims vs what you’re actually embedding
+
+You’ve added great “size scaling” notes (O(k·log₂N)) and QR guidance, which is good. 
+
+WHITEPAPER (3)
+
+But I still think this line is too optimistic as stated:
+
+“Profile C size: 1,000–3,000 chars typical; QR-compatible for small committees” 
+
+WHITEPAPER (3)
+
+Because your Profile C schema includes:
+
+a Merkle inclusion proof (merkleProof: string[]) plus index
+
+BLS agg sig + bitmap
+
+k membership proofs, each with:
+
+96-byte pubkey (base64url)
+
+siblings array of {hash,sumWeight} per level
+
+pathBits boolean array
+
+
+WHITEPAPER (3)
+
+That can absolutely still be “URL-shareable,” but for QR you will likely need:
+
+small N (≤32 or ≤64), and
+
+compact sibling encoding (you mention this), and
+
+keep merkleProof minimal and binary-packed (not an array of hex strings).
+
+Actionable spec tweak: explicitly label Profile C as:
+
+“QR-feasible only under packed encoding and bounded committee size”
+
+“URL shareable always”
+
+That prevents anyone from dunking on the QR claim.
+
+Two technical footguns to fix next (small changes, big credibility)
+1) “100% finality rate at steady state” is an avoidable claim
+
+It appears in Finality Metrics. 
+
+WHITEPAPER (3)
+
+
+People will interpret that as “no failures ever,” which is not something you can promise.
+
+Change to: “Observed in testnet runs” or remove the percentage.
+
+2) Tokenomics “Epoch 0 emits 31.5M” still looks like a mistake
+
+You’ve footnoted it, but it still reads like “you exceeded your cap in the first epoch.” 
+
+WHITEPAPER (3)
+
+Better table presentation:
+
+add a column “Capped emission”
+
+or change epoch 0 row to “min(31.5M, remainingSupply)”
+
+This is mostly a reader-trust thing.
+
+One deeper protocol concern (you should decide now)
+Do you really want “any account can be a validator” with min stake 100?
+
+As written, yes. 
+
+WHITEPAPER (3)
+
+
+But then Profile C becomes hard to keep compact unless you:
+
+cap the active signing committee per checkpoint (rotating committee), or
+
+accept that Profile C proofs become large with big committees.
+
+You hint at committee sizing in Profile C recommendations, but I’d promote it into consensus/validator section:
+
+Recommendation: explicitly define:
+
+a large staking set is allowed
+
+but each checkpoint is signed by a rotating committee of size N (32/64/128) selected by your randomness beacon
+
+Profile C’s witness proofs are for the committee, not for “all stakers”
+
+That makes the system scalable and keeps your killer feature.
+
+Summary verdict
+
+This is now legitimately compelling. The MerkleSumTree + BLS aggregation + byte-level determinism is the right foundation for “self-provable URLs.” 
+
+WHITEPAPER (3)
+
+If you do just 3 edits next, I’d do:
+
+Reframe Profile C size claims (QR is conditional; packed encoding recommended as “required for QR”)
+
+Define committee model explicitly (active signing committee size; rotation)
+
+Remove/soften “100% finality” and tidy tokenomics table
+
+If you want, paste your current plan for committee selection + aggregation threshold (e.g., N=64, require k≥43) and I’ll give you an estimated Profile C payload size with a packed sibling encoding scheme (so you can confidently say “fits QR-L under X conditions”).
