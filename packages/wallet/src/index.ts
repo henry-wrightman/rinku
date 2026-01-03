@@ -133,6 +133,42 @@ export class Wallet {
 
     return { tx, url: url.path };
   }
+
+  async createSignedTransaction(to: string, amount: number, fee?: number): Promise<SignedTransaction> {
+    await this.refresh();
+    
+    if (!this.state) {
+      throw new Error('Wallet not initialized');
+    }
+
+    const actualFee = fee ?? 0.01;
+    if (this.state.balance < amount + actualFee) {
+      throw new Error('Insufficient balance for amount + fee');
+    }
+
+    const tipsResponse = await fetch(`${this.nodeUrl}/api/tipUrls`);
+    const tipsData = await tipsResponse.json() as { tipUrls: string[] };
+    let tipUrls = tipsData.tipUrls.slice(0, 2);
+
+    if (tipUrls.length === 0) {
+      tipUrls = [];
+    }
+
+    const { tx } = await createAndSignTransaction(
+      this.keyManager.getKeyPair(),
+      {
+        to,
+        amount,
+        fee: actualFee,
+        nonce: this.state.nonce + 1,
+        tipUrls
+      }
+    );
+
+    this.state.nonce++;
+
+    return tx;
+  }
 }
 
 export { KeyManager } from './keys.js';
