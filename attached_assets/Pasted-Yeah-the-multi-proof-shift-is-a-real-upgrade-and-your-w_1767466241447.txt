@@ -1,0 +1,99 @@
+Yeah — the multi-proof shift is a real upgrade, and your writeup is getting much more “spec-like” (which is what you want if you expect other people to implement verifiers).
+
+What’s materially better now
+
+The savings are no longer hand-wavy: you’ve got a clean “without vs with” size table and it lines up with the intuition that per-signer paths get murdered by shared siblings in a batch proof. 
+
+WHITEPAPER (15)
+
+You extended QR viability to N ≤ 21 (from ≤16) with the packed+multi-proof approach. That’s a concrete, product-relevant threshold. 
+
+WHITEPAPER (15)
+
+Normative test vectors are a big deal. The N=4 tree + k=3 multi-proof example is exactly the kind of “make it impossible to misinterpret” content that prevents ecosystem fragmentation. 
+
+WHITEPAPER (15)
+
+The biggest remaining paper-cut (but important)
+1) “Bytes” vs “shareable bytes”
+
+You’re quoting “~1,600 bytes / ~2,100 bytes” after “Packed + Multi-Proof + DEFLATE”. 
+
+WHITEPAPER (15)
+
+
+But if this is meant to be carried in a URL, you still need an ASCII-safe encoding (typically base64url), which adds overhead (often ~33% plus URL prefix). That can be the difference between “fits” and “barely doesn’t” on strict QR modes / scanners.
+
+Suggestion: add one more column everywhere you present sizes:
+
+compressed_bytes
+
+base64url_chars (or “shareable chars”), including scheme + host prefix
+
+2) Multi-proof canonicalization / malleability rules should be in this version too
+
+Your earlier spec had strong “verifiers MUST reject” constraints (sorted aux nodes, no duplicates, no overlap, and “minimal/consumed” rules to prevent alternate encodings that verify the same). 
+
+WHITEPAPER (14)
+
+Make sure those rules are explicitly carried forward near the new multi-proof section, not just implied by “reconstruct until root”. Right now your algorithm description is correct, but canonical encoding rules are what stop weird edge-case disagreement and “same proof different bytes” attacks.
+
+3) Field sizing / limits: choose one story and nail it
+
+In the packed layout you use uint8 for committeeSize, and you also use uint8 fields for auxiliary (level, index) (plus a uint8 aux count). 
+
+WHITEPAPER (14)
+
+
+That’s fine if you’re intentionally capping committees to ≤255 and depth ≤8. But you should say (once) what the protocol’s supported validator-set range is, and why.
+
+(If your product target is “URL/QR receipts”, honestly this is fine — it’s aligned with your own QR conclusions, and you don’t need 10,000 validators to make the idea work.)
+
+One subtle but important correctness win you already made
+
+Your checkpoint ID computation is now clean and deterministic, and you explicitly exclude signatures / signatureCount from the checkpointId preimage. 
+
+WHITEPAPER (15)
+
+
+That’s good engineering: it prevents “same header but different aggregation state” from producing different IDs.
+
+Just make sure the paper is explicit that:
+
+the finality proof is what binds the checkpoint to validator approval,
+
+the checkpointId is just the content-address of the header commitment.
+
+What I’d add next (highest leverage)
+
+Non-power-of-two committee test vector (e.g., N=21)
+This forces you to specify padding/EMPTY_NODE behavior unambiguously (and catches implementation bugs early).
+
+A negative test section (“MUST reject”)
+Include 5–10 failure modes:
+
+bitmap says signer 7 signed but signerLeaves omits it
+
+aux nodes unsorted
+
+aux duplicates
+
+aux includes a leaf index that is also a signer leaf
+
+quorum weight < threshold (you already show quorum math in the positive vector) 
+
+WHITEPAPER (15)
+
+Clarify the “same security guarantees” claim
+You say multi-proofs are identical security because the verifier reconstructs the full MerkleSumTree root. 
+
+WHITEPAPER (15)
+
+
+That’s basically right — but the sentence should explicitly mention the other required checks:
+
+BLS aggregated sig verifies against signer pubkeys
+
+signerWeight meets quorum threshold
+
+reconstructed root (hash+sumWeight) matches the committed validatorSumTreeRoot

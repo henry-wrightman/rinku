@@ -1179,14 +1179,18 @@ Where `EMPTY_NODE = { hash: SHA256("rinku:empty_node:v1"), sumWeight: 0 }` per A
 
 *With multi-proof optimization (recommended):*
 
-| Committee (N) | Signers (k) | Packed + DEFLATE | QR-L (2,953B) |
-|--------------|-------------|---------------------|---------------|
-| 16 | 11 | ~1,600 | ✓ |
-| 21 | 14 | ~2,100 | ✓ |
-| 32 | 22 | ~2,900 | ✗ |
-| 64 | 43 | ~5,400 | ✗ |
+| Committee (N) | Signers (k) | Compressed (bytes) | URL chars* | QR-L (2,953B) |
+|--------------|-------------|--------------------|-----------:|---------------|
+| 16 | 11 | ~1,600 | ~2,155 | ✓ |
+| 21 | 14 | ~2,100 | ~2,820 | ✓ |
+| 32 | 22 | ~2,900 | ~3,890 | ✗ |
+| 64 | 43 | ~5,400 | ~7,220 | ✗ |
+
+*URL chars = `rinku://sp/` (11 chars) + base64url(compressed) ≈ 11 + ⌈bytes × 4/3⌉
 
 **Conclusion:** With multi-proof optimization, QR codes are compatible with committees up to N ≤ 21. For N > 21, use URL sharing. Multi-proof is the recommended default for all Profile C proofs.
+
+**Protocol Committee Limits:** The packed format uses uint8 for committeeSize, signerCount, and auxiliary (level, index) fields. This intentionally caps committees at 255 validators with tree depth ≤8. This aligns with the product goal of portable URL/QR proofs—larger committees would exceed size budgets. Future format revisions may use varints if needed.
 
 ### F.5 Merkle Multi-Proof Optimization
 
@@ -1239,7 +1243,16 @@ With multi-proof optimization, QR compatibility extends to:
 - **N ≤ 21** (vs N ≤ 16 without): ~2,100 bytes fits QR-L (2,953 bytes)
 - Larger committees remain URL-only but significantly more compact
 
-**Security:** Multi-proofs provide identical security guarantees—the verifier still reconstructs the full MerkleSumTree root and verifies all signer weights are cryptographically bound.
+**Security Guarantees (Explicit Checks):**
+
+Multi-proofs provide identical security to individual proofs. Verifiers MUST perform all of:
+
+1. **BLS signature verification** - Aggregate signature verifies against signer BLS public keys (from proof leaves)
+2. **Quorum threshold** - `signerWeight / totalWeight ≥ quorumThresholdBps / 10000` (67% by default)
+3. **Root reconstruction** - Computed `validatorSumTreeRoot` (hash AND totalWeight) matches the committed value
+4. **Checkpoint binding** - The `validatorSumTreeRoot` tuple is part of the BLS signing hash, preventing substitution
+
+A proof passes if and only if all four checks succeed. The multi-proof format changes only the encoding of signer membership proofs, not the security model.
 
 ## Appendix G: Normative Test Vectors
 
@@ -1375,3 +1388,135 @@ Cross-implementation testing should verify:
   - [ ] Duplicate auxiliary nodes → REJECT
   - [ ] Unused auxiliary nodes → REJECT
   - [ ] Missing required nodes → REJECT
+
+### G.5 Non-Power-of-Two Test Vector (N=5)
+
+Tests EMPTY_NODE padding behavior for committees that aren't powers of two.
+
+**Committee (5 validators):**
+```
+Validator 0: weight = 1,000,000 µRKU
+Validator 1: weight = 1,000,000 µRKU
+Validator 2: weight = 1,000,000 µRKU
+Validator 3: weight = 1,000,000 µRKU
+Validator 4: weight = 1,000,000 µRKU
+```
+
+**Tree Structure (depth = ⌈log₂5⌉ = 3):**
+```
+Level 0 (leaves):
+  [0]: leaf0, sumWeight = 1,000,000
+  [1]: leaf1, sumWeight = 1,000,000
+  [2]: leaf2, sumWeight = 1,000,000
+  [3]: leaf3, sumWeight = 1,000,000
+  [4]: leaf4, sumWeight = 1,000,000
+  [5]: EMPTY_NODE (right-pad, idx >= committeeSize)
+  [6]: EMPTY_NODE
+  [7]: EMPTY_NODE
+
+Level 1:
+  [0]: hash(leaf0, leaf1), sumWeight = 2,000,000
+  [1]: hash(leaf2, leaf3), sumWeight = 2,000,000
+  [2]: hash(leaf4, EMPTY_NODE), sumWeight = 1,000,000
+  [3]: hash(EMPTY_NODE, EMPTY_NODE), sumWeight = 0
+
+Level 2:
+  [0]: hash(node1[0], node1[1]), sumWeight = 4,000,000
+  [1]: hash(node1[2], node1[3]), sumWeight = 1,000,000
+
+Level 3 (root):
+  [0]: hash(node2[0], node2[1]), sumWeight = 5,000,000
+
+validatorSumTreeRoot = { hash: <computed>, totalWeight: 5,000,000 }
+```
+
+**Key verification points:**
+- EMPTY_NODE only appears at indices ≥ 5 (committeeSize)
+- Subtrees containing only EMPTY_NODEs still get computed (sumWeight = 0)
+- Final totalWeight = sum of real validators only
+
+### G.6 Negative Test Vectors (MUST Reject)
+
+Implementations MUST reject these malformed proofs:
+
+**1. Bitmap/Signer Mismatch:**
+```
+signerBitmap: 0b00001111  (bits 0,1,2,3 set → expects 4 signers)
+signerLeaves: [leaf0, leaf1, leaf2]  (only 3 leaves)
+REJECT: signerCount (popcount) != len(signerLeaves)
+```
+
+**2. Auxiliary Nodes Unsorted:**
+```
+auxiliaryNodes: [
+  { level: 1, index: 0, ... },
+  { level: 0, index: 5, ... }  // level 0 < level 1 (out of order)
+]
+REJECT: auxiliaryNodes not sorted by (level, index) ascending
+```
+
+**3. Duplicate Auxiliary Position:**
+```
+auxiliaryNodes: [
+  { level: 0, index: 2, hash: A, sumWeight: 100 },
+  { level: 0, index: 2, hash: B, sumWeight: 200 }  // same position
+]
+REJECT: duplicate (level, index) in auxiliaryNodes
+```
+
+**4. Auxiliary Overlaps Signer Leaf:**
+```
+signerBitmap: 0b00000101  (signers at indices 0, 2)
+auxiliaryNodes: [
+  { level: 0, index: 2, ... }  // index 2 is already a signer
+]
+REJECT: auxiliary node at level 0 overlaps signer leaf index
+```
+
+**5. Unused Auxiliary Node:**
+```
+// N=4 committee, signers 0,1,2,3 (all sign)
+signerBitmap: 0b00001111
+auxiliaryNodes: [
+  { level: 0, index: 5, ... }  // index 5 doesn't exist in N=4 tree
+]
+REJECT: auxiliary node not consumed during reconstruction
+```
+
+**6. Quorum Below Threshold:**
+```
+signerWeight = 3,000,000 µRKU
+totalWeight  = 5,000,000 µRKU
+ratio = 60%
+quorumThresholdBps = 6700 (67%)
+REJECT: 60% < 67%, quorum not met
+```
+
+**7. Root Hash Mismatch:**
+```
+// Proof claims validatorSumTreeRoot.hash = 0xABCD...
+// But reconstruction produces 0x1234...
+REJECT: reconstructed root hash != claimed validatorSumTreeRoot.hash
+```
+
+**8. Root totalWeight Mismatch:**
+```
+// Proof claims validatorSumTreeRoot.totalWeight = 10,000,000
+// But reconstruction yields sumWeight = 5,000,000
+REJECT: reconstructed totalWeight != claimed totalWeight
+```
+
+**9. Missing Left Child:**
+```
+// During reconstruction, need node at (level=0, index=2)
+// Neither signerLeaves nor auxiliaryNodes provide it
+// And index 2 < committeeSize, so EMPTY_NODE invalid
+REJECT: required node missing (not EMPTY_NODE eligible)
+```
+
+**10. Invalid BLS Signature:**
+```
+// All structural checks pass, but:
+blsVerify(aggregatedSig, signingHash, aggregatedPubKey) = false
+REJECT: BLS aggregate signature verification failed
+```
