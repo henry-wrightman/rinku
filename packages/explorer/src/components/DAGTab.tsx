@@ -16,7 +16,14 @@ interface DAGTabProps {
 const PAGE_SIZE = 20;
 const NEW_TX_DURATION = 3000;
 
-export function DAGTab({ nodes, merkleRoot, page, totalNodes, hasMore, onPageChange }: DAGTabProps) {
+export function DAGTab({
+  nodes,
+  merkleRoot,
+  page,
+  totalNodes,
+  hasMore,
+  onPageChange,
+}: DAGTabProps) {
   const [newHashes, setNewHashes] = useState<Set<string>>(new Set());
   const prevHashesRef = useRef<Set<string>>(new Set());
 
@@ -55,12 +62,12 @@ export function DAGTab({ nodes, merkleRoot, page, totalNodes, hasMore, onPageCha
             </span>
           </div>
           <div className="amount">
-            {node.amount.toLocaleString()} coins
+            {node.amount.toLocaleString()} RKU
             {node.fee > 0 && <span className="fee"> (+{node.fee} fee)</span>}
           </div>
           <div className="meta">
-            {node.from === "genesis" ? "genesis" : truncate(node.from, 6)}{" "}
-            → {truncate(node.to, 6)} · {timeAgo(node.ts)} · refs{" "}
+            {node.from === "genesis" ? "genesis" : truncate(node.from, 6)} →{" "}
+            {truncate(node.to, 6)} · {timeAgo(node.ts)} · refs{" "}
             {node.parentCount} parent(s)
           </div>
           <div className="actions">

@@ -75,7 +75,7 @@ export function RewardsTab() {
     try {
       const [rewardsRes, stakingRes] = await Promise.all([
         fetch(`${NODE_URL}/rewards/${address}`),
-        fetch(`${NODE_URL}/staking/${address}`)
+        fetch(`${NODE_URL}/staking/${address}`),
       ]);
 
       const rewardsData = await rewardsRes.json();
@@ -99,12 +99,12 @@ export function RewardsTab() {
       const res = await fetch(`${NODE_URL}/staking/stake`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, amount: stakeAmount })
+        body: JSON.stringify({ address, amount: stakeAmount }),
       });
 
       const data = await res.json();
       if (data.success) {
-        setResult(`Staked ${stakeAmount} coins successfully`);
+        setResult(`Staked ${stakeAmount} RKU successfully`);
         fetchRewards();
         fetchStakingInfo();
       } else {
@@ -124,12 +124,12 @@ export function RewardsTab() {
       const res = await fetch(`${NODE_URL}/staking/unstake`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address })
+        body: JSON.stringify({ address }),
       });
 
       const data = await res.json();
       if (data.success) {
-        setResult(`Unstaked ${data.amount} coins successfully`);
+        setResult(`Unstaked ${data.amount} RKU successfully`);
         fetchRewards();
         fetchStakingInfo();
       } else {
@@ -148,12 +148,12 @@ export function RewardsTab() {
     try {
       const res = await fetch(`${NODE_URL}/rewards/${address}/claim`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await res.json();
       if (data.success) {
-        setResult(`Claimed ${data.amount} reward coins`);
+        setResult(`Claimed ${data.amount} reward RKU`);
         fetchRewards();
       } else {
         setError("No rewards to claim");
@@ -176,7 +176,7 @@ export function RewardsTab() {
           <div className="staking-overview">
             <div className="stat-row">
               <span>total staked:</span>
-              <span className="value">{stakingInfo.totalStaked} coins</span>
+              <span className="value">{stakingInfo.totalStaked} RKU</span>
             </div>
             <div className="stat-row">
               <span>active validators:</span>
@@ -184,19 +184,27 @@ export function RewardsTab() {
             </div>
             <div className="stat-row">
               <span>min stake:</span>
-              <span className="value">{stakingInfo.config.minStakeAmount} coins</span>
+              <span className="value">
+                {stakingInfo.config.minStakeAmount} RKU
+              </span>
             </div>
             <div className="stat-row">
               <span>tip reward rate:</span>
-              <span className="value">{(stakingInfo.config.tipRewardRate * 100).toFixed(1)}%</span>
+              <span className="value">
+                {(stakingInfo.config.tipRewardRate * 100).toFixed(1)}%
+              </span>
             </div>
             <div className="stat-row">
               <span>stake reward rate:</span>
-              <span className="value">{(stakingInfo.config.stakeRewardRate * 100).toFixed(2)}%</span>
+              <span className="value">
+                {(stakingInfo.config.stakeRewardRate * 100).toFixed(2)}%
+              </span>
             </div>
             <div className="stat-row">
               <span>witness reward rate:</span>
-              <span className="value">{(stakingInfo.config.witnessRewardRate * 100).toFixed(2)}%</span>
+              <span className="value">
+                {(stakingInfo.config.witnessRewardRate * 100).toFixed(2)}%
+              </span>
             </div>
 
             {stakingInfo.topStakers.length > 0 && (
@@ -205,7 +213,7 @@ export function RewardsTab() {
                 {stakingInfo.topStakers.map((s, i) => (
                   <div key={i} className="staker-row">
                     <span className="mono">{s.staker.slice(0, 12)}...</span>
-                    <span className="value">{s.amount} coins</span>
+                    <span className="value">{s.amount} RKU</span>
                   </div>
                 ))}
               </div>
@@ -251,7 +259,9 @@ export function RewardsTab() {
                 <span className="label">pending</span>
                 <span className="amount">{rewards.pendingRewards}</span>
                 {rewards.pendingRewards > 0 && (
-                  <button className="claim-btn" onClick={handleClaim}>claim</button>
+                  <button className="claim-btn" onClick={handleClaim}>
+                    claim
+                  </button>
                 )}
               </div>
             </div>
@@ -259,13 +269,16 @@ export function RewardsTab() {
             {rewards.rewardHistory.length > 0 && (
               <div className="reward-history">
                 <h4>recent rewards</h4>
-                {rewards.rewardHistory.slice(-10).reverse().map((r, i) => (
-                  <div key={i} className="history-row">
-                    <span className="type">{r.type}</span>
-                    <span className="amount">+{r.amount}</span>
-                    <span className="time">{formatTime(r.timestamp)}</span>
-                  </div>
-                ))}
+                {rewards.rewardHistory
+                  .slice(-10)
+                  .reverse()
+                  .map((r, i) => (
+                    <div key={i} className="history-row">
+                      <span className="type">{r.type}</span>
+                      <span className="amount">+{r.amount}</span>
+                      <span className="time">{formatTime(r.timestamp)}</span>
+                    </div>
+                  ))}
               </div>
             )}
           </div>
@@ -278,7 +291,7 @@ export function RewardsTab() {
           <div className="staking-status">
             <div className="stat-row">
               <span>staked amount:</span>
-              <span className="value">{staking.stakedAmount} coins</span>
+              <span className="value">{staking.stakedAmount} RKU</span>
             </div>
             <div className="stat-row">
               <span>validator status:</span>
@@ -295,7 +308,9 @@ export function RewardsTab() {
             {staking.canUnstakeAt && (
               <div className="stat-row">
                 <span>can unstake at:</span>
-                <span className="value">{formatTime(staking.canUnstakeAt)}</span>
+                <span className="value">
+                  {formatTime(staking.canUnstakeAt)}
+                </span>
               </div>
             )}
           </div>
@@ -310,7 +325,10 @@ export function RewardsTab() {
               onChange={(e) => setStakeAmount(parseInt(e.target.value) || 0)}
               min={stakingInfo?.config.minStakeAmount || 100}
             />
-            <button onClick={handleStake} disabled={!address || stakeAmount <= 0}>
+            <button
+              onClick={handleStake}
+              disabled={!address || stakeAmount <= 0}
+            >
               stake
             </button>
             {staking?.stakedAmount && staking.stakedAmount > 0 && (

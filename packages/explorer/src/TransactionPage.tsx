@@ -95,7 +95,11 @@ function TransactionPage() {
         </header>
         <div className="section">
           <div className="error">{error || "Transaction not found"}</div>
-          <Link to="/" className="link" style={{ marginTop: 20, display: "block" }}>
+          <Link
+            to="/"
+            className="link"
+            style={{ marginTop: 20, display: "block" }}
+          >
             ← back to explorer
           </Link>
         </div>
@@ -121,14 +125,25 @@ function TransactionPage() {
         </div>
 
         <div className="tx-amount">
-          {tx.amount.toLocaleString()} <span className="unit">coins</span>
-          {(tx.fee ?? 0) > 0 && <span className="fee" style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}>(+{tx.fee} fee)</span>}
+          {tx.amount.toLocaleString()} <span className="unit">RKU</span>
+          {(tx.fee ?? 0) > 0 && (
+            <span
+              className="fee"
+              style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}
+            >
+              (+{tx.fee} fee)
+            </span>
+          )}
         </div>
 
         <div className="tx-flow">
           <div className="address from">
             <span className="label">from</span>
-            <span className="value">{tx.from === "genesis" || tx.from === "faucet" ? tx.from : truncate(tx.from, 20)}</span>
+            <span className="value">
+              {tx.from === "genesis" || tx.from === "faucet"
+                ? tx.from
+                : truncate(tx.from, 20)}
+            </span>
           </div>
           <span className="arrow">→</span>
           <div className="address to">
@@ -148,7 +163,12 @@ function TransactionPage() {
           </div>
           <div className="meta-row">
             <span className="label">gas fee</span>
-            <span className="value" style={{ color: (tx.fee ?? 0) > 0 ? "#ebcb8b" : undefined }}>{tx.fee ?? 0}</span>
+            <span
+              className="value"
+              style={{ color: (tx.fee ?? 0) > 0 ? "#ebcb8b" : undefined }}
+            >
+              {tx.fee ?? 0}
+            </span>
           </div>
           {tx.hash && (
             <div className="meta-row">
@@ -171,21 +191,23 @@ function TransactionPage() {
               {tx.tipUrls.map((parentUrl, i) => {
                 const parentTx = parseTransactionURL(parentUrl);
                 return (
-                  <Link
-                    key={i}
-                    to={parentUrl}
-                    className="parent-link"
-                  >
+                  <Link key={i} to={parentUrl} className="parent-link">
                     <span className="index">#{i + 1}</span>
                     {parentTx ? (
                       <span className="parent-info">
-                        {parentTx.from === "genesis" || parentTx.from === "faucet" 
-                          ? parentTx.from 
-                          : truncate(parentTx.from, 8)} → {truncate(parentTx.to, 8)}
-                        <span className="parent-amount">{parentTx.amount} coins</span>
+                        {parentTx.from === "genesis" ||
+                        parentTx.from === "faucet"
+                          ? parentTx.from
+                          : truncate(parentTx.from, 8)}{" "}
+                        → {truncate(parentTx.to, 8)}
+                        <span className="parent-amount">
+                          {parentTx.amount} RKU
+                        </span>
                       </span>
                     ) : (
-                      <span className="parent-url">{truncate(parentUrl, 40)}</span>
+                      <span className="parent-url">
+                        {truncate(parentUrl, 40)}
+                      </span>
                     )}
                   </Link>
                 );
@@ -196,12 +218,17 @@ function TransactionPage() {
 
         <div className="tx-note">
           <p>
-            this transaction is self-contained in the url. anyone can validate it
-            by decoding the payload and verifying the signature and parent references.
+            this transaction is self-contained in the url. anyone can validate
+            it by decoding the payload and verifying the signature and parent
+            references.
           </p>
         </div>
 
-        <Link to="/" className="link" style={{ marginTop: 20, display: "block" }}>
+        <Link
+          to="/"
+          className="link"
+          style={{ marginTop: 20, display: "block" }}
+        >
           ← back to explorer
         </Link>
       </div>

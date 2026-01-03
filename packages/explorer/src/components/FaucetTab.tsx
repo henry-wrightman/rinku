@@ -18,10 +18,15 @@ const FAUCET_URL = "/api/faucet";
 
 export function FaucetTab({ onSuccess }: FaucetTabProps) {
   const [address, setAddress] = useState("");
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<FaucetStats | null>(null);
-  const [recentDrops, setRecentDrops] = useState<{ address: string; amount: number; time: number }[]>([]);
+  const [recentDrops, setRecentDrops] = useState<
+    { address: string; amount: number; time: number }[]
+  >([]);
 
   const fetchStats = async () => {
     try {
@@ -64,11 +69,15 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
       if (res.ok && data.amount && data.txHash) {
         setMessage({
           type: "success",
-          text: `received ${data.amount} coins`,
+          text: `received ${data.amount} RKU`,
         });
-        setRecentDrops(prev => [
-          { address: address.slice(0, 12) + "...", amount: data.amount!, time: Date.now() },
-          ...prev.slice(0, 4)
+        setRecentDrops((prev) => [
+          {
+            address: address.slice(0, 12) + "...",
+            amount: data.amount!,
+            time: Date.now(),
+          },
+          ...prev.slice(0, 4),
         ]);
         onSuccess();
         fetchStats();
@@ -94,19 +103,25 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
           {stats?.genesisAllocation !== undefined && (
             <div className="stat-row">
               <span>genesis allocation:</span>
-              <span className="value">{stats.genesisAllocation.toLocaleString()} RKU</span>
+              <span className="value">
+                {stats.genesisAllocation.toLocaleString()} RKU
+              </span>
             </div>
           )}
           {stats?.currentBalance !== undefined && (
             <div className="stat-row">
               <span>remaining balance:</span>
-              <span className="value">{stats.currentBalance.toLocaleString()} RKU</span>
+              <span className="value">
+                {stats.currentBalance.toLocaleString()} RKU
+              </span>
             </div>
           )}
           {stats?.totalDistributed !== undefined && (
             <div className="stat-row">
               <span>total distributed:</span>
-              <span className="value">{stats.totalDistributed.toLocaleString()} RKU</span>
+              <span className="value">
+                {stats.totalDistributed.toLocaleString()} RKU
+              </span>
             </div>
           )}
           <div className="stat-row">
@@ -127,7 +142,7 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
       </div>
 
       <div className="section">
-        <h3>request coins</h3>
+        <h3>request RKU</h3>
         <div className="form-row">
           <input
             type="text"
@@ -146,7 +161,10 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
           </div>
         )}
 
-        <div className="hint" style={{ marginTop: 16, fontSize: 11, color: "#555" }}>
+        <div
+          className="hint"
+          style={{ marginTop: 16, fontSize: 11, color: "#555" }}
+        >
           tip: use @rinku/wallet to generate an address
         </div>
       </div>

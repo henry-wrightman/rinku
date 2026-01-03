@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-import { StatelessValidator, extractUrlsFromText } from './index.js';
+import { StatelessValidator, extractUrlsFromText } from "./index.js";
 
 async function main() {
   const args = process.argv.slice(2);
-  
+
   if (args.length === 0) {
     console.log(`
 rinku stateless validator
@@ -43,19 +43,19 @@ the validator will:
 
   let urls: string[] = [];
 
-  if (args.includes('--stdin')) {
+  if (args.includes("--stdin")) {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) {
       chunks.push(chunk);
     }
-    const input = Buffer.concat(chunks).toString('utf-8');
+    const input = Buffer.concat(chunks).toString("utf-8");
     urls = extractUrlsFromText(input);
   } else {
-    urls = args.filter(arg => !arg.startsWith('--'));
+    urls = args.filter((arg) => !arg.startsWith("--"));
   }
 
   if (urls.length === 0) {
-    console.error('error: no transaction URLs provided');
+    console.error("error: no transaction URLs provided");
     process.exit(1);
   }
 
@@ -64,11 +64,11 @@ the validator will:
   const validator = new StatelessValidator();
   const result = await validator.validateFromUrls(urls, {
     maxDepth: 1000,
-    timeout: 10000
+    timeout: 10000,
   });
 
-  console.log('=== validation result ===\n');
-  console.log(`status: ${result.valid ? 'VALID' : 'INVALID'}`);
+  console.log("=== validation result ===\n");
+  console.log(`status: ${result.valid ? "VALID" : "INVALID"}`);
   console.log(`transactions: ${result.stats.totalTransactions}`);
   console.log(`accounts: ${result.stats.totalAccounts}`);
   console.log(`urls crawled: ${result.stats.crawledUrls}`);
@@ -76,29 +76,32 @@ the validator will:
   console.log(`tips: ${result.tips.length}`);
 
   if (result.errors.length > 0) {
-    console.log('\n=== errors ===\n');
+    console.log("\n=== errors ===\n");
     for (const error of result.errors) {
       console.log(`  - ${error}`);
     }
   }
 
-  console.log('\n=== accounts ===\n');
-  const sortedAccounts = Array.from(result.accounts.entries())
-    .sort((a, b) => b[1].balance - a[1].balance);
-  
+  console.log("\n=== accounts ===\n");
+  const sortedAccounts = Array.from(result.accounts.entries()).sort(
+    (a, b) => b[1].balance - a[1].balance,
+  );
+
   for (const [fingerprint, account] of sortedAccounts.slice(0, 10)) {
-    console.log(`  ${fingerprint.slice(0, 12)}... : ${account.balance} coins`);
+    console.log(`  ${fingerprint.slice(0, 12)}... : ${account.balance} RKU`);
   }
 
   if (sortedAccounts.length > 10) {
     console.log(`  ... and ${sortedAccounts.length - 10} more accounts`);
   }
 
-  console.log('\n=== tips (current ledger heads) ===\n');
+  console.log("\n=== tips (current ledger heads) ===\n");
   for (const tip of result.tips.slice(0, 5)) {
     const tx = result.transactions.get(tip);
     if (tx) {
-      console.log(`  ${tip.slice(0, 12)}... : ${tx.from.slice(0, 8)}→${tx.to.slice(0, 8)} (${tx.amount})`);
+      console.log(
+        `  ${tip.slice(0, 12)}... : ${tx.from.slice(0, 8)}→${tx.to.slice(0, 8)} (${tx.amount})`,
+      );
     }
   }
 
@@ -109,7 +112,7 @@ the validator will:
   process.exit(result.valid ? 0 : 1);
 }
 
-main().catch(err => {
-  console.error('fatal error:', err.message);
+main().catch((err) => {
+  console.error("fatal error:", err.message);
   process.exit(1);
 });

@@ -67,7 +67,7 @@ function HashTransactionPage() {
           sig: txData.sig,
           url: data.url || `/tx/h/${txData.hash}`,
           weight: data.weight ?? txData.weight ?? 0,
-          finality: data.finality || txData.finality
+          finality: data.finality || txData.finality,
         });
       })
       .catch((e) => setError(e.message))
@@ -117,8 +117,9 @@ function HashTransactionPage() {
           <div className="pruned-notice">
             <h2>transaction pruned</h2>
             <p>
-              This transaction was pruned from active memory after being finalized.
-              It is cryptographically verified and included in the ledger.
+              This transaction was pruned from active memory after being
+              finalized. It is cryptographically verified and included in the
+              ledger.
             </p>
             <div className="tx-meta">
               <div className="meta-row">
@@ -127,11 +128,15 @@ function HashTransactionPage() {
               </div>
               <div className="meta-row">
                 <span className="label">status</span>
-                <span className="value" style={{ color: "#a3be8c" }}>finalized & pruned</span>
+                <span className="value" style={{ color: "#a3be8c" }}>
+                  finalized & pruned
+                </span>
               </div>
               <div className="meta-row">
                 <span className="label">checkpoint</span>
-                <span className="value mono">{truncate(prunedInfo.checkpointId, 16)}</span>
+                <span className="value mono">
+                  {truncate(prunedInfo.checkpointId, 16)}
+                </span>
               </div>
               <div className="meta-row">
                 <span className="label">checkpoint height</span>
@@ -144,12 +149,17 @@ function HashTransactionPage() {
             </div>
             <div className="tx-note" style={{ marginTop: 16 }}>
               <p>
-                Pruned transactions are still part of the permanent ledger. The checkpoint 
-                contains a Merkle root that cryptographically proves this transaction existed.
+                Pruned transactions are still part of the permanent ledger. The
+                checkpoint contains a Merkle root that cryptographically proves
+                this transaction existed.
               </p>
             </div>
           </div>
-          <Link to="/" className="link" style={{ marginTop: 20, display: "block" }}>
+          <Link
+            to="/"
+            className="link"
+            style={{ marginTop: 20, display: "block" }}
+          >
             ← back to explorer
           </Link>
         </div>
@@ -168,7 +178,11 @@ function HashTransactionPage() {
         </header>
         <div className="section">
           <div className="error">{error || "Transaction not found"}</div>
-          <Link to="/" className="link" style={{ marginTop: 20, display: "block" }}>
+          <Link
+            to="/"
+            className="link"
+            style={{ marginTop: 20, display: "block" }}
+          >
             ← back to explorer
           </Link>
         </div>
@@ -194,25 +208,38 @@ function HashTransactionPage() {
         </div>
 
         <div className="tx-amount">
-          {tx.amount.toLocaleString()} <span className="unit">coins</span>
-          {tx.fee > 0 && <span className="fee" style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}>(+{tx.fee} fee)</span>}
+          {tx.amount.toLocaleString()} <span className="unit">RKU</span>
+          {tx.fee > 0 && (
+            <span
+              className="fee"
+              style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}
+            >
+              (+{tx.fee} fee)
+            </span>
+          )}
         </div>
 
         <div className="tx-flow">
           <div className="address from">
             <span className="label">from</span>
-            <Link 
-              to={tx.from === "genesis" || tx.from === "faucet" ? "#" : `/account/${tx.from}`}
+            <Link
+              to={
+                tx.from === "genesis" || tx.from === "faucet"
+                  ? "#"
+                  : `/account/${tx.from}`
+              }
               className="value"
               style={{ textDecoration: "none", color: "inherit" }}
             >
-              {tx.from === "genesis" || tx.from === "faucet" ? tx.from : truncate(tx.from, 20)}
+              {tx.from === "genesis" || tx.from === "faucet"
+                ? tx.from
+                : truncate(tx.from, 20)}
             </Link>
           </div>
           <span className="arrow">→</span>
           <div className="address to">
             <span className="label">to</span>
-            <Link 
+            <Link
               to={`/account/${tx.to}`}
               className="value"
               style={{ textDecoration: "none", color: "inherit" }}
@@ -237,7 +264,12 @@ function HashTransactionPage() {
           </div>
           <div className="meta-row">
             <span className="label">gas fee</span>
-            <span className="value" style={{ color: tx.fee > 0 ? "#ebcb8b" : undefined }}>{tx.fee}</span>
+            <span
+              className="value"
+              style={{ color: tx.fee > 0 ? "#ebcb8b" : undefined }}
+            >
+              {tx.fee}
+            </span>
           </div>
           <div className="meta-row">
             <span className="label">weight</span>
@@ -251,11 +283,15 @@ function HashTransactionPage() {
             <>
               <div className="meta-row">
                 <span className="label">status</span>
-                <span className="value" style={{ color: "#a3be8c" }}>finalized</span>
+                <span className="value" style={{ color: "#a3be8c" }}>
+                  finalized
+                </span>
               </div>
               <div className="meta-row">
                 <span className="label">checkpoint</span>
-                <span className="value mono">{truncate(tx.finality.checkpointId, 16)}</span>
+                <span className="value mono">
+                  {truncate(tx.finality.checkpointId, 16)}
+                </span>
               </div>
             </>
           )}
@@ -268,11 +304,7 @@ function HashTransactionPage() {
           ) : (
             <div className="parent-list">
               {tx.tipUrls.map((parentUrl, i) => (
-                <Link
-                  key={i}
-                  to={parentUrl}
-                  className="parent-link"
-                >
+                <Link key={i} to={parentUrl} className="parent-link">
                   <span className="index">#{i + 1}</span>
                   <span className="parent-url">{truncate(parentUrl, 50)}</span>
                 </Link>
@@ -283,12 +315,16 @@ function HashTransactionPage() {
 
         <div className="tx-note">
           <p>
-            this transaction is stored on the dag and can be verified
-            by checking its hash, signature, and parent references.
+            this transaction is stored on the dag and can be verified by
+            checking its hash, signature, and parent references.
           </p>
         </div>
 
-        <Link to="/" className="link" style={{ marginTop: 20, display: "block" }}>
+        <Link
+          to="/"
+          className="link"
+          style={{ marginTop: 20, display: "block" }}
+        >
           ← back to explorer
         </Link>
       </div>

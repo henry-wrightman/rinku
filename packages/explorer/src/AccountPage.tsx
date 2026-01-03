@@ -59,7 +59,7 @@ function AccountPage() {
           fetch(`/api/account/${address}`),
           fetch(`/api/dag`),
           fetch(`/api/staking/${address}`),
-          fetch(`/api/rewards/${address}`)
+          fetch(`/api/rewards/${address}`),
         ]);
 
         if (!accountRes.ok) {
@@ -73,7 +73,10 @@ function AccountPage() {
 
         const dagData = await dagRes.json();
         const accountTxs = (dagData.nodes || [])
-          .filter((node: any) => node && (node.from === address || node.to === address))
+          .filter(
+            (node: any) =>
+              node && (node.from === address || node.to === address),
+          )
           .map((node: any) => ({
             hash: node.hash,
             from: node.from,
@@ -81,7 +84,7 @@ function AccountPage() {
             amount: node.amount,
             nonce: node.nonce,
             ts: node.ts,
-            url: node.url
+            url: node.url,
           }))
           .sort((a: Transaction, b: Transaction) => b.ts - a.ts);
 
@@ -149,7 +152,11 @@ function AccountPage() {
         </header>
         <div className="section">
           <div className="error">{error || "Account not found"}</div>
-          <Link to="/" className="link" style={{ marginTop: 20, display: "block" }}>
+          <Link
+            to="/"
+            className="link"
+            style={{ marginTop: 20, display: "block" }}
+          >
             ← back to explorer
           </Link>
         </div>
@@ -175,7 +182,7 @@ function AccountPage() {
         </div>
 
         <div className="tx-amount">
-          {account.balance.toLocaleString()} <span className="unit">coins</span>
+          {account.balance.toLocaleString()} <span className="unit">RKU</span>
         </div>
 
         <div className="tx-meta">
@@ -190,22 +197,31 @@ function AccountPage() {
           {account.firstTxTimestamp && (
             <div className="meta-row">
               <span className="label">first seen</span>
-              <span className="value">{formatTime(account.firstTxTimestamp)}</span>
+              <span className="value">
+                {formatTime(account.firstTxTimestamp)}
+              </span>
             </div>
           )}
         </div>
 
         {staking && staking.stakedAmount > 0 && (
           <div style={{ marginTop: 24 }}>
-            <h3 style={{ fontSize: 13, color: "#fff", marginBottom: 12 }}>staking</h3>
+            <h3 style={{ fontSize: 13, color: "#fff", marginBottom: 12 }}>
+              staking
+            </h3>
             <div className="tx-meta">
               <div className="meta-row">
                 <span className="label">staked</span>
-                <span className="value" style={{ color: "#a3be8c" }}>{staking.stakedAmount} coins</span>
+                <span className="value" style={{ color: "#a3be8c" }}>
+                  {staking.stakedAmount} RKU
+                </span>
               </div>
               <div className="meta-row">
                 <span className="label">validator</span>
-                <span className="value" style={{ color: staking.isValidator ? "#39ff14" : "#666" }}>
+                <span
+                  className="value"
+                  style={{ color: staking.isValidator ? "#39ff14" : "#666" }}
+                >
                   {staking.isValidator ? "active" : "no"}
                 </span>
               </div>
@@ -221,7 +237,9 @@ function AccountPage() {
 
         {rewards && rewards.totalRewards > 0 && (
           <div style={{ marginTop: 24 }}>
-            <h3 style={{ fontSize: 13, color: "#fff", marginBottom: 12 }}>rewards</h3>
+            <h3 style={{ fontSize: 13, color: "#fff", marginBottom: 12 }}>
+              rewards
+            </h3>
             <div className="tx-meta">
               <div className="meta-row">
                 <span className="label">tip rewards</span>
@@ -237,12 +255,16 @@ function AccountPage() {
               </div>
               <div className="meta-row">
                 <span className="label">total earned</span>
-                <span className="value" style={{ color: "#b48ead" }}>{rewards.totalRewards}</span>
+                <span className="value" style={{ color: "#b48ead" }}>
+                  {rewards.totalRewards}
+                </span>
               </div>
               {rewards.pendingRewards > 0 && (
                 <div className="meta-row">
                   <span className="label">pending</span>
-                  <span className="value" style={{ color: "#a3be8c" }}>{rewards.pendingRewards}</span>
+                  <span className="value" style={{ color: "#a3be8c" }}>
+                    {rewards.pendingRewards}
+                  </span>
                 </div>
               )}
             </div>
@@ -263,18 +285,30 @@ function AccountPage() {
                     to={tx.url || `/tx/${tx.hash}`}
                     className="parent-link"
                   >
-                    <span className="index" style={{ color: isIncoming ? "#a3be8c" : "#bf616a" }}>
+                    <span
+                      className="index"
+                      style={{ color: isIncoming ? "#a3be8c" : "#bf616a" }}
+                    >
                       {isIncoming ? "+" : "-"}
                     </span>
                     <span className="parent-info">
                       {isIncoming ? (
-                        <>from {tx.from === "faucet" ? "faucet" : truncate(tx.from, 8)}</>
+                        <>
+                          from{" "}
+                          {tx.from === "faucet"
+                            ? "faucet"
+                            : truncate(tx.from, 8)}
+                        </>
                       ) : (
                         <>to {truncate(tx.to, 8)}</>
                       )}
                     </span>
-                    <span className="parent-amount" style={{ color: isIncoming ? "#a3be8c" : "#bf616a" }}>
-                      {isIncoming ? "+" : "-"}{tx.amount} coins
+                    <span
+                      className="parent-amount"
+                      style={{ color: isIncoming ? "#a3be8c" : "#bf616a" }}
+                    >
+                      {isIncoming ? "+" : "-"}
+                      {tx.amount} RKU
                     </span>
                   </Link>
                 );
@@ -288,7 +322,11 @@ function AccountPage() {
           )}
         </div>
 
-        <Link to="/" className="link" style={{ marginTop: 20, display: "block" }}>
+        <Link
+          to="/"
+          className="link"
+          style={{ marginTop: 20, display: "block" }}
+        >
           ← back to explorer
         </Link>
       </div>

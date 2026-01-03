@@ -564,7 +564,7 @@ async function doStaking(): Promise<void> {
       staker.isStaking = true;
       totalStakes++;
       log(
-        `Staked: ${staker.fingerprint.slice(0, 16)}... staked ${stakeAmount} coins`,
+        `Staked: ${staker.fingerprint.slice(0, 16)}... staked ${stakeAmount} RKU`,
       );
     }
   } catch (err: any) {
@@ -617,7 +617,7 @@ async function claimRewards(): Promise<void> {
       if (result.success) {
         totalRewardsClaimed += result.amount || 0;
         log(
-          `Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.amount} coins`,
+          `Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.amount} RKU`,
         );
       } else {
         log(
