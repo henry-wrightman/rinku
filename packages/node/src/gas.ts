@@ -6,6 +6,11 @@ import type { GasPrice, GasConfig, FeeStats } from '@rinku/core';
  * - Prevents runaway feedback loops
  * - Smooth adjustments capped at ~12.5% per period
  */
+// Env-configurable gas parameters for stress testing
+const GAS_TARGET_TPS = parseFloat(process.env.GAS_TARGET_TPS || '5'); // Target TPS (default 5 for stress testing)
+const GAS_PERIOD_MS = parseInt(process.env.GAS_PERIOD_MS || '15000'); // Period length
+const GAS_MAX_FEE = parseFloat(process.env.GAS_MAX_FEE || '10'); // Max fee cap
+
 export class GasService {
   private totalBurned = 0;
   private totalToValidators = 0;
@@ -15,14 +20,14 @@ export class GasService {
   private baseFee: number;
   private txsThisPeriod = 0;
   private periodStartTime = Date.now();
-  private readonly PERIOD_MS = 15000; // 15s checkpoint interval
-  private readonly TARGET_TXS_PER_PERIOD = 15; // Target ~1 TPS
+  private readonly PERIOD_MS = GAS_PERIOD_MS;
+  private readonly TARGET_TXS_PER_PERIOD = Math.round(GAS_TARGET_TPS * (GAS_PERIOD_MS / 1000)); // TPS × period seconds
   private readonly MAX_CHANGE_PERCENT = 0.125; // 12.5% max change per period
   private readonly ELASTICITY = 2; // How much over target before max increase
   
   private config: GasConfig = {
     minFee: 0.001,
-    maxFee: 10, // Reduced from 100 - more reasonable cap
+    maxFee: GAS_MAX_FEE,
     baseFee: 0.01,
     feeMultiplier: 1.0,
     burnPercent: 50,
