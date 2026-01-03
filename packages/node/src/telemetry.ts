@@ -1,5 +1,5 @@
 import * as os from 'os';
-import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 
 export interface SystemTelemetry {
@@ -35,9 +35,40 @@ export class TelemetryService {
   private totalBytesOut = 0;
   private startTime = Date.now();
   private dataDir: string;
+  private cachedDiskSize = 0;
+  private diskScanInProgress = false;
+  private diskScanInterval: NodeJS.Timeout | null = null;
+  private static readonly DISK_SCAN_INTERVAL_MS = 30000;
 
   constructor(dataDir: string = '.rinku-data') {
     this.dataDir = dataDir;
+    this.scheduleDiskScan();
+  }
+
+  private scheduleDiskScan(): void {
+    this.scanDiskAsync();
+    this.diskScanInterval = setInterval(() => {
+      this.scanDiskAsync();
+    }, TelemetryService.DISK_SCAN_INTERVAL_MS);
+  }
+
+  private async scanDiskAsync(): Promise<void> {
+    if (this.diskScanInProgress) return;
+    this.diskScanInProgress = true;
+    try {
+      this.cachedDiskSize = await this.getDirectorySizeAsync(this.dataDir);
+    } catch {
+      // Keep cached value on error
+    } finally {
+      this.diskScanInProgress = false;
+    }
+  }
+
+  stop(): void {
+    if (this.diskScanInterval) {
+      clearInterval(this.diskScanInterval);
+      this.diskScanInterval = null;
+    }
   }
 
   recordNetworkIn(bytes: number): void {
@@ -70,19 +101,21 @@ export class TelemetryService {
     return 0;
   }
 
-  private getDirectorySize(dirPath: string): number {
+  private async getDirectorySizeAsync(dirPath: string): Promise<number> {
     try {
-      if (!fs.existsSync(dirPath)) return 0;
+      const stat = await fsp.stat(dirPath).catch(() => null);
+      if (!stat || !stat.isDirectory()) return 0;
       
       let totalSize = 0;
-      const files = fs.readdirSync(dirPath);
+      const files = await fsp.readdir(dirPath);
       
       for (const file of files) {
         const filePath = path.join(dirPath, file);
-        const stats = fs.statSync(filePath);
+        const stats = await fsp.stat(filePath).catch(() => null);
+        if (!stats) continue;
         
         if (stats.isDirectory()) {
-          totalSize += this.getDirectorySize(filePath);
+          totalSize += await this.getDirectorySizeAsync(filePath);
         } else {
           totalSize += stats.size;
         }
@@ -139,7 +172,7 @@ export class TelemetryService {
         rateOut: networkRates.rateOut
       },
       disk: {
-        dataDir: this.getDirectorySize(this.dataDir)
+        dataDir: this.cachedDiskSize
       },
       uptime: os.uptime(),
       processUptime: (Date.now() - this.startTime) / 1000
