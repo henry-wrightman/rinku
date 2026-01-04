@@ -36,6 +36,7 @@ import {
   type ContractReceiptProofB,
 } from '../encoding.js';
 import type { Transaction, ContractDeploy, ContractTransaction, SelfCrawlableBundle, ContractReceipt } from '../types.js';
+export {};
 
 describe('Encoding Module', () => {
   const mockTransaction: Transaction = {
@@ -830,6 +831,276 @@ describe('Encoding Module', () => {
       
       const valid = await verifyReceiptMerkleProof('call1', receipt, [sibling], 1, expectedRoot);
       expect(valid).toBe(true);
+    });
+  });
+
+  describe('WASM Chunk Assembly', () => {
+    it('should chunk and reassemble WASM code', () => {
+      const wasmBase64 = 'A'.repeat(3500);
+      const chunks = chunkWasmCode(wasmBase64, 'contract123');
+      expect(chunks.length).toBe(4);
+      const reassembled = assembleWasmFromChunks(chunks);
+      expect(reassembled).toBe(wasmBase64);
+    });
+
+    it('should throw for invalid chunk URL format', () => {
+      expect(() => assembleWasmFromChunks(['/invalid/url'])).toThrow('Invalid chunk URL');
+    });
+
+    it('should sort chunks by index', () => {
+      const chunks = [
+        '/sc/chunk/c1/2/CC',
+        '/sc/chunk/c1/0/AA',
+        '/sc/chunk/c1/1/BB',
+      ];
+      const reassembled = assembleWasmFromChunks(chunks);
+      expect(reassembled).toBe('AABBCC');
+    });
+
+    it('should handle single chunk', () => {
+      const chunks = chunkWasmCode('short', 'c1');
+      expect(chunks.length).toBe(1);
+      expect(assembleWasmFromChunks(chunks)).toBe('short');
+    });
+  });
+
+  describe('Malformed Payload Handling', () => {
+    it('should return null for corrupted transaction URL', () => {
+      const result = parseTransactionURL('/tx/!!invalid!!');
+      expect(result).toBeNull();
+    });
+
+    it('should return null for corrupted contract URL', () => {
+      const result = parseContractURL('/sc/!!invalid!!');
+      expect(result).toBeNull();
+    });
+
+    it('should return null for corrupted self-crawlable URL', () => {
+      const result = parseSelfCrawlableURL('/txp/!!invalid!!');
+      expect(result).toBeNull();
+    });
+
+    it('should return null for corrupted receipt URL', () => {
+      const result = parseContractReceiptURL('/rxp/!!invalid!!');
+      expect(result).toBeNull();
+    });
+
+    it('should return null for corrupted receipt URL B', () => {
+      const result = parseContractReceiptURLB('/rxpb/!!invalid!!');
+      expect(result).toBeNull();
+    });
+
+    it('should handle empty payloads gracefully', () => {
+      expect(parseTransactionURL('/tx/')).toBeNull();
+      expect(parseContractURL('/sc/')).toBeNull();
+      expect(parseSelfCrawlableURL('/txp/')).toBeNull();
+    });
+  });
+
+  describe('URL Type Detection', () => {
+    it('should detect transaction URLs', () => {
+      expect(getURLType('/tx/payload')).toBe('tx');
+      expect(getURLType('/tx/h/abc123')).toBe('tx');
+    });
+
+    it('should detect self-crawlable URLs', () => {
+      expect(getURLType('/txp/payload')).toBe('txp');
+    });
+
+    it('should detect contract URLs', () => {
+      expect(getURLType('/sc/payload')).toBe('sc');
+    });
+
+    it('should detect chunk URLs', () => {
+      expect(getURLType('/sc/chunk/c1/0/data')).toBe('sc-chunk');
+    });
+
+    it('should return unknown for unrecognized URLs', () => {
+      expect(getURLType('/unknown/path')).toBe('unknown');
+      expect(getURLType('')).toBe('unknown');
+    });
+
+    it('should detect extended URL types', () => {
+      expect(getURLTypeExtended('/rxp/payload')).toBe('rxp');
+      expect(getURLTypeExtended('/rxpb/payload')).toBe('rxpb');
+      expect(getURLTypeExtended('/tx/payload')).toBe('tx');
+      expect(getURLTypeExtended('/unknown')).toBe('unknown');
+    });
+  });
+
+  describe('URL Safety', () => {
+    it('should detect safe URLs', () => {
+      expect(isURLSafe('/tx/short')).toBe(true);
+    });
+
+    it('should detect unsafe URLs', () => {
+      const longPayload = 'A'.repeat(2000);
+      expect(isURLSafe(`/tx/${longPayload}`)).toBe(false);
+    });
+  });
+
+  describe('Bundle Verification Edge Cases', () => {
+    it('should detect missing tx field', () => {
+      const bundle = { hash: 'h1', parents: [] } as any;
+      const result = verifySelfCrawlableBundle(bundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Bundle missing tx field');
+    });
+
+    it('should detect missing hash field', () => {
+      const bundle = { tx: { from: 'a', to: 'b', amount: 1, sig: 's' }, parents: [] } as any;
+      const result = verifySelfCrawlableBundle(bundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Bundle missing hash field');
+    });
+
+    it('should detect invalid amount', () => {
+      const bundle = {
+        tx: { from: 'a', to: 'b', amount: -1, sig: 's' },
+        hash: 'h1',
+        parents: []
+      } as any;
+      const result = verifySelfCrawlableBundle(bundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('invalid amount'))).toBe(true);
+    });
+
+    it('should detect missing signature', () => {
+      const bundle = {
+        tx: { from: 'a', to: 'b', amount: 1 },
+        hash: 'h1',
+        parents: []
+      } as any;
+      const result = verifySelfCrawlableBundle(bundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('missing signature'))).toBe(true);
+    });
+
+    it('should validate checkpoint anchor fields', () => {
+      const bundle = {
+        tx: { from: 'a', to: 'b', amount: 1, sig: 's' },
+        hash: 'h1',
+        parents: [],
+        checkpointAnchor: { checkpointId: '', merkleRoot: '' }
+      } as any;
+      const result = verifySelfCrawlableBundle(bundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('Invalid checkpoint anchor'))).toBe(true);
+    });
+
+    it('should count transactions and depth', () => {
+      const parent: any = {
+        tx: { from: 'a', to: 'b', amount: 1, sig: 's' },
+        hash: 'p1',
+        parents: []
+      };
+      const bundle: any = {
+        tx: { from: 'c', to: 'd', amount: 2, sig: 's2' },
+        hash: 'h1',
+        parents: [parent]
+      };
+      const result = verifySelfCrawlableBundle(bundle);
+      expect(result.transactionCount).toBe(2);
+      expect(result.maxDepth).toBe(1);
+    });
+  });
+
+  describe('Receipt Proof Verification Edge Cases', () => {
+    it('should detect missing receipt', () => {
+      const proof = { tx: {}, txHash: 'h1', checkpointAnchor: { checkpointId: 'cp1', stateRoot: 's', receiptRoot: 'r' } } as any;
+      const result = verifyContractReceiptProof(proof);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Missing receipt');
+    });
+
+    it('should detect missing transaction', () => {
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 's', receiptRoot: 'r' }
+      } as any;
+      const result = verifyContractReceiptProof(proof);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Missing transaction');
+    });
+
+    it('should detect missing receipt merkle proof in Profile B', () => {
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 's', receiptRoot: 'r' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [{ validator: 'v1', signature: 's1', weight: 100 }]
+      } as any;
+      const result = verifyContractReceiptProof(proof);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Profile B missing receipt Merkle proof');
+    });
+  });
+
+  describe('Encoding Round-trip Edge Cases', () => {
+    it('should handle transaction with zero fee', () => {
+      const tx = { ...mockTransaction, fee: 0 };
+      const encoded = encodeTransaction(tx);
+      const decoded = decodeTransaction(encoded);
+      expect(decoded.fee).toBe(0);
+    });
+
+    it('should handle transaction with large nonce', () => {
+      const tx = { ...mockTransaction, nonce: 999999999 };
+      const encoded = encodeTransaction(tx);
+      const decoded = decodeTransaction(encoded);
+      expect(decoded.nonce).toBe(999999999);
+    });
+
+    it('should handle transaction with special characters in addresses', () => {
+      const tx = { ...mockTransaction, from: 'addr_with-special.chars', to: 'another_addr-123' };
+      const encoded = encodeTransaction(tx);
+      const decoded = decodeTransaction(encoded);
+      expect(decoded.from).toBe('addr_with-special.chars');
+      expect(decoded.to).toBe('another_addr-123');
+    });
+
+    it('should handle contract deploy with empty wasm', () => {
+      const deploy: ContractDeploy = {
+        type: 'deploy',
+        contractId: 'c1',
+        creator: 'alice',
+        wasmBase64: '',
+        initState: {},
+        tipUrls: [],
+        sig: 'sig',
+        ts: 1700000000000
+      };
+      const encoded = encodeContractDeploy(deploy);
+      const decoded = decodeContractDeploy(encoded);
+      expect(decoded.wasmBase64).toBe('');
+    });
+
+    it('should handle contract transaction encoding', () => {
+      const tx = {
+        from: 'alice',
+        to: 'contract1',
+        amount: 0,
+        fee: 0.01,
+        nonce: 1,
+        tipUrls: [],
+        sig: 'sig',
+        ts: 1700000000000,
+        hash: 'txhash123',
+        contract: {
+          action: 'call',
+          contractId: 'c1',
+          entrypoint: 'transfer',
+          input: { to: 'bob', amount: 100 },
+          preStateHash: 'pre',
+          postStateHash: 'post'
+        }
+      } as ContractTransaction;
+      const encoded = encodeContractTransaction(tx);
+      const decoded = decodeContractTransaction(encoded);
+      expect(decoded.contract?.entrypoint).toBe('transfer');
     });
   });
 });

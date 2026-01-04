@@ -459,4 +459,244 @@ describe('DAG Module', () => {
       expect(stats.unresolvedParents).toBe(1);
     });
   });
+
+  describe('Self-Crawlable Bundles', () => {
+    it('should return null for non-existent hash', async () => {
+      const dag = new DAG();
+      const bundle = await dag.buildSelfCrawlableBundle('nonexistent');
+      expect(bundle).toBeNull();
+    });
+
+    it('should build bundle for transaction without parents', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const bundle = await dag.buildSelfCrawlableBundle(tx.hash);
+      expect(bundle).not.toBeNull();
+      expect(bundle!.hash).toBe(tx.hash);
+      expect(bundle!.parents).toEqual([]);
+    });
+
+    it('should build bundle with parent transactions', async () => {
+      const dag = new DAG();
+      const parent = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(parent);
+      const parentUrl = `/tx/h/${parent.hash}`;
+      const child = await createMockTx('charlie', 'dave', 200, 2, [parentUrl]);
+      await dag.addTransaction(child);
+      const bundle = await dag.buildSelfCrawlableBundle(child.hash);
+      expect(bundle).not.toBeNull();
+      expect(bundle!.parents.length).toBe(1);
+    });
+
+    it('should handle finalized parent with checkpoint', async () => {
+      const dag = new DAG();
+      const parent = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(parent);
+      dag.setFinality(parent.hash, 'cp1', 1);
+      const parentUrl = `/tx/h/${parent.hash}`;
+      const child = await createMockTx('charlie', 'dave', 200, 2, [parentUrl]);
+      await dag.addTransaction(child);
+      const getCheckpoint = (id: string) => ({
+        checkpointId: id,
+        merkleRoot: 'merkle',
+        height: 1,
+        signatureCount: 5
+      });
+      const bundle = await dag.buildSelfCrawlableBundle(child.hash, getCheckpoint);
+      expect(bundle).not.toBeNull();
+      expect(bundle!.truncatedParents).toBeDefined();
+      expect(bundle!.truncatedParents!.length).toBe(1);
+    });
+
+    it('should skip parent if checkpoint not found', async () => {
+      const dag = new DAG();
+      const parent = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(parent);
+      dag.setFinality(parent.hash, 'cp1', 1);
+      const parentUrl = `/tx/h/${parent.hash}`;
+      const child = await createMockTx('charlie', 'dave', 200, 2, [parentUrl]);
+      await dag.addTransaction(child);
+      const getCheckpoint = () => null;
+      const bundle = await dag.buildSelfCrawlableBundle(child.hash, getCheckpoint);
+      expect(bundle).not.toBeNull();
+      expect(bundle!.truncatedParents).toBeUndefined();
+    });
+
+    it('should get self-crawlable URL', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const url = await dag.getSelfCrawlableUrl(tx.hash);
+      expect(url).not.toBeNull();
+      expect(url).toContain('/txp/');
+    });
+
+    it('should return null URL for non-existent hash', async () => {
+      const dag = new DAG();
+      const url = await dag.getSelfCrawlableUrl('nonexistent');
+      expect(url).toBeNull();
+    });
+  });
+
+  describe('Conflict Resolution', () => {
+    it('should resolve conflict by weight', async () => {
+      const dag = new DAG();
+      const tx1 = await createMockTx('alice', 'bob', 100, 1);
+      const tx2 = await createMockTx('charlie', 'dave', 200, 2);
+      await dag.addTransaction(tx1);
+      await dag.addTransaction(tx2);
+      dag.updateWeights(new Map([['alice', 50], ['charlie', 100]]));
+      const winner = dag.resolveConflict(tx1.hash, tx2.hash);
+      expect(winner).toBe(tx2.hash);
+    });
+
+    it('should throw for non-existent transaction in conflict', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      expect(() => dag.resolveConflict(tx.hash, 'nonexistent')).toThrow('Transaction not found');
+    });
+
+    it('should favor first transaction on equal weight', async () => {
+      const dag = new DAG();
+      const tx1 = await createMockTx('alice', 'bob', 100, 1);
+      const tx2 = await createMockTx('charlie', 'dave', 200, 2);
+      await dag.addTransaction(tx1);
+      await dag.addTransaction(tx2);
+      dag.updateWeights(new Map([['alice', 50], ['charlie', 50]]));
+      const winner = dag.resolveConflict(tx1.hash, tx2.hash);
+      expect(winner).toBe(tx1.hash);
+    });
+  });
+
+  describe('Ancestors and Descendants', () => {
+    it('should get ancestors', async () => {
+      const dag = new DAG();
+      const grandparent = await createMockTx('alice', 'bob', 50, 1);
+      await dag.addTransaction(grandparent);
+      const parent = await createMockTx('bob', 'charlie', 30, 2, [`/tx/h/${grandparent.hash}`]);
+      await dag.addTransaction(parent);
+      const child = await createMockTx('charlie', 'dave', 20, 3, [`/tx/h/${parent.hash}`]);
+      await dag.addTransaction(child);
+      const ancestors = dag.getAncestors(child.hash);
+      expect(ancestors.size).toBe(2);
+      expect(ancestors.has(parent.hash)).toBe(true);
+      expect(ancestors.has(grandparent.hash)).toBe(true);
+    });
+
+    it('should get descendants', async () => {
+      const dag = new DAG();
+      const parent = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(parent);
+      const child1 = await createMockTx('bob', 'charlie', 50, 2, [`/tx/h/${parent.hash}`]);
+      await dag.addTransaction(child1);
+      const child2 = await createMockTx('bob', 'dave', 50, 3, [`/tx/h/${parent.hash}`]);
+      await dag.addTransaction(child2);
+      const descendants = dag.getDescendants(parent.hash);
+      expect(descendants.size).toBe(2);
+      expect(descendants.has(child1.hash)).toBe(true);
+      expect(descendants.has(child2.hash)).toBe(true);
+    });
+
+    it('should return empty set for no ancestors', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const ancestors = dag.getAncestors(tx.hash);
+      expect(ancestors.size).toBe(0);
+    });
+
+    it('should return empty set for no descendants', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const descendants = dag.getDescendants(tx.hash);
+      expect(descendants.size).toBe(0);
+    });
+  });
+
+  describe('Tip Selection', () => {
+    it('should select tips with weight bias', async () => {
+      const dag = new DAG();
+      const tx1 = await createMockTx('alice', 'bob', 100, 1);
+      const tx2 = await createMockTx('charlie', 'dave', 200, 2);
+      const tx3 = await createMockTx('eve', 'frank', 300, 3);
+      await dag.addTransaction(tx1);
+      await dag.addTransaction(tx2);
+      await dag.addTransaction(tx3);
+      dag.updateWeights(new Map([['alice', 100], ['charlie', 50], ['eve', 10]]));
+      const selected = dag.selectTips(2);
+      expect(selected.length).toBe(2);
+    });
+
+    it('should return all tips if count exceeds available', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const selected = dag.selectTips(5);
+      expect(selected.length).toBe(1);
+    });
+
+    it('should return empty array if no tips', async () => {
+      const dag = new DAG();
+      const selected = dag.selectTips(2);
+      expect(selected.length).toBe(0);
+    });
+
+    it('should select tip URLs', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const tipUrls = dag.selectTipUrls(2);
+      expect(tipUrls.length).toBe(1);
+      expect(tipUrls[0]).toContain('/tx/h/');
+    });
+  });
+
+  describe('Weight Updates', () => {
+    it('should update weights from account weights', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      dag.updateWeights(new Map([['alice', 500]]));
+      const node = dag.getNode(tx.hash);
+      expect(node?.weight).toBe(500);
+    });
+
+    it('should default to 0 for missing accounts', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      dag.updateWeights(new Map([['other', 500]]));
+      const node = dag.getNode(tx.hash);
+      expect(node?.weight).toBe(0);
+    });
+  });
+
+  describe('URL Resolution Edge Cases', () => {
+    it('should resolve compact URL format', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const hash = dag.resolveUrlToHash(`/tx/h/${tx.hash}`);
+      expect(hash).toBe(tx.hash);
+    });
+
+    it('should return null for invalid URL format', () => {
+      const dag = new DAG();
+      const hash = dag.resolveUrlToHash('/invalid/format');
+      expect(hash).toBeNull();
+    });
+
+    it('should cache resolved URLs', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const url = `/tx/h/${tx.hash}`;
+      dag.resolveUrlToHash(url);
+      const hash = dag.resolveUrlToHash(url);
+      expect(hash).toBe(tx.hash);
+    });
+  });
 });
