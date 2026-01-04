@@ -8,6 +8,7 @@ interface ZKStatus {
   features: {
     witnessGeneration: boolean;
     proofVerification: boolean;
+    proofGeneration: boolean;
     nullifierRegistry: boolean;
   };
   circuitInfo: {
@@ -27,6 +28,15 @@ interface MerkleWitness {
   chainId: string;
 }
 
+interface ProofResult {
+  success: boolean;
+  zkUrl?: string;
+  proofTime?: number;
+  checkpointHeight?: number;
+  nullifier?: string;
+  error?: string;
+}
+
 const NODE_URL = "/api";
 
 export function ZKTab() {
@@ -34,12 +44,14 @@ export function ZKTab() {
   const [txHash, setTxHash] = useState("");
   const [witness, setWitness] = useState<MerkleWitness | null>(null);
   const [zkUrl, setZkUrl] = useState("");
+  const [generatedProof, setGeneratedProof] = useState<ProofResult | null>(null);
   const [verifyResult, setVerifyResult] = useState<{
     valid?: boolean;
     error?: string;
     message?: string;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -80,6 +92,40 @@ export function ZKTab() {
       setError("Failed to connect to node");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const generateProof = async () => {
+    if (!txHash) {
+      setError("Transaction hash required");
+      return;
+    }
+
+    setGenerating(true);
+    setError(null);
+    setGeneratedProof(null);
+
+    try {
+      const res = await fetch(`${NODE_URL}/zk/prove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ txHash }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to generate proof");
+        return;
+      }
+
+      setGeneratedProof(data);
+      if (data.zkUrl) {
+        setZkUrl(data.zkUrl);
+      }
+    } catch (e) {
+      setError("Failed to connect to node");
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -220,17 +266,74 @@ export function ZKTab() {
                 {JSON.stringify(witness, null, 2)}
               </pre>
             </details>
+          </div>
+        )}
+      </div>
 
-            <div className="next-steps">
-              <p>
-                <strong>Next step:</strong> Use this witness with a local prover
-                to generate a ZK proof. The prover runs on your device for
-                privacy.
-              </p>
-              <code className="cli-example">
-                rinku zk prove --witness &lt;above-json&gt; --key
-                &lt;your-private-key&gt;
-              </code>
+      <div className="section">
+        <h3>generate zk proof</h3>
+        <p className="section-description">
+          Generate a privacy-preserving ZK proof for a finalized transaction.
+          This creates a <code>rinku://zk/...</code> URL that proves validity without revealing details.
+        </p>
+
+        <div className="form-group">
+          <input
+            type="text"
+            placeholder="transaction hash (e.g., a1b2c3d4...)"
+            value={txHash}
+            onChange={(e) => setTxHash(e.target.value)}
+            className="input-field"
+          />
+          <button
+            onClick={generateProof}
+            disabled={generating || !txHash || !status?.features.proofGeneration}
+            className="btn btn-primary"
+          >
+            {generating ? "generating proof..." : "generate zk proof"}
+          </button>
+        </div>
+
+        {status && !status.features.proofGeneration && (
+          <div className="warning-message">
+            {status.artifactsAvailable 
+              ? "ZK prover initializing... Please wait a few seconds."
+              : "ZK artifacts not yet compiled. Proof generation unavailable."}
+          </div>
+        )}
+
+        {generatedProof && generatedProof.success && (
+          <div className="proof-result success">
+            <h4>proof generated</h4>
+            <div className="code-block">
+              <div className="stat-row">
+                <span>proof time:</span>
+                <span className="value">{generatedProof.proofTime}ms</span>
+              </div>
+              <div className="stat-row">
+                <span>checkpoint:</span>
+                <span className="value">#{generatedProof.checkpointHeight}</span>
+              </div>
+              <div className="stat-row">
+                <span>nullifier:</span>
+                <span className="value mono">
+                  {generatedProof.nullifier?.slice(0, 16)}...
+                </span>
+              </div>
+            </div>
+            <div className="zk-url-display">
+              <label>zk url (click to copy):</label>
+              <div
+                className="zk-url mono"
+                onClick={() => {
+                  if (generatedProof.zkUrl) {
+                    navigator.clipboard.writeText(generatedProof.zkUrl);
+                  }
+                }}
+                title="Click to copy"
+              >
+                {generatedProof.zkUrl?.slice(0, 60)}...
+              </div>
             </div>
           </div>
         )}

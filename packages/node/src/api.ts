@@ -1408,6 +1408,7 @@ export function createAPI(
 
   const zkArtifacts = getZkArtifacts();
   let zkVerifierInitialized = false;
+  let zkProverInitialized = false;
 
   if (zkArtifacts.available) {
     import('@rinku/zk').then(async (zkModule) => {
@@ -1415,8 +1416,13 @@ export function createAPI(
         await zkModule.initVerifier(zkArtifacts.vkeyPath);
         zkVerifierInitialized = true;
         console.log('ZK verifier initialized with compiled artifacts');
+        
+        await zkModule.initProofBuilder();
+        await zkModule.initProver(zkArtifacts.wasmPath, zkArtifacts.zkeyPath);
+        zkProverInitialized = true;
+        console.log('ZK prover initialized with compiled artifacts');
       } catch (error) {
-        console.error('Failed to initialize ZK verifier:', error);
+        console.error('Failed to initialize ZK module:', error);
       }
     }).catch(err => {
       console.warn('ZK module not available:', err.message);
@@ -1432,6 +1438,7 @@ export function createAPI(
       features: {
         witnessGeneration: true,
         proofVerification: zkVerifierInitialized,
+        proofGeneration: zkProverInitialized,
         nullifierRegistry: zkVerifierInitialized
       },
       circuitInfo: {
@@ -1468,6 +1475,141 @@ export function createAPI(
       const result = await zkModule.verifyZkUrlWithNullifier(zkUrl);
       res.json(result);
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/zk/prove', express.json(), async (req, res) => {
+    const { txHash, privateKeySeed } = req.body;
+    
+    if (!txHash || typeof txHash !== 'string') {
+      res.status(400).json({ error: 'txHash required' });
+      return;
+    }
+
+    if (!zkProverInitialized) {
+      res.status(501).json({ 
+        error: 'ZK prover not yet initialized',
+        message: 'Prover initialization in progress. Please try again in a few seconds.'
+      });
+      return;
+    }
+
+    if (!checkpointService) {
+      res.status(501).json({ error: 'Checkpoint service not enabled' });
+      return;
+    }
+
+    const node = consensus.getNode(txHash);
+    if (!node) {
+      res.status(404).json({ error: 'Transaction not found' });
+      return;
+    }
+
+    const allCheckpoints = checkpointService.getAllCheckpoints();
+    let containingCheckpoint = null;
+    
+    for (const checkpoint of allCheckpoints) {
+      if (checkpoint.txHashes?.includes(txHash)) {
+        containingCheckpoint = checkpoint;
+        break;
+      }
+    }
+
+    if (!containingCheckpoint) {
+      res.status(404).json({ 
+        error: 'Transaction not yet finalized in a checkpoint',
+        txHash,
+        pendingFinalization: true
+      });
+      return;
+    }
+
+    try {
+      const zkModule = await import('@rinku/zk');
+      
+      const merkleProof = await checkpointService.getTransactionMerkleProof(
+        txHash,
+        containingCheckpoint.checkpointId
+      );
+
+      if (!merkleProof) {
+        res.status(500).json({ error: 'Failed to generate Merkle proof' });
+        return;
+      }
+
+      const pathIndices: number[] = [];
+      let idx = merkleProof.index;
+      for (let i = 0; i < merkleProof.proof.length; i++) {
+        pathIndices.push(idx & 1);
+        idx = idx >> 1;
+      }
+
+      const witness: zkModule.MerkleWitness = {
+        txHash,
+        merklePathElements: merkleProof.proof,
+        merklePathIndices: pathIndices,
+        checkpointHeight: containingCheckpoint.height,
+        checkpointRoot: merkleProof.txMerkleRoot,
+        checkpointId: containingCheckpoint.checkpointId,
+        chainId: checkpointService.getChainId()
+      };
+
+      const tx = node.tx;
+      const txData: zkModule.TransactionData = {
+        sender: tx.from,
+        recipient: tx.to,
+        amount: BigInt(Math.floor(tx.amount || 0)),
+        nonce: tx.nonce
+      };
+
+      const seed = privateKeySeed || `demo-seed-${txHash.slice(0, 8)}`;
+      const context = await zkModule.createProofContext(txData, seed);
+      
+      const chainIdNum = witness.chainId === 'rinku-mainnet' ? 0n : 1n;
+      const proofInput = await zkModule.buildZkProofInput(
+        context, 
+        witness, 
+        txData.amount, 
+        chainIdNum
+      );
+
+      console.log(`Generating ZK proof for tx ${txHash.slice(0, 8)}...`);
+      const startTime = Date.now();
+      
+      const { proof, publicSignals } = await zkModule.generateProof(proofInput);
+      
+      const duration = Date.now() - startTime;
+      console.log(`ZK proof generated in ${duration}ms`);
+
+      const zkPayload: zkModule.ZkProofPayload = {
+        v: 1,
+        chainId: witness.chainId || 'rinku-testnet',
+        cpHeight: witness.checkpointHeight,
+        proof: JSON.stringify(proof),
+        publicInputs: {
+          cpRoot: publicSignals[0],
+          nullifier: publicSignals[1],
+          amountCommitment: publicSignals[2],
+          chainIdHash: publicSignals[3]
+        },
+        auxData: {
+          validatorRoot: containingCheckpoint.validatorRoot || '0'.repeat(64),
+          totalWeight: containingCheckpoint.totalWeight || 0
+        }
+      };
+
+      const zkUrl = zkModule.encodeZkUrl(zkPayload);
+
+      res.json({
+        success: true,
+        zkUrl,
+        proofTime: duration,
+        checkpointHeight: witness.checkpointHeight,
+        nullifier: publicSignals[1]
+      });
+    } catch (error: any) {
+      console.error('ZK proof generation failed:', error);
       res.status(500).json({ error: error.message });
     }
   });

@@ -25,14 +25,37 @@ export async function initProofBuilder(): Promise<void> {
   await initEdDSA();
 }
 
+function addressToBigInt(address: string): bigint {
+  if (!address) return 0n;
+  
+  const clean = address.replace(/^0x/i, '');
+  
+  if (/^[0-9a-fA-F]{40}$/.test(clean)) {
+    return BigInt('0x' + clean.padStart(64, '0'));
+  }
+  
+  if (/^[0-9a-fA-F]+$/.test(clean)) {
+    const normalized = clean.length <= 64 ? clean.padStart(64, '0') : clean.slice(-64);
+    return BigInt('0x' + normalized);
+  }
+  
+  const bytes = Buffer.from(address, 'utf8');
+  const hex = bytes.toString('hex');
+  const normalized = hex.length <= 64 ? hex.padStart(64, '0') : hex.slice(-64);
+  return BigInt('0x' + normalized);
+}
+
 export async function createProofContext(txData: TransactionData, privateKeySeed?: string): Promise<ZkProofContext> {
   const keyPair = privateKeySeed 
     ? { privateKey: privateKeyFromSeed(privateKeySeed), publicKey: derivePublicKey(privateKeyFromSeed(privateKeySeed)) }
     : generateKeyPair();
   
+  const senderInt = addressToBigInt(txData.sender);
+  const recipientInt = addressToBigInt(txData.recipient);
+  
   const txHash = await poseidonHash([
-    BigInt('0x' + Buffer.from(txData.sender).slice(0, 20).toString('hex') || '0'),
-    BigInt('0x' + Buffer.from(txData.recipient).slice(0, 20).toString('hex') || '0'),
+    senderInt,
+    recipientInt,
     txData.amount,
     BigInt(txData.nonce)
   ]);
