@@ -238,23 +238,44 @@ export function createAPI(
   });
 
   const TPS_WINDOW_MS = 60000;
-  let lastTpsCheckTime = Date.now();
-  let lastTxCount = consensus.getTotalTransactionsProcessed();
-  let currentTps = 0;
+  const TPS_SAMPLE_INTERVAL_MS = 1000;
+  const tpsSamples: Array<{ timestamp: number; txCount: number }> = [];
+  let lastTpsSampleTime = 0;
+
+  function recordTpsSample(): void {
+    const now = Date.now();
+    if (now - lastTpsSampleTime < TPS_SAMPLE_INTERVAL_MS) return;
+    
+    const txCount = consensus.getTotalTransactionsProcessed();
+    tpsSamples.push({ timestamp: now, txCount });
+    lastTpsSampleTime = now;
+    
+    const cutoff = now - TPS_WINDOW_MS;
+    while (tpsSamples.length > 0 && tpsSamples[0].timestamp < cutoff) {
+      tpsSamples.shift();
+    }
+  }
+
+  function calculateRollingTps(): number {
+    if (tpsSamples.length < 2) return 0;
+    
+    const oldest = tpsSamples[0];
+    const newest = tpsSamples[tpsSamples.length - 1];
+    const elapsedSeconds = (newest.timestamp - oldest.timestamp) / 1000;
+    
+    if (elapsedSeconds < 1) return 0;
+    
+    const txDiff = newest.txCount - oldest.txCount;
+    return txDiff / elapsedSeconds;
+  }
 
   app.get("/api/stats/network", (_req, res) => {
     const now = Date.now();
     const nodes = consensus.getAllNodes();
-
     const totalProcessed = consensus.getTotalTransactionsProcessed();
-    const elapsed = (now - lastTpsCheckTime) / 1000;
-    if (elapsed >= 1) {
-      const txDiff = totalProcessed - lastTxCount;
-      currentTps = txDiff / elapsed;
-      lastTxCount = totalProcessed;
-      lastTpsCheckTime = now;
-    }
-    const tps = currentTps;
+
+    recordTpsSample();
+    const tps = calculateRollingTps();
 
     let finalizedCount = 0;
     let unfinalizedCount = 0;
