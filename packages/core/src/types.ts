@@ -5,6 +5,9 @@ export interface AccountState {
   firstTxTimestamp: number;
 }
 
+/** Transaction kind - distinguishes protocol transactions from user transactions */
+export type TransactionKind = 'user' | 'consolidation';
+
 export interface Transaction {
   from: string;
   to: string;
@@ -14,6 +17,7 @@ export interface Transaction {
   tipUrls: string[];
   sig: string;
   ts: number;
+  kind?: TransactionKind;  // Default: 'user' - consolidation txs are protocol-level tip pruning
 }
 
 // ============================================

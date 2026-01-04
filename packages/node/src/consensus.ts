@@ -53,10 +53,28 @@ export class Consensus {
   async validateTransaction(
     tx: SignedTransaction,
     accounts: Map<string, AccountState>,
-    publicKey?: Uint8Array
+    publicKey?: Uint8Array,
+    validatorFingerprints?: Set<string>
   ): Promise<ValidationResult> {
-    if (tx.amount <= 0) {
-      return { valid: false, error: 'Amount must be positive' };
+    const isConsolidation = tx.kind === 'consolidation';
+    
+    if (isConsolidation) {
+      if (!validatorFingerprints || !validatorFingerprints.has(tx.from)) {
+        return { valid: false, error: 'Consolidation transactions can only be created by validators' };
+      }
+      if (tx.amount !== 0) {
+        return { valid: false, error: 'Consolidation transactions must have zero amount' };
+      }
+      if (tx.fee !== 0) {
+        return { valid: false, error: 'Consolidation transactions must have zero fee' };
+      }
+      if (tx.tipUrls.length < 2) {
+        return { valid: false, error: 'Consolidation transactions must reference at least 2 tips' };
+      }
+    } else {
+      if (tx.amount <= 0) {
+        return { valid: false, error: 'Amount must be positive' };
+      }
     }
 
     if (!tx.from || !tx.to) {
@@ -76,7 +94,7 @@ export class Consensus {
     }
 
     const sender = accounts.get(tx.from);
-    if (tx.from !== 'faucet' && tx.from !== 'genesis') {
+    if (tx.from !== 'faucet' && tx.from !== 'genesis' && !isConsolidation) {
       if (!sender) {
         return { valid: false, error: 'Sender account not found' };
       }
@@ -92,6 +110,12 @@ export class Consensus {
 
       if (tx.fee < 0) {
         return { valid: false, error: 'Fee cannot be negative' };
+      }
+    }
+    
+    if (isConsolidation && sender) {
+      if (tx.nonce !== sender.nonce + 1) {
+        return { valid: false, error: 'Invalid nonce for consolidation transaction' };
       }
     }
 
