@@ -6,6 +6,7 @@ import {
 } from '@rinku/core';
 import type { Consensus } from './consensus.js';
 import type { StateManager } from './state.js';
+import { tipConsolidationCounter, tipsConsolidatedCounter } from './telemetry.js';
 
 export interface TipConsolidatorConfig {
   upperThreshold: number;
@@ -116,8 +117,11 @@ export class TipConsolidatorService {
 
     const oldestTipUrls = tipUrls.slice(0, numTips);
 
-    const sender = this.state.getAccount(this.validatorKey.fingerprint);
-    const nonce = sender ? sender.nonce + 1 : 1;
+    let sender = this.state.getAccount(this.validatorKey.fingerprint);
+    if (!sender) {
+      sender = this.state.createAccount(this.validatorKey.fingerprint, 0);
+    }
+    const nonce = sender.nonce + 1;
 
     const tx: Omit<SignedTransaction, 'hash'> = {
       from: this.validatorKey.fingerprint,
@@ -141,13 +145,20 @@ export class TipConsolidatorService {
     };
 
     try {
-      await this.consensus.addTransaction(signedTx);
+      const applied = await this.state.applyTransaction(signedTx);
+      if (!applied) {
+        console.error('[TipConsolidator] Failed to apply consolidation tx to state');
+        return;
+      }
       
-      await this.state.applyTransaction(signedTx, { skipChecks: true });
+      await this.consensus.addTransaction(signedTx);
       
       this.lastConsolidationAt = Date.now();
       this.totalConsolidations++;
       this.tipsConsolidated += numTips;
+      
+      tipConsolidationCounter.inc();
+      tipsConsolidatedCounter.inc(numTips);
       
       console.log(`[TipConsolidator] Created consolidation tx referencing ${numTips} tips (total: ${this.totalConsolidations}, tips now: ${this.consensus.getTips().length})`);
     } catch (err) {

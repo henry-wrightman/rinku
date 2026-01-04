@@ -113,7 +113,10 @@ export class Consensus {
       }
     }
     
-    if (isConsolidation && sender) {
+    if (isConsolidation) {
+      if (!sender) {
+        return { valid: false, error: 'Validator account not found for consolidation transaction' };
+      }
       if (tx.nonce !== sender.nonce + 1) {
         return { valid: false, error: 'Invalid nonce for consolidation transaction' };
       }
