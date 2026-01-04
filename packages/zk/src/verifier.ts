@@ -75,8 +75,19 @@ export async function verifyZkPayload(payload: ZkProofPayload, expectedChainId?:
   }
 }
 
-function deserializeProof(proofBase64: string): ZkProof {
-  const buffer = Buffer.from(proofBase64, 'base64');
+function deserializeProof(proofData: string): ZkProof {
+  if (proofData.startsWith('{')) {
+    const parsed = JSON.parse(proofData);
+    return {
+      pi_a: parsed.pi_a,
+      pi_b: parsed.pi_b,
+      pi_c: parsed.pi_c,
+      protocol: parsed.protocol || 'groth16',
+      curve: parsed.curve || 'bn128'
+    };
+  }
+  
+  const buffer = Buffer.from(proofData, 'base64');
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 
   let offset = 0;

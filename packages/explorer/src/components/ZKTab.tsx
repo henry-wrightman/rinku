@@ -44,7 +44,9 @@ export function ZKTab() {
   const [txHash, setTxHash] = useState("");
   const [witness, setWitness] = useState<MerkleWitness | null>(null);
   const [zkUrl, setZkUrl] = useState("");
-  const [generatedProof, setGeneratedProof] = useState<ProofResult | null>(null);
+  const [generatedProof, setGeneratedProof] = useState<ProofResult | null>(
+    null,
+  );
   const [verifyResult, setVerifyResult] = useState<{
     valid?: boolean;
     error?: string;
@@ -194,9 +196,7 @@ export function ZKTab() {
             </div>
             <div className="stat-row">
               <span>proof verification:</span>
-              <span
-                className={`value ${status.features.proofVerification ? "success" : "warning"}`}
-              >
+              <span className={`value`}>
                 {status.features.proofVerification
                   ? "ready"
                   : "pending artifacts"}
@@ -274,7 +274,8 @@ export function ZKTab() {
         <h3>generate zk proof</h3>
         <p className="section-description">
           Generate a privacy-preserving ZK proof for a finalized transaction.
-          This creates a <code>rinku://zk/...</code> URL that proves validity without revealing details.
+          This creates a <code>rinku://zk/...</code> URL that proves validity
+          without revealing details.
         </p>
 
         <div className="form-group">
@@ -287,7 +288,9 @@ export function ZKTab() {
           />
           <button
             onClick={generateProof}
-            disabled={generating || !txHash || !status?.features.proofGeneration}
+            disabled={
+              generating || !txHash || !status?.features.proofGeneration
+            }
             className="btn btn-primary"
           >
             {generating ? "generating proof..." : "generate zk proof"}
@@ -296,7 +299,7 @@ export function ZKTab() {
 
         {status && !status.features.proofGeneration && (
           <div className="warning-message">
-            {status.artifactsAvailable 
+            {status.artifactsAvailable
               ? "ZK prover initializing... Please wait a few seconds."
               : "ZK artifacts not yet compiled. Proof generation unavailable."}
           </div>
@@ -312,7 +315,9 @@ export function ZKTab() {
               </div>
               <div className="stat-row">
                 <span>checkpoint:</span>
-                <span className="value">#{generatedProof.checkpointHeight}</span>
+                <span className="value">
+                  #{generatedProof.checkpointHeight}
+                </span>
               </div>
               <div className="stat-row">
                 <span>nullifier:</span>
