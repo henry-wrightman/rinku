@@ -18,7 +18,7 @@ packages/zk/build/
 *.sym
 
 # Rinku data (snapshots, state)
-.rinku-data/
+packages/node/.rinku-data/
 
 # Replit specific
 .cache/
