@@ -50,6 +50,11 @@ const DEFAULT_CONFIG: ForkRemediationConfig = {
   maxTipsForFullScan: 20,
 };
 
+const MAX_FORK_EVENTS = 1000;
+const MAX_DOUBLE_SPENDS = 500;
+const FORK_STALE_AGE_MS = 120000;
+const SKIP_FORK_DETECTION_TIP_THRESHOLD = 50;
+
 export class ForkRemediationService {
   private consensus: Consensus;
   private state: StateManager;
@@ -283,6 +288,10 @@ export class ForkRemediationService {
       return;
     }
     
+    if (currentTips.size > SKIP_FORK_DETECTION_TIP_THRESHOLD) {
+      return;
+    }
+    
     this.pendingTipQueue = this.pendingTipQueue.filter(t => currentTips.has(t));
     
     for (const tip of currentTips) {
@@ -500,6 +509,26 @@ export class ForkRemediationService {
     for (const [key, fork] of this.forkEvents) {
       if (fork.resolvedAt && now - fork.resolvedAt > maxAge) {
         this.forkEvents.delete(key);
+      } else if (now - fork.detectedAt > FORK_STALE_AGE_MS) {
+        this.forkEvents.delete(key);
+      }
+    }
+    
+    if (this.forkEvents.size > MAX_FORK_EVENTS) {
+      const entries = Array.from(this.forkEvents.entries())
+        .sort((a, b) => a[1].detectedAt - b[1].detectedAt);
+      const toRemove = entries.slice(0, entries.length - MAX_FORK_EVENTS);
+      for (const [key] of toRemove) {
+        this.forkEvents.delete(key);
+      }
+    }
+    
+    if (this.doubleSpends.size > MAX_DOUBLE_SPENDS) {
+      const entries = Array.from(this.doubleSpends.entries())
+        .sort((a, b) => a[1].detectedAt - b[1].detectedAt);
+      const toRemove = entries.slice(0, entries.length - MAX_DOUBLE_SPENDS);
+      for (const [key] of toRemove) {
+        this.doubleSpends.delete(key);
       }
     }
   }
