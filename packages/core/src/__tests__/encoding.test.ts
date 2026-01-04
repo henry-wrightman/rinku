@@ -16,8 +16,26 @@ import {
   chunkWasmCode,
   assembleWasmFromChunks,
   getURLType,
+  getURLTypeExtended,
+  encodeSelfCrawlableBundle,
+  decodeSelfCrawlableBundle,
+  createSelfCrawlableURL,
+  parseSelfCrawlableURL,
+  verifySelfCrawlableBundle,
+  encodeContractReceiptProof,
+  decodeContractReceiptProof,
+  createContractReceiptURL,
+  parseContractReceiptURL,
+  encodeContractReceiptProofB,
+  decodeContractReceiptProofB,
+  createContractReceiptURLB,
+  parseContractReceiptURLB,
+  verifyContractReceiptProof,
+  verifyReceiptMerkleProof,
+  type ContractReceiptProofA,
+  type ContractReceiptProofB,
 } from '../encoding.js';
-import type { Transaction, ContractDeploy, ContractTransaction } from '../types.js';
+import type { Transaction, ContractDeploy, ContractTransaction, SelfCrawlableBundle, ContractReceipt } from '../types.js';
 
 describe('Encoding Module', () => {
   const mockTransaction: Transaction = {
@@ -222,6 +240,596 @@ describe('Encoding Module', () => {
     it('should return unknown for other URLs', () => {
       expect(getURLType('/other/path')).toBe('unknown');
       expect(getURLType('http://example.com')).toBe('unknown');
+    });
+
+    it('should detect hash-based tx URLs', () => {
+      expect(getURLType('/tx/h/abc123')).toBe('tx');
+    });
+
+    it('should detect txp URLs', () => {
+      expect(getURLType('/txp/payload123')).toBe('txp');
+    });
+  });
+
+  describe('Extended URL Type Detection', () => {
+    it('should detect receipt proof URLs', () => {
+      expect(getURLTypeExtended('/rxp/payload123')).toBe('rxp');
+      expect(getURLTypeExtended('/rxpb/payload123')).toBe('rxpb');
+    });
+
+    it('should detect all standard URL types', () => {
+      expect(getURLTypeExtended('/tx/payload')).toBe('tx');
+      expect(getURLTypeExtended('/tx/h/hash')).toBe('tx');
+      expect(getURLTypeExtended('/txp/payload')).toBe('txp');
+      expect(getURLTypeExtended('/sc/payload')).toBe('sc');
+      expect(getURLTypeExtended('/sc/chunk/id/0/data')).toBe('sc-chunk');
+    });
+  });
+
+  describe('Self-Crawlable Bundle Encoding', () => {
+    const mockBundle: SelfCrawlableBundle = {
+      tx: {
+        from: 'alice',
+        to: 'bob',
+        amount: 100,
+        fee: 0.01,
+        nonce: 1,
+        tipUrls: [],
+        sig: 'sig123',
+        ts: Date.now(),
+      },
+      hash: 'txhash123',
+      parents: [],
+    };
+
+    it('should encode and decode self-crawlable bundle', () => {
+      const encoded = encodeSelfCrawlableBundle(mockBundle);
+      const decoded = decodeSelfCrawlableBundle(encoded);
+      expect(decoded.hash).toBe(mockBundle.hash);
+      expect(decoded.tx.from).toBe(mockBundle.tx.from);
+    });
+
+    it('should create self-crawlable URL', () => {
+      const url = createSelfCrawlableURL(mockBundle);
+      expect(url.path).toMatch(/^\/txp\//);
+      expect(url.payload).toBeDefined();
+    });
+
+    it('should parse self-crawlable URL', () => {
+      const url = createSelfCrawlableURL(mockBundle);
+      const parsed = parseSelfCrawlableURL(url.path);
+      expect(parsed).toBeDefined();
+      expect(parsed!.hash).toBe(mockBundle.hash);
+    });
+
+    it('should return null for invalid self-crawlable URL', () => {
+      expect(parseSelfCrawlableURL('/invalid/url')).toBeNull();
+      expect(parseSelfCrawlableURL('/txp/!!!invalid!!!')).toBeNull();
+    });
+
+    it('should handle bundle with parents', () => {
+      const parentBundle: SelfCrawlableBundle = {
+        tx: { ...mockBundle.tx, nonce: 0 },
+        hash: 'parenthash',
+        parents: [],
+      };
+      const bundleWithParents: SelfCrawlableBundle = {
+        ...mockBundle,
+        parents: [parentBundle],
+      };
+      const encoded = encodeSelfCrawlableBundle(bundleWithParents);
+      const decoded = decodeSelfCrawlableBundle(encoded);
+      expect(decoded.parents.length).toBe(1);
+      expect(decoded.parents[0].hash).toBe('parenthash');
+    });
+
+    it('should handle bundle with checkpoint anchor', () => {
+      const bundleWithAnchor: SelfCrawlableBundle = {
+        ...mockBundle,
+        checkpointAnchor: {
+          checkpointId: 'cp123',
+          merkleRoot: 'root123',
+          height: 100,
+          signatureCount: 5,
+        },
+      };
+      const encoded = encodeSelfCrawlableBundle(bundleWithAnchor);
+      const decoded = decodeSelfCrawlableBundle(encoded);
+      expect(decoded.checkpointAnchor?.checkpointId).toBe('cp123');
+    });
+  });
+
+  describe('Self-Crawlable Bundle Verification', () => {
+    const validBundle: SelfCrawlableBundle = {
+      tx: {
+        from: 'alice',
+        to: 'bob',
+        amount: 100,
+        fee: 0.01,
+        nonce: 1,
+        tipUrls: [],
+        sig: 'sig123',
+        ts: Date.now(),
+      },
+      hash: 'txhash123',
+      parents: [],
+    };
+
+    it('should verify valid bundle', () => {
+      const result = verifySelfCrawlableBundle(validBundle);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toEqual([]);
+      expect(result.transactionCount).toBe(1);
+    });
+
+    it('should detect missing tx', () => {
+      const invalidBundle = { hash: 'hash', parents: [] } as any;
+      const result = verifySelfCrawlableBundle(invalidBundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Bundle missing tx field');
+    });
+
+    it('should detect missing hash', () => {
+      const invalidBundle = { tx: validBundle.tx, parents: [] } as any;
+      const result = verifySelfCrawlableBundle(invalidBundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Bundle missing hash field');
+    });
+
+    it('should detect invalid amount', () => {
+      const invalidBundle: SelfCrawlableBundle = {
+        ...validBundle,
+        tx: { ...validBundle.tx, amount: 0 },
+      };
+      const result = verifySelfCrawlableBundle(invalidBundle);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should detect missing signature', () => {
+      const invalidBundle: SelfCrawlableBundle = {
+        ...validBundle,
+        tx: { ...validBundle.tx, sig: '' },
+      };
+      const result = verifySelfCrawlableBundle(invalidBundle);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should count nested transactions', () => {
+      const parent1: SelfCrawlableBundle = { ...validBundle, hash: 'p1', parents: [] };
+      const parent2: SelfCrawlableBundle = { ...validBundle, hash: 'p2', parents: [] };
+      const bundleWithParents: SelfCrawlableBundle = {
+        ...validBundle,
+        parents: [parent1, parent2],
+      };
+      const result = verifySelfCrawlableBundle(bundleWithParents);
+      expect(result.transactionCount).toBe(3);
+      expect(result.maxDepth).toBe(1);
+    });
+
+    it('should detect duplicate transactions', () => {
+      const parent: SelfCrawlableBundle = { ...validBundle, hash: 'dup', parents: [] };
+      const bundleWithDupes: SelfCrawlableBundle = {
+        ...validBundle,
+        parents: [parent, parent],
+      };
+      const result = verifySelfCrawlableBundle(bundleWithDupes);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('Duplicate'))).toBe(true);
+    });
+
+    it('should report checkpoint anchor presence', () => {
+      const bundleWithAnchor: SelfCrawlableBundle = {
+        ...validBundle,
+        checkpointAnchor: {
+          checkpointId: 'cp123',
+          merkleRoot: 'root123',
+          height: 100,
+          signatureCount: 5,
+        },
+      };
+      const result = verifySelfCrawlableBundle(bundleWithAnchor);
+      expect(result.hasCheckpointAnchor).toBe(true);
+      expect(result.checkpointId).toBe('cp123');
+    });
+
+    it('should detect invalid checkpoint anchor', () => {
+      const bundleWithBadAnchor: SelfCrawlableBundle = {
+        ...validBundle,
+        checkpointAnchor: {
+          checkpointId: '',
+          merkleRoot: 'root',
+          height: 100,
+          signatureCount: 0,
+        },
+      };
+      const result = verifySelfCrawlableBundle(bundleWithBadAnchor);
+      expect(result.valid).toBe(false);
+    });
+  });
+
+  describe('Contract Receipt Proof Encoding (Profile A)', () => {
+    const FIXED_TS = 1700000000000;
+    const mockReceipt = {
+      callId: 'call123',
+      txHash: 'txhash123',
+      contractId: 'contract123',
+      entrypoint: 'transfer',
+      caller: 'alice',
+      preStateRoot: 'pre123',
+      postStateRoot: 'post123',
+      effectsHash: 'effects123',
+      status: 'success' as const,
+      gasUsed: 1000,
+      gasLimit: 2000,
+      eventsHash: 'events123',
+      eventCount: 0,
+      executedAt: FIXED_TS,
+    };
+
+    const mockProofA: ContractReceiptProofA = {
+      receipt: mockReceipt,
+      tx: {
+        from: 'alice',
+        to: 'contract123',
+        amount: 0,
+        fee: 0.01,
+        nonce: 1,
+        tipUrls: [],
+        sig: 'sig123',
+        ts: FIXED_TS,
+      },
+      txHash: 'txhash123',
+      checkpointAnchor: {
+        checkpointId: 'cp123',
+        height: 100,
+        stateRoot: 'state123',
+        receiptRoot: 'receipt123',
+        merkleRoot: 'merkle123',
+        signatureCount: 5,
+      },
+    };
+
+    it('should encode and decode Profile A proof', () => {
+      const encoded = encodeContractReceiptProof(mockProofA);
+      const decoded = decodeContractReceiptProof(encoded);
+      expect(decoded.receipt.callId).toBe(mockProofA.receipt.callId);
+      expect(decoded.txHash).toBe(mockProofA.txHash);
+    });
+
+    it('should create Profile A URL', () => {
+      const url = createContractReceiptURL(mockProofA);
+      expect(url.path).toMatch(/^\/rxp\//);
+    });
+
+    it('should parse Profile A URL', () => {
+      const url = createContractReceiptURL(mockProofA);
+      const parsed = parseContractReceiptURL(url.path);
+      expect(parsed).toBeDefined();
+      expect(parsed!.receipt.callId).toBe(mockProofA.receipt.callId);
+    });
+
+    it('should return null for invalid Profile A URL', () => {
+      expect(parseContractReceiptURL('/invalid')).toBeNull();
+      expect(parseContractReceiptURL('/rxp/!!!invalid!!!')).toBeNull();
+    });
+  });
+
+  describe('Contract Receipt Proof Encoding (Profile B)', () => {
+    const FIXED_TS = 1700000000000;
+    const mockFullReceipt: ContractReceipt = {
+      callId: 'call123',
+      txHash: 'txhash123',
+      contractId: 'contract123',
+      entrypoint: 'transfer',
+      caller: 'alice',
+      preStateRoot: 'pre123',
+      postStateRoot: 'post123',
+      effectsHash: 'effects123',
+      status: 'success',
+      gasUsed: 1000,
+      gasLimit: 2000,
+      eventsHash: 'events123',
+      eventCount: 1,
+      executedAt: FIXED_TS,
+      events: [{ contractId: 'contract123', eventName: 'Transfer', data: { from: 'alice', to: 'bob', amount: 100 }, index: 0 }],
+    };
+
+    const mockProofB: ContractReceiptProofB = {
+      receipt: mockFullReceipt,
+      tx: {
+        from: 'alice',
+        to: 'contract123',
+        amount: 0,
+        fee: 0.01,
+        nonce: 1,
+        tipUrls: [],
+        sig: 'sig123',
+        ts: FIXED_TS,
+      },
+      txHash: 'txhash123',
+      checkpointAnchor: {
+        checkpointId: 'cp123',
+        height: 100,
+        stateRoot: 'state123',
+        receiptRoot: 'receipt123',
+        merkleRoot: 'merkle123',
+        signatureCount: 5,
+      },
+      witness: {
+        touchedKeys: [{ contractId: 'contract123', key: 'balance', preValue: 100, postValue: 50 }],
+        merkleProofs: [],
+      },
+      validatorSignatures: [
+        { validator: 'val1', signature: 'sig1', weight: 100 },
+      ],
+      receiptMerkleProof: {
+        proof: ['sibling1', 'sibling2'],
+        index: 0,
+        receiptRoot: 'receipt123',
+      },
+    };
+
+    it('should encode and decode Profile B proof', () => {
+      const encoded = encodeContractReceiptProofB(mockProofB);
+      const decoded = decodeContractReceiptProofB(encoded);
+      expect(decoded.receipt.callId).toBe(mockProofB.receipt.callId);
+      expect(decoded.witness.touchedKeys.length).toBe(1);
+      expect(decoded.validatorSignatures.length).toBe(1);
+    });
+
+    it('should create Profile B URL', () => {
+      const url = createContractReceiptURLB(mockProofB);
+      expect(url.path).toMatch(/^\/rxpb\//);
+    });
+
+    it('should parse Profile B URL', () => {
+      const url = createContractReceiptURLB(mockProofB);
+      const parsed = parseContractReceiptURLB(url.path);
+      expect(parsed).toBeDefined();
+      expect(parsed!.witness.touchedKeys.length).toBe(1);
+    });
+
+    it('should return null for invalid Profile B URL', () => {
+      expect(parseContractReceiptURLB('/invalid')).toBeNull();
+      expect(parseContractReceiptURLB('/rxpb/!!!invalid!!!')).toBeNull();
+    });
+  });
+
+  describe('Contract Receipt Proof Verification', () => {
+    const FIXED_TS = 1700000000000;
+    const validProofA: ContractReceiptProofA = {
+      receipt: {
+        callId: 'call123',
+        txHash: 'txhash123',
+        contractId: 'contract123',
+        entrypoint: 'transfer',
+        caller: 'alice',
+        preStateRoot: 'pre123',
+        postStateRoot: 'post123',
+        effectsHash: 'effects123',
+        status: 'success' as const,
+        gasUsed: 1000,
+        gasLimit: 2000,
+        eventsHash: 'events123',
+        eventCount: 0,
+        executedAt: FIXED_TS,
+      },
+      tx: {
+        from: 'alice',
+        to: 'contract123',
+        amount: 0,
+        fee: 0.01,
+        nonce: 1,
+        tipUrls: [],
+        sig: 'sig123',
+        ts: FIXED_TS,
+      },
+      txHash: 'txhash123',
+      checkpointAnchor: {
+        checkpointId: 'cp123',
+        height: 100,
+        stateRoot: 'state123',
+        receiptRoot: 'receipt123',
+        merkleRoot: 'merkle123',
+        signatureCount: 5,
+      },
+    };
+
+    it('should verify valid Profile A proof', () => {
+      const result = verifyContractReceiptProof(validProofA);
+      expect(result.valid).toBe(true);
+      expect(result.profile).toBe('A');
+      expect(result.errors).toEqual([]);
+    });
+
+    it('should detect missing receipt', () => {
+      const invalidProof = { ...validProofA, receipt: undefined } as any;
+      const result = verifyContractReceiptProof(invalidProof);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Missing receipt');
+    });
+
+    it('should detect missing receipt fields', () => {
+      const invalidReceipt = { ...validProofA.receipt, callId: '' };
+      const invalidProof = { ...validProofA, receipt: invalidReceipt };
+      const result = verifyContractReceiptProof(invalidProof);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Receipt missing callId');
+    });
+
+    it('should detect missing transaction', () => {
+      const invalidProof = { ...validProofA, tx: undefined } as any;
+      const result = verifyContractReceiptProof(invalidProof);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Missing transaction');
+    });
+
+    it('should detect missing checkpoint anchor', () => {
+      const invalidProof = { ...validProofA, checkpointAnchor: undefined } as any;
+      const result = verifyContractReceiptProof(invalidProof);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Missing checkpoint anchor');
+    });
+
+    it('should detect missing anchor fields', () => {
+      const invalidAnchor = { ...validProofA.checkpointAnchor, checkpointId: '' };
+      const invalidProof = { ...validProofA, checkpointAnchor: invalidAnchor };
+      const result = verifyContractReceiptProof(invalidProof);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Anchor missing checkpointId');
+    });
+
+    it('should identify Profile B proofs', () => {
+      const proofB: ContractReceiptProofB = {
+        ...validProofA,
+        receipt: { ...validProofA.receipt, events: [] },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [{ validator: 'v1', signature: 's1', weight: 100 }],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'root' },
+      };
+      const result = verifyContractReceiptProof(proofB);
+      expect(result.profile).toBe('B');
+      expect(result.hasWitness).toBe(true);
+      expect(result.hasValidatorSignatures).toBe(true);
+      expect(result.signatureCount).toBe(1);
+    });
+
+    it('should detect missing Profile B witness', () => {
+      const proofB = {
+        ...validProofA,
+        receipt: { ...validProofA.receipt, events: [] },
+        witness: undefined,
+        validatorSignatures: [{ validator: 'v1', signature: 's1', weight: 100 }],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'root' },
+      } as any;
+      const result = verifyContractReceiptProof(proofB);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Profile B missing witness');
+    });
+
+    it('should detect missing Profile B signatures', () => {
+      const proofB = {
+        ...validProofA,
+        receipt: { ...validProofA.receipt, events: [] },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'root' },
+      } as any;
+      const result = verifyContractReceiptProof(proofB);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Profile B missing validator signatures');
+    });
+  });
+
+  describe('Receipt Merkle Proof Verification', () => {
+    const FIXED_TS = 1700000000000;
+    
+    it('should verify valid Merkle proof', async () => {
+      const { hash } = await import('../crypto.js');
+      const receipt: ContractReceipt = {
+        callId: 'call1',
+        txHash: 'tx1',
+        contractId: 'c1',
+        entrypoint: 'fn',
+        caller: 'alice',
+        preStateRoot: 'pre',
+        postStateRoot: 'post',
+        effectsHash: 'e1',
+        status: 'success',
+        gasUsed: 100,
+        gasLimit: 200,
+        eventsHash: 'ev1',
+        eventCount: 0,
+        executedAt: FIXED_TS,
+        events: [],
+      };
+
+      const leafData = JSON.stringify({ id: 'call1', receipt });
+      const leafHash = await hash(leafData);
+      
+      const valid = await verifyReceiptMerkleProof('call1', receipt, [], 0, leafHash);
+      expect(valid).toBe(true);
+    });
+
+    it('should reject invalid Merkle proof', async () => {
+      const receipt: ContractReceipt = {
+        callId: 'call1',
+        txHash: 'tx1',
+        contractId: 'c1',
+        entrypoint: 'fn',
+        caller: 'alice',
+        preStateRoot: 'pre',
+        postStateRoot: 'post',
+        effectsHash: 'e1',
+        status: 'success',
+        gasUsed: 100,
+        gasLimit: 200,
+        eventsHash: 'ev1',
+        eventCount: 0,
+        executedAt: FIXED_TS,
+        events: [],
+      };
+
+      const valid = await verifyReceiptMerkleProof('call1', receipt, [], 0, 'wrongroot');
+      expect(valid).toBe(false);
+    });
+
+    it('should handle proof with siblings', async () => {
+      const { hash } = await import('../crypto.js');
+      const receipt: ContractReceipt = {
+        callId: 'call1',
+        txHash: 'tx1',
+        contractId: 'c1',
+        entrypoint: 'fn',
+        caller: 'alice',
+        preStateRoot: 'pre',
+        postStateRoot: 'post',
+        effectsHash: 'e1',
+        status: 'success',
+        gasUsed: 100,
+        gasLimit: 200,
+        eventsHash: 'ev1',
+        eventCount: 0,
+        executedAt: FIXED_TS,
+        events: [],
+      };
+
+      const leafData = JSON.stringify({ id: 'call1', receipt });
+      const leafHash = await hash(leafData);
+      const sibling = await hash('sibling');
+      const expectedRoot = await hash(leafHash + sibling);
+      
+      const valid = await verifyReceiptMerkleProof('call1', receipt, [sibling], 0, expectedRoot);
+      expect(valid).toBe(true);
+    });
+
+    it('should handle odd index in proof', async () => {
+      const { hash } = await import('../crypto.js');
+      const receipt: ContractReceipt = {
+        callId: 'call1',
+        txHash: 'tx1',
+        contractId: 'c1',
+        entrypoint: 'fn',
+        caller: 'alice',
+        preStateRoot: 'pre',
+        postStateRoot: 'post',
+        effectsHash: 'e1',
+        status: 'success',
+        gasUsed: 100,
+        gasLimit: 200,
+        eventsHash: 'ev1',
+        eventCount: 0,
+        executedAt: FIXED_TS,
+        events: [],
+      };
+
+      const leafData = JSON.stringify({ id: 'call1', receipt });
+      const leafHash = await hash(leafData);
+      const sibling = await hash('sibling');
+      const expectedRoot = await hash(sibling + leafHash);
+      
+      const valid = await verifyReceiptMerkleProof('call1', receipt, [sibling], 1, expectedRoot);
+      expect(valid).toBe(true);
     });
   });
 });
