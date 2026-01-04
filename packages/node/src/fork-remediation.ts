@@ -41,13 +41,13 @@ export interface ForkRemediationConfig {
 }
 
 const DEFAULT_CONFIG: ForkRemediationConfig = {
-  doubleSpendCheckIntervalMs: 2000,
+  doubleSpendCheckIntervalMs: 10000,
   branchPruningEnabled: true,
   minWeightAdvantageForPruning: 0.2,
   maxUnfinalizedTxAge: 60000,
   logSummaryIntervalMs: 30000,
   verboseLogging: false,
-  maxTipsForFullScan: 20,
+  maxTipsForFullScan: 10,
 };
 
 const MAX_FORK_EVENTS = 1000;
@@ -65,6 +65,11 @@ export class ForkRemediationService {
   private prunedBranches: Map<string, Set<string>> = new Map();
   private forkEvents: Map<string, ForkEvent> = new Map();
   private nonceIndex: Map<string, Map<number, string[]>> = new Map();
+  private indexedTxHashes: Set<string> = new Set();
+  private ancestorCache: Map<string, Set<string>> = new Map();
+  private ancestorCacheGeneration = 0;
+  private analyzedTipPairs: Set<string> = new Set();
+  private branchTxCache: Map<string, SignedTransaction[]> = new Map();
   
   private checkInterval: NodeJS.Timeout | null = null;
   private summaryInterval: NodeJS.Timeout | null = null;
@@ -73,6 +78,9 @@ export class ForkRemediationService {
   private resolutionsSinceLastSummary = 0;
   private prunesSinceLastSummary = 0;
   private pendingTipQueue: string[] = [];
+  private newTxsSinceLastForkCheck = 0;
+  private readonly FORK_CHECK_THRESHOLD = 50;
+  private isBootstrapping = false;
 
   constructor(
     consensus: Consensus,
@@ -93,19 +101,35 @@ export class ForkRemediationService {
   }
 
   start(): void {
-    if (this.checkInterval) return;
+    if (this.summaryInterval) return;
     
-    this.checkInterval = setInterval(
-      () => this.runDoubleSpendCheck(),
-      this.config.doubleSpendCheckIntervalMs
-    );
+    this.bootstrapExistingNodes();
+    
+    setImmediate(() => this.detectForks());
     
     this.summaryInterval = setInterval(
-      () => this.logSummary(),
+      () => {
+        this.logSummary();
+        this.cleanupOldData();
+        this.detectForks();
+        this.newTxsSinceLastForkCheck = 0;
+      },
       this.config.logSummaryIntervalMs
     );
     
-    console.log('Fork remediation service started');
+    console.log('Fork remediation service started (event-driven mode)');
+  }
+  
+  private bootstrapExistingNodes(): void {
+    this.isBootstrapping = true;
+    const nodes = this.consensus.getAllNodes();
+    for (const node of nodes) {
+      if (!this.indexedTxHashes.has(node.tx.hash)) {
+        this.indexTransaction(node.tx);
+      }
+    }
+    this.isBootstrapping = false;
+    this.newTxsSinceLastForkCheck = 0;
   }
 
   stop(): void {
@@ -130,6 +154,10 @@ export class ForkRemediationService {
   }
 
   indexTransaction(tx: SignedTransaction): void {
+    if (this.indexedTxHashes.has(tx.hash)) {
+      return;
+    }
+    
     if (!this.nonceIndex.has(tx.from)) {
       this.nonceIndex.set(tx.from, new Map());
     }
@@ -140,11 +168,23 @@ export class ForkRemediationService {
     }
     
     const txList = accountNonces.get(tx.nonce)!;
-    if (!txList.includes(tx.hash)) {
-      txList.push(tx.hash);
-      
-      if (txList.length > 1) {
-        this.detectDoubleSpend(tx.from, tx.nonce, txList);
+    if (txList.includes(tx.hash)) {
+      this.indexedTxHashes.add(tx.hash);
+      return;
+    }
+    
+    txList.push(tx.hash);
+    this.indexedTxHashes.add(tx.hash);
+    
+    if (txList.length > 1) {
+      this.detectDoubleSpend(tx.from, tx.nonce, txList);
+    }
+    
+    if (!this.isBootstrapping) {
+      this.newTxsSinceLastForkCheck++;
+      if (this.newTxsSinceLastForkCheck >= this.FORK_CHECK_THRESHOLD) {
+        this.detectForks();
+        this.newTxsSinceLastForkCheck = 0;
       }
     }
   }
@@ -271,12 +311,18 @@ export class ForkRemediationService {
 
   private runDoubleSpendCheck(): void {
     const nodes = this.consensus.getAllNodes();
+    let newNodesIndexed = 0;
     
     for (const node of nodes) {
-      this.indexTransaction(node.tx);
+      if (!this.indexedTxHashes.has(node.tx.hash)) {
+        this.indexTransaction(node.tx);
+        newNodesIndexed++;
+      }
     }
     
-    this.detectForks();
+    if (newNodesIndexed > 0) {
+      this.detectForks();
+    }
     
     this.cleanupOldData();
   }
@@ -285,12 +331,15 @@ export class ForkRemediationService {
     const currentTips = new Set(this.consensus.getTips());
     if (currentTips.size <= 1) {
       this.pendingTipQueue = [];
+      this.ancestorCache.clear();
       return;
     }
     
     if (currentTips.size > SKIP_FORK_DETECTION_TIP_THRESHOLD) {
       return;
     }
+    
+    this.ancestorCacheGeneration++;
     
     this.pendingTipQueue = this.pendingTipQueue.filter(t => currentTips.has(t));
     
@@ -314,8 +363,13 @@ export class ForkRemediationService {
         const tip1 = tips[i];
         const tip2 = tips[j];
         
-        const ancestors1 = this.getAncestors(tip1);
-        const ancestors2 = this.getAncestors(tip2);
+        const pairId = [tip1, tip2].sort().join(':');
+        if (this.analyzedTipPairs.has(pairId) || this.forkEvents.has(pairId)) {
+          continue;
+        }
+        
+        const ancestors1 = this.getAncestorsCached(tip1);
+        const ancestors2 = this.getAncestorsCached(tip2);
         
         let commonAncestor: string | null = null;
         for (const ancestor of ancestors1) {
@@ -325,32 +379,49 @@ export class ForkRemediationService {
           }
         }
         
-        if (!commonAncestor) continue;
+        if (!commonAncestor) {
+          this.analyzedTipPairs.add(pairId);
+          continue;
+        }
         
         const conflictingNonces = this.findConflictingNonces(tip1, tip2, commonAncestor);
+        this.analyzedTipPairs.add(pairId);
+        
         if (conflictingNonces.length === 0) continue;
         
-        const forkId = [tip1, tip2].sort().join(':');
-        if (!this.forkEvents.has(forkId)) {
-          const branch1 = this.analyzeBranch(tip1, commonAncestor);
-          const branch2 = this.analyzeBranch(tip2, commonAncestor);
-          
-          this.forkEvents.set(forkId, {
-            forkId,
-            commonAncestor,
-            branches: [branch1, branch2],
-            detectedAt: Date.now()
-          });
-          
-          this.detectionsSinceLastSummary++;
-          if (this.config.verboseLogging) {
-            console.log(`[Fork] Fork detected: ${forkId.slice(0, 32)}... with ${conflictingNonces.length} conflicts`);
-          }
-          
-          this.attemptForkResolution(forkId);
+        const branch1 = this.analyzeBranch(tip1, commonAncestor);
+        const branch2 = this.analyzeBranch(tip2, commonAncestor);
+        
+        this.forkEvents.set(pairId, {
+          forkId: pairId,
+          commonAncestor,
+          branches: [branch1, branch2],
+          detectedAt: Date.now()
+        });
+        
+        this.detectionsSinceLastSummary++;
+        if (this.config.verboseLogging) {
+          console.log(`[Fork] Fork detected: ${pairId.slice(0, 32)}... with ${conflictingNonces.length} conflicts`);
         }
+        
+        this.attemptForkResolution(pairId);
       }
     }
+  }
+  
+  private getAncestorsCached(txHash: string): Set<string> {
+    const cached = this.ancestorCache.get(txHash);
+    if (cached) {
+      return cached;
+    }
+    
+    const ancestors = this.getAncestors(txHash);
+    
+    if (this.ancestorCache.size < 500) {
+      this.ancestorCache.set(txHash, ancestors);
+    }
+    
+    return ancestors;
   }
 
   private getAncestors(txHash: string): Set<string> {
@@ -382,8 +453,8 @@ export class ForkRemediationService {
   private findConflictingNonces(tip1: string, tip2: string, commonAncestor: string): Array<{ account: string; nonce: number }> {
     const conflicts: Array<{ account: string; nonce: number }> = [];
     
-    const branch1Txs = this.getBranchTransactions(tip1, commonAncestor);
-    const branch2Txs = this.getBranchTransactions(tip2, commonAncestor);
+    const branch1Txs = this.getBranchTransactionsCached(tip1, commonAncestor);
+    const branch2Txs = this.getBranchTransactionsCached(tip2, commonAncestor);
     
     const branch1Nonces = new Map<string, Set<number>>();
     for (const tx of branch1Txs) {
@@ -400,6 +471,22 @@ export class ForkRemediationService {
     }
     
     return conflicts;
+  }
+  
+  private getBranchTransactionsCached(tipHash: string, stopAt: string): SignedTransaction[] {
+    const cacheKey = `${tipHash}:${stopAt}`;
+    const cached = this.branchTxCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    
+    const transactions = this.getBranchTransactions(tipHash, stopAt);
+    
+    if (this.branchTxCache.size < 500) {
+      this.branchTxCache.set(cacheKey, transactions);
+    }
+    
+    return transactions;
   }
 
   private getBranchTransactions(tipHash: string, stopAt: string): SignedTransaction[] {
@@ -429,7 +516,7 @@ export class ForkRemediationService {
   }
 
   private analyzeBranch(tipHash: string, commonAncestor: string): BranchInfo {
-    const transactions = this.getBranchTransactions(tipHash, commonAncestor);
+    const transactions = this.getBranchTransactionsCached(tipHash, commonAncestor);
     let cumulativeWeight = 0;
     let latestTimestamp = 0;
     let containsDoubleSpend = false;
@@ -529,6 +616,32 @@ export class ForkRemediationService {
       const toRemove = entries.slice(0, entries.length - MAX_DOUBLE_SPENDS);
       for (const [key] of toRemove) {
         this.doubleSpends.delete(key);
+      }
+    }
+    
+    const MAX_INDEXED_TX_HASHES = 1000;
+    if (this.indexedTxHashes.size > MAX_INDEXED_TX_HASHES) {
+      const toRemove = this.indexedTxHashes.size - MAX_INDEXED_TX_HASHES;
+      const iterator = this.indexedTxHashes.values();
+      for (let i = 0; i < toRemove; i++) {
+        const hash = iterator.next().value;
+        if (hash) this.indexedTxHashes.delete(hash);
+      }
+    }
+    
+    if (this.ancestorCacheGeneration > 10) {
+      this.ancestorCache.clear();
+      this.branchTxCache.clear();
+      this.ancestorCacheGeneration = 0;
+    }
+    
+    const MAX_ANALYZED_PAIRS = 500;
+    if (this.analyzedTipPairs.size > MAX_ANALYZED_PAIRS) {
+      const toRemove = this.analyzedTipPairs.size - MAX_ANALYZED_PAIRS;
+      const iterator = this.analyzedTipPairs.values();
+      for (let i = 0; i < toRemove; i++) {
+        const pair = iterator.next().value;
+        if (pair) this.analyzedTipPairs.delete(pair);
       }
     }
   }
