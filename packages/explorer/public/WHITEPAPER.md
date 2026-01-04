@@ -28,9 +28,15 @@ A transaction contains:
   nonce: uint64,     // Sender's sequence number
   tipUrls: string[], // References to DAG tips (0-2 parents)
   ts: uint64,        // Unix timestamp (milliseconds)
-  sig: string        // ECDSA signature
+  sig: string,       // ECDSA P-256 signature (consensus validation)
+  
+  // Optional ZK fields (for privacy-enabled transactions)
+  zkPubKey?: string, // BabyJubJub public key (base64, 32 bytes)
+  zkSig?: string     // EdDSA-Poseidon signature over tx hash (base64, 64 bytes)
 }
 ```
+
+> **Dual-signature model:** The `sig` field (ECDSA P-256) is required for consensus validation. The optional `zkPubKey` and `zkSig` fields (EdDSA on BabyJubJub) enable ZK privacy receipts. When present, these ZK fields are Merkle-committed alongside the transaction, allowing the ZK circuit to verify authorization without ECDSA-in-circuit complexity. See Section 3 for ZK privacy details.
 
 ### 2.2 URL Encoding
 
@@ -262,12 +268,17 @@ The ZK circuit (10-level Poseidon Merkle tree, ~10.5k constraints) proves:
 | Constraint | Purpose |
 |------------|---------|
 | Merkle inclusion | Transaction exists in checkpoint |
-| EdDSA signature | Prover authorized the transaction |
+| EdDSA signature | Prover authorized the transaction (verifies zkSig) |
 | Nullifier derivation | Unique per transaction, prevents replay |
 | Amount commitment | Pedersen commitment hides value |
+| Recipient binding | Proof is bound to intended recipient |
 | Chain binding | Prevents cross-chain replay attacks |
 
-**Key insight:** The circuit uses EdDSA on BabyJubJub (ZK-friendly curve) rather than the ledger's ECDSA P-256. Users derive a separate ZK keypair from a seed phrase. This separation allows the base ledger to remain efficient while enabling optional privacy.
+**Dual-signature architecture:** The ZK circuit verifies the `zkSig` (EdDSA on BabyJubJub), not the ledger's `sig` (ECDSA P-256). This separation is intentional:
+- **ECDSA P-256** - Verified by validators for consensus; uses Web Crypto API for broad compatibility
+- **EdDSA BabyJubJub** - Verified in ZK circuit; native to Groth16/bn128 for efficient proving
+
+When a user wants ZK receipts, they derive a BabyJubJub keypair from their seed and include `zkPubKey` + `zkSig` in the transaction. Both signatures are Merkle-committed, so the ZK proof of `zkSig` validity implies the prover controlled the transaction.
 
 ### 3.5 Security Properties
 
@@ -290,8 +301,10 @@ The ZK circuit (10-level Poseidon Merkle tree, ~10.5k constraints) proves:
 |--------|-------|
 | Proof generation | 2-3 seconds (server-side) |
 | Proof verification | <10 milliseconds |
-| URL length | ~500-800 characters |
-| QR compatibility | Version 15 (fits with room to spare) |
+| URL length (base64url) | ~600-900 characters |
+| URL length (base45/QR) | ~500-750 characters |
+
+**QR Encoding:** Base64url forces QR byte mode (~520 bytes for Version 15-L). For QR optimization, use `rinku://zkq/` with base45 encoding (stays in QR alphanumeric mode, ~758 chars for V15-L). See Appendix H.10 for encoding details.
 
 ### 3.7 Use Cases
 
@@ -305,14 +318,39 @@ The ZK circuit (10-level Poseidon Merkle tree, ~10.5k constraints) proves:
 
 The ZK layer adds minimal trust assumptions beyond the base protocol:
 
-1. **Trusted setup** - Groth16 requires a structured reference string (SRS) from a Powers of Tau ceremony. Verifiers must trust the ceremony was conducted correctly (at least one honest participant). The verification key hash is distributed with wallets.
+1. **Trusted setup (MPC ceremony)** - Groth16 requires a structured reference string (SRS) from a multi-party computation ceremony. The setup follows the standard two-phase approach:
+   - **Phase 1 (Powers of Tau):** Universal ceremony contributions (reusable across circuits)
+   - **Phase 2 (Circuit-specific):** Final randomness for this specific circuit
+   
+   The ceremony transcript is published for auditability. Security requires at least one honest participant - if all contributors collude, they could forge proofs (create "valid" proofs for false statements). This does NOT break privacy, only soundness.
+
 2. **Verification key** - Offline verification requires the circuit's verification key pinned by hash. Wallets distribute this key; verifiers accept proofs only for known key hashes. This is analogous to pinning TLS certificate authorities.
+
 3. **Nullifier tracking** - Receipt-only mode (local cache) provides context-specific protection. Global double-claim prevention requires publishing nullifiers on-chain or querying a nullifier accumulator.
-4. **ZK keypair security** - User must protect their seed phrase.
+
+4. **ZK keypair security** - User must protect their seed phrase (derives BabyJubJub keypair for zkSig).
 
 The base chain remains fully transparent. Privacy is opt-in per proof via selective disclosure, enabling regulatory compliance while offering user choice.
 
-### 3.9 Related Work
+### 3.9 Verification Modes
+
+ZK proofs support two verification modes with different trust/convenience tradeoffs:
+
+**Receipt Mode (offline, fast):**
+- Verifies: Groth16 proof, chain binding, local nullifier cache
+- Trust: Accepts `cpRoot` from proof without finality verification
+- Use case: Low-value POS transactions, offline environments
+- Guarantee: "Valid proof under *some* checkpoint" (could be orphaned)
+
+**Finality Mode (offline, full assurance):**
+- Verifies: All of Receipt Mode + Profile C finality certificate in `auxData`
+- Trust: Cryptographically verifies checkpoint was signed by ≥67% stake
+- Use case: High-value settlements, legal evidence
+- Guarantee: "Valid proof under *finalized* checkpoint"
+
+Both modes work offline given pinned verification key and (for Finality Mode) the Profile C proof bundle.
+
+### 3.10 Related Work
 
 The ZK URL concept builds on established cryptographic patterns:
 
@@ -1701,15 +1739,19 @@ Where `payload` is a JSON object:
     "cpRoot": "...",               // Checkpoint Merkle root (public signal 0)
     "nullifier": "...",            // Prevents double-claim (public signal 1)
     "amountCommitment": "...",     // Pedersen commitment to amount (public signal 2)
-    "chainIdHash": "..."           // Poseidon hash of chainId (public signal 3)
+    "chainIdHash": "...",          // Poseidon hash of chainId (public signal 3)
+    "recipientCommitment": "..."   // Poseidon(recipientViewKey) - binds proof to recipient (public signal 4)
   },
   "encryptedMemo": "...",          // For recipient only (optional)
-  "auxData": {                     // For reconstruction
+  "auxData": {                     // For Finality Mode verification
+    "profileCProof": "...",        // Profile C finality certificate (optional)
     "validatorRoot": "...",
     "totalWeight": 5000000
   }
 }
 ```
+
+> **Recipient binding:** The `recipientCommitment` allows merchants to verify "this proof was intended for me" by recomputing `poseidon(myViewKey)` and comparing. Without this, proofs would be freely transferable.
 
 ### H.3 Cryptographic Primitives
 
@@ -1735,13 +1777,16 @@ The ZK circuit proves knowledge of a valid transaction without revealing it:
 - Recipient viewing key
 - Blinding factors for commitments
 
-**Public Inputs (4 signals, matching H.2 JSON schema):**
+**Public Inputs (5 signals, matching H.2 JSON schema):**
 - `cpRoot` - Checkpoint Merkle root (public signal 0)
 - `nullifier` - Prevents double-claiming same proof (public signal 1)
 - `amountCommitment` - Pedersen commitment to amount (public signal 2)
 - `chainIdHash` - Poseidon hash of chainId for replay protection (public signal 3)
+- `recipientCommitment` - Poseidon(recipientViewKey), binds proof to intended recipient (public signal 4)
 
 > **Design choice:** The ZK circuit proves Merkle inclusion and authorization. Checkpoint finality is proven *outside* the circuit via the existing Profile C self-contained proof (MerkleSumTree + BLS aggregated signature). This keeps the ZK circuit small (~10.5k constraints) and avoids the complexity of BLS verification inside SNARKs.
+
+> **Why recipientCommitment?** Without this public input, proofs are transferable - anyone who receives a ZK URL could forward it claiming "I was paid." With `recipientCommitment`, the merchant recomputes `poseidon(myViewKey)` and verifies it matches, proving the proof was specifically intended for them.
 
 **Circuit Constraints:**
 
@@ -1778,7 +1823,7 @@ The ZK circuit proves knowledge of a valid transaction without revealing it:
 | **Transaction Privacy** | ZK proof hides which tx in Merkle tree (selective disclosure) |
 | **Amount Privacy** | Pedersen commitment hides value from proof recipient |
 | **Sender Privacy** | Proof doesn't reveal sender address to proof recipient |
-| **Recipient Privacy** | Only commitment revealed; decrypt with view key |
+| **Recipient Binding** | recipientCommitment (public input) - prevents proof transferability |
 | **Double-Claim Prevention** | Nullifier - local cache (offline) or on-chain registry (global) |
 | **Replay Protection** | chainIdHash bound in circuit public inputs |
 | **Offline Verification** | Requires pinned verification key hash (distributed with wallets) |
@@ -1808,14 +1853,22 @@ function verifyZkProof(url: string, options: VerifyOptions): ZkVerifyResult {
     return { valid: false, reason: 'Wrong chain' };
   }
   
-  // 4. Check nullifier (context-dependent)
+  // 4. Verify recipient binding (proof was intended for this recipient)
+  if (options.recipientViewKey) {
+    const expectedRecipientCommitment = poseidon(options.recipientViewKey);
+    if (payload.publicInputs.recipientCommitment !== expectedRecipientCommitment) {
+      return { valid: false, reason: 'Proof not intended for this recipient' };
+    }
+  }
+  
+  // 5. Check nullifier (context-dependent)
   // - Receipt-only mode: check local cache (offline)
   // - Global mode: check on-chain registry (requires network)
   if (options.nullifierCache?.has(payload.publicInputs.nullifier)) {
     return { valid: false, reason: 'Nullifier already used in this context' };
   }
   
-  // 5. (Optional) Verify checkpoint finality via Profile C proof
+  // 6. (Optional) Verify checkpoint finality via Profile C proof
   // The cpRoot in public inputs should match a finalized checkpoint
   // This step requires the Profile C certificate in auxData
   if (options.requireFinality && payload.auxData?.profileCProof) {
@@ -1837,26 +1890,42 @@ function verifyZkProof(url: string, options: VerifyOptions): ZkVerifyResult {
 
 ### H.7 Recipient Flow
 
-For the recipient to understand a ZK payment:
+For the recipient (merchant/payee) to verify a ZK payment:
 
 1. Receive `rinku://zk/...` URL
-2. Verify ZK proof (offline)
-3. Decrypt `encryptedMemo` using their viewing key
-4. Memo reveals: actual amount, sender identity (optional), payment reference
-5. Optionally register nullifier to prevent proof reuse
+2. Verify ZK proof validity (Groth16 check, ~10ms offline)
+3. Verify chain binding (chainIdHash matches expected network)
+4. **Verify recipient binding** - compute `poseidon(myViewKey)` and confirm it matches `recipientCommitment` (proves proof was intended for this recipient)
+5. Check nullifier against local cache (prevents replay in same context)
+6. (Optional) Verify finality via Profile C proof in auxData
+7. Decrypt `encryptedMemo` using viewing key to reveal: actual amount, sender identity, payment reference
+8. Register nullifier to prevent proof reuse
 
 ### H.8 Proof Size Analysis
 
 | Component | Size |
 |-----------|------|
 | Groth16 proof | 192 bytes |
-| Public inputs | ~256 bytes |
+| Public inputs (5 signals) | ~320 bytes |
 | Encrypted memo | ~64 bytes |
 | Auxiliary data | ~128 bytes |
-| **Total (uncompressed)** | ~640 bytes |
-| **Total (DEFLATE + base64)** | ~500 chars |
+| **Total (uncompressed)** | ~704 bytes |
+| **Total (DEFLATE + base64url)** | ~600-900 chars |
+| **Total (DEFLATE + base45)** | ~500-750 chars |
 
-Fits comfortably in QR Code Version 15 (1,156 chars) with room to spare.
+**QR Capacity Reality Check:**
+
+| QR Version | ECC Level | Byte Mode | Alphanumeric Mode |
+|------------|-----------|-----------|-------------------|
+| 15-L | Low | 520 bytes | 758 chars |
+| 15-M | Medium | 412 bytes | 600 chars |
+| 20-L | Low | 858 bytes | 1,249 chars |
+| 25-L | Low | 1,273 bytes | 1,853 chars |
+
+Base64url uses lowercase + underscore, forcing **byte mode**. For QR compatibility:
+- **Receipt Mode (no auxData):** ~500 bytes fits V15-L in byte mode
+- **Finality Mode (with Profile C):** May require V20+ or URL sharing only
+- **Base45 encoding:** Stays in alphanumeric mode, higher capacity (see H.10)
 
 ### H.9 Implementation Status
 
@@ -1866,12 +1935,19 @@ Fits comfortably in QR Code Version 15 (1,156 chars) with room to spare.
 - Pedersen amount commitments with random blinding
 - Chain ID binding (prevents cross-chain replay)
 - Nullifier derivation (prevents double-claims)
-- Trusted setup using Powers of Tau with crypto.randomBytes entropy
+- Recipient binding (prevents proof transferability)
+- MPC-compatible trusted setup (Powers of Tau Phase 1 + circuit-specific Phase 2)
+
+**Trusted Setup Ceremony:**
+- Phase 1: Uses published Powers of Tau contributions (community ceremony)
+- Phase 2: Circuit-specific randomness with published transcript
+- Verification key hash pinned in wallet distributions
+- Security: Requires at least one honest ceremony participant; compromise enables proof forgery (not privacy break)
 
 **Artifacts:**
 - Circuit WASM: 3.14 MB
 - Proving key (zkey): 6.71 MB
-- Verification key: 3.39 KB
+- Verification key: 3.39 KB (SHA-256 hash pinned)
 
 **API Endpoints:**
 - `GET /api/zk/status` - ZK layer status and feature availability
@@ -1890,7 +1966,36 @@ Fits comfortably in QR Code Version 15 (1,156 chars) with room to spare.
 - Amount range proofs (prove amount > X without revealing exact value)
 - Stealth addresses for enhanced recipient privacy
 
-### H.10 Comparison with Alternatives
+### H.10 QR-Optimized Encoding (Base45)
+
+For optimal QR compatibility, use the `rinku://zkq/` scheme with base45 encoding:
+
+```
+rinku://zkq/{base45(deflate(packed_binary))}
+```
+
+**Why base45?**
+- Base64url uses characters (lowercase, `_`) that force QR byte mode
+- Base45 uses only `0-9`, `A-Z`, ` `, `$`, `%`, `*`, `+`, `-`, `.`, `/`, `:` - all in QR alphanumeric set
+- Alphanumeric mode stores 2 chars per 11 bits vs byte mode's 8 bits per char
+- Result: ~45% more capacity for same QR version
+
+**Encoding comparison (640 bytes payload):**
+
+| Encoding | QR Mode | Output Size | Min QR Version (ECC-L) |
+|----------|---------|-------------|------------------------|
+| Base64url | Byte | ~853 chars | V20 |
+| Base45 | Alphanumeric | ~780 chars | V15 |
+| Packed binary | Byte | 640 bytes | V20 |
+
+**Packed binary format for `zkq`:**
+```
+[1B version][192B proof][160B pubInputs][64B memo][var auxData]
+```
+
+This is the same approach used by EU Digital COVID Certificates (EUDCC) for maximum QR compatibility.
+
+### H.11 Comparison with Alternatives
 
 | Approach | Proof Size | Verification | Prover Time | Chain Changes |
 |----------|------------|--------------|-------------|---------------|
@@ -1903,13 +2008,14 @@ Fits comfortably in QR Code Version 15 (1,156 chars) with room to spare.
 
 Groth16 offers the best balance for URL-native QR-compatible proofs.
 
-### H.11 Trust Assumptions
+### H.12 Trust Assumptions
 
-1. **Trusted Setup**: Groth16 requires a trusted setup ceremony. Use MPC (Powers of Tau + circuit-specific) to minimize trust.
+1. **Trusted Setup**: Groth16 requires a trusted setup ceremony. Use MPC (Powers of Tau + circuit-specific) to minimize trust. See H.9 for ceremony details.
 2. **Nullifier Registry**: If using on-chain registry, privacy is reduced (reveals nullifier usage pattern). Wallet-level tracking provides full privacy but requires recipient cooperation.
 3. **Viewing Keys**: Recipients must safeguard viewing keys; compromise reveals payment history.
+4. **Dual-Signature Security**: ZK proofs verify `zkSig` (BabyJubJub), which is Merkle-committed with the transaction. Compromise of ZK seed ≠ compromise of main wallet (ECDSA key).
 
-### H.12 Future Work
+### H.13 Future Work
 
 - **Recursive proofs**: Aggregate multiple ZK payment proofs into one
 - **Cross-chain proofs**: Prove Rinku payments on other chains
