@@ -1531,3 +1531,221 @@ REJECT: required node missing (not EMPTY_NODE eligible)
 blsVerify(aggregatedSig, signingHash, aggregatedPubKey) = false
 REJECT: BLS aggregate signature verification failed
 ```
+
+## Appendix H: ZK Privacy Layer (Proposal)
+
+This appendix specifies a privacy-preserving proof layer for Rinku that enables confidential payment verification without modifying base chain consensus.
+
+### H.1 Design Philosophy
+
+The ZK privacy layer follows Rinku's core principle: **the URL is the proof**. Rather than making the entire chain private (which would require complex ZK circuits in consensus), we add an optional privacy layer at the proof level:
+
+- Base chain remains transparent and efficient
+- Privacy is opt-in per proof, not per transaction
+- The same on-chain transaction can have both public and private proofs
+- Offline verification preserved
+
+### H.2 URL Format
+
+```
+rinku://zk/{base64url(deflate(payload))}
+```
+
+Where `payload` is a JSON object:
+
+```json
+{
+  "v": 1,                          // Version
+  "chainId": "rinku-mainnet",      // Chain binding
+  "cpHeight": 12345,               // Checkpoint height
+  "proof": "...",                  // Groth16 proof (192 bytes base64)
+  "publicInputs": {
+    "cpRoot": "...",               // Checkpoint Merkle root
+    "nullifier": "...",            // Prevents double-claim
+    "amountCommitment": "...",     // Pedersen commitment to amount
+    "recipientCommitment": "...",  // Commitment to recipient view key
+    "blsAggregate": "..."          // Checkpoint BLS signature
+  },
+  "encryptedMemo": "...",          // For recipient only (optional)
+  "auxData": {                     // For reconstruction
+    "validatorRoot": "...",
+    "totalWeight": 5000000
+  }
+}
+```
+
+### H.3 Cryptographic Primitives
+
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| ZK System | Groth16 | Smallest proofs (~192 bytes), fast verification |
+| Hash (circuit) | Poseidon | ZK-friendly, ~8x faster than SHA-256 in circuits |
+| Commitments | Pedersen (Jubjub) | Additively homomorphic, efficient in ZK |
+| Signatures (circuit) | EdDSA (Jubjub) | Native to ZK circuits, compatible with BLS binding |
+| Encryption | ECIES (Curve25519) | For encrypted memos to recipient |
+
+### H.4 Circuit Design
+
+The ZK circuit proves knowledge of a valid transaction without revealing it:
+
+**Private Witness (known only to prover):**
+- Full transaction data (from, to, amount, fee, nonce, ts, sig)
+- Merkle inclusion path (Poseidon hash)
+- Sender private key
+- Recipient viewing key
+- Blinding factors for commitments
+
+**Public Inputs (embedded in proof):**
+- Checkpoint Merkle root
+- Checkpoint height
+- Nullifier (prevents double-claiming same proof)
+- Amount commitment (Pedersen)
+- Recipient commitment
+- BLS aggregate signature over checkpoint
+
+**Circuit Constraints:**
+
+```
+1. MERKLE_INCLUSION:
+   // Prove tx exists in checkpoint without revealing which one
+   poseidonMerkleVerify(txHash, merklePath, cpRoot) = true
+
+2. SIGNATURE_VALID:
+   // Prove transaction was signed by a valid key
+   eddsaVerify(txData, txSig, senderPubKey) = true
+
+3. NULLIFIER_DERIVATION:
+   // Deterministic nullifier prevents double-claims
+   nullifier = poseidon(senderSecret, cpHeight, txHash)
+
+4. AMOUNT_COMMITMENT:
+   // Commit to amount with blinding factor
+   amountCommitment = pedersenCommit(amount, blindingFactor)
+
+5. RECIPIENT_BINDING:
+   // Bind proof to intended recipient
+   recipientCommitment = poseidon(recipientViewKey)
+
+6. CHAIN_BINDING:
+   // Prevent cross-chain replay
+   chainIdHash = poseidon(chainId)
+```
+
+### H.5 Security Properties
+
+| Property | Mechanism |
+|----------|-----------|
+| **Transaction Privacy** | ZK proof hides which tx in Merkle tree |
+| **Amount Privacy** | Pedersen commitment hides value |
+| **Sender Privacy** | Proof doesn't reveal sender address |
+| **Recipient Privacy** | Only commitment revealed; decrypt with view key |
+| **Double-Claim Prevention** | Nullifier uniqueness (on-chain registry or wallet-level) |
+| **Replay Protection** | Chain ID binding in circuit |
+| **Offline Verification** | All data in URL, no network needed |
+
+### H.6 Verification Algorithm
+
+```
+function verifyZkProof(url: string): ZkVerifyResult {
+  // 1. Decode URL
+  const payload = inflate(base64urlDecode(url.split('/')[2]));
+  
+  // 2. Verify Groth16 proof
+  if (!groth16Verify(payload.proof, payload.publicInputs, VERIFYING_KEY)) {
+    return { valid: false, reason: 'Invalid ZK proof' };
+  }
+  
+  // 3. Verify BLS checkpoint signature
+  if (!blsVerify(payload.publicInputs.blsAggregate, payload.publicInputs.cpRoot)) {
+    return { valid: false, reason: 'Invalid checkpoint signature' };
+  }
+  
+  // 4. Check nullifier (optional - requires registry)
+  if (nullifierRegistry.has(payload.publicInputs.nullifier)) {
+    return { valid: false, reason: 'Nullifier already used' };
+  }
+  
+  // 5. Verify chain binding
+  if (payload.chainId !== EXPECTED_CHAIN_ID) {
+    return { valid: false, reason: 'Wrong chain' };
+  }
+  
+  return {
+    valid: true,
+    amountCommitment: payload.publicInputs.amountCommitment,
+    cpHeight: payload.cpHeight,
+    // Recipient can decrypt memo with their view key
+  };
+}
+```
+
+### H.7 Recipient Flow
+
+For the recipient to understand a ZK payment:
+
+1. Receive `rinku://zk/...` URL
+2. Verify ZK proof (offline)
+3. Decrypt `encryptedMemo` using their viewing key
+4. Memo reveals: actual amount, sender identity (optional), payment reference
+5. Optionally register nullifier to prevent proof reuse
+
+### H.8 Proof Size Analysis
+
+| Component | Size |
+|-----------|------|
+| Groth16 proof | 192 bytes |
+| Public inputs | ~256 bytes |
+| Encrypted memo | ~64 bytes |
+| Auxiliary data | ~128 bytes |
+| **Total (uncompressed)** | ~640 bytes |
+| **Total (DEFLATE + base64)** | ~500 chars |
+
+Fits comfortably in QR Code Version 15 (1,156 chars) with room to spare.
+
+### H.9 Implementation Phases
+
+**Phase 1: Circuit Development**
+- Implement Poseidon Merkle tree gadget
+- Implement EdDSA signature verification gadget
+- Implement Pedersen commitment gadget
+- Trusted setup ceremony (MPC)
+
+**Phase 2: Wallet Integration**
+- Generate viewing keypairs for recipients
+- Fetch Merkle witnesses from node
+- Generate ZK proofs client-side (WASM prover)
+- Create `rinku://zk/` URLs
+
+**Phase 3: Verifier Library**
+- Portable Groth16 verifier (WASM + native)
+- Nullifier registry (optional on-chain or local)
+- Explorer integration for ZK proof verification
+
+**Phase 4: Advanced Features**
+- Amount range proofs (prove amount > X without revealing exact value)
+- Multi-recipient proofs
+- Stealth addresses for enhanced recipient privacy
+
+### H.10 Comparison with Alternatives
+
+| Approach | Proof Size | Verification | Prover Time | Chain Changes |
+|----------|------------|--------------|-------------|---------------|
+| **Rinku ZK URL** | ~500 chars | 10ms | 2-5s | None |
+| Full ZK chain (Zcash) | N/A | N/A | 40s+ | Complete rewrite |
+| STARKs | ~50KB | 50ms | 1-2s | None |
+| Bulletproofs | ~700 bytes | 100ms | 10s | None |
+
+Groth16 offers the best balance for URL-native QR-compatible proofs.
+
+### H.11 Trust Assumptions
+
+1. **Trusted Setup**: Groth16 requires a trusted setup ceremony. Use MPC (Powers of Tau + circuit-specific) to minimize trust.
+2. **Nullifier Registry**: If using on-chain registry, privacy is reduced (reveals nullifier usage pattern). Wallet-level tracking provides full privacy but requires recipient cooperation.
+3. **Viewing Keys**: Recipients must safeguard viewing keys; compromise reveals payment history.
+
+### H.12 Future Work
+
+- **Recursive proofs**: Aggregate multiple ZK payment proofs into one
+- **Cross-chain proofs**: Prove Rinku payments on other chains
+- **Selective disclosure**: Reveal specific fields (e.g., amount) while hiding others
+- **Compliance mode**: Optional auditor keys for regulated use cases
