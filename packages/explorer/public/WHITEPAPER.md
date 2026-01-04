@@ -190,16 +190,18 @@ This is analogous to TLS certificate chains: the proof is self-contained, but ro
 
 ## 3. Zero-Knowledge Privacy
 
-Rinku extends its URL-native philosophy to privacy with ZK URLs - self-contained zero-knowledge proofs that verify transaction validity without revealing sender, recipient, or amount.
+Rinku extends its URL-native philosophy to privacy with ZK URLs - portable zero-knowledge proofs that enable **selective disclosure** of payment validity without revealing transaction details to proof recipients.
 
-### 3.1 The Privacy Problem
+### 3.1 The Selective Disclosure Problem
 
-Public ledgers inherently expose transaction details. Even with pseudonymous addresses, payment patterns, amounts, and counterparty relationships are visible. Existing privacy solutions require:
+Public ledgers inherently expose transaction details. Even with pseudonymous addresses, payment patterns, amounts, and counterparty relationships are visible on-chain. For many use cases, users need to prove they made a payment without revealing full transaction details to the proof recipient (even though the underlying chain data remains transparent to those who query it).
+
+Existing privacy solutions require:
 - Full chain privacy (Zcash) - requires complete protocol rewrite
 - Trusted mixers - introduces counterparty risk
 - Layer 2 solutions - adds complexity and withdrawal delays
 
-Rinku's approach: **optional privacy at the proof layer**, not the consensus layer.
+Rinku's approach: **selective disclosure at the proof layer**. The base chain remains transparent; ZK URLs hide transaction details *from the proof recipient* while cryptographically proving the payment exists.
 
 ### 3.2 ZK URL Format
 
@@ -211,14 +213,16 @@ rinku://zk/{base64url(deflate(payload))}
 
 A ZK URL proves that:
 1. A valid transaction exists in a finalized checkpoint
-2. The prover knows the transaction details
+2. The prover knows the transaction details and authorized them
 3. The proof is bound to the correct chain
 
-**Without revealing:**
+**Without revealing to the proof recipient:**
 - Sender address
 - Recipient address  
 - Transaction amount
 - Which specific transaction in the Merkle tree
+
+> **Important:** This is selective disclosure, not full privacy. The underlying transaction remains visible on the transparent base chain. The ZK URL hides details from someone who *only has the URL* - useful for receipts, payment confirmations, and contexts where you want to prove payment without sharing your wallet address.
 
 ### 3.3 How It Works
 
@@ -245,9 +249,11 @@ The ZK layer uses Groth16 SNARKs with the following flow:
 
 **Verifier (recipient/anyone):**
 1. Receive ZK URL
-2. Decode and verify Groth16 proof (~10ms, offline)
-3. Check nullifier hasn't been used (prevents double-claims)
+2. Decode and verify Groth16 proof (~10ms, offline*)
+3. Check nullifier against local cache (prevents double-claims in same context)
 4. Accept payment proof without learning transaction details
+
+*\*Offline verification assumes the verifier has the circuit verification key pinned by hash (distributed with wallets/apps). See Section 3.8 for trust model.*
 
 ### 3.4 Cryptographic Design
 
@@ -267,12 +273,16 @@ The ZK circuit (10-level Poseidon Merkle tree, ~10.5k constraints) proves:
 
 | Property | Mechanism |
 |----------|-----------|
-| **Transaction privacy** | ZK proof hides which tx in Merkle tree |
+| **Transaction privacy** | ZK proof hides which tx in Merkle tree (selective disclosure) |
 | **Amount privacy** | Pedersen commitment with random blinding |
-| **Sender/recipient privacy** | Only commitments revealed, not addresses |
-| **Double-claim prevention** | Nullifier uniqueness (registry or wallet-level) |
+| **Sender/recipient privacy** | Only commitments revealed to proof recipient |
+| **Double-claim prevention** | Nullifier uniqueness - local cache or on-chain registry |
 | **Replay protection** | Chain ID hash bound in circuit |
-| **Offline verification** | All data in URL, no network required |
+| **Offline verification** | All data in URL; requires pinned verification key |
+
+> **Nullifier Semantics:** The nullifier prevents the same proof from being reused. Two deployment modes exist:
+> 1. **Receipt-only (offline):** Verifier maintains local nullifier cache (POS terminal, wallet). Protects against replay *in the same context* but not globally.
+> 2. **Global uniqueness (online):** Nullifiers published to on-chain registry or accumulator. Requires eventual online step but provides network-wide double-claim protection.
 
 ### 3.6 Performance
 
@@ -295,17 +305,28 @@ The ZK circuit (10-level Poseidon Merkle tree, ~10.5k constraints) proves:
 
 The ZK layer adds minimal trust assumptions beyond the base protocol:
 
-1. **Trusted setup** - Groth16 requires Powers of Tau ceremony (MPC-based)
-2. **Nullifier registry** - Optional; wallet-level tracking provides full privacy
-3. **ZK keypair security** - User must protect their seed phrase
+1. **Trusted setup** - Groth16 requires a structured reference string (SRS) from a Powers of Tau ceremony. Verifiers must trust the ceremony was conducted correctly (at least one honest participant). The verification key hash is distributed with wallets.
+2. **Verification key** - Offline verification requires the circuit's verification key pinned by hash. Wallets distribute this key; verifiers accept proofs only for known key hashes. This is analogous to pinning TLS certificate authorities.
+3. **Nullifier tracking** - Receipt-only mode (local cache) provides context-specific protection. Global double-claim prevention requires publishing nullifiers on-chain or querying a nullifier accumulator.
+4. **ZK keypair security** - User must protect their seed phrase.
 
-The base chain remains fully transparent. Privacy is opt-in per proof, enabling regulatory compliance while offering user choice.
+The base chain remains fully transparent. Privacy is opt-in per proof via selective disclosure, enabling regulatory compliance while offering user choice.
+
+### 3.9 Related Work
+
+The ZK URL concept builds on established cryptographic patterns:
+
+- **Payment disclosure / viewing keys** (Zcash) - Selective disclosure of shielded transactions. Rinku adapts this spirit to URL-portable proofs.
+- **Commitment + nullifier schemes** (Tornado Cash, Semaphore) - Nullifier patterns for double-spend prevention. Rinku uses similar derivation but emphasizes offline-first verification.
+- **Self-contained proofs** (recursive SNARKs, IBC) - Portable validity proofs. Rinku's contribution is the URL-native packaging with explicit QR/size budgets.
+
+**What's novel:** The specific combination of (1) proof-as-a-link as the canonical UX object, (2) offline verification emphasis with explicit trust anchors, (3) QR-compatible size constraints, and (4) integration with checkpoint finality proofs.
 
 See **Appendix H** for detailed implementation specifications including circuit constraints, API endpoints, and proof encoding.
 
 ## 4. DAG-Based Consensus
 
-### 11.1 Structure
+### 4.1 Structure
 
 Unlike linear blockchains, Rinku uses a Directed Acyclic Graph. Each transaction references 0-2 prior transactions (tips), creating a mesh of dependencies.
 
@@ -320,11 +341,11 @@ Benefits:
 - **Reduced contention** - No single chain bottleneck
 - **Natural ordering** - Causal relationships preserved
 
-### 11.2 Conflict Resolution
+### 4.2 Conflict Resolution
 
 When conflicting transactions exist (e.g double-spend attempts), the transaction with greater cumulative weight wins. Weight flows from tips backward through the DAG.
 
-### 5.3 Weight Calculation
+### 4.3 Weight Calculation
 
 Transaction weight derives from the originating account's weighted proof-of-stake:
 
@@ -1714,13 +1735,13 @@ The ZK circuit proves knowledge of a valid transaction without revealing it:
 - Recipient viewing key
 - Blinding factors for commitments
 
-**Public Inputs (embedded in proof):**
-- Checkpoint Merkle root
-- Checkpoint height
-- Nullifier (prevents double-claiming same proof)
-- Amount commitment (Pedersen)
-- Recipient commitment
-- BLS aggregate signature over checkpoint
+**Public Inputs (4 signals, matching H.2 JSON schema):**
+- `cpRoot` - Checkpoint Merkle root (public signal 0)
+- `nullifier` - Prevents double-claiming same proof (public signal 1)
+- `amountCommitment` - Pedersen commitment to amount (public signal 2)
+- `chainIdHash` - Poseidon hash of chainId for replay protection (public signal 3)
+
+> **Design choice:** The ZK circuit proves Merkle inclusion and authorization. Checkpoint finality is proven *outside* the circuit via the existing Profile C self-contained proof (MerkleSumTree + BLS aggregated signature). This keeps the ZK circuit small (~10.5k constraints) and avoids the complexity of BLS verification inside SNARKs.
 
 **Circuit Constraints:**
 
@@ -1754,39 +1775,53 @@ The ZK circuit proves knowledge of a valid transaction without revealing it:
 
 | Property | Mechanism |
 |----------|-----------|
-| **Transaction Privacy** | ZK proof hides which tx in Merkle tree |
-| **Amount Privacy** | Pedersen commitment hides value |
-| **Sender Privacy** | Proof doesn't reveal sender address |
+| **Transaction Privacy** | ZK proof hides which tx in Merkle tree (selective disclosure) |
+| **Amount Privacy** | Pedersen commitment hides value from proof recipient |
+| **Sender Privacy** | Proof doesn't reveal sender address to proof recipient |
 | **Recipient Privacy** | Only commitment revealed; decrypt with view key |
-| **Double-Claim Prevention** | Nullifier uniqueness (on-chain registry or wallet-level) |
-| **Replay Protection** | Chain ID binding in circuit |
-| **Offline Verification** | All data in URL, no network needed |
+| **Double-Claim Prevention** | Nullifier - local cache (offline) or on-chain registry (global) |
+| **Replay Protection** | chainIdHash bound in circuit public inputs |
+| **Offline Verification** | Requires pinned verification key hash (distributed with wallets) |
+
+> **Note on selective disclosure:** These properties apply to the proof recipient. The underlying transaction remains visible on the transparent base chain to anyone who queries it.
 
 ### H.6 Verification Algorithm
 
 ```
-function verifyZkProof(url: string): ZkVerifyResult {
+function verifyZkProof(url: string, options: VerifyOptions): ZkVerifyResult {
+  // 0. Verify we have a trusted verification key
+  if (!TRUSTED_VKEY_HASHES.includes(hash(VERIFYING_KEY))) {
+    return { valid: false, reason: 'Unknown verification key' };
+  }
+
   // 1. Decode URL
   const payload = inflate(base64urlDecode(url.split('/')[2]));
   
-  // 2. Verify Groth16 proof
+  // 2. Verify Groth16 proof (ZK circuit: Merkle inclusion + authorization)
   if (!groth16Verify(payload.proof, payload.publicInputs, VERIFYING_KEY)) {
     return { valid: false, reason: 'Invalid ZK proof' };
   }
   
-  // 3. Verify BLS checkpoint signature
-  if (!blsVerify(payload.publicInputs.blsAggregate, payload.publicInputs.cpRoot)) {
-    return { valid: false, reason: 'Invalid checkpoint signature' };
-  }
-  
-  // 4. Check nullifier (optional - requires registry)
-  if (nullifierRegistry.has(payload.publicInputs.nullifier)) {
-    return { valid: false, reason: 'Nullifier already used' };
-  }
-  
-  // 5. Verify chain binding
-  if (payload.chainId !== EXPECTED_CHAIN_ID) {
+  // 3. Verify chain binding (prevent cross-chain replay)
+  const expectedChainIdHash = poseidon(EXPECTED_CHAIN_ID);
+  if (payload.publicInputs.chainIdHash !== expectedChainIdHash) {
     return { valid: false, reason: 'Wrong chain' };
+  }
+  
+  // 4. Check nullifier (context-dependent)
+  // - Receipt-only mode: check local cache (offline)
+  // - Global mode: check on-chain registry (requires network)
+  if (options.nullifierCache?.has(payload.publicInputs.nullifier)) {
+    return { valid: false, reason: 'Nullifier already used in this context' };
+  }
+  
+  // 5. (Optional) Verify checkpoint finality via Profile C proof
+  // The cpRoot in public inputs should match a finalized checkpoint
+  // This step requires the Profile C certificate in auxData
+  if (options.requireFinality && payload.auxData?.profileCProof) {
+    if (!verifyProfileC(payload.auxData.profileCProof, payload.publicInputs.cpRoot)) {
+      return { valid: false, reason: 'Checkpoint not finalized' };
+    }
   }
   
   return {
@@ -1797,6 +1832,8 @@ function verifyZkProof(url: string): ZkVerifyResult {
   };
 }
 ```
+
+> **Architecture note:** The ZK circuit proves Merkle inclusion and transaction authorization. Checkpoint finality is optionally verified via a Profile C self-contained proof bundled in `auxData`. This separation keeps the ZK circuit small while preserving full offline finality verification when needed.
 
 ### H.7 Recipient Flow
 
