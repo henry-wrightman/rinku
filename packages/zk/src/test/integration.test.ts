@@ -3,8 +3,10 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 import { initProver, generateProof, isProverInitialized, computeExpectedOutputs } from '../prover.js';
-import { initVerifier, isVerifierInitialized, verifyZkUrl, NullifierRegistry } from '../verifier.js';
+import { initVerifier, isVerifierInitialized, verifyZkPayload, NullifierRegistry } from '../verifier.js';
 import { initPoseidon, poseidonHash } from '../poseidon.js';
+import { initEdDSA, generateKeyPair, signPoseidon, verifyPoseidon, privateKeyFromSeed } from '../eddsa.js';
+import { createTestProofInput, initProofBuilder } from '../proof-builder.js';
 import type { ZkProofInput } from '../types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,50 +19,75 @@ const vkeyPath = path.join(BUILD_DIR, 'verification_key.json');
 
 const artifactsExist = fs.existsSync(wasmPath) && fs.existsSync(zkeyPath) && fs.existsSync(vkeyPath);
 
+describe('EdDSA Signing', () => {
+  beforeAll(async () => {
+    await initEdDSA();
+  }, 30000);
+
+  it('should generate keypair and sign/verify message', async () => {
+    const keyPair = generateKeyPair();
+    
+    expect(keyPair.privateKey).toBeDefined();
+    expect(keyPair.privateKey.length).toBe(32);
+    expect(keyPair.publicKey).toHaveLength(2);
+    expect(typeof keyPair.publicKey[0]).toBe('bigint');
+    expect(typeof keyPair.publicKey[1]).toBe('bigint');
+    
+    const message = 12345678901234567890n;
+    const signature = signPoseidon(keyPair.privateKey, message);
+    
+    expect(signature.R8).toHaveLength(2);
+    expect(typeof signature.S).toBe('bigint');
+    
+    const isValid = verifyPoseidon(message, signature, keyPair.publicKey);
+    expect(isValid).toBe(true);
+    
+    const isInvalid = verifyPoseidon(message + 1n, signature, keyPair.publicKey);
+    expect(isInvalid).toBe(false);
+  });
+
+  it('should derive consistent keypair from seed', () => {
+    const seed = 'test-seed-for-determinism';
+    const privKey1 = privateKeyFromSeed(seed);
+    const privKey2 = privateKeyFromSeed(seed);
+    
+    expect(privKey1.equals(privKey2)).toBe(true);
+  });
+});
+
 describe.skipIf(!artifactsExist)('ZK Proof Integration', () => {
   beforeAll(async () => {
-    await initPoseidon();
+    await initProofBuilder();
     await initProver(wasmPath, zkeyPath);
     await initVerifier(vkeyPath);
-  }, 30000);
+  }, 60000);
 
   it('should initialize prover and verifier', () => {
     expect(isProverInitialized()).toBe(true);
     expect(isVerifierInitialized()).toBe(true);
   });
 
-  it('should compute expected outputs correctly', async () => {
-    const senderPrivKey = BigInt('12345678901234567890');
-    const txHash = await poseidonHash([BigInt(42), BigInt(100)]);
+  it('should generate and verify a complete ZK proof', async () => {
+    const input = await createTestProofInput();
     
-    const input: ZkProofInput = {
-      txHash,
-      senderPrivKey,
-      senderPubKeyX: BigInt(0),
-      senderPubKeyY: BigInt(0),
-      txSigR8X: BigInt(0),
-      txSigR8Y: BigInt(0),
-      txSigS: BigInt(0),
-      merklePathElements: Array(10).fill(BigInt(0)),
-      merklePathIndices: Array(10).fill(0),
-      amount: BigInt(1000),
-      amountBlinding: BigInt(987654321),
-      checkpointHeight: BigInt(100),
-      chainId: BigInt(1)
-    };
-
+    expect(input.txHash).toBeDefined();
+    expect(input.senderPubKeyX).toBeDefined();
+    expect(input.txSigS).toBeDefined();
+    
+    const { proof, publicSignals } = await generateProof(input);
+    
+    expect(proof).toBeDefined();
+    expect(proof.pi_a).toHaveLength(3);
+    expect(proof.pi_b).toHaveLength(3);
+    expect(proof.pi_c).toHaveLength(3);
+    expect(publicSignals).toHaveLength(4);
+    
     const expectedOutputs = computeExpectedOutputs(input);
-    
-    expect(expectedOutputs.nullifier).toBeDefined();
-    expect(expectedOutputs.amountCommitment).toBeDefined();
-    expect(expectedOutputs.chainIdHash).toBeDefined();
-    expect(expectedOutputs.checkpointRoot).toBeDefined();
-    
-    expect(typeof expectedOutputs.nullifier).toBe('bigint');
-    expect(typeof expectedOutputs.amountCommitment).toBe('bigint');
-    expect(expectedOutputs.nullifier > 0n).toBe(true);
-    expect(expectedOutputs.amountCommitment > 0n).toBe(true);
-  }, 30000);
+    expect(BigInt(publicSignals[0])).toBe(expectedOutputs.checkpointRoot);
+    expect(BigInt(publicSignals[1])).toBe(expectedOutputs.nullifier);
+    expect(BigInt(publicSignals[2])).toBe(expectedOutputs.amountCommitment);
+    expect(BigInt(publicSignals[3])).toBe(expectedOutputs.chainIdHash);
+  }, 120000);
 
   it('should reject nullifier reuse', () => {
     const registry = new NullifierRegistry();

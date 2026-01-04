@@ -63,6 +63,8 @@ export interface MerkleWitness {
   merklePathIndices: number[];
   checkpointHeight: number;
   checkpointRoot: string;
+  checkpointId?: string;
+  chainId?: string;
 }
 
 export const ZK_URL_VERSION = 1;
