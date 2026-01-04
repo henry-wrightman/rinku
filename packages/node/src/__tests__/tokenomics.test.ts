@@ -209,19 +209,23 @@ describe('Tokenomics Module', () => {
 
   describe('SlashingService', () => {
     let deps: SlashingServiceDeps;
-    let stakes: Map<string, { amount: number }>;
+    let stakes: Map<string, { staker: string; amount: number; stakedAt: number; lastRewardAt: number }>;
 
     beforeEach(() => {
+      const now = Date.now();
       stakes = new Map([
-        ['v1', { amount: 1000 }],
-        ['v2', { amount: 500 }],
-        ['v3', { amount: 100 }]
+        ['v1', { staker: 'v1', amount: 1000, stakedAt: now, lastRewardAt: now }],
+        ['v2', { staker: 'v2', amount: 500, stakedAt: now, lastRewardAt: now }],
+        ['v3', { staker: 'v3', amount: 100, stakedAt: now, lastRewardAt: now }]
       ]);
 
       deps = {
         getStake: (address: string) => stakes.get(address),
         updateStake: (address: string, newAmount: number) => {
-          stakes.set(address, { amount: newAmount });
+          const existing = stakes.get(address);
+          if (existing) {
+            stakes.set(address, { ...existing, amount: newAmount });
+          }
         },
         removeStake: (address: string) => {
           stakes.delete(address);
@@ -287,7 +291,8 @@ describe('Tokenomics Module', () => {
       });
 
       it('should remove stake if slashed below remaining', async () => {
-        stakes.set('tiny', { amount: 0.001 });
+        const now = Date.now();
+        stakes.set('tiny', { staker: 'tiny', amount: 0.001, stakedAt: now, lastRewardAt: now });
         const service = new SlashingService(deps);
         
         const event = await service.slashValidator('tiny', 'double_sign', 100);
@@ -312,9 +317,10 @@ describe('Tokenomics Module', () => {
 
       it('should prune old events when limit exceeded', async () => {
         const service = new SlashingService(deps);
+        const now = Date.now();
         
         for (let i = 0; i < 1001; i++) {
-          stakes.set(`v${i}`, { amount: 1000 });
+          stakes.set(`v${i}`, { staker: `v${i}`, amount: 1000, stakedAt: now, lastRewardAt: now });
           await service.slashValidator(`v${i}`, 'liveness_failure', i);
         }
         
@@ -444,8 +450,9 @@ describe('Tokenomics Module', () => {
 
       it('should get validator slash history', async () => {
         const service = new SlashingService(deps);
+        const now = Date.now();
         await service.slashValidator('v1', 'liveness_failure', 100);
-        stakes.set('v1', { amount: 1000 });
+        stakes.set('v1', { staker: 'v1', amount: 1000, stakedAt: now, lastRewardAt: now });
         await service.slashValidator('v1', 'liveness_failure', 101);
         await service.slashValidator('v2', 'double_sign', 102);
         
@@ -458,10 +465,11 @@ describe('Tokenomics Module', () => {
 
       it('should get total slashed', async () => {
         const service = new SlashingService(deps);
+        const now = Date.now();
         await service.slashValidator('v1', 'liveness_failure', 100);
         const event1Amount = service.getSlashEvents()[0].amount;
         
-        stakes.set('v1', { amount: 500 });
+        stakes.set('v1', { staker: 'v1', amount: 500, stakedAt: now, lastRewardAt: now });
         await service.slashValidator('v1', 'liveness_failure', 101);
         const event2Amount = service.getSlashEvents()[1].amount;
         
@@ -496,13 +504,14 @@ describe('Tokenomics Module', () => {
 
       it('should restore slash ID counter', async () => {
         const service = new SlashingService(deps);
+        const now = Date.now();
         await service.slashValidator('v1', 'liveness_failure', 100);
         await service.slashValidator('v2', 'liveness_failure', 101);
         
         const json = service.toJSON();
         const restored = SlashingService.fromJSON(json, deps);
         
-        stakes.set('v3', { amount: 1000 });
+        stakes.set('v3', { staker: 'v3', amount: 1000, stakedAt: now, lastRewardAt: now });
         const newEvent = await restored.slashValidator('v3', 'double_sign', 200);
         
         expect(newEvent!.id).toMatch(/slash_3/);

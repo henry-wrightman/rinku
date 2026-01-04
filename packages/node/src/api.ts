@@ -22,6 +22,7 @@ import {
   type ContractDeploy,
   type ContractTransaction
 } from '@rinku/core';
+import type { MerkleWitness, TransactionData, ZkProofPayload } from '@rinku/zk';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -1555,7 +1556,7 @@ export function createAPI(
         idx = idx >> 1;
       }
 
-      const witness: zkModule.MerkleWitness = {
+      const witness: MerkleWitness = {
         txHash,
         merklePathElements: merkleProof.proof,
         merklePathIndices: pathIndices,
@@ -1566,7 +1567,7 @@ export function createAPI(
       };
 
       const tx = node.tx;
-      const txData: zkModule.TransactionData = {
+      const txData: TransactionData = {
         sender: tx.from,
         recipient: tx.to,
         amount: BigInt(Math.floor(tx.amount || 0)),
@@ -1592,7 +1593,7 @@ export function createAPI(
       const duration = Date.now() - startTime;
       console.log(`ZK proof generated in ${duration}ms`);
 
-      const zkPayload: zkModule.ZkProofPayload = {
+      const zkPayload: ZkProofPayload = {
         v: 1,
         chainId: witness.chainId || 'rinku-testnet',
         cpHeight: witness.checkpointHeight,
@@ -1604,7 +1605,7 @@ export function createAPI(
           chainIdHash: publicSignals[3]
         },
         auxData: {
-          validatorRoot: containingCheckpoint.validatorRoot || '0'.repeat(64),
+          validatorRoot: containingCheckpoint.validatorSetHash || '0'.repeat(64),
           totalWeight: containingCheckpoint.totalWeight || 0
         }
       };
