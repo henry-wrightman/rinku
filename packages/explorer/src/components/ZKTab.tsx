@@ -165,8 +165,10 @@ export function ZKTab() {
       <div className="section">
         <h3>zk privacy layer</h3>
         <p className="section-description">
-          Generate privacy-preserving proofs for transactions. ZK proofs hide
-          sender, recipient, and amount while proving transaction validity.
+          Generate Groth16 zk-SNARK proofs that cryptographically hide sender,
+          recipient, and amount while proving transaction validity, all without
+          needing to share the original. Proofs verify in ~10ms offline via
+          rinku://zk/ URLs.
         </p>
 
         {status && (
@@ -283,7 +285,10 @@ export function ZKTab() {
           without revealing details.
         </p>
 
-        <div className="form-group" style={{ flexDirection: "column", alignItems: "stretch" }}>
+        <div
+          className="form-group"
+          style={{ flexDirection: "column", alignItems: "stretch" }}
+        >
           <input
             type="text"
             placeholder="transaction hash (e.g., a1b2c3d4...)"
@@ -300,10 +305,19 @@ export function ZKTab() {
             className="input-field"
             style={{ width: "100%", marginBottom: "0.5rem" }}
           />
-          <p style={{ fontSize: "0.75rem", opacity: 0.7, margin: "0 0 0.75rem", lineHeight: 1.4 }}>
-            Your seed derives your ZK keypair. Use any memorable phrase. Leave empty for demo mode.
+          <p
+            style={{
+              fontSize: "0.75rem",
+              opacity: 0.7,
+              margin: "0 0 0.75rem",
+              lineHeight: 1.4,
+            }}
+          >
+            Your seed derives your ZK keypair. Use any memorable phrase. Leave
+            empty for demo mode.
             <br />
-            <span style={{ color: "#ffaa00" }}>Note:</span> In this demo, the seed is sent to the server for proof generation.
+            <span style={{ color: "#ffaa00" }}>Note:</span> In this demo, the
+            seed is sent to the server for proof generation.
           </p>
           <button
             onClick={generateProof}

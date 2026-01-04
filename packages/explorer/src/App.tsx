@@ -18,6 +18,7 @@ const PAGE_SIZE = 20;
 
 interface NetworkStats {
   tps: number;
+  totalTransactionsProcessed: number;
   finalizedCount: number;
   unfinalizedCount: number;
   finalityRatio: number;
@@ -193,9 +194,9 @@ function App() {
       <div className="stats">
         <div className="stat-item">
           <span className="stat-value">
-            {formatNumber(summary?.totalNodes || 0)}
+            {formatNumber(networkStats?.totalTransactionsProcessed || 0)}
           </span>
-          <span className="stat-label">nodes</span>
+          <span className="stat-label">transactions</span>
         </div>
         {/* <div className="stat-item">
           <span className="stat-value">{formatNumber(summary?.accountCount || accounts.length || 0)}</span>
