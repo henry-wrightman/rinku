@@ -1,0 +1,116 @@
+2026-01-04 11:38:56.04
+8f2507cf
+User
+Created checkpoint b8a4f55334613fe0 at height 10
+2026-01-04 11:39:11.04
+8f2507cf
+User
+[Finality] Stamped 16 transactions with checkpoint 5712827f... at height 11
+2026-01-04 11:39:11.04
+8f2507cf
+User
+Created checkpoint 5712827fb8958c66 at height 11
+2026-01-04 11:39:25.71
+8f2507cf
+User
+[Fork] Summary: 9 detected, 0 resolved, 0 pruned | Active: 36 forks, 0 double-spends
+2026-01-04 11:39:26.02
+8f2507cf
+User
+[Stats] DAG: 140 nodes, Tips: 2, Accounts: 6, Heap: 37 MB, Witnessed: 6
+2026-01-04 11:39:26.05
+8f2507cf
+User
+Created checkpoint 60da77542e0fcf2f at height 12
+2026-01-04 11:39:26.05
+8f2507cf
+User
+[Finality] Stamped 14 transactions with checkpoint 60da7754... at height 12
+2026-01-04 11:39:40.76
+8f2507cf
+User
+at Object.keyGenerator (file:///home/runner/workspace/node_modules/express-rate-limit/dist/index.mjs:754:20)
+2026-01-04 11:39:40.76
+8f2507cf
+User
+}
+2026-01-04 11:39:40.76
+8f2507cf
+User
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2026-01-04 11:39:40.76
+8f2507cf
+User
+at async file:///home/runner/workspace/node_modules/express-rate-limit/dist/index.mjs:796:5 {
+2026-01-04 11:39:40.76
+8f2507cf
+User
+at file:///home/runner/workspace/node_modules/express-rate-limit/dist/index.mjs:815:32
+2026-01-04 11:39:40.76
+8f2507cf
+User
+ValidationError: The 'X-Forwarded-For' header is set but the Express 'trust proxy' setting is false (default). This could indicate a misconfiguration which would prevent express-rate-limit from accurately identifying users. See https://express-rate-limit.github.io/ERR_ERL_UNEXPECTED_X_FORWARDED_FOR/ for more information.
+2026-01-04 11:39:40.76
+8f2507cf
+User
+at Object.xForwardedForHeader (file:///home/runner/workspace/node_modules/express-rate-limit/dist/index.mjs:337:13)
+2026-01-04 11:39:40.76
+8f2507cf
+User
+at wrappedValidations. [as xForwardedForHeader] (file:///home/runner/workspace/node_modules/express-rate-limit/dist/index.mjs:651:22)
+2026-01-04 11:39:40.76
+8f2507cf
+User
+code: 'ERR_ERL_UNEXPECTED_X_FORWARDED_FOR',
+2026-01-04 11:39:40.76
+8f2507cf
+User
+help: 'https://express-rate-limit.github.io/ERR_ERL_UNEXPECTED_X_FORWARDED_FOR/'
+2026-01-04 11:39:41.05
+8f2507cf
+User
+Created checkpoint bff3ee0052dcf1ab at height 13
+2026-01-04 11:39:41.05
+8f2507cf
+User
+[Emission] Distributed 3.9324 RKU to 1 validators at height 13
+2026-01-04 11:39:41.05
+8f2507cf
+User
+[Rewards] Processed 1 tip rewards, 1 witness rewards at height 13
+2026-01-04 11:39:41.05
+8f2507cf
+User
+[Finality] Stamped 15 transactions with checkpoint bff3ee00... at height 13
+2026-01-04 11:39:55.71
+8f2507cf
+User
+[Fork] Summary: 11 detected, 0 resolved, 0 pruned | Active: 41 forks, 0 double-spends
+2026-01-04 11:39:56.02
+8f2507cf
+User
+[Stats] DAG: 178 nodes, Tips: 2, Accounts: 7, Heap: 40 MB, Witnessed: 7
+2026-01-04 11:39:56.05
+8f2507cf
+User
+[Emission] Distributed 3.9324 RKU to 1 validators at height 14
+2026-01-04 11:39:56.05
+8f2507cf
+User
+[Finality] Stamped 23 transactions with checkpoint daea6b04... at height 14
+2026-01-04 11:39:56.05
+8f2507cf
+User
+Created checkpoint daea6b04f487062e at height 14
+2026-01-04 11:40:11.05
+8f2507cf
+User
+[Finality] Stamped 24 transactions with checkpoint 4e3052c0... at height 15
+2026-01-04 11:40:11.05
+8f2507cf
+User
+Created checkpoint 4e3052c0526e3e17 at height 15
+2026-01-04 11:40:11.05
+8f2507cf
+User
+[Emission] Distributed 3.9324 RKU to 
