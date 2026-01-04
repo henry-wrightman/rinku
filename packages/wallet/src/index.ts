@@ -169,6 +169,47 @@ export class Wallet {
 
     return tx;
   }
+
+  async sendWithCustomTips(to: string, amount: number, fee: number, customTipUrls: string[]): Promise<{ tx: SignedTransaction; url: string }> {
+    await this.refresh();
+    
+    if (!this.state) {
+      throw new Error('Wallet not initialized');
+    }
+
+    if (this.state.balance < amount + fee) {
+      throw new Error('Insufficient balance for amount + fee');
+    }
+
+    const { tx, url } = await createAndSignTransaction(
+      this.keyManager.getKeyPair(),
+      {
+        to,
+        amount,
+        fee,
+        nonce: this.state.nonce + 1,
+        tipUrls: customTipUrls
+      }
+    );
+
+    const submitResponse = await fetch(`${this.nodeUrl}/api/tx`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tx,
+        publicKey: Array.from(this.keyManager.getPublicKey())
+      })
+    });
+
+    if (!submitResponse.ok) {
+      const error = await submitResponse.json() as { error?: string };
+      throw new Error(error.error || 'Transaction failed');
+    }
+
+    this.state.nonce++;
+
+    return { tx, url: url.path };
+  }
 }
 
 export { KeyManager } from './keys.js';

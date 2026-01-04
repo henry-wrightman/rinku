@@ -832,28 +832,16 @@ async function doConsolidation(): Promise<void> {
           continue;
         }
 
-        const res = await fetchWithTimeout(
-          `${NODE_URL}/api/tx`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: receiver.fingerprint,
-              from: sender.fingerprint,
-              amount: 0.001,
-              fee,
-              nonce: state.nonce + 1,
-              tipUrls: tipSlice,
-            }),
-          },
-          5000,
+        await sender.wallet.sendWithCustomTips(
+          receiver.fingerprint,
+          0.001,
+          fee,
+          tipSlice,
         );
 
-        if (res.ok) {
-          totalConsolidations++;
-          totalTransactions++;
-          log(`Consolidation TX merged ${tipSlice.length} tips`);
-        }
+        totalConsolidations++;
+        totalTransactions++;
+        log(`Consolidation TX merged ${tipSlice.length} tips`);
       } catch (ex) {
         errors++;
         log(`Consolidation error: ${ex}`);
