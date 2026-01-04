@@ -2,7 +2,9 @@ import {
   createAPI,
   type TokenomicsServices,
   type ForkServices,
+  type VersionServices,
 } from "./api.js";
+import { VersionService } from "./version-service.js";
 import { StateManager } from "./state.js";
 import { Consensus } from "./consensus.js";
 import { Mempool } from "./mempool.js";
@@ -380,6 +382,24 @@ async function main() {
     forkRemediationService,
   };
 
+  let versionService: VersionService;
+  if (snapshot?.versioning) {
+    versionService = VersionService.fromJSON(
+      snapshot.versioning as any,
+      { nodeVersion: NODE_VERSION, chainId: checkpointService.getChainId() }
+    );
+    console.log("Restored version service from snapshot");
+  } else {
+    versionService = new VersionService({
+      nodeVersion: NODE_VERSION,
+      chainId: checkpointService.getChainId(),
+    });
+  }
+
+  const versionServices: VersionServices = {
+    versionService,
+  };
+
   if (GOSSIP_ENABLED) {
     gossipService.start();
     forkRemediationService.start();
@@ -426,6 +446,7 @@ async function main() {
       proofSlashingService,
       gossipService,
       forkRemediationService,
+      versionService,
     );
   });
 
@@ -455,6 +476,7 @@ async function main() {
       proofSlashingService,
       gossipService,
       forkRemediationService,
+      versionService,
     );
   };
 
@@ -471,6 +493,7 @@ async function main() {
     tokenomics,
     finalityMetrics,
     forkServices,
+    versionServices,
   );
 
   await saveSnapshot(
@@ -487,7 +510,10 @@ async function main() {
     proofSlashingService,
     gossipService,
     forkRemediationService,
+    versionService,
   );
+
+  console.log(`Protocol version: ${versionService.getVersionInfo().protocolVersion}, Node version: ${NODE_VERSION}`);
 
   setInterval(async () => {
     if (snapshotPending) {
@@ -507,12 +533,16 @@ async function main() {
         proofSlashingService,
         gossipService,
         forkRemediationService,
+        versionService,
       );
     }
   }, SNAPSHOT_DEBOUNCE_MS);
 
   checkpointService.onCheckpoint(async (checkpointId, height) => {
     contractService.setCheckpointHeight(height);
+    
+    const totalWeight = rewardsService.getTotalStaked();
+    versionService.onCheckpoint(height, totalWeight);
 
     const checkpoint = checkpointService.getCheckpoint(checkpointId);
     const checkpointTimestamp = checkpoint?.timestamp || Date.now();
@@ -673,6 +703,7 @@ async function main() {
       },
       nodeId: NODE_ID,
       version: NODE_VERSION,
+      protocolVersion: versionService.getVersionInfo().protocolVersion,
     });
     tui.start();
     console.log("TUI dashboard enabled");
@@ -766,6 +797,7 @@ async function saveSnapshot(
   proofSlashing?: ProofSlashingService,
   gossipService?: GossipService,
   forkRemediationService?: ForkRemediationService,
+  versionServiceArg?: VersionService,
 ): Promise<void> {
   const stateJson = state.toJSON() as {
     accounts: [string, any][];
@@ -792,6 +824,7 @@ async function saveSnapshot(
     proofSlashing: proofSlashing?.toJSON(),
     gossip: gossipService?.toJSON(),
     forkRemediation: forkRemediationService?.toJSON(),
+    versioning: versionServiceArg?.toJSON(),
   };
 
   await storage.save(snapshot);
@@ -821,3 +854,4 @@ export { ForkRemediationService } from "./fork-remediation.js";
 export { createAPI } from "./api.js";
 export { TelemetryService } from "./telemetry.js";
 export { NodeTui } from "./tui.js";
+export { VersionService } from "./version-service.js";

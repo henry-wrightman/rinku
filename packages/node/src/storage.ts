@@ -32,6 +32,7 @@ export interface NodeSnapshot {
   proofSlashing?: object;
   gossip?: object;
   forkRemediation?: object;
+  versioning?: object;
 }
 
 export class Storage {

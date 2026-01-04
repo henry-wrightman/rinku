@@ -324,6 +324,8 @@ export interface ValidatorSignature {
   publicKey: number[];
   weight: number;
   timestamp: number;
+  version?: string;
+  supportedFeatures?: string[];
 }
 
 /** A validator entry for checkpoint authentication */
@@ -361,6 +363,8 @@ export interface Checkpoint {
   timestamp: number;
   signatures: ValidatorSignature[];
   blsSignature?: BLSCheckpointSignature;  // Aggregated BLS signature for compact proofs
+  protocolVersion?: string;
+  versionSignals?: { version: string; weight: number; count: number }[];
 }
 
 /** Compact proof that a transaction is part of canonical history */

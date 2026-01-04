@@ -1,8 +1,10 @@
 interface HeaderProps {
   connected: boolean;
+  protocolVersion?: string;
+  nodeVersion?: string;
 }
 
-export function Header({ connected }: HeaderProps) {
+export function Header({ connected, protocolVersion, nodeVersion }: HeaderProps) {
   const COLOR_PALETTES = [
     [
       "#ff6b6b",
@@ -93,6 +95,11 @@ export function Header({ connected }: HeaderProps) {
           {connected ? "connected" : "disconnected"}
         </span>
         <span className={`status-text`}>[testnet]</span>
+        {protocolVersion && (
+          <span className="status-text" title={`Node: v${nodeVersion || '?'}`}>
+            v{protocolVersion}
+          </span>
+        )}
       </div>
     </header>
   );

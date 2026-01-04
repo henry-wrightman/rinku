@@ -33,6 +33,7 @@ import {
   txSubmittedCounter,
   txRejectedCounter,
 } from "./telemetry.js";
+import { VersionService } from "./version-service.js";
 import {
   parseTransactionURL,
   parseContractURL,
@@ -89,6 +90,10 @@ export interface ForkServices {
   forkRemediationService?: ForkRemediationService;
 }
 
+export interface VersionServices {
+  versionService?: VersionService;
+}
+
 export function createAPI(
   state: StateManager,
   consensus: Consensus,
@@ -102,12 +107,13 @@ export function createAPI(
   tokenomics?: TokenomicsServices,
   finalityMetrics?: FinalityMetricsService,
   forkServices?: ForkServices,
+  versionServices?: VersionServices,
 ) {
   const app = express();
 
-  app.set('trust proxy', 1);
+  // app.set('trust proxy', 1);
 
-  app.use(cors());
+  // app.use(cors());
   app.use(express.json({ limit: "50mb" }));
 
   app.use(
@@ -464,6 +470,81 @@ export function createAPI(
       validator,
       events: tokenomics.slashingService.getValidatorSlashHistory(validator),
       unbonding: tokenomics.slashingService.getUnbondingForValidator(validator),
+    });
+  });
+
+  app.get("/api/version", (_req, res) => {
+    if (!versionServices?.versionService) {
+      res.json({
+        protocolVersion: "1.0.0",
+        nodeVersion: "0.1.0",
+        features: [],
+      });
+      return;
+    }
+
+    res.json(versionServices.versionService.getVersionInfo());
+  });
+
+  app.get("/api/version/features", (_req, res) => {
+    if (!versionServices?.versionService) {
+      res.json({ features: [], active: [] });
+      return;
+    }
+
+    const info = versionServices.versionService.getVersionInfo();
+    res.json({
+      features: info.features,
+      active: versionServices.versionService.getActiveFeatures(),
+    });
+  });
+
+  app.get("/api/version/proposals", (_req, res) => {
+    if (!versionServices?.versionService) {
+      res.json({ proposals: [] });
+      return;
+    }
+
+    res.json({
+      proposals: versionServices.versionService.getProposals(),
+    });
+  });
+
+  app.get("/api/version/proposals/:proposalId", (req, res) => {
+    if (!versionServices?.versionService) {
+      res.status(404).json({ error: "Version service not available" });
+      return;
+    }
+
+    const proposal = versionServices.versionService.getProposal(req.params.proposalId);
+    if (!proposal) {
+      res.status(404).json({ error: "Proposal not found" });
+      return;
+    }
+
+    res.json({
+      proposal,
+      signals: versionServices.versionService.getProposalSignals(req.params.proposalId),
+    });
+  });
+
+  app.get("/api/version/compatibility/:remoteVersion", (req, res) => {
+    if (!versionServices?.versionService) {
+      res.json({ compatible: true, canConnect: true, canSync: true });
+      return;
+    }
+
+    res.json(versionServices.versionService.checkPeerCompatibility(req.params.remoteVersion));
+  });
+
+  app.get("/api/version/history", (_req, res) => {
+    if (!versionServices?.versionService) {
+      res.json({ history: [] });
+      return;
+    }
+
+    res.json({
+      history: versionServices.versionService.getActivationHistory(),
     });
   });
 

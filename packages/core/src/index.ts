@@ -13,3 +13,4 @@ export * from './rewards.js';
 export * from './checkpoint.js';
 export * from './state-trie.js';
 export * from './receipt.js';
+export * from './versioning.js';

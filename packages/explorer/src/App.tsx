@@ -51,6 +51,14 @@ interface FinalityStats {
   txThroughput: number;
 }
 
+interface VersionInfo {
+  protocolVersion: string;
+  nodeVersion: string;
+  chainId: string;
+  networkId: string;
+  features: { id: string; name: string; status: string }[];
+}
+
 function App() {
   const [tab, setTab] = useState<
     | "dag"
@@ -85,6 +93,7 @@ function App() {
     data: any;
     error?: string;
   } | null>(null);
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
 
   useEffect(() => {
     document.body.classList.toggle("light", !darkMode);
@@ -136,6 +145,12 @@ function App() {
         const finalityData = await finalityRes.json();
         setFinalityStats(finalityData);
       }
+
+      const versionRes = await fetch(`${NODE_URL}/version`);
+      if (versionRes.ok) {
+        const versionData = await versionRes.json();
+        setVersionInfo(versionData);
+      }
     } catch (e) {
       console.error("Failed to fetch summary:", e);
       setConnected(false);
@@ -177,7 +192,7 @@ function App() {
   if (loading) {
     return (
       <div className="container">
-        <Header connected={false} />
+        <Header connected={false} protocolVersion={versionInfo?.protocolVersion} nodeVersion={versionInfo?.nodeVersion} />
         <div className="loading">loading...</div>
       </div>
     );
@@ -185,7 +200,7 @@ function App() {
 
   return (
     <div className="container">
-      <Header connected={connected} />
+      <Header connected={connected} protocolVersion={versionInfo?.protocolVersion} nodeVersion={versionInfo?.nodeVersion} />
 
       <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
         {darkMode ? "☀" : "☾"}

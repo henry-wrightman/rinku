@@ -38,6 +38,7 @@ interface TuiDeps {
   setCryptoWorkers: (count: number) => void;
   nodeId: string;
   version: string;
+  protocolVersion?: string;
 }
 
 export class NodeTui {
@@ -248,7 +249,8 @@ export class NodeTui {
     const width = 65;
     const line = (char: string) => char.repeat(width - 2);
 
-    const header = `${COLORS.cyan}${COLORS.bold}  RINKU NODE ${this.deps.version}${COLORS.reset}`;
+    const protoVer = this.deps.protocolVersion ? ` (proto ${this.deps.protocolVersion})` : '';
+    const header = `${COLORS.cyan}${COLORS.bold}  RINKU NODE ${this.deps.version}${protoVer}${COLORS.reset}`;
     const uptime = `${COLORS.dim}Uptime: ${formatDuration(telemetry.processUptime)}${COLORS.reset}`;
 
     process.stdout.write(`${COLORS.cyan}╔${line('═')}╗${COLORS.reset}\n`);
