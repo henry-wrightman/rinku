@@ -176,4 +176,119 @@ describe('StateManager', () => {
       expect(restored.getAccount('bob')!.balance).toBe(500);
     });
   });
+
+  describe('Consolidation Transactions', () => {
+    it('should apply zero-fee consolidation transaction', async () => {
+      state.createAccount('validator', 0);
+      
+      const tx: SignedTransaction = {
+        hash: 'consolidation1',
+        from: 'validator',
+        to: 'validator',
+        amount: 0,
+        fee: 0,
+        nonce: 1,
+        tipUrls: ['rinku://tx/tip1', 'rinku://tx/tip2'],
+        sig: 'sig',
+        ts: Date.now(),
+        kind: 'consolidation',
+      };
+      
+      const success = await state.applyTransaction(tx);
+      
+      expect(success).toBe(true);
+      expect(state.getAccount('validator')!.nonce).toBe(1);
+    });
+
+    it('should increment nonce on consolidation transaction', async () => {
+      state.createAccount('validator', 0);
+      
+      const tx1: SignedTransaction = {
+        hash: 'consolidation1',
+        from: 'validator',
+        to: 'validator',
+        amount: 0,
+        fee: 0,
+        nonce: 1,
+        tipUrls: ['rinku://tx/tip1'],
+        sig: 'sig',
+        ts: Date.now(),
+        kind: 'consolidation',
+      };
+      
+      await state.applyTransaction(tx1);
+      expect(state.getAccount('validator')!.nonce).toBe(1);
+      
+      const tx2: SignedTransaction = {
+        hash: 'consolidation2',
+        from: 'validator',
+        to: 'validator',
+        amount: 0,
+        fee: 0,
+        nonce: 2,
+        tipUrls: ['rinku://tx/tip2'],
+        sig: 'sig',
+        ts: Date.now(),
+        kind: 'consolidation',
+      };
+      
+      await state.applyTransaction(tx2);
+      expect(state.getAccount('validator')!.nonce).toBe(2);
+    });
+
+    it('should reject replay of consolidation transaction (same nonce)', async () => {
+      state.createAccount('validator', 0);
+      
+      const tx1: SignedTransaction = {
+        hash: 'consolidation1',
+        from: 'validator',
+        to: 'validator',
+        amount: 0,
+        fee: 0,
+        nonce: 1,
+        tipUrls: ['rinku://tx/tip1'],
+        sig: 'sig',
+        ts: Date.now(),
+        kind: 'consolidation',
+      };
+      
+      const success1 = await state.applyTransaction(tx1);
+      expect(success1).toBe(true);
+      
+      const replayTx: SignedTransaction = {
+        hash: 'consolidation1-replay',
+        from: 'validator',
+        to: 'validator',
+        amount: 0,
+        fee: 0,
+        nonce: 1,
+        tipUrls: ['rinku://tx/tip1'],
+        sig: 'sig',
+        ts: Date.now(),
+        kind: 'consolidation',
+      };
+      
+      const success2 = await state.applyTransaction(replayTx);
+      expect(success2).toBe(false);
+      expect(state.getAccount('validator')!.nonce).toBe(1);
+    });
+
+    it('should reject consolidation from non-existent account', async () => {
+      const tx: SignedTransaction = {
+        hash: 'consolidation1',
+        from: 'unknown-validator',
+        to: 'unknown-validator',
+        amount: 0,
+        fee: 0,
+        nonce: 1,
+        tipUrls: ['rinku://tx/tip1'],
+        sig: 'sig',
+        ts: Date.now(),
+        kind: 'consolidation',
+      };
+      
+      const success = await state.applyTransaction(tx);
+      expect(success).toBe(false);
+    });
+  });
 });
