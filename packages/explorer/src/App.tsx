@@ -9,6 +9,7 @@ import {
   RewardsTab,
   TokenomicsTab,
   SearchBar,
+  ZKTab,
 } from "./components";
 import { formatNumber, formatTps } from "./utils";
 
@@ -51,7 +52,7 @@ interface FinalityStats {
 
 function App() {
   const [tab, setTab] = useState<
-    "dag" | "accounts" | "faucet" | "contracts" | "rewards" | "tokenomics"
+    "dag" | "accounts" | "faucet" | "contracts" | "rewards" | "tokenomics" | "zk"
   >("dag");
   const [nodes, setNodes] = useState<DAGNode[]>([]);
   const [accounts, setAccounts] = useState<State["accounts"]>([]);
@@ -320,6 +321,12 @@ function App() {
         >
           tokenomics
         </span>
+        <span
+          className={tab === "zk" ? "active" : ""}
+          onClick={() => setTab("zk")}
+        >
+          zk privacy
+        </span>
       </div>
 
       {tab === "dag" && (
@@ -344,6 +351,7 @@ function App() {
       {tab === "contracts" && <ContractsTab />}
       {tab === "rewards" && <RewardsTab />}
       {tab === "tokenomics" && <TokenomicsTab />}
+      {tab === "zk" && <ZKTab />}
     </div>
   );
 }

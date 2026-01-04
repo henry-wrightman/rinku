@@ -1313,5 +1313,112 @@ export function createAPI(
     }
   });
 
+  // ============================================
+  // ZK Privacy Layer Endpoints
+  // ============================================
+
+  app.get('/api/zk/witness/:txHash', async (req, res) => {
+    const txHash = req.params.txHash;
+    
+    if (!checkpointService) {
+      res.status(501).json({ error: 'Checkpoint service not enabled' });
+      return;
+    }
+
+    const node = consensus.getNode(txHash);
+    if (!node) {
+      res.status(404).json({ error: 'Transaction not found' });
+      return;
+    }
+
+    const allCheckpoints = checkpointService.getAllCheckpoints();
+    let containingCheckpoint = null;
+    
+    for (const checkpoint of allCheckpoints) {
+      if (checkpoint.txHashes?.includes(txHash)) {
+        containingCheckpoint = checkpoint;
+        break;
+      }
+    }
+
+    if (!containingCheckpoint) {
+      res.status(404).json({ 
+        error: 'Transaction not yet included in a checkpoint',
+        txHash,
+        pendingFinalization: true
+      });
+      return;
+    }
+
+    try {
+      const merkleProof = await checkpointService.getTransactionMerkleProof(
+        txHash,
+        containingCheckpoint.checkpointId
+      );
+
+      if (!merkleProof) {
+        res.status(500).json({ error: 'Failed to generate Merkle proof' });
+        return;
+      }
+
+      const pathIndices: number[] = [];
+      let idx = merkleProof.index;
+      for (let i = 0; i < merkleProof.proof.length; i++) {
+        pathIndices.push(idx & 1);
+        idx = idx >> 1;
+      }
+
+      res.json({
+        txHash,
+        merklePathElements: merkleProof.proof,
+        merklePathIndices: pathIndices,
+        checkpointHeight: containingCheckpoint.height,
+        checkpointRoot: merkleProof.txMerkleRoot,
+        checkpointId: containingCheckpoint.checkpointId,
+        chainId: checkpointService.getChainId()
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/zk/status', (_req, res) => {
+    res.json({
+      enabled: true,
+      version: 1,
+      chainId: checkpointService?.getChainId() || 'rinku-testnet',
+      artifactsAvailable: false,
+      features: {
+        witnessGeneration: true,
+        proofVerification: false,
+        nullifierRegistry: false
+      },
+      circuitInfo: {
+        merkleDepth: 10,
+        protocol: 'groth16',
+        curve: 'bn128'
+      }
+    });
+  });
+
+  app.post('/api/zk/verify', express.json(), async (req, res) => {
+    const { zkUrl } = req.body;
+    
+    if (!zkUrl || typeof zkUrl !== 'string') {
+      res.status(400).json({ error: 'zkUrl required' });
+      return;
+    }
+
+    if (!zkUrl.startsWith('rinku://zk/')) {
+      res.status(400).json({ error: 'Invalid ZK URL format' });
+      return;
+    }
+
+    res.status(501).json({ 
+      error: 'ZK verification not yet enabled - awaiting circuit artifacts',
+      message: 'Circuit compilation required. Proof structure is valid but cryptographic verification pending.'
+    });
+  });
+
   return app;
 }

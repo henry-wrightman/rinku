@@ -7,3 +7,4 @@ export { ContractsTab } from "./ContractsTab";
 export { RewardsTab } from "./RewardsTab";
 export { TokenomicsTab } from "./TokenomicsTab";
 export { SearchBar } from "./SearchBar";
+export { ZKTab } from "./ZKTab";
