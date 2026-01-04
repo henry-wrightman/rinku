@@ -22,6 +22,30 @@ import {
   type ContractDeploy,
   type ContractTransaction
 } from '@rinku/core';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+interface ZkArtifacts {
+  wasmPath: string;
+  zkeyPath: string;
+  vkeyPath: string;
+  available: boolean;
+}
+
+function getZkArtifacts(): ZkArtifacts {
+  const zkBuildDir = path.resolve(__dirname, '../../zk/build/rinku_private_proof');
+  const wasmPath = path.join(zkBuildDir, 'rinku_private_proof_js', 'rinku_private_proof.wasm');
+  const zkeyPath = path.join(zkBuildDir, 'rinku_private_proof.zkey');
+  const vkeyPath = path.join(zkBuildDir, 'verification_key.json');
+  
+  const available = fs.existsSync(wasmPath) && fs.existsSync(zkeyPath) && fs.existsSync(vkeyPath);
+  
+  return { wasmPath, zkeyPath, vkeyPath, available };
+}
 
 export interface TokenomicsServices {
   emissionService?: EmissionService;
@@ -1382,16 +1406,33 @@ export function createAPI(
     }
   });
 
+  const zkArtifacts = getZkArtifacts();
+  let zkVerifierInitialized = false;
+
+  if (zkArtifacts.available) {
+    import('@rinku/zk').then(async (zkModule) => {
+      try {
+        await zkModule.initVerifier(zkArtifacts.vkeyPath);
+        zkVerifierInitialized = true;
+        console.log('ZK verifier initialized with compiled artifacts');
+      } catch (error) {
+        console.error('Failed to initialize ZK verifier:', error);
+      }
+    }).catch(err => {
+      console.warn('ZK module not available:', err.message);
+    });
+  }
+
   app.get('/api/zk/status', (_req, res) => {
     res.json({
       enabled: true,
       version: 1,
       chainId: checkpointService?.getChainId() || 'rinku-testnet',
-      artifactsAvailable: false,
+      artifactsAvailable: zkArtifacts.available,
       features: {
         witnessGeneration: true,
-        proofVerification: false,
-        nullifierRegistry: false
+        proofVerification: zkVerifierInitialized,
+        nullifierRegistry: zkVerifierInitialized
       },
       circuitInfo: {
         merkleDepth: 10,
@@ -1414,10 +1455,21 @@ export function createAPI(
       return;
     }
 
-    res.status(501).json({ 
-      error: 'ZK verification not yet enabled - awaiting circuit artifacts',
-      message: 'Circuit compilation required. Proof structure is valid but cryptographic verification pending.'
-    });
+    if (!zkVerifierInitialized) {
+      res.status(501).json({ 
+        error: 'ZK verification not yet enabled - awaiting circuit artifacts',
+        message: 'Circuit compilation required. Proof structure is valid but cryptographic verification pending.'
+      });
+      return;
+    }
+
+    try {
+      const zkModule = await import('@rinku/zk');
+      const result = await zkModule.verifyZkUrlWithNullifier(zkUrl);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   return app;

@@ -1,6 +1,7 @@
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -75,7 +76,7 @@ async function generateZkey(ptauPath: string): Promise<void> {
     console.log(`✓ Initial zkey generated`);
     
     console.log(`\n🎲 Contributing randomness to zkey...`);
-    const entropy = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const entropy = crypto.randomBytes(32).toString('hex');
     execSync(
       `npx snarkjs zkey contribute "${zkey0Path}" "${zkeyPath}" --name="Rinku Dev Contribution" -e="${entropy}"`,
       { stdio: 'inherit', cwd: ZK_ROOT }
