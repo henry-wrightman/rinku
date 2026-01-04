@@ -304,7 +304,7 @@ When a user wants ZK receipts, they derive a BabyJubJub keypair from their seed 
 | URL length (base64url) | ~600-900 characters |
 | URL length (base45/QR) | ~500-750 characters |
 
-**QR Encoding:** Base64url forces QR byte mode (~520 bytes for Version 15-L). For QR optimization, use `rinku://zkq/` with base45 encoding (stays in QR alphanumeric mode, ~758 chars for V15-L). See Appendix H.10 for encoding details.
+**QR Encoding:** Base64url forces QR byte mode (~520 bytes for Version 15-L). For QR optimization, use base45 encoding with payload-only QR codes (scanner app prepends `rinku://zkq/` internally). Base45 enables alphanumeric-mode density for the payload portion; actual capacity depends on encoder segmentation. See Appendix H.10 for encoding details and the prefix caveat.
 
 ### 3.7 Use Cases
 
@@ -1968,30 +1968,43 @@ Base64url uses lowercase + underscore, forcing **byte mode**. For QR compatibili
 
 ### H.10 QR-Optimized Encoding (Base45)
 
-For optimal QR compatibility, use the `rinku://zkq/` scheme with base45 encoding:
+For optimal QR payload density, use base45 encoding for the proof payload:
 
+**URL format (for sharing/copy-paste):**
 ```
 rinku://zkq/{base45(deflate(packed_binary))}
 ```
+
+**QR-only format (for maximum density):**
+```
+{base45_payload_only}
+```
+
+> **Important:** The `rinku://zkq/` prefix contains lowercase letters and `://`, which force byte-mode segments in most QR encoders. For maximum QR capacity, encode **only the base45 payload** in the QR code; the scanning app prepends `rinku://zkq/` internally. Base45 enables alphanumeric-mode payload density; actual capacity depends on encoder segmentation.
 
 **Why base45?**
 - Base64url uses characters (lowercase, `_`) that force QR byte mode
 - Base45 uses only `0-9`, `A-Z`, ` `, `$`, `%`, `*`, `+`, `-`, `.`, `/`, `:` - all in QR alphanumeric set
 - Alphanumeric mode stores 2 chars per 11 bits vs byte mode's 8 bits per char
-- Result: ~45% more capacity for same QR version
+- Result: ~45% more capacity for same QR version (for payload portion)
 
 **Encoding comparison (640 bytes payload):**
 
 | Encoding | QR Mode | Output Size | Min QR Version (ECC-L) |
 |----------|---------|-------------|------------------------|
 | Base64url | Byte | ~853 chars | V20 |
-| Base45 | Alphanumeric | ~780 chars | V15 |
+| Base45 (payload only) | Alphanumeric | ~780 chars | V15 |
+| Base45 + `rinku://zkq/` | Mixed* | ~795 chars | V17 |
 | Packed binary | Byte | 640 bytes | V20 |
+
+\* Depends on encoder's mode segmentation optimization.
 
 **Packed binary format for `zkq`:**
 ```
 [1B version][192B proof][160B pubInputs][64B memo][var auxData]
 ```
+
+> **Compression reality check:** DEFLATE provides minimal savings on the Groth16 proof bytes (high entropy, essentially random). The real wins come from: (1) binary packing vs JSON, and (2) base45 vs base64url for QR density. Don't expect DEFLATE to halve your proof size.
 
 This is the same approach used by EU Digital COVID Certificates (EUDCC) for maximum QR compatibility.
 
@@ -2011,13 +2024,40 @@ Groth16 offers the best balance for URL-native QR-compatible proofs.
 ### H.12 Trust Assumptions
 
 1. **Trusted Setup**: Groth16 requires a trusted setup ceremony. Use MPC (Powers of Tau + circuit-specific) to minimize trust. See H.9 for ceremony details.
-2. **Nullifier Registry**: If using on-chain registry, privacy is reduced (reveals nullifier usage pattern). Wallet-level tracking provides full privacy but requires recipient cooperation.
+2. **Nullifier Registry**: If using on-chain registry, privacy is reduced (reveals nullifier usage pattern). Wallet-level tracking provides full privacy but requires recipient cooperation. **POS note:** Offline mode prevents replay per verifier context; multi-terminal deployments should sync nullifier caches between terminals or use invoice binding (see H.13).
 3. **Viewing Keys**: Recipients must safeguard viewing keys; compromise reveals payment history.
 4. **Dual-Signature Security**: ZK proofs verify `zkSig` (BabyJubJub), which is Merkle-committed with the transaction. Compromise of ZK seed ≠ compromise of main wallet (ECDSA key).
+5. **Verification Key Distribution**: Pinned vkey hashes are shipped via wallet app distributions (app stores, signed releases). Circuit upgrades require: (a) supporting multiple allowed vkey hashes during transition, (b) version field `v` in proof format, (c) wallets must reject unknown vkey hashes (fail-closed, not fail-open).
 
-### H.13 Future Work
+### H.13 Invoice Binding (POS Anti-Theft)
+
+For point-of-sale scenarios where receipt theft is a concern:
+
+**Problem:** Recipient binding prevents proof reuse across different recipients, but doesn't prevent someone from presenting a stolen QR to the *same* recipient (e.g., photographed POS QR).
+
+**Solution:** Add optional `invoiceIdHash` as a public input:
+
+```
+invoiceIdHash = poseidon(invoiceId || merchantId || timestamp)
+```
+
+**Flow:**
+1. Merchant terminal displays invoice with unique `invoiceId`
+2. Payer generates ZK proof with `invoiceIdHash` as public input
+3. Terminal verifies `invoiceIdHash` matches the displayed invoice
+4. Proof is now bound to both recipient AND specific invoice
+
+This turns receipts into non-transferable-to-different-invoice objects, which matters for retail POS. The `invoiceIdHash` can be added as **optional public signal #6** (extending the 5 base signals), or placed in encrypted memo if only the merchant needs to verify it.
+
+**Multi-terminal nullifier sync:** For merchants with multiple terminals, options include:
+- Shared nullifier storage (Redis, database)
+- Short-lived online nullifier registry (merchant-operated)
+- Invoice binding (above) - each terminal checks its own invoices
+
+### H.14 Future Work
 
 - **Recursive proofs**: Aggregate multiple ZK payment proofs into one
 - **Cross-chain proofs**: Prove Rinku payments on other chains
 - **Selective disclosure**: Reveal specific fields (e.g., amount) while hiding others
 - **Compliance mode**: Optional auditor keys for regulated use cases
+- **Invoice binding integration**: Standard circuit extension for retail POS
