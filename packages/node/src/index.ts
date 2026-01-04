@@ -26,6 +26,7 @@ import { ValidatorKeyManager } from "./validator-keys.js";
 import { ProofSlashingService } from "./proof-slashing.js";
 import { GossipService } from "./gossip.js";
 import { ForkRemediationService } from "./fork-remediation.js";
+import { TipConsolidatorService } from "./tip-consolidator.js";
 import { CryptoPool } from "./crypto-pool.js";
 import { TelemetryService } from "./telemetry.js";
 import { NodeTui } from "./tui.js";
@@ -343,6 +344,22 @@ async function main() {
 
   forkRemediationService.setGossipService(gossipService);
 
+  const tipConsolidator = new TipConsolidatorService(consensus, state, {
+    upperThreshold: 200,
+    lowerThreshold: 100,
+    tipsPerConsolidation: 32,
+    intervalMs: 3000,
+    cooldownMs: 5000,
+  });
+  const validatorKey = validatorKeyManager.getActiveKey();
+  if (validatorKey) {
+    tipConsolidator.setValidatorKey({
+      publicKey: validatorKey.publicKey,
+      privateKey: validatorKey.privateKey,
+      fingerprint: validatorKey.address,
+    });
+  }
+
   gossipService.setTxReceivedCallback(async (tx, publicKey) => {
     if (consensus.hasTransaction(tx.hash)) return false;
 
@@ -380,6 +397,7 @@ async function main() {
   const forkServices: ForkServices = {
     gossipService,
     forkRemediationService,
+    tipConsolidator,
   };
 
   let versionService: VersionService;
@@ -403,8 +421,9 @@ async function main() {
   if (GOSSIP_ENABLED) {
     gossipService.start();
     forkRemediationService.start();
+    tipConsolidator.start();
     console.log(
-      `Gossip and fork remediation enabled (interval: ${GOSSIP_INTERVAL_MS}ms)`,
+      `Gossip, fork remediation, and tip consolidation enabled (interval: ${GOSSIP_INTERVAL_MS}ms)`,
     );
   }
 
@@ -853,6 +872,7 @@ export { ValidatorKeyManager } from "./validator-keys.js";
 export { ProofSlashingService } from "./proof-slashing.js";
 export { GossipService } from "./gossip.js";
 export { ForkRemediationService } from "./fork-remediation.js";
+export { TipConsolidatorService } from "./tip-consolidator.js";
 export { createAPI } from "./api.js";
 export { TelemetryService } from "./telemetry.js";
 export { NodeTui } from "./tui.js";

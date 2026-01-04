@@ -105,6 +105,18 @@ export const emissionGauge = new client.Gauge({
   registers: [promRegister],
 });
 
+export const tipConsolidationCounter = new client.Counter({
+  name: 'rinku_tip_consolidations_total',
+  help: 'Total number of tip consolidation transactions',
+  registers: [promRegister],
+});
+
+export const tipsConsolidatedCounter = new client.Counter({
+  name: 'rinku_tips_consolidated_total',
+  help: 'Total number of tips consolidated',
+  registers: [promRegister],
+});
+
 export const forksDetectedCounter = new client.Counter({
   name: 'rinku_forks_detected_total',
   help: 'Total number of forks detected',

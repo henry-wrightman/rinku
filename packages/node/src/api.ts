@@ -16,6 +16,7 @@ import {
 import { FinalityMetricsService } from "./finality.js";
 import { GossipService, type GossipMessage } from "./gossip.js";
 import { ForkRemediationService } from "./fork-remediation.js";
+import { TipConsolidatorService } from "./tip-consolidator.js";
 import {
   getPrometheusMetrics,
   getPrometheusContentType,
@@ -87,6 +88,7 @@ export interface TokenomicsServices {
 export interface ForkServices {
   gossipService?: GossipService;
   forkRemediationService?: ForkRemediationService;
+  tipConsolidator?: TipConsolidatorService;
 }
 
 export interface VersionServices {
@@ -1532,6 +1534,14 @@ export function createAPI(
     res.json({
       forks: forkServices.forkRemediationService.getForkEvents(),
     });
+  });
+
+  app.get("/api/tip-consolidator/stats", (_req, res) => {
+    if (!forkServices?.tipConsolidator) {
+      res.status(501).json({ error: "Tip consolidation not enabled" });
+      return;
+    }
+    res.json(forkServices.tipConsolidator.getStats());
   });
 
   app.post("/api/tx/batch", async (req, res) => {
