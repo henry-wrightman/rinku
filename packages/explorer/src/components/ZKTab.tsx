@@ -283,13 +283,14 @@ export function ZKTab() {
           without revealing details.
         </p>
 
-        <div className="form-group">
+        <div className="form-group" style={{ flexDirection: "column", alignItems: "stretch" }}>
           <input
             type="text"
             placeholder="transaction hash (e.g., a1b2c3d4...)"
             value={txHash}
             onChange={(e) => setTxHash(e.target.value)}
             className="input-field"
+            style={{ width: "100%", marginBottom: "0.5rem" }}
           />
           <input
             type="password"
@@ -297,13 +298,12 @@ export function ZKTab() {
             value={privateKeySeed}
             onChange={(e) => setPrivateKeySeed(e.target.value)}
             className="input-field"
-            style={{ marginTop: "0.5rem" }}
+            style={{ width: "100%", marginBottom: "0.5rem" }}
           />
-          <p className="input-hint" style={{ fontSize: "0.75rem", opacity: 0.7, margin: "0.25rem 0 0.5rem" }}>
+          <p style={{ fontSize: "0.75rem", opacity: 0.7, margin: "0 0 0.75rem", lineHeight: 1.4 }}>
             Your seed derives your ZK keypair. Use any memorable phrase. Leave empty for demo mode.
             <br />
-            <strong style={{ color: "#ffaa00" }}>Note:</strong> In this demo, the seed is sent to the server for proof generation.
-            For production use, client-side proof generation is recommended.
+            <span style={{ color: "#ffaa00" }}>Note:</span> In this demo, the seed is sent to the server for proof generation.
           </p>
           <button
             onClick={generateProof}
@@ -311,6 +311,7 @@ export function ZKTab() {
               generating || !txHash || !status?.features.proofGeneration
             }
             className="btn btn-primary"
+            style={{ alignSelf: "flex-start" }}
           >
             {generating ? "generating proof..." : "generate zk proof"}
           </button>
