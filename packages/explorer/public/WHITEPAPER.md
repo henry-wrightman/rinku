@@ -367,7 +367,7 @@ The age component is capped at 1 year to prevent early-adopter lock-in. Staked a
 
 This creates Sybil resistance: new accounts with no stake have zero weight. Established, staked accounts anchor consensus.
 
-### 3.4 Age Weight Mitigations
+### 4.4 Age Weight Mitigations
 
 To prevent gaming of the age component:
 - **Capped duration**: Age weight saturates at 365 days
@@ -376,7 +376,7 @@ To prevent gaming of the age component:
 
 ## 5. Checkpoints and Finality
 
-### 11.1 Checkpoint Creation
+### 5.1 Checkpoint Creation
 
 Every 15 seconds (configurable), the network produces a checkpoint:
 
@@ -423,7 +423,7 @@ checkpointId = SHA256(
 
 Note: `txHashes`, `signatures`, and `signatureCount` are NOT included in `id` computation. The ID commits only to header fields; signatures are collected afterward and may vary across nodes during aggregation.
 
-### 11.2 Consensus Protocol
+### 5.2 Consensus Protocol
 
 Checkpoint finality requires Byzantine fault tolerance:
 
@@ -472,7 +472,7 @@ Expected performance: ~10-15s average finality under normal network conditions. 
 
 ## 6. State Management
 
-### 11.1 Account Model
+### 6.1 Account Model
 
 Each account maintains:
 
@@ -485,7 +485,7 @@ Each account maintains:
 }
 ```
 
-### 11.2 State Transitions
+### 6.2 State Transitions
 
 Transactions modify state atomically:
 1. Verify sender has sufficient balance (amount + fee)
@@ -494,20 +494,20 @@ Transactions modify state atomically:
 4. Increment sender nonce
 5. Process fee (50% burn, 50% to validators)
 
-### 5.3 Merkle State Proofs
+### 6.3 Merkle State Proofs
 
 Account state is committed to a Merkle tree with root included in each checkpoint (`stateRoot`). Any account balance can be proven with O(log n) proof size. Proofs are anchored to checkpoint state roots for self-contained verification.
 
 ## 7. Tokenomics
 
-### 11.1 Base Unit
+### 7.1 Base Unit
 
 All on-chain values use the smallest indivisible unit:
 - **1 RKU = 1,000,000 µRKU** (micro-RKU)
 - All amounts, fees, rewards, and supply values are `uint64` in µRKU
 - Human-readable RKU values are for documentation only; implementations use µRKU
 
-### 11.2 Supply
+### 7.2 Supply
 
 - **Maximum Supply:** 30,000,000 RKU = 30,000,000,000,000 µRKU (hard cap, enforced)
 - **Genesis Allocation:** 6,000,000 RKU
@@ -516,7 +516,7 @@ All on-chain values use the smallest indivisible unit:
   - 1,000,000 RKU - Faucet distribution (testnet only)
 - **Emission:** Up to 24,000,000 RKU via checkpoint rewards
 
-### 8.3 Emission Schedule
+### 7.3 Emission Schedule
 
 Rewards halve every 3,150,000 checkpoints (~18 months at 15s intervals):
 
@@ -542,7 +542,7 @@ minReward = initialReward >> 5 = 122,887 µRKU
 
 **Hard Cap Enforcement**: Once total circulating supply reaches 30,000,000 RKU, checkpoint rewards drop to 0. The floor reward of 122,887 µRKU only applies while supply remains below the cap.
 
-### 8.4 Halving Rationale
+### 7.4 Halving Rationale
 
 The 18-month halving interval (vs. Bitcoin's 4 years) balances:
 - **Sustained validator incentives:** Validators remain rewarded over multi-year timeframes
@@ -602,7 +602,7 @@ This ensures validators are adequately compensated for signing Profile C proofs,
 
 ## 8. Dynamic Gas Fees (EIP-1559 Style)
 
-### 11.1 Pricing Model
+### 8.1 Pricing Model
 
 Rinku uses an EIP-1559-inspired pricing mechanism that adjusts based on **utilization vs target**, not paid fees. This prevents runaway feedback loops where high fees compound into higher fees.
 
@@ -624,7 +624,7 @@ changePercent = min(12.5%, |utilization - 1| / elasticity)
 - Minimum: 1,000 µRKU (0.001 RKU)
 - Maximum: 10,000,000 µRKU (10 RKU)
 
-### 11.2 Self-Correcting Behavior
+### 8.2 Self-Correcting Behavior
 
 Unlike fee-averaging models that compound:
 - **Under target load:** Price decreases 12.5% per period until minimum
@@ -639,7 +639,7 @@ Transactions must include a fee meeting current minimum. Insufficient fees resul
 
 ## 9. Staking and Slashing
 
-### 11.1 Staking
+### 9.1 Staking
 
 Any account can stake RKU to become a validator:
 1. Lock tokens in staking contract
@@ -649,7 +649,7 @@ Any account can stake RKU to become a validator:
 
 Minimum stake: 100 RKU
 
-### 11.2 Slashing Penalties
+### 9.2 Slashing Penalties
 
 | Violation | Penalty |
 |-----------|---------|
@@ -658,7 +658,7 @@ Minimum stake: 100 RKU
 | Liveness failure (3+ missed) | 5% of stake |
 | Repeat liveness (within 30 days) | 10% of stake |
 
-### 8.3 Unbonding
+### 9.3 Unbonding
 
 Unstaking requires a 14-day unbonding period:
 - Stake remains slashable during unbonding
@@ -667,14 +667,14 @@ Unstaking requires a 14-day unbonding period:
 
 ## 10. Smart Contracts (Work in Progress)
 
-### 11.1 Architecture
+### 10.1 Architecture
 
 Contracts are URL-encoded programs with:
 - Immutable code (WASM bytecode)
 - Mutable state (key-value storage)
 - Defined interface (callable methods)
 
-### 11.2 Execution Model
+### 10.2 Execution Model
 
 Contract calls are embedded in transactions:
 ```
