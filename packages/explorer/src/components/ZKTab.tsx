@@ -42,6 +42,7 @@ const NODE_URL = "/api";
 export function ZKTab() {
   const [status, setStatus] = useState<ZKStatus | null>(null);
   const [txHash, setTxHash] = useState("");
+  const [privateKeySeed, setPrivateKeySeed] = useState("");
   const [witness, setWitness] = useState<MerkleWitness | null>(null);
   const [zkUrl, setZkUrl] = useState("");
   const [generatedProof, setGeneratedProof] = useState<ProofResult | null>(
@@ -108,10 +109,14 @@ export function ZKTab() {
     setGeneratedProof(null);
 
     try {
+      const payload: { txHash: string; privateKeySeed?: string } = { txHash };
+      if (privateKeySeed.trim()) {
+        payload.privateKeySeed = privateKeySeed.trim();
+      }
       const res = await fetch(`${NODE_URL}/zk/prove`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ txHash }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
 
@@ -286,6 +291,20 @@ export function ZKTab() {
             onChange={(e) => setTxHash(e.target.value)}
             className="input-field"
           />
+          <input
+            type="password"
+            placeholder="private key seed (optional - your secret passphrase)"
+            value={privateKeySeed}
+            onChange={(e) => setPrivateKeySeed(e.target.value)}
+            className="input-field"
+            style={{ marginTop: "0.5rem" }}
+          />
+          <p className="input-hint" style={{ fontSize: "0.75rem", opacity: 0.7, margin: "0.25rem 0 0.5rem" }}>
+            Your seed derives your ZK keypair. Use any memorable phrase. Leave empty for demo mode.
+            <br />
+            <strong style={{ color: "#ffaa00" }}>Note:</strong> In this demo, the seed is sent to the server for proof generation.
+            For production use, client-side proof generation is recommended.
+          </p>
           <button
             onClick={generateProof}
             disabled={
