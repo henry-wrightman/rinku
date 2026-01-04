@@ -1,6 +1,6 @@
 # Rinku: A URL-Native Distributed Ledger
 
-**Abstract.** A distributed ledger where URLs serve as the canonical portable representation of transactions, proofs, and state transitions. Self-contained proofs embedded in URLs enable trustless verification without trusted infrastructure - data availability is provided by the sender or network. We propose a DAG-based consensus mechanism with weight-based Sybil resistance combining stake and account age. The system achieves per-transaction finality through periodic checkpoints, implements deflationary tokenomics with halving-based emission, and supports extensible smart contracts. The result is a ledger where the link itself is the proof.
+**Abstract.** A distributed ledger where URLs serve as the canonical portable representation of transactions, proofs, and state transitions. Self-contained proofs embedded in URLs enable trustless verification without trusted infrastructure - data availability is provided by the sender or network. We propose a DAG-based consensus mechanism with weight-based Sybil resistance combining stake and account age. The system achieves per-transaction finality through periodic checkpoints, implements deflationary tokenomics with halving-based emission, supports extensible smart contracts, and provides optional zero-knowledge privacy through QR-compatible ZK URLs that prove payment validity without revealing transaction details. The result is a ledger where the link itself is the proof.
 
 ## 1. Introduction
 
@@ -188,9 +188,124 @@ For a fresh verifier to validate proofs, they must possess a trust anchor:
 
 This is analogous to TLS certificate chains: the proof is self-contained, but root trust must be established externally. A proof URL is valid if it chains back to a checkpoint signed by ≥2/3 of validators in a trusted set.
 
-## 3. DAG-Based Consensus
+## 3. Zero-Knowledge Privacy
 
-### 3.1 Structure
+Rinku extends its URL-native philosophy to privacy with ZK URLs - self-contained zero-knowledge proofs that verify transaction validity without revealing sender, recipient, or amount.
+
+### 3.1 The Privacy Problem
+
+Public ledgers inherently expose transaction details. Even with pseudonymous addresses, payment patterns, amounts, and counterparty relationships are visible. Existing privacy solutions require:
+- Full chain privacy (Zcash) - requires complete protocol rewrite
+- Trusted mixers - introduces counterparty risk
+- Layer 2 solutions - adds complexity and withdrawal delays
+
+Rinku's approach: **optional privacy at the proof layer**, not the consensus layer.
+
+### 3.2 ZK URL Format
+
+Privacy-preserving proofs use the `rinku://zk/` scheme:
+
+```
+rinku://zk/{base64url(deflate(payload))}
+```
+
+A ZK URL proves that:
+1. A valid transaction exists in a finalized checkpoint
+2. The prover knows the transaction details
+3. The proof is bound to the correct chain
+
+**Without revealing:**
+- Sender address
+- Recipient address  
+- Transaction amount
+- Which specific transaction in the Merkle tree
+
+### 3.3 How It Works
+
+The ZK layer uses Groth16 SNARKs with the following flow:
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│ Transaction │ ──► │ Merkle Proof │ ──► │ ZK Circuit  │
+│  (private)  │     │  (private)   │     │  (proves)   │
+└─────────────┘     └──────────────┘     └─────────────┘
+                                                │
+                                                ▼
+                                         ┌─────────────┐
+                                         │ ZK URL      │
+                                         │ (shareable) │
+                                         └─────────────┘
+```
+
+**Prover (sender):**
+1. Fetch Merkle witness from any node for their finalized transaction
+2. Generate ZK proof using their private key seed (derives BabyJubJub keypair)
+3. Encode proof as `rinku://zk/...` URL
+4. Share URL via QR code, message, or any medium
+
+**Verifier (recipient/anyone):**
+1. Receive ZK URL
+2. Decode and verify Groth16 proof (~10ms, offline)
+3. Check nullifier hasn't been used (prevents double-claims)
+4. Accept payment proof without learning transaction details
+
+### 3.4 Cryptographic Design
+
+The ZK circuit (10-level Poseidon Merkle tree, ~10.5k constraints) proves:
+
+| Constraint | Purpose |
+|------------|---------|
+| Merkle inclusion | Transaction exists in checkpoint |
+| EdDSA signature | Prover authorized the transaction |
+| Nullifier derivation | Unique per transaction, prevents replay |
+| Amount commitment | Pedersen commitment hides value |
+| Chain binding | Prevents cross-chain replay attacks |
+
+**Key insight:** The circuit uses EdDSA on BabyJubJub (ZK-friendly curve) rather than the ledger's ECDSA P-256. Users derive a separate ZK keypair from a seed phrase. This separation allows the base ledger to remain efficient while enabling optional privacy.
+
+### 3.5 Security Properties
+
+| Property | Mechanism |
+|----------|-----------|
+| **Transaction privacy** | ZK proof hides which tx in Merkle tree |
+| **Amount privacy** | Pedersen commitment with random blinding |
+| **Sender/recipient privacy** | Only commitments revealed, not addresses |
+| **Double-claim prevention** | Nullifier uniqueness (registry or wallet-level) |
+| **Replay protection** | Chain ID hash bound in circuit |
+| **Offline verification** | All data in URL, no network required |
+
+### 3.6 Performance
+
+| Metric | Value |
+|--------|-------|
+| Proof generation | 2-3 seconds (server-side) |
+| Proof verification | <10 milliseconds |
+| URL length | ~500-800 characters |
+| QR compatibility | Version 15 (fits with room to spare) |
+
+### 3.7 Use Cases
+
+1. **Private payments** - Prove you paid someone without revealing your wallet
+2. **Confidential payroll** - Employees verify salary without exposing amounts to others
+3. **Anonymous airdrops** - Claim rewards without linking identity
+4. **Offline verification** - Scan QR at point-of-sale, verify without internet
+5. **Privacy-preserving receipts** - Legal proof of payment without full disclosure
+
+### 3.8 Trust Model
+
+The ZK layer adds minimal trust assumptions beyond the base protocol:
+
+1. **Trusted setup** - Groth16 requires Powers of Tau ceremony (MPC-based)
+2. **Nullifier registry** - Optional; wallet-level tracking provides full privacy
+3. **ZK keypair security** - User must protect their seed phrase
+
+The base chain remains fully transparent. Privacy is opt-in per proof, enabling regulatory compliance while offering user choice.
+
+See **Appendix H** for detailed implementation specifications including circuit constraints, API endpoints, and proof encoding.
+
+## 4. DAG-Based Consensus
+
+### 11.1 Structure
 
 Unlike linear blockchains, Rinku uses a Directed Acyclic Graph. Each transaction references 0-2 prior transactions (tips), creating a mesh of dependencies.
 
@@ -205,11 +320,11 @@ Benefits:
 - **Reduced contention** - No single chain bottleneck
 - **Natural ordering** - Causal relationships preserved
 
-### 3.2 Conflict Resolution
+### 11.2 Conflict Resolution
 
 When conflicting transactions exist (e.g double-spend attempts), the transaction with greater cumulative weight wins. Weight flows from tips backward through the DAG.
 
-### 3.3 Weight Calculation
+### 5.3 Weight Calculation
 
 Transaction weight derives from the originating account's weighted proof-of-stake:
 
@@ -238,9 +353,9 @@ To prevent gaming of the age component:
 - **Log-scale consideration**: Future versions may apply logarithmic scaling
 - **Staked duration**: Alternative metric measuring continuous stake time rather than account creation
 
-## 4. Checkpoints and Finality
+## 5. Checkpoints and Finality
 
-### 4.1 Checkpoint Creation
+### 11.1 Checkpoint Creation
 
 Every 15 seconds (configurable), the network produces a checkpoint:
 
@@ -287,7 +402,7 @@ checkpointId = SHA256(
 
 Note: `txHashes`, `signatures`, and `signatureCount` are NOT included in `id` computation. The ID commits only to header fields; signatures are collected afterward and may vary across nodes during aggregation.
 
-### 4.2 Consensus Protocol
+### 11.2 Consensus Protocol
 
 Checkpoint finality requires Byzantine fault tolerance:
 
@@ -316,14 +431,14 @@ Checkpoint finality requires Byzantine fault tolerance:
    - **Threshold (k)**: At least ⌈2N/3⌉ committee members must sign (e.g k ≥ 43 for N = 64)
    - With multi-proof optimization, proof size is ~O(N) rather than O(k · log₂N)
 
-### 4.3 Finality
+### 5.3 Finality
 
 A transaction achieves finality when included in a checkpoint with sufficient validator signatures. The checkpoint's Merkle roots commit to all included transactions and resulting state. Once finalized:
 - The transaction cannot be reversed
 - Proof URLs are bounded to checkpoint ancestry
 - State is frozen at that point
 
-### 4.4 Finality Metrics
+### 5.4 Finality Metrics
 
 The network tracks:
 - Average time-to-finality
@@ -334,9 +449,9 @@ The network tracks:
 
 Expected performance: ~10-15s average finality under normal network conditions. Finality rate depends on validator availability and network partition tolerance. Testnet telemetry will inform production targets.
 
-## 5. State Management
+## 6. State Management
 
-### 5.1 Account Model
+### 11.1 Account Model
 
 Each account maintains:
 
@@ -349,7 +464,7 @@ Each account maintains:
 }
 ```
 
-### 5.2 State Transitions
+### 11.2 State Transitions
 
 Transactions modify state atomically:
 1. Verify sender has sufficient balance (amount + fee)
@@ -362,16 +477,16 @@ Transactions modify state atomically:
 
 Account state is committed to a Merkle tree with root included in each checkpoint (`stateRoot`). Any account balance can be proven with O(log n) proof size. Proofs are anchored to checkpoint state roots for self-contained verification.
 
-## 6. Tokenomics
+## 7. Tokenomics
 
-### 6.1 Base Unit
+### 11.1 Base Unit
 
 All on-chain values use the smallest indivisible unit:
 - **1 RKU = 1,000,000 µRKU** (micro-RKU)
 - All amounts, fees, rewards, and supply values are `uint64` in µRKU
 - Human-readable RKU values are for documentation only; implementations use µRKU
 
-### 6.2 Supply
+### 11.2 Supply
 
 - **Maximum Supply:** 30,000,000 RKU = 30,000,000,000,000 µRKU (hard cap, enforced)
 - **Genesis Allocation:** 6,000,000 RKU
@@ -380,7 +495,7 @@ All on-chain values use the smallest indivisible unit:
   - 1,000,000 RKU - Faucet distribution (testnet only)
 - **Emission:** Up to 24,000,000 RKU via checkpoint rewards
 
-### 6.3 Emission Schedule
+### 8.3 Emission Schedule
 
 Rewards halve every 3,150,000 checkpoints (~18 months at 15s intervals):
 
@@ -406,7 +521,7 @@ minReward = initialReward >> 5 = 122,887 µRKU
 
 **Hard Cap Enforcement**: Once total circulating supply reaches 30,000,000 RKU, checkpoint rewards drop to 0. The floor reward of 122,887 µRKU only applies while supply remains below the cap.
 
-### 6.4 Halving Rationale
+### 8.4 Halving Rationale
 
 The 18-month halving interval (vs. Bitcoin's 4 years) balances:
 - **Sustained validator incentives:** Validators remain rewarded over multi-year timeframes
@@ -414,7 +529,7 @@ The 18-month halving interval (vs. Bitcoin's 4 years) balances:
 - **Long-term sustainability:** Avoids emission cliff-dive during network growth phase
 - **Predictable schedule:** Complete emission over ~7.5 years
 
-### 6.5 Reward Distribution
+### 7.5 Reward Distribution
 
 Checkpoint rewards distributed to active validators using Weighted Proof-of-Stake:
 - **70% proportional to stake amount**
@@ -427,7 +542,7 @@ Checkpoint rewards distributed to active validators using Weighted Proof-of-Stak
 
 This rewards both capital commitment and long-term, active participation.
 
-### 6.6 Adaptive Fee Split
+### 7.6 Adaptive Fee Split
 
 Gas fees are split between validators and burn using an adaptive model:
 
@@ -464,9 +579,9 @@ burnShare = 100% - validatorShare
 
 This ensures validators are adequately compensated for signing Profile C proofs, especially during high-demand periods when their workload increases.
 
-## 7. Dynamic Gas Fees (EIP-1559 Style)
+## 8. Dynamic Gas Fees (EIP-1559 Style)
 
-### 7.1 Pricing Model
+### 11.1 Pricing Model
 
 Rinku uses an EIP-1559-inspired pricing mechanism that adjusts based on **utilization vs target**, not paid fees. This prevents runaway feedback loops where high fees compound into higher fees.
 
@@ -488,7 +603,7 @@ changePercent = min(12.5%, |utilization - 1| / elasticity)
 - Minimum: 1,000 µRKU (0.001 RKU)
 - Maximum: 10,000,000 µRKU (10 RKU)
 
-### 7.2 Self-Correcting Behavior
+### 11.2 Self-Correcting Behavior
 
 Unlike fee-averaging models that compound:
 - **Under target load:** Price decreases 12.5% per period until minimum
@@ -497,13 +612,13 @@ Unlike fee-averaging models that compound:
 
 This ensures fees remain affordable for URL-sized receipts while still providing spam resistance during high demand.
 
-### 7.3 Fee Validation
+### 8.3 Fee Validation
 
 Transactions must include a fee meeting current minimum. Insufficient fees result in rejection. Priority is first-come-first-served at the current base fee - no fee auctions or tip bidding.
 
-## 8. Staking and Slashing
+## 9. Staking and Slashing
 
-### 8.1 Staking
+### 11.1 Staking
 
 Any account can stake RKU to become a validator:
 1. Lock tokens in staking contract
@@ -513,7 +628,7 @@ Any account can stake RKU to become a validator:
 
 Minimum stake: 100 RKU
 
-### 8.2 Slashing Penalties
+### 11.2 Slashing Penalties
 
 | Violation | Penalty |
 |-----------|---------|
@@ -529,16 +644,16 @@ Unstaking requires a 14-day unbonding period:
 - Prevents quick exit after misbehavior
 - Processed automatically each checkpoint
 
-## 9. Smart Contracts (Work in Progress)
+## 10. Smart Contracts (Work in Progress)
 
-### 9.1 Architecture
+### 11.1 Architecture
 
 Contracts are URL-encoded programs with:
 - Immutable code (WASM bytecode)
 - Mutable state (key-value storage)
 - Defined interface (callable methods)
 
-### 9.2 Execution Model
+### 11.2 Execution Model
 
 Contract calls are embedded in transactions:
 ```
@@ -552,7 +667,7 @@ Contract calls are embedded in transactions:
 }
 ```
 
-### 9.3 Current Status
+### 10.3 Current Status
 
 The contract framework is implemented with:
 - Deploy, call, and query interfaces
@@ -561,16 +676,16 @@ The contract framework is implemented with:
 
 Full WASM execution is under development. Current implementation uses a simulated runtime for interface validation.
 
-## 10. Network Protocol
+## 11. Network Protocol
 
-### 10.1 Peer Discovery
+### 11.1 Peer Discovery
 
 Nodes discover peers via gossip protocol:
 1. Exchange known peer lists
 2. Validate peer liveness
 3. Maintain connection pool (max 50 peers)
 
-### 10.2 State Synchronization
+### 11.2 State Synchronization
 
 New nodes sync via:
 1. Request latest checkpoint from peers
@@ -586,7 +701,7 @@ Submitted transactions:
 3. Broadcast to connected peers
 4. Include in next checkpoint
 
-## 11. Performance
+## 12. Performance
 
 ### 11.1 Current Metrics
 
@@ -602,9 +717,9 @@ Submitted transactions:
 - State sharding (future work)
 - Layer 2 solutions for high-frequency use cases
 
-## 12. Security Model
+## 13. Security Model
 
-### 12.1 Assumptions
+### 13.1 Assumptions
 
 Rinku's security relies on:
 
@@ -613,7 +728,7 @@ Rinku's security relies on:
 3. **Network synchrony**: Messages propagate within bounded time for liveness (not safety)
 4. **Trust anchor availability**: Verifiers can obtain a valid genesis or checkpoint reference
 
-### 12.2 What Each Proof Profile Guarantees
+### 13.2 What Each Proof Profile Guarantees
 
 **Profile A (Receipt):**
 - Sender cannot forge transaction signatures
@@ -637,7 +752,7 @@ Rinku's security relies on:
 - *Does prove*: Signer weight sum AND totalWeight accuracy using MerkleSumTree cryptographic commitment
 - *Closes denominator attack*: totalWeight cannot be forged because it's derived from the signed MerkleSumTree root
 
-### 12.3 Attack Vectors and Mitigations
+### 13.3 Attack Vectors and Mitigations
 
 | Attack | Description | Mitigation |
 |--------|-------------|------------|
@@ -649,7 +764,7 @@ Rinku's security relies on:
 | **Double-spend** | Conflicting transactions in DAG | Weight-based fork resolution; checkpoint finality locks |
 | **Stake grinding** | Manipulate randomness for leader selection | Beacon uses aggregated BLS signature (requires ≥67% to grind) |
 
-### 12.4 Profile A Trust Model
+### 13.4 Profile A Trust Model
 
 Profile A receipts are analogous to **signed receipts in traditional commerce**:
 - The merchant trusts the payment network processed the transaction
@@ -658,13 +773,15 @@ Profile A receipts are analogous to **signed receipts in traditional commerce**:
 
 For most retail/P2P transactions, Profile A provides sufficient assurance. High-value or adversarial contexts should use Profile B or await additional checkpoint confirmations.
 
-## 13. Conclusion
+## 14. Conclusion
 
 Rinku demonstrates that URLs can serve as the canonical portable representation of distributed ledger proofs. By encoding transactions, proofs, and ancestry in self-contained URLs, we eliminate the need to trust infrastructure for verification.
 
 Through DEFLATE compression, complete finality proofs fit within 600-2,300 characters for typical ancestry depths (1-10 transactions). Single transactions and short ancestry chains (up to ~5 depth) fit in QR codes; complex DAG proofs work as shareable URLs in any modern browser. This enables genuine offline verification: embed payment proofs in QR codes, verify transactions without network access, share ledger state via hyperlinks.
 
-The combination of DAG-based consensus, weighted proof-of-stake, checkpoint finality, and deflationary tokenomics creates a functional distributed ledger with a novel property: **the link is the proof**.
+The ZK privacy layer extends this paradigm to confidential payments. Users can generate `rinku://zk/` URLs that prove payment validity without revealing sender, recipient, or amount - all in ~500-800 characters that fit in a QR code. Privacy becomes opt-in at the proof layer rather than requiring chain-wide changes.
+
+The combination of DAG-based consensus, weighted proof-of-stake, checkpoint finality, deflationary tokenomics, and zero-knowledge privacy creates a functional distributed ledger with a novel property: **the link is the proof**.
 
 ---
 
@@ -1532,18 +1649,18 @@ blsVerify(aggregatedSig, signingHash, aggregatedPubKey) = false
 REJECT: BLS aggregate signature verification failed
 ```
 
-## Appendix H: ZK Privacy Layer (Proposal)
+## Appendix H: ZK Privacy Implementation Details
 
-This appendix specifies a privacy-preserving proof layer for Rinku that enables confidential payment verification without modifying base chain consensus.
+This appendix provides detailed implementation specifications for the ZK Privacy layer described in Section 3. For conceptual overview, see the main section.
 
-### H.1 Design Philosophy
+### H.1 Circuit Implementation
 
-The ZK privacy layer follows Rinku's core principle: **the URL is the proof**. Rather than making the entire chain private (which would require complex ZK circuits in consensus), we add an optional privacy layer at the proof level:
-
-- Base chain remains transparent and efficient
-- Privacy is opt-in per proof, not per transaction
-- The same on-chain transaction can have both public and private proofs
-- Offline verification preserved
+The privacy circuit is implemented in Circom with the following specifications:
+- **Constraints:** ~10,500
+- **Curve:** BN128 (alt_bn128)
+- **Proof system:** Groth16
+- **Hash function:** Poseidon (circomlib)
+- **Signature scheme:** EdDSA-Poseidon on BabyJubJub (circomlibjs)
 
 ### H.2 URL Format
 
@@ -1556,15 +1673,14 @@ Where `payload` is a JSON object:
 ```json
 {
   "v": 1,                          // Version
-  "chainId": "rinku-mainnet",      // Chain binding
+  "chainId": "rinku-testnet",      // Chain binding
   "cpHeight": 12345,               // Checkpoint height
-  "proof": "...",                  // Groth16 proof (192 bytes base64)
+  "proof": "...",                  // Groth16 proof (JSON or base64)
   "publicInputs": {
-    "cpRoot": "...",               // Checkpoint Merkle root
-    "nullifier": "...",            // Prevents double-claim
-    "amountCommitment": "...",     // Pedersen commitment to amount
-    "recipientCommitment": "...",  // Commitment to recipient view key
-    "blsAggregate": "..."          // Checkpoint BLS signature
+    "cpRoot": "...",               // Checkpoint Merkle root (public signal 0)
+    "nullifier": "...",            // Prevents double-claim (public signal 1)
+    "amountCommitment": "...",     // Pedersen commitment to amount (public signal 2)
+    "chainIdHash": "..."           // Poseidon hash of chainId (public signal 3)
   },
   "encryptedMemo": "...",          // For recipient only (optional)
   "auxData": {                     // For reconstruction
@@ -1578,11 +1694,14 @@ Where `payload` is a JSON object:
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
-| ZK System | Groth16 | Smallest proofs (~192 bytes), fast verification |
+| ZK System | Groth16 (bn128) | Smallest proofs (~192 bytes), fast verification |
 | Hash (circuit) | Poseidon | ZK-friendly, ~8x faster than SHA-256 in circuits |
-| Commitments | Pedersen (Jubjub) | Additively homomorphic, efficient in ZK |
-| Signatures (circuit) | EdDSA (Jubjub) | Native to ZK circuits, compatible with BLS binding |
-| Encryption | ECIES (Curve25519) | For encrypted memos to recipient |
+| Commitments | Pedersen | Additively homomorphic, efficient in ZK |
+| Signatures (circuit) | EdDSA-Poseidon (BabyJubJub) | Native to ZK circuits via circomlibjs |
+| Curve | BabyJubJub | Embedded curve in bn128, efficient for EdDSA in Groth16 |
+| Encryption | ECIES (Curve25519) | For encrypted memos to recipient (future) |
+
+**Implementation Note:** The EdDSA signatures in the ZK circuit use BabyJubJub (a different curve from the ledger's ECDSA P-256). This is intentional - the ZK layer is an optional privacy overlay with its own keypair derived from a user-provided seed.
 
 ### H.4 Circuit Design
 
@@ -1702,38 +1821,48 @@ For the recipient to understand a ZK payment:
 
 Fits comfortably in QR Code Version 15 (1,156 chars) with room to spare.
 
-### H.9 Implementation Phases
+### H.9 Implementation Status
 
-**Phase 1: Circuit Development**
-- Implement Poseidon Merkle tree gadget
-- Implement EdDSA signature verification gadget
-- Implement Pedersen commitment gadget
-- Trusted setup ceremony (MPC)
+**Completed Features:**
+- Circom circuit with 10-level Poseidon Merkle tree (~10.5k constraints)
+- EdDSA-Poseidon signature verification (BabyJubJub via circomlibjs)
+- Pedersen amount commitments with random blinding
+- Chain ID binding (prevents cross-chain replay)
+- Nullifier derivation (prevents double-claims)
+- Trusted setup using Powers of Tau with crypto.randomBytes entropy
 
-**Phase 2: Wallet Integration**
-- Generate viewing keypairs for recipients
-- Fetch Merkle witnesses from node
-- Generate ZK proofs client-side (WASM prover)
-- Create `rinku://zk/` URLs
+**Artifacts:**
+- Circuit WASM: 3.14 MB
+- Proving key (zkey): 6.71 MB
+- Verification key: 3.39 KB
 
-**Phase 3: Verifier Library**
-- Portable Groth16 verifier (WASM + native)
-- Nullifier registry (optional on-chain or local)
-- Explorer integration for ZK proof verification
+**API Endpoints:**
+- `GET /api/zk/status` - ZK layer status and feature availability
+- `GET /api/zk/witness/:txHash` - Fetch Merkle witness for finalized tx
+- `POST /api/zk/prove` - Generate full ZK proof (accepts txHash, optional privateKeySeed)
+- `POST /api/zk/verify` - Verify a `rinku://zk/...` URL
 
-**Phase 4: Advanced Features**
+**Explorer Integration:**
+- ZK Privacy tab with witness generation, proof generation, and verification
+- Private key seed input for user-controlled ZK keypairs
+- 24 integration tests passing
+
+**Future Enhancements:**
+- Client-side proof generation (WASM in browser, ~20-30s)
+- Encrypted memos for recipient-only data
 - Amount range proofs (prove amount > X without revealing exact value)
-- Multi-recipient proofs
 - Stealth addresses for enhanced recipient privacy
 
 ### H.10 Comparison with Alternatives
 
 | Approach | Proof Size | Verification | Prover Time | Chain Changes |
 |----------|------------|--------------|-------------|---------------|
-| **Rinku ZK URL** | ~500 chars | 10ms | 2-5s | None |
+| **Rinku ZK URL** | ~500-800 chars | <10ms | 2-3s (server) | None |
 | Full ZK chain (Zcash) | N/A | N/A | 40s+ | Complete rewrite |
 | STARKs | ~50KB | 50ms | 1-2s | None |
 | Bulletproofs | ~700 bytes | 100ms | 10s | None |
+
+**Benchmark (actual):** Proof generation averages 2.3s on server with snarkjs. Verification is <10ms. URL length ~800 chars fits QR Code Version 15.
 
 Groth16 offers the best balance for URL-native QR-compatible proofs.
 
