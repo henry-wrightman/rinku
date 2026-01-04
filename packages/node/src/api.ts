@@ -105,14 +105,23 @@ export function createAPI(
   });
 
   const TPS_WINDOW_MS = 60000;
+  let lastTpsCheckTime = Date.now();
+  let lastTxCount = consensus.getTotalTransactionsProcessed();
+  let currentTps = 0;
 
   app.get('/api/stats/network', (_req, res) => {
     const now = Date.now();
     const nodes = consensus.getAllNodes();
     
-    const cutoff = now - TPS_WINDOW_MS;
-    const recentFromDag = nodes.filter(n => n.tx.ts > cutoff).length;
-    const tps = recentFromDag / 60;
+    const totalProcessed = consensus.getTotalTransactionsProcessed();
+    const elapsed = (now - lastTpsCheckTime) / 1000;
+    if (elapsed >= 1) {
+      const txDiff = totalProcessed - lastTxCount;
+      currentTps = txDiff / elapsed;
+      lastTxCount = totalProcessed;
+      lastTpsCheckTime = now;
+    }
+    const tps = currentTps;
     
     let finalizedCount = 0;
     let unfinalizedCount = 0;
@@ -146,6 +155,7 @@ export function createAPI(
     
     res.json({
       tps: Math.round(tps * 100) / 100,
+      totalTransactionsProcessed: totalProcessed,
       finalizedCount,
       unfinalizedCount,
       finalityRatio: nodes.length > 0 ? Math.round((finalizedCount / nodes.length) * 100) : 0,

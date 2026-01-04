@@ -167,7 +167,11 @@ export class Consensus {
     return this.dag.size();
   }
 
-  getDAGStats(): { nodes: number; tips: number; unresolvedParents: number } {
+  getTotalTransactionsProcessed(): number {
+    return this.dag.getTotalTransactionsProcessed();
+  }
+
+  getDAGStats(): { nodes: number; tips: number; unresolvedParents: number; totalProcessed: number } {
     return this.dag.getStats();
   }
 

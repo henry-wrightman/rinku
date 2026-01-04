@@ -17,6 +17,7 @@ export class DAG {
   private tipHashes: Set<string> = new Set();
   private urlToHash: Map<string, string> = new Map();
   private unresolvedParentCount = 0;
+  private totalTransactionsProcessed = 0;
 
   constructor() {
     this.nodes = new Map();
@@ -63,16 +64,22 @@ export class DAG {
 
     this.nodes.set(tx.hash, node);
     this.tipHashes.add(tx.hash);
+    this.totalTransactionsProcessed++;
 
     return node;
   }
 
-  getStats(): { nodes: number; tips: number; unresolvedParents: number } {
+  getStats(): { nodes: number; tips: number; unresolvedParents: number; totalProcessed: number } {
     return {
       nodes: this.nodes.size,
       tips: this.tipHashes.size,
-      unresolvedParents: this.unresolvedParentCount
+      unresolvedParents: this.unresolvedParentCount,
+      totalProcessed: this.totalTransactionsProcessed
     };
+  }
+
+  getTotalTransactionsProcessed(): number {
+    return this.totalTransactionsProcessed;
   }
 
   resolveUrlToHash(url: string): string | null {
@@ -481,7 +488,8 @@ export class DAG {
         confirmed: node.confirmed,
         finality: node.finality
       })),
-      tipHashes: Array.from(this.tipHashes)
+      tipHashes: Array.from(this.tipHashes),
+      totalTransactionsProcessed: this.totalTransactionsProcessed
     };
   }
 
@@ -531,6 +539,7 @@ export class DAG {
     }
 
     dag.tipHashes = new Set(data.tipHashes || data.tips || []);
+    dag.totalTransactionsProcessed = data.totalTransactionsProcessed || dag.nodes.size;
     
     return dag;
   }

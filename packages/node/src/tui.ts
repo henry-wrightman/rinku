@@ -211,8 +211,7 @@ export class NodeTui {
   }
 
   private calculateTps(): number {
-    const dag = this.deps.consensus.getDAG();
-    const currentTxCount = dag.getAllNodes().length;
+    const currentTxCount = this.deps.consensus.getTotalTransactionsProcessed();
     const now = Date.now();
     const elapsed = (now - this.lastTpsCheck) / 1000;
     
