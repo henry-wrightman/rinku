@@ -178,7 +178,7 @@ export function createAPI(
     res.json({ status: "ok", timestamp: Date.now() });
   });
 
-  app.get("/metrics", async (_req, res) => {
+  const metricsHandler = async (_req: any, res: any) => {
     try {
       dagNodesGauge.set(consensus.getAllNodes().length);
       dagTipsGauge.set(consensus.getTips().length);
@@ -214,7 +214,10 @@ export function createAPI(
     } catch (err) {
       res.status(500).json({ error: "Failed to collect metrics" });
     }
-  });
+  };
+
+  app.get("/metrics", metricsHandler);
+  app.get("/api/metrics", metricsHandler);
 
   app.get("/api/stats", (_req, res) => {
     const memUsage = process.memoryUsage();
