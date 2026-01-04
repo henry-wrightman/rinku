@@ -517,7 +517,7 @@ async function main() {
     const checkpoint = checkpointService.getCheckpoint(checkpointId);
     const checkpointTimestamp = checkpoint?.timestamp || Date.now();
     const allNodes = consensus.getAllNodes();
-    const txCount = allNodes.length;
+    // const nodeCount = allNodes.length;
 
     const unfinalizedNodes = allNodes.filter((n) => !n.finality);
 
@@ -539,7 +539,7 @@ async function main() {
           const rewards = rewardsService.processTransactionRewards(
             node.url,
             node.tx.tipUrls,
-            node.tx.amount || 0
+            node.tx.amount || 0,
           );
           tipRewardsCount += rewards.tipRewards.length;
           witnessRewardsCount += rewards.witnessRewards.length;
@@ -552,7 +552,7 @@ async function main() {
       }
     }
 
-    finalityMetrics.recordCheckpoint(height, txCount, checkpointTimestamp);
+    finalityMetrics.recordCheckpoint(height, count, checkpointTimestamp);
     finalityMetrics.pruneStaleEntries(height);
 
     const reward = emissionService.getCheckpointReward(height);
@@ -602,7 +602,7 @@ async function main() {
     await state.updateMerkleRootIfNeeded();
 
     const dagStats = consensus.getDAGStats();
-    
+
     if (dagStats.tips > MAX_TIPS) {
       console.log(
         `[TipWarning] High tip count: ${dagStats.tips} (max: ${MAX_TIPS}). Transactions should reference more tips to consolidate.`,
@@ -659,13 +659,16 @@ async function main() {
       peerSync,
       gas: gasService || null,
       telemetry,
-      getCheckpointHeight: () => checkpointService?.getLatestCheckpoint()?.height ?? 0,
+      getCheckpointHeight: () =>
+        checkpointService?.getLatestCheckpoint()?.height ?? 0,
       getPendingCount: () => mempool.size(),
       getWitnessedCount: () => rewardsService?.getStats().witnessedCount ?? 0,
       getCryptoWorkers: () => cryptoPool.getWorkerCount(),
       setCryptoWorkers: (count: number) => {
         cryptoPool.resize(count).then(() => {
-          console.log(`[Config] Crypto workers resized to ${cryptoPool.getWorkerCount()}`);
+          console.log(
+            `[Config] Crypto workers resized to ${cryptoPool.getWorkerCount()}`,
+          );
         });
       },
       nodeId: NODE_ID,
