@@ -1103,4 +1103,445 @@ describe('Encoding Module', () => {
       expect(decoded.contract?.entrypoint).toBe('transfer');
     });
   });
+
+  describe('verifyReceiptMerkleProof', () => {
+    it('should verify valid Merkle proof at even index', async () => {
+      const { verifyReceiptMerkleProof } = await import('../encoding.js');
+      const { hash } = await import('../crypto.js');
+      
+      const receipt = { 
+        callId: 'call1', 
+        txHash: 'tx1', 
+        contractId: 'c1', 
+        status: 'success' as const, 
+        effectsHash: 'e1', 
+        eventsHash: 'ev1',
+        postStateRoot: 'state1',
+        gasUsed: 100
+      };
+      
+      const leafData = JSON.stringify({ id: 'call1', receipt });
+      const leafHash = await hash(leafData);
+      const siblingHash = 'sibling123abc';
+      const expectedRoot = await hash(leafHash + siblingHash);
+      
+      const result = await verifyReceiptMerkleProof('call1', receipt as any, [siblingHash], 0, expectedRoot);
+      expect(result).toBe(true);
+    });
+
+    it('should verify valid Merkle proof at odd index', async () => {
+      const { verifyReceiptMerkleProof } = await import('../encoding.js');
+      const { hash } = await import('../crypto.js');
+      
+      const receipt = { 
+        callId: 'call2', 
+        txHash: 'tx2', 
+        contractId: 'c2', 
+        status: 'success' as const, 
+        effectsHash: 'e2', 
+        eventsHash: 'ev2',
+        postStateRoot: 'state2',
+        gasUsed: 50
+      };
+      
+      const leafData = JSON.stringify({ id: 'call2', receipt });
+      const leafHash = await hash(leafData);
+      const siblingHash = 'leftsibling456';
+      const expectedRoot = await hash(siblingHash + leafHash);
+      
+      const result = await verifyReceiptMerkleProof('call2', receipt as any, [siblingHash], 1, expectedRoot);
+      expect(result).toBe(true);
+    });
+
+    it('should reject invalid Merkle proof with wrong root', async () => {
+      const { verifyReceiptMerkleProof } = await import('../encoding.js');
+      
+      const receipt = { 
+        callId: 'call3', 
+        txHash: 'tx3', 
+        contractId: 'c3', 
+        status: 'success' as const, 
+        effectsHash: 'e3', 
+        eventsHash: 'ev3',
+        postStateRoot: 'state3',
+        gasUsed: 75
+      };
+      
+      const result = await verifyReceiptMerkleProof('call3', receipt as any, ['sibling'], 0, 'wrongroot');
+      expect(result).toBe(false);
+    });
+
+    it('should handle multi-level Merkle proof', async () => {
+      const { verifyReceiptMerkleProof } = await import('../encoding.js');
+      const { hash } = await import('../crypto.js');
+      
+      const receipt = { 
+        callId: 'call4', 
+        txHash: 'tx4', 
+        contractId: 'c4', 
+        status: 'reverted' as const, 
+        effectsHash: 'e4', 
+        eventsHash: 'ev4',
+        postStateRoot: 'state4',
+        gasUsed: 200
+      };
+      
+      const leafData = JSON.stringify({ id: 'call4', receipt });
+      const leafHash = await hash(leafData);
+      const sibling1 = 'sib1';
+      const level1 = await hash(leafHash + sibling1);
+      const sibling2 = 'sib2';
+      const expectedRoot = await hash(level1 + sibling2);
+      
+      const result = await verifyReceiptMerkleProof('call4', receipt as any, [sibling1, sibling2], 0, expectedRoot);
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('verifyStateWitness', () => {
+    it('should pass for witness with no touched keys', async () => {
+      const { verifyStateWitness } = await import('../encoding.js');
+      
+      const witness = { touchedKeys: [], merkleProofs: [] };
+      const result = await verifyStateWitness(witness as any, 'stateRoot');
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should fail for touched keys with no proofs', async () => {
+      const { verifyStateWitness } = await import('../encoding.js');
+      
+      const witness = { 
+        touchedKeys: [{ contractId: 'c1', key: 'balance', preValue: '100', postValue: '200' }],
+        merkleProofs: []
+      };
+      const result = await verifyStateWitness(witness as any, 'stateRoot');
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Witness has touched keys but no Merkle proofs');
+    });
+
+    it('should fail for missing Merkle proof for touched key', async () => {
+      const { verifyStateWitness } = await import('../encoding.js');
+      
+      const witness = { 
+        touchedKeys: [
+          { contractId: 'c1', key: 'balance', preValue: '100', postValue: '200' }
+        ],
+        merkleProofs: [
+          { key: 'c2:otherkey', proof: ['a', 'b'], index: 0 }
+        ]
+      };
+      const result = await verifyStateWitness(witness as any, 'stateRoot');
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Missing Merkle proof for key c1:balance');
+    });
+
+    it('should handle invalid Merkle proof for touched key', async () => {
+      const { verifyStateWitness } = await import('../encoding.js');
+      
+      const witness = { 
+        touchedKeys: [
+          { contractId: 'c1', key: 'balance', preValue: '100', postValue: '200' }
+        ],
+        merkleProofs: [
+          { key: 'c1:balance', proof: ['wrong'], index: 0 }
+        ]
+      };
+      const result = await verifyStateWitness(witness as any, 'stateRoot');
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Invalid Merkle proof for key c1:balance');
+    });
+  });
+
+  describe('verifyProfileBProofCryptographic', () => {
+    it('should fail with empty trusted validators', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'sr1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 'sr1', receiptRoot: 'rr1', height: 1, merkleRoot: 'mr1' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [{ validator: 'v1', signature: 's1', weight: 100 }],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'rr1' }
+      } as any;
+      
+      const result = await verifyProfileBProofCryptographic(proof, []);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Trusted validators required for Profile B verification');
+    });
+
+    it('should fail with missing receipt', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [{ validator: 'v1', signature: 's1', weight: 100 }]
+      } as any;
+      
+      const validators = [{ address: 'v1', weight: 100, publicKey: [] }];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Missing receipt or checkpoint anchor');
+    });
+
+    it('should detect state root mismatch', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'wrongStateRoot' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 'correctStateRoot', receiptRoot: 'rr1', height: 1, merkleRoot: 'mr1' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [{ validator: 'v1', signature: 's1', weight: 100 }],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'rr1' }
+      } as any;
+      
+      const validators = [{ address: 'v1', weight: 100, publicKey: [] }];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.stateRootMatch).toBe(false);
+      expect(result.errors.some(e => e.includes('State root mismatch'))).toBe(true);
+    });
+
+    it('should detect receipt root mismatch', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'sr1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 'sr1', receiptRoot: 'correctReceiptRoot', height: 1, merkleRoot: 'mr1' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [{ validator: 'v1', signature: 's1', weight: 100 }],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'wrongReceiptRoot' }
+      } as any;
+      
+      const validators = [{ address: 'v1', weight: 100, publicKey: [] }];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.receiptRootMatch).toBe(false);
+      expect(result.errors.some(e => e.includes('Receipt root mismatch'))).toBe(true);
+    });
+
+    it('should detect duplicate validator signatures', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'sr1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 'sr1', receiptRoot: 'rr1', height: 1, merkleRoot: 'mr1' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [
+          { validator: 'validator1', signature: 's1', weight: 50 },
+          { validator: 'validator1', signature: 's2', weight: 50 }
+        ],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'rr1' }
+      } as any;
+      
+      const validators = [{ address: 'validator1', weight: 50, publicKey: [] }];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.errors.some(e => e.includes('Duplicate signature'))).toBe(true);
+    });
+
+    it('should detect unknown validator', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'sr1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 'sr1', receiptRoot: 'rr1', height: 1, merkleRoot: 'mr1' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [
+          { validator: 'unknownValidator', signature: 's1', weight: 100 }
+        ],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'rr1' }
+      } as any;
+      
+      const validators = [{ address: 'trustedValidator', weight: 100, publicKey: [] }];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.errors.some(e => e.includes('Unknown validator'))).toBe(true);
+    });
+
+    it('should detect weight mismatch', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'sr1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 'sr1', receiptRoot: 'rr1', height: 1, merkleRoot: 'mr1' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [
+          { validator: 'v1', signature: 's1', weight: 999 }
+        ],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'rr1' }
+      } as any;
+      
+      const validators = [{ address: 'v1', weight: 100, publicKey: [] }];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.errors.some(e => e.includes('Weight mismatch'))).toBe(true);
+    });
+
+    it('should detect insufficient validator weight', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'sr1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 'sr1', receiptRoot: 'rr1', height: 1, merkleRoot: 'mr1' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [
+          { validator: 'v1', signature: 's1', weight: 30 }
+        ],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'rr1' }
+      } as any;
+      
+      const validators = [
+        { address: 'v1', weight: 30, publicKey: [] },
+        { address: 'v2', weight: 70, publicKey: [] }
+      ];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.signaturesValid).toBe(false);
+      expect(result.errors.some(e => e.includes('Insufficient validator weight'))).toBe(true);
+    });
+
+    it('should fail for missing validator signatures', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'sr1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 'sr1', receiptRoot: 'rr1', height: 1, merkleRoot: 'mr1' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'rr1' }
+      } as any;
+      
+      const validators = [{ address: 'v1', weight: 100, publicKey: [] }];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.errors).toContain('Profile B proof missing validator signatures');
+    });
+
+    it('should validate validator set hash match', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'sr1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { 
+          checkpointId: 'cp1', 
+          stateRoot: 'sr1', 
+          receiptRoot: 'rr1', 
+          height: 1, 
+          merkleRoot: 'mr1',
+          validatorSetHash: 'wrongValidatorSetHash'
+        },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [{ validator: 'v1', signature: 's1', weight: 100 }],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'rr1' }
+      } as any;
+      
+      const validators = [{ address: 'v1', weight: 100, publicKey: [] }];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.errors.some(e => e.includes('Validator set hash mismatch'))).toBe(true);
+    });
+
+    it('should accumulate weight from validators without public keys', async () => {
+      const { verifyProfileBProofCryptographic } = await import('../encoding.js');
+      
+      const proof = {
+        receipt: { callId: 'c1', txHash: 't1', contractId: 'cn1', status: 'success', effectsHash: 'e1', eventsHash: 'ev1', postStateRoot: 'sr1' },
+        tx: { from: 'a', to: 'b' },
+        txHash: 'h1',
+        checkpointAnchor: { checkpointId: 'cp1', stateRoot: 'sr1', receiptRoot: 'rr1', height: 1, merkleRoot: 'mr1' },
+        witness: { touchedKeys: [], merkleProofs: [] },
+        validatorSignatures: [
+          { validator: 'v1', signature: 's1', weight: 70 },
+          { validator: 'v2', signature: 's2', weight: 30 }
+        ],
+        receiptMerkleProof: { proof: [], index: 0, receiptRoot: 'rr1' }
+      } as any;
+      
+      const validators = [
+        { address: 'v1', weight: 70, publicKey: [] },
+        { address: 'v2', weight: 30, publicKey: [] }
+      ];
+      const result = await verifyProfileBProofCryptographic(proof, validators);
+      expect(result.signatureWeight).toBe(100);
+      expect(result.weightPercentAchieved).toBe(100);
+    });
+  });
+
+  describe('verifySelfCrawlableBundle edge cases', () => {
+    it('should catch validation errors thrown during verification', () => {
+      const badBundle = {
+        tx: { from: 'a', to: 'b', amount: 1, sig: 's' },
+        hash: 'h1',
+        get parents(): any[] {
+          throw new Error('Simulated parent iteration error');
+        }
+      };
+      
+      const result = verifySelfCrawlableBundle(badBundle as any);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('Validation error'))).toBe(true);
+    });
+
+    it('should detect invalid amount (zero)', () => {
+      const bundle = {
+        tx: { from: 'a', to: 'b', amount: 0, sig: 's' },
+        hash: 'h1',
+        parents: []
+      } as any;
+      const result = verifySelfCrawlableBundle(bundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('invalid amount'))).toBe(true);
+    });
+
+    it('should detect invalid amount (negative)', () => {
+      const bundle = {
+        tx: { from: 'a', to: 'b', amount: -5, sig: 's' },
+        hash: 'h1',
+        parents: []
+      } as any;
+      const result = verifySelfCrawlableBundle(bundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('invalid amount'))).toBe(true);
+    });
+
+    it('should validate checkpoint anchor with missing fields', () => {
+      const bundle = {
+        tx: { from: 'a', to: 'b', amount: 1, sig: 's' },
+        hash: 'h1',
+        parents: [],
+        checkpointAnchor: { checkpointId: 'cp1' }
+      } as any;
+      const result = verifySelfCrawlableBundle(bundle);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('Invalid checkpoint anchor'))).toBe(true);
+    });
+  });
+
+  describe('getURLTypeExtended additional coverage', () => {
+    it('should detect rxpb type', () => {
+      expect(getURLTypeExtended('/rxpb/somePayload')).toBe('rxpb');
+    });
+
+    it('should detect rxp type', () => {
+      expect(getURLTypeExtended('/rxp/somePayload')).toBe('rxp');
+    });
+
+    it('should return unknown for unrecognized paths', () => {
+      expect(getURLTypeExtended('/unknown/path')).toBe('unknown');
+      expect(getURLTypeExtended('/api/status')).toBe('unknown');
+    });
+  });
 });
