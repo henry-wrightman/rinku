@@ -8,3 +8,19 @@ dist/
 coverage/
 .nyc_output/
 *.tsbuildinfo
+
+# ZK build artifacts (large binary files)
+packages/zk/build/
+*.ptau
+*.zkey
+*.wasm
+*.r1cs
+*.sym
+
+# Rinku data (snapshots, state)
+.rinku-data/
+
+# Replit specific
+.cache/
+.upm/
+.config/
