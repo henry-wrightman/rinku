@@ -40,13 +40,46 @@ export class PeerSyncService {
     discoveryEnabled: true,
     announceEnabled: true
   };
+  
+  private rejectedTxCache: Map<string, number> = new Map();
+  private static readonly MAX_REJECTED_CACHE = 10000;
+  private static readonly REJECTED_TTL_MS = 5 * 60 * 1000;
+  private rejectedCacheCleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(state: StateManager, consensus: Consensus, nodeId: string) {
     this.state = state;
     this.consensus = consensus;
     this.nodeId = nodeId;
+    
+    this.rejectedCacheCleanupInterval = setInterval(() => {
+      this.cleanupRejectedCache();
+    }, 60000);
   }
-
+  
+  private cleanupRejectedCache(): void {
+    const now = Date.now();
+    const toDelete: string[] = [];
+    
+    for (const [hash, timestamp] of this.rejectedTxCache) {
+      if (now - timestamp > PeerSyncService.REJECTED_TTL_MS) {
+        toDelete.push(hash);
+      }
+    }
+    
+    for (const hash of toDelete) {
+      this.rejectedTxCache.delete(hash);
+    }
+    
+    if (this.rejectedTxCache.size > PeerSyncService.MAX_REJECTED_CACHE) {
+      const entries = Array.from(this.rejectedTxCache.entries())
+        .sort((a, b) => a[1] - b[1]);
+      const toRemove = entries.slice(0, entries.length - PeerSyncService.MAX_REJECTED_CACHE);
+      for (const [hash] of toRemove) {
+        this.rejectedTxCache.delete(hash);
+      }
+    }
+  }
+  
   setSelfUrl(url: string): void {
     this.selfUrl = url;
   }
@@ -262,6 +295,10 @@ export class PeerSyncService {
       clearInterval(this.syncInterval);
       this.syncInterval = null;
     }
+    if (this.rejectedCacheCleanupInterval) {
+      clearInterval(this.rejectedCacheCleanupInterval);
+      this.rejectedCacheCleanupInterval = null;
+    }
   }
 
   private async syncWithPeers(): Promise<void> {
@@ -360,6 +397,10 @@ export class PeerSyncService {
       if (this.consensus.hasTransaction(item.tx.hash)) {
         continue;
       }
+      
+      if (this.rejectedTxCache.has(item.tx.hash)) {
+        continue;
+      }
 
       const pubKeyArray = item.publicKey ? new Uint8Array(item.publicKey) : undefined;
       
@@ -377,7 +418,7 @@ export class PeerSyncService {
         );
 
         if (!validation.valid) {
-          console.log(`Skipping invalid tx ${item.tx.hash}: ${validation.error}`);
+          this.rejectedTxCache.set(item.tx.hash, Date.now());
           continue;
         }
       }

@@ -477,12 +477,29 @@ export class GossipService {
     }
   }
 
+  private lastTipWarnTime: Map<string, number> = new Map();
+  private static readonly TIP_WARN_INTERVAL_MS = 30000;
+  private static readonly MAX_HEALTHY_TIPS = 50;
+  
   private async receiveTipAnnounce(payload: TipAnnouncePayload, fromNodeId: string): Promise<void> {
+    if (payload.tips.length > GossipService.MAX_HEALTHY_TIPS) {
+      const lastWarn = this.lastTipWarnTime.get(fromNodeId) || 0;
+      if (Date.now() - lastWarn > GossipService.TIP_WARN_INTERVAL_MS) {
+        console.warn(`Ignoring unhealthy peer ${fromNodeId.slice(0, 8)} with ${payload.tips.length} tips (max: ${GossipService.MAX_HEALTHY_TIPS})`);
+        this.lastTipWarnTime.set(fromNodeId, Date.now());
+      }
+      return;
+    }
+    
     const ourTips = new Set(this.consensus.getTips());
     const missingTips = payload.tips.filter(tip => !ourTips.has(tip) && !this.consensus.hasTransaction(tip));
     
     if (missingTips.length > 0) {
-      console.log(`Node ${fromNodeId.slice(0, 8)} has ${missingTips.length} tips we're missing`);
+      const lastWarn = this.lastTipWarnTime.get(fromNodeId) || 0;
+      if (Date.now() - lastWarn > GossipService.TIP_WARN_INTERVAL_MS) {
+        console.log(`Node ${fromNodeId.slice(0, 8)} has ${missingTips.length} tips we're missing`);
+        this.lastTipWarnTime.set(fromNodeId, Date.now());
+      }
     }
   }
 
