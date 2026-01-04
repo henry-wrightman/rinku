@@ -531,6 +531,25 @@ async function main() {
           finalityMetrics.recordTxFinalized(node.tx.hash, checkpointTimestamp);
         }
       }
+
+      let tipRewardsCount = 0;
+      let witnessRewardsCount = 0;
+      for (const node of unfinalizedNodes) {
+        if (node.url && node.tx.tipUrls && node.tx.tipUrls.length > 0) {
+          const rewards = rewardsService.processTransactionRewards(
+            node.url,
+            node.tx.tipUrls,
+            node.tx.amount || 0
+          );
+          tipRewardsCount += rewards.tipRewards.length;
+          witnessRewardsCount += rewards.witnessRewards.length;
+        }
+      }
+      if (tipRewardsCount > 0 || witnessRewardsCount > 0) {
+        console.log(
+          `[Rewards] Processed ${tipRewardsCount} tip rewards, ${witnessRewardsCount} witness rewards at height ${height}`,
+        );
+      }
     }
 
     finalityMetrics.recordCheckpoint(height, txCount, checkpointTimestamp);
