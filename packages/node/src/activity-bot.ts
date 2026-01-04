@@ -16,6 +16,9 @@ const CONTRACT_INTERVAL_MS = parseInt(
 );
 const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "180000");
 const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "300000");
+const CONSOLIDATION_INTERVAL_MS = parseInt(process.env.CONSOLIDATION_INTERVAL || "10000");
+const TIP_CONSOLIDATION_THRESHOLD = parseInt(process.env.TIP_CONSOLIDATION_THRESHOLD || "10");
+const CONSOLIDATION_TIP_COUNT = parseInt(process.env.CONSOLIDATION_TIP_COUNT || "12");
 
 // Gas-aware throttling - pause when gas gets too high
 const GAS_THROTTLE_THRESHOLD = parseFloat(
@@ -86,6 +89,7 @@ let totalContractCalls = 0;
 let totalStakes = 0;
 let totalRewardsClaimed = 0;
 let totalBatchTransactions = 0;
+let totalConsolidations = 0;
 let errors = 0;
 let pendingOperations = 0;
 let maxPendingOps = 5;
@@ -741,7 +745,7 @@ function printStats(): void {
     `  Wallets: ${wallets.length}/${MAX_WALLETS} (${stakingWallets} staking, ${contractOwners} w/contracts)`,
   );
   console.log(
-    `  Transactions: ${totalTransactions} (${totalBatchTransactions} via batch) | Faucet: ${totalFaucetHits}`,
+    `  Transactions: ${totalTransactions} (${totalBatchTransactions} batch, ${totalConsolidations} consolidations) | Faucet: ${totalFaucetHits}`,
   );
   console.log(
     `  Contracts: ${totalContractDeploys} deployed, ${totalContractCalls} calls`,
@@ -783,6 +787,86 @@ async function checkTipCount(): Promise<void> {
   } catch {}
 }
 
+async function doConsolidation(): Promise<void> {
+  if (gasThrottled) return;
+  if (wallets.length < 2) return;
+
+  try {
+    const tips = await getFreshTips();
+    if (tips.length < TIP_CONSOLIDATION_THRESHOLD) {
+      return;
+    }
+
+    log(`Tip consolidation triggered: ${tips.length} tips (threshold: ${TIP_CONSOLIDATION_THRESHOLD})`);
+
+    const availableWallets = wallets.filter(
+      (w) => !globalLockedSenders.has(w.fingerprint),
+    );
+    if (availableWallets.length < 2) return;
+
+    const consolidationCount = Math.min(3, Math.ceil(tips.length / CONSOLIDATION_TIP_COUNT));
+    const gasPrice = await fetchGasPrice();
+
+    for (let i = 0; i < consolidationCount; i++) {
+      const sender = availableWallets[i % availableWallets.length];
+      const receiver = availableWallets[(i + 1) % availableWallets.length];
+
+      if (!lockSender(sender.fingerprint)) continue;
+
+      try {
+        const state = await sender.wallet.refresh();
+        const fee = gasPrice * 1.2;
+        const minBalance = 0.001 + fee;
+
+        if (state.balance < minBalance) {
+          unlockSender(sender.fingerprint);
+          continue;
+        }
+
+        const tipSlice = tips.slice(
+          i * CONSOLIDATION_TIP_COUNT,
+          (i + 1) * CONSOLIDATION_TIP_COUNT,
+        );
+        if (tipSlice.length < 3) {
+          unlockSender(sender.fingerprint);
+          continue;
+        }
+
+        const res = await fetchWithTimeout(
+          `${NODE_URL}/api/tx`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: receiver.fingerprint,
+              from: sender.fingerprint,
+              amount: 0.001,
+              fee,
+              nonce: state.nonce + 1,
+              tipUrls: tipSlice,
+            }),
+          },
+          5000,
+        );
+
+        if (res.ok) {
+          totalConsolidations++;
+          totalTransactions++;
+          log(`Consolidation TX merged ${tipSlice.length} tips`);
+        }
+      } catch (ex) {
+        errors++;
+        log(`Consolidation error: ${ex}`);
+      } finally {
+        unlockSender(sender.fingerprint);
+      }
+    }
+  } catch (ex) {
+    errors++;
+    log(`Consolidation check failed: ${ex}`);
+  }
+}
+
 async function main() {
   console.log("=".repeat(55));
   console.log("RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION");
@@ -797,6 +881,9 @@ async function main() {
   console.log(`Max wallets: ${MAX_WALLETS}`);
   console.log(
     `Batch TX: ${BATCH_TX_COUNT} per batch, ${Math.round(BATCH_TX_CHANCE * 100)}% chance`,
+  );
+  console.log(
+    `Tip consolidation: threshold=${TIP_CONSOLIDATION_THRESHOLD}, ${CONSOLIDATION_TIP_COUNT} tips/tx, every ${CONSOLIDATION_INTERVAL_MS / 1000}s`,
   );
   console.log("=".repeat(55) + "\n");
 
@@ -842,6 +929,7 @@ async function main() {
 
   setInterval(printStats, 60000);
   setInterval(checkTipCount, 30000);
+  setInterval(doConsolidation, CONSOLIDATION_INTERVAL_MS);
 
   // Check wallet balances and refill if needed every 15s
   setInterval(async () => {

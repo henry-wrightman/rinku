@@ -100,7 +100,7 @@ export class Wallet {
 
     const tipsResponse = await fetch(`${this.nodeUrl}/api/tipUrls`);
     const tipsData = await tipsResponse.json() as { tipUrls: string[] };
-    let tipUrls = tipsData.tipUrls.slice(0, 2);
+    let tipUrls = tipsData.tipUrls.slice(0, 5);
 
     if (tipUrls.length === 0) {
       tipUrls = [];
@@ -148,7 +148,7 @@ export class Wallet {
 
     const tipsResponse = await fetch(`${this.nodeUrl}/api/tipUrls`);
     const tipsData = await tipsResponse.json() as { tipUrls: string[] };
-    let tipUrls = tipsData.tipUrls.slice(0, 2);
+    let tipUrls = tipsData.tipUrls.slice(0, 5);
 
     if (tipUrls.length === 0) {
       tipUrls = [];
