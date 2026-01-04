@@ -112,15 +112,15 @@ export function ZKTab() {
       <div className="section">
         <h3>zk privacy layer</h3>
         <p className="section-description">
-          Generate privacy-preserving proofs for transactions. ZK proofs hide sender, 
-          recipient, and amount while proving transaction validity.
+          Generate privacy-preserving proofs for transactions. ZK proofs hide
+          sender, recipient, and amount while proving transaction validity.
         </p>
 
         {status && (
           <div className="staking-overview">
             <div className="stat-row">
               <span>status:</span>
-              <span className={`value ${status.enabled ? "success" : "warning"}`}>
+              <span className={`value`}>
                 {status.enabled ? "enabled" : "disabled"}
               </span>
             </div>
@@ -130,22 +130,30 @@ export function ZKTab() {
             </div>
             <div className="stat-row">
               <span>protocol:</span>
-              <span className="value">{status.circuitInfo.protocol} ({status.circuitInfo.curve})</span>
+              <span className="value">
+                {status.circuitInfo.protocol} ({status.circuitInfo.curve})
+              </span>
             </div>
             <div className="stat-row">
               <span>merkle depth:</span>
-              <span className="value">{status.circuitInfo.merkleDepth} levels</span>
+              <span className="value">
+                {status.circuitInfo.merkleDepth} levels
+              </span>
             </div>
             <div className="stat-row">
               <span>witness generation:</span>
-              <span className={`value ${status.features.witnessGeneration ? "success" : "error"}`}>
+              <span className={`value`}>
                 {status.features.witnessGeneration ? "ready" : "unavailable"}
               </span>
             </div>
             <div className="stat-row">
               <span>proof verification:</span>
-              <span className={`value ${status.features.proofVerification ? "success" : "warning"}`}>
-                {status.features.proofVerification ? "ready" : "pending artifacts"}
+              <span
+                className={`value ${status.features.proofVerification ? "success" : "warning"}`}
+              >
+                {status.features.proofVerification
+                  ? "ready"
+                  : "pending artifacts"}
               </span>
             </div>
           </div>
@@ -155,8 +163,8 @@ export function ZKTab() {
       <div className="section">
         <h3>generate merkle witness</h3>
         <p className="section-description">
-          Get the Merkle proof for a finalized transaction. This is the first step 
-          to create a ZK proof.
+          Get the Merkle proof for a finalized transaction. This is the first
+          step to create a ZK proof.
         </p>
 
         <div className="form-group">
@@ -184,7 +192,9 @@ export function ZKTab() {
             <div className="code-block">
               <div className="stat-row">
                 <span>tx hash:</span>
-                <span className="value mono">{witness.txHash.slice(0, 16)}...</span>
+                <span className="value mono">
+                  {witness.txHash.slice(0, 16)}...
+                </span>
               </div>
               <div className="stat-row">
                 <span>checkpoint:</span>
@@ -192,11 +202,15 @@ export function ZKTab() {
               </div>
               <div className="stat-row">
                 <span>merkle root:</span>
-                <span className="value mono">{witness.checkpointRoot.slice(0, 16)}...</span>
+                <span className="value mono">
+                  {witness.checkpointRoot.slice(0, 16)}...
+                </span>
               </div>
               <div className="stat-row">
                 <span>proof length:</span>
-                <span className="value">{witness.merklePathElements.length} nodes</span>
+                <span className="value">
+                  {witness.merklePathElements.length} nodes
+                </span>
               </div>
             </div>
 
@@ -209,11 +223,13 @@ export function ZKTab() {
 
             <div className="next-steps">
               <p>
-                <strong>Next step:</strong> Use this witness with a local prover to generate 
-                a ZK proof. The prover runs on your device for privacy.
+                <strong>Next step:</strong> Use this witness with a local prover
+                to generate a ZK proof. The prover runs on your device for
+                privacy.
               </p>
               <code className="cli-example">
-                rinku zk prove --witness &lt;above-json&gt; --key &lt;your-private-key&gt;
+                rinku zk prove --witness &lt;above-json&gt; --key
+                &lt;your-private-key&gt;
               </code>
             </div>
           </div>
@@ -223,8 +239,8 @@ export function ZKTab() {
       <div className="section">
         <h3>verify zk proof</h3>
         <p className="section-description">
-          Verify a <code>rinku://zk/...</code> URL. Verification works offline and 
-          proves transaction validity without revealing details.
+          Verify a <code>rinku://zk/...</code> URL. Verification works offline
+          and proves transaction validity without revealing details.
         </p>
 
         <div className="form-group">
@@ -245,7 +261,9 @@ export function ZKTab() {
         </div>
 
         {verifyResult && (
-          <div className={`verify-result ${verifyResult.valid ? "success" : verifyResult.error ? "error" : "warning"}`}>
+          <div
+            className={`verify-result ${verifyResult.valid ? "success" : verifyResult.error ? "error" : "warning"}`}
+          >
             {verifyResult.valid !== undefined && (
               <div className="result-status">
                 {verifyResult.valid ? "Valid proof" : "Invalid proof"}
@@ -268,28 +286,40 @@ export function ZKTab() {
             <div className="step-number">1</div>
             <div className="step-content">
               <strong>Get Witness</strong>
-              <p>Fetch the Merkle proof from any node for a finalized transaction.</p>
+              <p>
+                Fetch the Merkle proof from any node for a finalized
+                transaction.
+              </p>
             </div>
           </div>
           <div className="step">
             <div className="step-number">2</div>
             <div className="step-content">
               <strong>Generate Proof</strong>
-              <p>Run the ZK prover locally with your private key. The proof takes ~500ms.</p>
+              <p>
+                Run the ZK prover locally with your private key. The proof takes
+                ~500ms.
+              </p>
             </div>
           </div>
           <div className="step">
             <div className="step-number">3</div>
             <div className="step-content">
               <strong>Share URL</strong>
-              <p>The <code>rinku://zk/...</code> URL is your proof. Anyone can verify it offline.</p>
+              <p>
+                The <code>rinku://zk/...</code> URL is your proof. Anyone can
+                verify it offline.
+              </p>
             </div>
           </div>
           <div className="step">
             <div className="step-number">4</div>
             <div className="step-content">
               <strong>Verify Anywhere</strong>
-              <p>Verification takes &lt;10ms and proves the transaction without revealing details.</p>
+              <p>
+                Verification takes &lt;10ms and proves the transaction without
+                revealing details.
+              </p>
             </div>
           </div>
         </div>
