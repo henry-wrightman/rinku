@@ -11,6 +11,14 @@ import {
   embedProofInUrl,
   extractProofFromUrl,
   GENESIS_CHECKPOINT_ID,
+  createCheckpointCertificate,
+  parseSignerBitmap,
+  verifyCheckpointCertificate,
+  encodeCheckpointCertificate,
+  decodeCheckpointCertificate,
+  estimateProfileBSize,
+  getCheckpointSigningData,
+  getBLSCheckpointSigningData,
 } from '../checkpoint.js';
 import { generateKeyPair, computeFingerprint, sign } from '../crypto.js';
 import type { Checkpoint, CheckpointProof, ValidatorEntry, ValidatorSignature } from '../types.js';
@@ -393,6 +401,186 @@ describe('Checkpoint Module', () => {
       const proof = createCheckpointProof(checkpoint, 100);
       const result = await verifyCheckpointProof(proof, trustedValidators);
       expect(result.valid).toBe(false);
+    });
+  });
+
+  describe('Checkpoint Signing Data', () => {
+    it('should generate consistent signing data', async () => {
+      const checkpoint = await createCheckpoint(
+        1, 'merkle123', 5, 100, 1000, [], GENESIS_CHECKPOINT_ID
+      );
+      const data1 = getCheckpointSigningData(checkpoint);
+      const data2 = getCheckpointSigningData(checkpoint);
+      expect(data1).toBe(data2);
+    });
+
+    it('should generate BLS signing data', async () => {
+      const checkpoint = await createCheckpoint(
+        1, 'merkle123', 5, 100, 1000, [], GENESIS_CHECKPOINT_ID,
+        'txMerkle123', [], 'state123', 'receipt123'
+      );
+      const data = getBLSCheckpointSigningData(checkpoint, 'sumTreeRoot', 500);
+      expect(data).toContain(checkpoint.checkpointId);
+      expect(data).toContain('sumTreeRoot');
+      expect(data).toContain('500');
+    });
+  });
+
+  describe('Profile B Checkpoint Certificates', () => {
+    it('should create checkpoint certificate', async () => {
+      const { publicKey, privateKey } = await generateKeyPair();
+      const address = await computeFingerprint(publicKey);
+      const validators: ValidatorEntry[] = [
+        { address, publicKey: Array.from(publicKey), weight: 100 }
+      ];
+      let checkpoint = await createCheckpoint(
+        1, 'merkle123', 5, 100, 100, validators, GENESIS_CHECKPOINT_ID
+      );
+      checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 100);
+      const cert = createCheckpointCertificate(checkpoint, 'state123', 'receipt123');
+      expect(cert.checkpointId).toBe(checkpoint.checkpointId);
+      expect(cert.stateRoot).toBe('state123');
+      expect(cert.receiptRoot).toBe('receipt123');
+      expect(cert.signerBitmap).toBeDefined();
+      expect(cert.signatures.length).toBe(1);
+    });
+
+    it('should parse signer bitmap', () => {
+      const bitmap = '05';
+      const indices = parseSignerBitmap(bitmap);
+      expect(indices).toContain(0);
+      expect(indices).toContain(2);
+      expect(indices.length).toBe(2);
+    });
+
+    it('should handle multi-byte bitmap', () => {
+      const bitmap = '0101';
+      const indices = parseSignerBitmap(bitmap);
+      expect(indices).toContain(0);
+      expect(indices).toContain(8);
+    });
+
+    it('should encode and decode checkpoint certificate', async () => {
+      const { publicKey, privateKey } = await generateKeyPair();
+      const address = await computeFingerprint(publicKey);
+      const validators: ValidatorEntry[] = [
+        { address, publicKey: Array.from(publicKey), weight: 100 }
+      ];
+      let checkpoint = await createCheckpoint(
+        1, 'merkle123', 5, 100, 100, validators, GENESIS_CHECKPOINT_ID
+      );
+      checkpoint = await signCheckpointManually(checkpoint, address, privateKey, publicKey, 100);
+      const cert = createCheckpointCertificate(checkpoint, 'state123', 'receipt123');
+      const encoded = encodeCheckpointCertificate(cert);
+      expect(typeof encoded).toBe('string');
+      const decoded = decodeCheckpointCertificate(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.checkpointId).toBe(cert.checkpointId);
+      expect(decoded!.stateRoot).toBe('state123');
+      expect(decoded!.signatures.length).toBe(1);
+    });
+
+    it('should return null for invalid encoded certificate', () => {
+      expect(decodeCheckpointCertificate('invalid!!!')).toBeNull();
+    });
+
+    it('should verify checkpoint certificate with valid signatures', async () => {
+      const { publicKey, privateKey } = await generateKeyPair();
+      const address = await computeFingerprint(publicKey);
+      const validators: ValidatorEntry[] = [
+        { address, publicKey: Array.from(publicKey), weight: 100 }
+      ];
+      let checkpoint = await createCheckpoint(
+        1, 'merkle123', 5, 100, 100, validators, GENESIS_CHECKPOINT_ID
+      );
+      const certSigningData = JSON.stringify({
+        checkpointId: checkpoint.checkpointId,
+        height: checkpoint.height,
+        merkleRoot: checkpoint.merkleRoot,
+        stateRoot: 'state123',
+        receiptRoot: 'receipt123',
+        totalWeight: checkpoint.totalWeight,
+        validatorSetHash: checkpoint.validatorSetHash
+      }) + `:100`;
+      const sig = await sign(certSigningData, privateKey);
+      checkpoint.signatures = [{
+        validator: address,
+        signature: sig,
+        publicKey: Array.from(publicKey),
+        weight: 100,
+        timestamp: Date.now()
+      }];
+      const cert = createCheckpointCertificate(checkpoint, 'state123', 'receipt123');
+      const result = await verifyCheckpointCertificate(cert, validators);
+      expect(result.valid).toBe(true);
+      expect(result.weightPercent).toBe(100);
+    });
+
+    it('should reject certificate with insufficient weight', async () => {
+      const { publicKey, privateKey } = await generateKeyPair();
+      const address = await computeFingerprint(publicKey);
+      const validators: ValidatorEntry[] = [
+        { address, publicKey: Array.from(publicKey), weight: 30 },
+        { address: 'other', publicKey: [1, 2, 3], weight: 70 }
+      ];
+      let checkpoint = await createCheckpoint(
+        1, 'merkle123', 5, 100, 100, validators, GENESIS_CHECKPOINT_ID
+      );
+      const certSigningData = JSON.stringify({
+        checkpointId: checkpoint.checkpointId,
+        height: checkpoint.height,
+        merkleRoot: checkpoint.merkleRoot,
+        stateRoot: 'state123',
+        receiptRoot: 'receipt123',
+        totalWeight: checkpoint.totalWeight,
+        validatorSetHash: checkpoint.validatorSetHash
+      }) + `:30`;
+      const sig = await sign(certSigningData, privateKey);
+      checkpoint.signatures = [{
+        validator: address,
+        signature: sig,
+        publicKey: Array.from(publicKey),
+        weight: 30,
+        timestamp: Date.now()
+      }];
+      const cert = createCheckpointCertificate(checkpoint, 'state123', 'receipt123');
+      const result = await verifyCheckpointCertificate(cert, validators);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('Insufficient'))).toBe(true);
+    });
+
+    it('should detect bitmap/signature count mismatch', async () => {
+      const validators: ValidatorEntry[] = [
+        { address: 'val0', publicKey: [1], weight: 100 }
+      ];
+      const cert = {
+        checkpointId: 'cp123',
+        merkleRoot: 'merkle',
+        stateRoot: 'state',
+        receiptRoot: 'receipt',
+        height: 1,
+        validatorSetHash: 'hash',
+        totalWeight: 100,
+        signerBitmap: '03',
+        signatures: [{ idx: 0, sig: 'sig' }]
+      };
+      const result = await verifyCheckpointCertificate(cert, validators);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some(e => e.includes('mismatch'))).toBe(true);
+    });
+  });
+
+  describe('Profile B Size Estimation', () => {
+    it('should estimate sizes for different validator counts', () => {
+      const est = estimateProfileBSize(21, 15);
+      expect(est.fullSignatures).toBeGreaterThan(0);
+      expect(est.compactSignatures).toBeGreaterThan(0);
+      expect(est.compactSignatures).toBeLessThan(est.fullSignatures);
+    });
+
+    it('should show savings with compact signatures', () => {
+      const est = estimateProfileBSize(100, 67);
+      expect(est.compactSignatures).toBeLessThan(est.fullSignatures);
     });
   });
 });

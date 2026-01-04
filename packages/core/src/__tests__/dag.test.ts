@@ -5,6 +5,27 @@ import { createTransactionURL } from '../encoding.js';
 import type { SignedTransaction } from '../types.js';
 
 describe('DAG Module', () => {
+  describe('Stats', () => {
+    it('should return correct stats', async () => {
+      const dag = new DAG();
+      const stats = dag.getStats();
+      expect(stats.nodes).toBe(0);
+      expect(stats.tips).toBe(0);
+      expect(stats.unresolvedParents).toBe(0);
+      expect(stats.totalProcessed).toBe(0);
+    });
+
+    it('should track total transactions processed', async () => {
+      const dag = new DAG();
+      expect(dag.getTotalTransactionsProcessed()).toBe(0);
+    });
+
+    it('should return correct size', async () => {
+      const dag = new DAG();
+      expect(dag.size()).toBe(0);
+    });
+  });
+
   const createMockTx = async (
     from: string,
     to: string,
@@ -298,6 +319,144 @@ describe('DAG Module', () => {
       const restored = DAG.fromJSON(json);
       const url = createTransactionURL(tx).path;
       expect(restored.resolveUrlToHash(url)).toBe(tx.hash);
+    });
+  });
+
+  describe('Finality', () => {
+    it('should set finality for transaction', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const success = dag.setFinality(tx.hash, 'cp123', 1);
+      expect(success).toBe(true);
+      expect(dag.hasFinality(tx.hash)).toBe(true);
+    });
+
+    it('should not overwrite existing finality', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      dag.setFinality(tx.hash, 'cp123', 1);
+      const success = dag.setFinality(tx.hash, 'cp456', 2);
+      expect(success).toBe(false);
+      const finality = dag.getFinality(tx.hash);
+      expect(finality?.checkpointId).toBe('cp123');
+    });
+
+    it('should return false for non-existent transaction', () => {
+      const dag = new DAG();
+      expect(dag.setFinality('nonexistent', 'cp123', 1)).toBe(false);
+    });
+
+    it('should get finality metadata', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      dag.setFinality(tx.hash, 'cp123', 5);
+      const finality = dag.getFinality(tx.hash);
+      expect(finality).toBeDefined();
+      expect(finality!.checkpointId).toBe('cp123');
+      expect(finality!.checkpointHeight).toBe(5);
+      expect(finality!.finalizedAt).toBeGreaterThan(0);
+    });
+
+    it('should return undefined for no finality', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      expect(dag.getFinality(tx.hash)).toBeUndefined();
+    });
+
+    it('should stamp finality for all transactions', async () => {
+      const dag = new DAG();
+      const tx1 = await createMockTx('alice', 'bob', 100, 1);
+      const tx2 = await createMockTx('charlie', 'dave', 200, 2);
+      await dag.addTransaction(tx1);
+      await dag.addTransaction(tx2);
+      const count = dag.stampFinalityForAll('cp123', 1);
+      expect(count).toBe(2);
+      expect(dag.hasFinality(tx1.hash)).toBe(true);
+      expect(dag.hasFinality(tx2.hash)).toBe(true);
+    });
+
+    it('should not re-stamp already finalized', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      dag.setFinality(tx.hash, 'cp100', 100);
+      const count = dag.stampFinalityForAll('cp200', 200);
+      expect(count).toBe(0);
+      expect(dag.getFinality(tx.hash)?.checkpointId).toBe('cp100');
+    });
+  });
+
+  describe('Pruning', () => {
+    it('should prune old finalized nodes', async () => {
+      const dag = new DAG();
+      for (let i = 0; i < 10; i++) {
+        const tx = await createMockTx(`user${i}`, 'bob', 100, i);
+        await dag.addTransaction(tx);
+        dag.setFinality(tx.hash, `cp${i}`, i);
+      }
+      expect(dag.size()).toBe(10);
+      const pruned = dag.pruneOldNodes(5);
+      expect(pruned.length).toBe(5);
+      expect(dag.size()).toBe(5);
+    });
+
+    it('should keep unfinalized nodes during pruning', async () => {
+      const dag = new DAG();
+      const finalizedTx = await createMockTx('alice', 'bob', 100, 1);
+      const unfinalizedTx = await createMockTx('charlie', 'dave', 200, 2);
+      await dag.addTransaction(finalizedTx);
+      await dag.addTransaction(unfinalizedTx);
+      dag.setFinality(finalizedTx.hash, 'cp1', 1);
+      const pruned = dag.pruneOldNodes(1);
+      expect(pruned.length).toBe(1);
+      expect(dag.getNode(unfinalizedTx.hash)).toBeDefined();
+    });
+
+    it('should not prune if under limit', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      const pruned = dag.pruneOldNodes(10);
+      expect(pruned.length).toBe(0);
+      expect(dag.size()).toBe(1);
+    });
+
+    it('should return pruned node info', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx);
+      dag.setFinality(tx.hash, 'cp1', 1);
+      const tx2 = await createMockTx('charlie', 'dave', 200, 2);
+      await dag.addTransaction(tx2);
+      dag.setFinality(tx2.hash, 'cp2', 2);
+      const pruned = dag.pruneOldNodes(1);
+      expect(pruned.length).toBe(1);
+      expect(pruned[0].hash).toBeDefined();
+      expect(pruned[0].finality).toBeDefined();
+    });
+  });
+
+  describe('Stats After Operations', () => {
+    it('should update stats after adding transactions', async () => {
+      const dag = new DAG();
+      const tx1 = await createMockTx('alice', 'bob', 100, 1);
+      await dag.addTransaction(tx1);
+      const stats = dag.getStats();
+      expect(stats.nodes).toBe(1);
+      expect(stats.tips).toBe(1);
+      expect(stats.totalProcessed).toBe(1);
+    });
+
+    it('should track unresolved parents', async () => {
+      const dag = new DAG();
+      const tx = await createMockTx('alice', 'bob', 100, 1, ['/tx/unknown']);
+      await dag.addTransaction(tx);
+      const stats = dag.getStats();
+      expect(stats.unresolvedParents).toBe(1);
     });
   });
 });

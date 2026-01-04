@@ -9,7 +9,7 @@ import { StateManager } from "./state.js";
 import { Consensus } from "./consensus.js";
 import { Mempool } from "./mempool.js";
 import { Storage, type NodeSnapshot } from "./storage.js";
-import { PeerSyncService } from "./peerSync.js";
+import { PeerSyncService } from "./peer-sync.js";
 import { ContractService } from "./contracts.js";
 import { RewardsService } from "./rewards.js";
 import { CheckpointService } from "./checkpoint.js";
@@ -384,10 +384,10 @@ async function main() {
 
   let versionService: VersionService;
   if (snapshot?.versioning) {
-    versionService = VersionService.fromJSON(
-      snapshot.versioning as any,
-      { nodeVersion: NODE_VERSION, chainId: checkpointService.getChainId() }
-    );
+    versionService = VersionService.fromJSON(snapshot.versioning as any, {
+      nodeVersion: NODE_VERSION,
+      chainId: checkpointService.getChainId(),
+    });
     console.log("Restored version service from snapshot");
   } else {
     versionService = new VersionService({
@@ -513,7 +513,9 @@ async function main() {
     versionService,
   );
 
-  console.log(`Protocol version: ${versionService.getVersionInfo().protocolVersion}, Node version: ${NODE_VERSION}`);
+  console.log(
+    `Protocol version: ${versionService.getVersionInfo().protocolVersion}, Node version: ${NODE_VERSION}`,
+  );
 
   setInterval(async () => {
     if (snapshotPending) {
@@ -540,7 +542,7 @@ async function main() {
 
   checkpointService.onCheckpoint(async (checkpointId, height) => {
     contractService.setCheckpointHeight(height);
-    
+
     const totalWeight = rewardsService.getTotalStaked();
     versionService.onCheckpoint(height, totalWeight);
 
@@ -836,7 +838,7 @@ export { StateManager } from "./state.js";
 export { Consensus } from "./consensus.js";
 export { Mempool } from "./mempool.js";
 export { Storage } from "./storage.js";
-export { PeerSyncService } from "./peerSync.js";
+export { PeerSyncService } from "./peer-sync.js";
 export { ContractService } from "./contracts.js";
 export { RewardsService } from "./rewards.js";
 export { CheckpointService } from "./checkpoint.js";

@@ -1,10 +1,9 @@
 import express from "express";
-import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { StateManager } from "./state.js";
 import { Consensus } from "./consensus.js";
 import { Mempool } from "./mempool.js";
-import { PeerSyncService } from "./peerSync.js";
+import { PeerSyncService } from "./peer-sync.js";
 import { ContractService } from "./contracts.js";
 import { RewardsService } from "./rewards.js";
 import { CheckpointService } from "./checkpoint.js";
@@ -516,7 +515,9 @@ export function createAPI(
       return;
     }
 
-    const proposal = versionServices.versionService.getProposal(req.params.proposalId);
+    const proposal = versionServices.versionService.getProposal(
+      req.params.proposalId,
+    );
     if (!proposal) {
       res.status(404).json({ error: "Proposal not found" });
       return;
@@ -524,7 +525,9 @@ export function createAPI(
 
     res.json({
       proposal,
-      signals: versionServices.versionService.getProposalSignals(req.params.proposalId),
+      signals: versionServices.versionService.getProposalSignals(
+        req.params.proposalId,
+      ),
     });
   });
 
@@ -534,7 +537,11 @@ export function createAPI(
       return;
     }
 
-    res.json(versionServices.versionService.checkPeerCompatibility(req.params.remoteVersion));
+    res.json(
+      versionServices.versionService.checkPeerCompatibility(
+        req.params.remoteVersion,
+      ),
+    );
   });
 
   app.get("/api/version/history", (_req, res) => {
