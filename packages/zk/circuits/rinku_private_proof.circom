@@ -1,10 +1,10 @@
 pragma circom 2.1.6;
 
-include "node_modules/circomlib/circuits/poseidon.circom";
-include "node_modules/circomlib/circuits/bitify.circom";
-include "node_modules/circomlib/circuits/comparators.circom";
-include "node_modules/circomlib/circuits/eddsaposeidon.circom";
-include "node_modules/circomlib/circuits/pedersen.circom";
+include "circomlib/circuits/poseidon.circom";
+include "circomlib/circuits/bitify.circom";
+include "circomlib/circuits/comparators.circom";
+include "circomlib/circuits/eddsaposeidon.circom";
+include "circomlib/circuits/pedersen.circom";
 
 template RinkuPrivateProof(merkleDepth) {
     signal input txHash;
@@ -69,4 +69,4 @@ template RinkuPrivateProof(merkleDepth) {
     chainIdHash <== chainIdHasher.out;
 }
 
-component main {public [checkpointRoot, nullifier, amountCommitment, chainIdHash]} = RinkuPrivateProof(10);
+component main = RinkuPrivateProof(10);

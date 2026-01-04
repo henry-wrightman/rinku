@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ZK_ROOT = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT = path.resolve(ZK_ROOT, '../..');
 const BUILD_DIR = path.join(ZK_ROOT, 'build');
 const CIRCUITS_DIR = path.join(ZK_ROOT, 'circuits');
 
@@ -45,8 +46,9 @@ async function compileCircuit(): Promise<void> {
   console.log(`\n⚙ Compiling circuit: ${CIRCUIT_NAME}.circom`);
   
   try {
+    const nodeModulesPath = path.join(WORKSPACE_ROOT, 'node_modules');
     execSync(
-      `circom "${circuitPath}" --r1cs --wasm --sym -o "${outputDir}" -l "${path.join(ZK_ROOT, 'node_modules')}"`,
+      `circom "${circuitPath}" --r1cs --wasm --sym -o "${outputDir}" -l "${nodeModulesPath}"`,
       { stdio: 'inherit', cwd: ZK_ROOT }
     );
     console.log(`✓ Circuit compiled successfully`);
@@ -73,8 +75,9 @@ async function generateZkey(ptauPath: string): Promise<void> {
     console.log(`✓ Initial zkey generated`);
     
     console.log(`\n🎲 Contributing randomness to zkey...`);
+    const entropy = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
     execSync(
-      `npx snarkjs zkey contribute "${zkey0Path}" "${zkeyPath}" --name="Rinku Dev Contribution" -v -e="$(head -c 32 /dev/urandom | xxd -p)"`,
+      `npx snarkjs zkey contribute "${zkey0Path}" "${zkeyPath}" --name="Rinku Dev Contribution" -e="${entropy}"`,
       { stdio: 'inherit', cwd: ZK_ROOT }
     );
     console.log(`✓ Final zkey generated`);
