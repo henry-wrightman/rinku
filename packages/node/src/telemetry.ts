@@ -1,6 +1,149 @@
 import * as os from 'os';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
+import client from 'prom-client';
+
+const promRegister = new client.Registry();
+client.collectDefaultMetrics({ register: promRegister });
+
+export const dagNodesGauge = new client.Gauge({
+  name: 'rinku_dag_nodes_total',
+  help: 'Total number of nodes in the DAG',
+  registers: [promRegister],
+});
+
+export const dagTipsGauge = new client.Gauge({
+  name: 'rinku_dag_tips_total',
+  help: 'Current number of tips in the DAG',
+  registers: [promRegister],
+});
+
+export const accountsGauge = new client.Gauge({
+  name: 'rinku_accounts_total',
+  help: 'Total number of accounts',
+  registers: [promRegister],
+});
+
+export const mempoolSizeGauge = new client.Gauge({
+  name: 'rinku_mempool_size',
+  help: 'Current mempool size',
+  registers: [promRegister],
+});
+
+export const checkpointHeightGauge = new client.Gauge({
+  name: 'rinku_checkpoint_height',
+  help: 'Current checkpoint height',
+  registers: [promRegister],
+});
+
+export const checkpointLatencyHistogram = new client.Histogram({
+  name: 'rinku_checkpoint_latency_seconds',
+  help: 'Time to create checkpoints',
+  buckets: [0.1, 0.5, 1, 2, 5, 10, 30],
+  registers: [promRegister],
+});
+
+export const txProcessedCounter = new client.Counter({
+  name: 'rinku_transactions_processed_total',
+  help: 'Total number of transactions processed',
+  registers: [promRegister],
+});
+
+export const txSubmittedCounter = new client.Counter({
+  name: 'rinku_transactions_submitted_total',
+  help: 'Total number of transactions submitted via API',
+  registers: [promRegister],
+});
+
+export const txRejectedCounter = new client.Counter({
+  name: 'rinku_transactions_rejected_total',
+  help: 'Total number of transactions rejected',
+  labelNames: ['reason'],
+  registers: [promRegister],
+});
+
+export const gasPriceGauge = new client.Gauge({
+  name: 'rinku_gas_price_current',
+  help: 'Current gas price in RKU',
+  registers: [promRegister],
+});
+
+export const peerCountGauge = new client.Gauge({
+  name: 'rinku_peers_connected',
+  help: 'Number of connected peers',
+  registers: [promRegister],
+});
+
+export const gossipMessagesCounter = new client.Counter({
+  name: 'rinku_gossip_messages_total',
+  help: 'Total gossip messages sent/received',
+  labelNames: ['direction', 'type'],
+  registers: [promRegister],
+});
+
+export const validatorCountGauge = new client.Gauge({
+  name: 'rinku_validators_active',
+  help: 'Number of active validators',
+  registers: [promRegister],
+});
+
+export const totalStakeGauge = new client.Gauge({
+  name: 'rinku_stake_total',
+  help: 'Total staked RKU',
+  registers: [promRegister],
+});
+
+export const totalSupplyGauge = new client.Gauge({
+  name: 'rinku_supply_total',
+  help: 'Total RKU supply',
+  registers: [promRegister],
+});
+
+export const emissionGauge = new client.Gauge({
+  name: 'rinku_emission_per_checkpoint',
+  help: 'Current emission rate per checkpoint',
+  registers: [promRegister],
+});
+
+export const forksDetectedCounter = new client.Counter({
+  name: 'rinku_forks_detected_total',
+  help: 'Total number of forks detected',
+  registers: [promRegister],
+});
+
+export const forksResolvedCounter = new client.Counter({
+  name: 'rinku_forks_resolved_total',
+  help: 'Total number of forks resolved',
+  registers: [promRegister],
+});
+
+export const slashingEventsCounter = new client.Counter({
+  name: 'rinku_slashing_events_total',
+  help: 'Total slashing events',
+  labelNames: ['type'],
+  registers: [promRegister],
+});
+
+export const zkProofsGeneratedCounter = new client.Counter({
+  name: 'rinku_zk_proofs_generated_total',
+  help: 'Total ZK proofs generated',
+  registers: [promRegister],
+});
+
+export const zkProofsVerifiedCounter = new client.Counter({
+  name: 'rinku_zk_proofs_verified_total',
+  help: 'Total ZK proofs verified',
+  labelNames: ['result'],
+  registers: [promRegister],
+});
+
+export async function getPrometheusMetrics(): Promise<string> {
+  return promRegister.metrics();
+}
+
+export function getPrometheusContentType(): string {
+  return promRegister.contentType;
+}
 
 export interface SystemTelemetry {
   cpu: {

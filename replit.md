@@ -33,7 +33,9 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Dynamic Gas Fees (EIP-1559 Style):** Utilization-based pricing adjusts ±12.5% per 15s period. Target: 15 txs/period. Max fee: 10 RKU. Self-correcting (no runaway feedback loops). Adaptive fee split: 70%+ to validators (floor), up to 30% burned as supply grows toward 50% target.
 - **Tokenomics:** Implements fixed maximum supply (30M RKU), genesis allocation (6M RKU), 18-month halving epochs (~3.15M checkpoints), adaptive fee/burn split (70%+ validator floor), and WPoS reward distribution with anti-gaming (min bond for age weight, 10% decay per missed checkpoint). Emission: 3.934 RKU/checkpoint epoch 0, halving to 0.123 RKU floor. Total emission ~24M RKU over ~7.5 years. Includes slashing penalties for validator misconduct.
 - **Finality Metrics System:** Tracks time-to-finality, pending transaction counts, and checkpoint latency to monitor network performance.
-- **Validator Key Management:** AES-256-GCM encrypted key storage with scrypt key derivation (N=16384, r=8, p=1). Keys persist across restarts when password is consistent. Production requires `VALIDATOR_KEY_PASSWORD` environment variable; development uses a consistent default password.
+- **Validator Key Management:** AES-256-GCM encrypted key storage with scrypt key derivation (N=16384, r=8, p=1). Keys persist across restarts when password is consistent. Production requires `VALIDATOR_KEY_PASSWORD` or `VALIDATOR_KEY_PASSWORD_FILE` environment variable; development uses a consistent default password. Supports encrypted key backup/restore via `exportEncryptedBackup()` and `importEncryptedBackup()` methods.
+- **API Rate Limiting:** Tiered rate limiting using express-rate-limit: TX endpoints (30 req/min), contract endpoints (20 req/min), general endpoints (100 req/min). Configurable via `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_TX_MAX`, `RATE_LIMIT_CONTRACT_MAX`, `RATE_LIMIT_GENERAL_MAX`.
+- **Prometheus Metrics:** `/metrics` endpoint exposes standard Prometheus metrics: DAG stats (nodes, tips), checkpoint height, gas price, validator count, total stake, supply, tx submitted/rejected counters. Compatible with Grafana dashboards.
 - **Proof Slashing Service:** Validates Profile B proofs cryptographically, detecting duplicate signatures, weight mismatches, and forged validators. Triggers automatic slashing for invalid proofs (20%), invalid witnesses (15%), and receipt tampering (25%).
 - **Gossip Protocol:** Real-time peer-to-peer transaction propagation, tip announcements, checkpoint signature aggregation, and validator set synchronization. Broadcasts transactions when submitted and periodically syncs with online peers.
 - **Fork Remediation Service:** Nonce-based double-spend detection, weight-based conflict resolution with cumulative descendant weights, and branch pruning for losing forks. Automatically resolves forks when weight advantage exceeds 67%. Uses periodic summary logging (30s intervals) to reduce log verbosity. Queue-based fork detection limits to maxTipsForFullScan (20) tips per interval, cycling through all tips over multiple intervals to prevent O(n²) explosion. MAX_TIPS env var (default: 15) provides operational monitoring.
@@ -58,6 +60,17 @@ To run multiple nodes that can reconcile:
 - Set `GOSSIP_INTERVAL_MS` for gossip frequency (default: 200ms)
 - Set `CRYPTO_WORKERS` for parallel signature verification threads (default: CPU cores - 1)
 - Set `NODE_TUI=true` to enable interactive terminal dashboard
+- Set `RATE_LIMIT_TX_MAX` for transaction rate limit (default: 30/min)
+- Set `RATE_LIMIT_CONTRACT_MAX` for contract rate limit (default: 20/min)
+- Set `RATE_LIMIT_GENERAL_MAX` for general rate limit (default: 100/min)
+
+### Stress Testing
+Run `npm run stress-test` to execute the stress test suite. Tests include:
+- Prometheus metrics endpoint validation
+- Rate limiting verification
+- Snapshot persistence check
+- Tip consolidation monitoring
+- Checkpoint progression tracking
 
 ### External Dependencies
 - **npm workspaces:** Monorepo management.

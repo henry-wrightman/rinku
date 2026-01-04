@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { StateManager } from './state.js';
 import { Consensus } from './consensus.js';
 import { Mempool } from './mempool.js';
@@ -12,6 +13,22 @@ import { EmissionService, SlashingService, TOKENOMICS_CONFIG } from './tokenomic
 import { FinalityMetricsService } from './finality.js';
 import { GossipService, type GossipMessage } from './gossip.js';
 import { ForkRemediationService } from './fork-remediation.js';
+import {
+  getPrometheusMetrics,
+  getPrometheusContentType,
+  dagNodesGauge,
+  dagTipsGauge,
+  accountsGauge,
+  mempoolSizeGauge,
+  checkpointHeightGauge,
+  gasPriceGauge,
+  peerCountGauge,
+  validatorCountGauge,
+  totalStakeGauge,
+  totalSupplyGauge,
+  txSubmittedCounter,
+  txRejectedCounter,
+} from './telemetry.js';
 import { 
   parseTransactionURL, 
   parseContractURL,
@@ -85,8 +102,79 @@ export function createAPI(
     next(err);
   });
 
+  const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000');
+  const RATE_LIMIT_TX_MAX = parseInt(process.env.RATE_LIMIT_TX_MAX || '30');
+  const RATE_LIMIT_CONTRACT_MAX = parseInt(process.env.RATE_LIMIT_CONTRACT_MAX || '20');
+  const RATE_LIMIT_GENERAL_MAX = parseInt(process.env.RATE_LIMIT_GENERAL_MAX || '100');
+
+  const txRateLimiter = rateLimit({
+    windowMs: RATE_LIMIT_WINDOW_MS,
+    max: RATE_LIMIT_TX_MAX,
+    message: { error: 'Too many transaction requests, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  const contractRateLimiter = rateLimit({
+    windowMs: RATE_LIMIT_WINDOW_MS,
+    max: RATE_LIMIT_CONTRACT_MAX,
+    message: { error: 'Too many contract requests, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  const generalRateLimiter = rateLimit({
+    windowMs: RATE_LIMIT_WINDOW_MS,
+    max: RATE_LIMIT_GENERAL_MAX,
+    message: { error: 'Too many requests, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  app.use('/api/tx', txRateLimiter);
+  app.use('/api/contracts', contractRateLimiter);
+  app.use('/api/staking', generalRateLimiter);
+  app.use('/api/rewards', generalRateLimiter);
+  app.use('/api/gossip', generalRateLimiter);
+  app.use('/api/zk', generalRateLimiter);
+  app.use('/api/proof', generalRateLimiter);
+  app.use('/api/sync', generalRateLimiter);
+
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
+  });
+
+  app.get('/metrics', async (_req, res) => {
+    try {
+      dagNodesGauge.set(consensus.getAllNodes().length);
+      dagTipsGauge.set(consensus.getTips().length);
+      accountsGauge.set(state.getAllAccounts().size);
+      mempoolSizeGauge.set(mempool.size());
+      if (checkpointService) {
+        checkpointHeightGauge.set(checkpointService.getLatestCheckpoint()?.height || 0);
+      }
+      if (gasService) {
+        gasPriceGauge.set(gasService.getCurrentGasPrice().current);
+      }
+      if (peerSync) {
+        peerCountGauge.set(peerSync.getPeers().length);
+      }
+      if (rewardsService) {
+        const rewardStats = rewardsService.getStats();
+        validatorCountGauge.set(rewardStats.stakesCount);
+        const activeValidators = rewardsService.getActiveValidators();
+        const totalStaked = activeValidators.reduce((sum, v) => sum + v.amount, 0);
+        totalStakeGauge.set(totalStaked);
+      }
+      if (tokenomics?.emissionService) {
+        totalSupplyGauge.set(tokenomics.emissionService.getCirculatingSupply());
+      }
+
+      res.set('Content-Type', getPrometheusContentType());
+      res.end(await getPrometheusMetrics());
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to collect metrics' });
+    }
   });
 
   app.get('/api/stats', (_req, res) => {
@@ -346,6 +434,7 @@ export function createAPI(
       };
 
       if (!tx) {
+        txRejectedCounter.inc({ reason: 'missing_tx' });
         res.status(400).json({ error: 'Transaction required' });
         return;
       }
@@ -354,6 +443,7 @@ export function createAPI(
       if (gasService && !isFaucetOrGenesis) {
         const feeValidation = gasService.validateFee(tx.fee || 0);
         if (!feeValidation.valid) {
+          txRejectedCounter.inc({ reason: 'invalid_fee' });
           res.status(400).json({ error: feeValidation.error });
           return;
         }
@@ -372,12 +462,14 @@ export function createAPI(
       );
 
       if (!validation.valid) {
+        txRejectedCounter.inc({ reason: 'validation_failed' });
         res.status(400).json({ error: validation.error });
         return;
       }
 
       const applied = await state.applyTransaction(tx);
       if (!applied) {
+        txRejectedCounter.inc({ reason: 'apply_failed' });
         res.status(400).json({ error: 'Failed to apply transaction' });
         return;
       }
@@ -407,12 +499,14 @@ export function createAPI(
         onTransaction();
       }
 
+      txSubmittedCounter.inc();
       res.json({
         success: true,
         hash: tx.hash,
         merkleRoot: state.getMerkleRoot()
       });
     } catch (error: any) {
+      txRejectedCounter.inc({ reason: 'internal_error' });
       res.status(500).json({ error: error.message });
     }
   });

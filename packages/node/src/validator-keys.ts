@@ -136,20 +136,90 @@ export class ValidatorKeyManager {
   constructor(config: ValidatorKeyManagerConfig = {}) {
     const { encryptionPassword, ...rest } = config;
     this.config = { ...DEFAULT_CONFIG, ...rest };
-    const envPassword = process.env.VALIDATOR_KEY_PASSWORD;
+    
+    let password: string | undefined;
     
     if (encryptionPassword) {
-      this.encryptionPassword = encryptionPassword;
-    } else if (envPassword) {
-      this.encryptionPassword = envPassword;
+      password = encryptionPassword;
+    } else if (process.env.VALIDATOR_KEY_PASSWORD) {
+      password = process.env.VALIDATOR_KEY_PASSWORD;
+    } else if (process.env.VALIDATOR_KEY_PASSWORD_FILE) {
+      try {
+        const fsSync = require('node:fs');
+        password = fsSync.readFileSync(process.env.VALIDATOR_KEY_PASSWORD_FILE, 'utf8').trim();
+      } catch (e) {
+        throw new Error(`Failed to read VALIDATOR_KEY_PASSWORD_FILE: ${e}`);
+      }
+    }
+    
+    if (password) {
+      this.encryptionPassword = password;
     } else {
       const isProduction = process.env.NODE_ENV === 'production';
       if (isProduction) {
-        throw new Error('VALIDATOR_KEY_PASSWORD environment variable is required in production');
+        throw new Error('VALIDATOR_KEY_PASSWORD or VALIDATOR_KEY_PASSWORD_FILE environment variable is required in production');
       }
       this.encryptionPassword = 'rinku-dev-key-password-do-not-use-in-production';
       console.warn('Using default development password for validator keys - set VALIDATOR_KEY_PASSWORD for production');
     }
+  }
+
+  exportEncryptedBackup(): string {
+    if (!this.activeKey) {
+      throw new Error('No active key to backup');
+    }
+    
+    const backup = {
+      version: 1,
+      address: this.activeKey.address,
+      publicKey: Array.from(this.activeKey.publicKey),
+      encryptedPrivateKey: encryptPrivateKey(this.activeKey.privateKey, this.encryptionPassword),
+      blsPublicKey: this.activeKey.blsPublicKey ? Array.from(this.activeKey.blsPublicKey) : undefined,
+      encryptedBlsPrivateKey: this.activeKey.blsPrivateKey 
+        ? encryptPrivateKey(this.activeKey.blsPrivateKey, this.encryptionPassword)
+        : undefined,
+      createdAt: this.activeKey.createdAt,
+      exportedAt: Date.now(),
+    };
+    
+    return JSON.stringify(backup, null, 2);
+  }
+
+  async importEncryptedBackup(backupJson: string, password?: string): Promise<ValidatorKeyPair> {
+    const backup = JSON.parse(backupJson);
+    const pwd = password || this.encryptionPassword;
+    
+    const privateKey = decryptPrivateKey(backup.encryptedPrivateKey, pwd);
+    const publicKey = new Uint8Array(backup.publicKey);
+    
+    let blsPrivateKey: Uint8Array | undefined;
+    let blsPublicKey: Uint8Array | undefined;
+    
+    if (backup.encryptedBlsPrivateKey && backup.blsPublicKey) {
+      blsPrivateKey = decryptPrivateKey(backup.encryptedBlsPrivateKey, pwd);
+      blsPublicKey = new Uint8Array(backup.blsPublicKey);
+    }
+    
+    const keyPair: ValidatorKeyPair = {
+      address: backup.address,
+      publicKey,
+      privateKey,
+      blsPublicKey,
+      blsPrivateKey,
+      createdAt: backup.createdAt || Date.now(),
+    };
+    
+    if (this.activeKey) {
+      this.keyHistory.push({
+        address: this.activeKey.address,
+        publicKey: this.activeKey.publicKey,
+        createdAt: this.activeKey.createdAt,
+        retiredAt: Date.now(),
+      });
+    }
+    
+    this.activeKey = keyPair;
+    return keyPair;
   }
 
   async generateNewKey(): Promise<ValidatorKeyPair> {
