@@ -170,6 +170,10 @@ impl Dag {
         self.graph.node_weights().collect()
     }
 
+    pub fn all_transactions(&self) -> Vec<crate::types::SignedTransaction> {
+        self.graph.node_weights().map(|n| n.tx.clone()).collect()
+    }
+
     pub fn get_unfinalized_nodes(&self) -> Vec<&DagNode> {
         self.graph
             .node_weights()

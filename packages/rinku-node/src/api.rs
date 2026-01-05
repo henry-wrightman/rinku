@@ -64,6 +64,82 @@ struct HealthResponse {
     version: String,
 }
 
+#[derive(Serialize)]
+struct DagSummaryResponse {
+    total_nodes: usize,
+    tip_count: usize,
+    checkpoint_height: u64,
+    finalized_count: usize,
+}
+
+#[derive(Serialize)]
+struct DagResponse {
+    nodes: Vec<DagNodeResponse>,
+    #[serde(rename = "hasMore")]
+    has_more: bool,
+}
+
+#[derive(Serialize)]
+struct DagNodeResponse {
+    hash: String,
+    from: String,
+    to: String,
+    amount: f64,
+    nonce: u64,
+    ts: u64,
+    parents: Vec<String>,
+    finalized: bool,
+    weight: f64,
+    url: String,
+}
+
+#[derive(Serialize)]
+struct AccountsResponse {
+    accounts: Vec<AccountResponse>,
+}
+
+#[derive(Serialize)]
+struct NetworkStatsResponse {
+    peers: usize,
+    tips: usize,
+    pending_txs: usize,
+    avg_block_time: f64,
+}
+
+#[derive(Serialize)]
+struct GasPriceResponse {
+    current: f64,
+    min: f64,
+    max: f64,
+    #[serde(rename = "avgLast100")]
+    avg_last_100: f64,
+}
+
+#[derive(Serialize)]
+struct GasStatsResponse {
+    #[serde(rename = "totalBurned")]
+    total_burned: f64,
+    #[serde(rename = "totalCollected")]
+    total_collected: f64,
+}
+
+#[derive(Serialize)]
+struct FinalityMetricsResponse {
+    #[serde(rename = "avgTimeToFinality")]
+    avg_time_to_finality: f64,
+    #[serde(rename = "pendingTransactions")]
+    pending_transactions: usize,
+    #[serde(rename = "checkpointLatency")]
+    checkpoint_latency: f64,
+}
+
+#[derive(Serialize)]
+struct VersionResponse {
+    protocol: String,
+    node: String,
+    features: Vec<String>,
+}
+
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
@@ -157,6 +233,105 @@ async fn submit_transaction(
     }
 }
 
+async fn get_dag_summary(State(state): State<NodeState>) -> Json<DagSummaryResponse> {
+    let (total_nodes, tip_count, _) = state.get_dag_stats().await;
+    let checkpoint_height = state.get_checkpoint_height().await;
+    Json(DagSummaryResponse {
+        total_nodes,
+        tip_count,
+        checkpoint_height,
+        finalized_count: 0,
+    })
+}
+
+async fn get_dag(State(state): State<NodeState>) -> Json<DagResponse> {
+    let nodes_data = state.get_all_dag_nodes().await;
+    let nodes: Vec<DagNodeResponse> = nodes_data
+        .into_iter()
+        .map(|n| {
+            let url = format!("rinku://tx/{}", &n.hash);
+            DagNodeResponse {
+                hash: n.hash,
+                from: n.from,
+                to: n.to,
+                amount: n.amount,
+                nonce: n.nonce,
+                ts: n.ts,
+                parents: n.parents,
+                finalized: n.finalized,
+                weight: n.weight,
+                url,
+            }
+        })
+        .collect();
+    Json(DagResponse {
+        has_more: false,
+        nodes,
+    })
+}
+
+async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> {
+    let accounts = state.get_all_accounts().await;
+    Json(AccountsResponse {
+        accounts: accounts
+            .into_iter()
+            .map(|a| AccountResponse {
+                address: a.address,
+                balance: a.balance,
+                nonce: a.nonce,
+                staked: a.staked,
+            })
+            .collect(),
+    })
+}
+
+async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsResponse> {
+    let (_, tips, _) = state.get_dag_stats().await;
+    Json(NetworkStatsResponse {
+        peers: 0,
+        tips,
+        pending_txs: 0,
+        avg_block_time: 15.0,
+    })
+}
+
+async fn get_gas_price(State(state): State<NodeState>) -> Json<GasPriceResponse> {
+    let current = state.get_gas_price().await;
+    Json(GasPriceResponse {
+        current,
+        min: 0.001,
+        max: 100.0,
+        avg_last_100: current,
+    })
+}
+
+async fn get_gas_stats() -> Json<GasStatsResponse> {
+    Json(GasStatsResponse {
+        total_burned: 0.0,
+        total_collected: 0.0,
+    })
+}
+
+async fn get_finality_metrics() -> Json<FinalityMetricsResponse> {
+    Json(FinalityMetricsResponse {
+        avg_time_to_finality: 15.0,
+        pending_transactions: 0,
+        checkpoint_latency: 15.0,
+    })
+}
+
+async fn get_version() -> Json<VersionResponse> {
+    Json(VersionResponse {
+        protocol: "1.0.0".to_string(),
+        node: env!("CARGO_PKG_VERSION").to_string(),
+        features: vec![
+            "dag-consensus".to_string(),
+            "url-native".to_string(),
+            "sled-persistence".to_string(),
+        ],
+    })
+}
+
 async fn get_metrics(State(state): State<NodeState>) -> String {
     let (dag_nodes, tips, accounts) = state.get_dag_stats().await;
     let checkpoint_height = state.get_checkpoint_height().await;
@@ -221,6 +396,14 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/api/tips", get(get_tips))
         .route("/api/account/:address", get(get_account))
         .route("/api/tx", post(submit_transaction))
+        .route("/api/dag", get(get_dag))
+        .route("/api/dag/summary", get(get_dag_summary))
+        .route("/api/accounts", get(get_accounts))
+        .route("/api/stats/network", get(get_network_stats))
+        .route("/api/gas/price", get(get_gas_price))
+        .route("/api/gas/stats", get(get_gas_stats))
+        .route("/api/finality/metrics", get(get_finality_metrics))
+        .route("/api/version", get(get_version))
         .route("/metrics", get(get_metrics))
         .layer(cors)
         .with_state(state);

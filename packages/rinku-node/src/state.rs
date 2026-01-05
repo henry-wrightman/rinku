@@ -6,8 +6,22 @@ use rinku_core::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::info;
 
 use crate::config::NodeConfig;
+use crate::persistence::PersistenceService;
+
+pub struct DagNodeInfo {
+    pub hash: String,
+    pub from: String,
+    pub to: String,
+    pub amount: f64,
+    pub nonce: u64,
+    pub ts: u64,
+    pub parents: Vec<String>,
+    pub finalized: bool,
+    pub weight: f64,
+}
 
 #[derive(Debug)]
 pub struct StateInner {
@@ -22,30 +36,78 @@ pub struct StateInner {
 
 #[derive(Clone)]
 pub struct NodeState {
-    pub config: NodeConfig,
+    config: NodeConfig,
     pub inner: Arc<RwLock<StateInner>>,
+    persistence: Arc<PersistenceService>,
 }
 
 impl NodeState {
     pub async fn new(config: NodeConfig) -> Result<Self> {
-        let genesis_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+        let persistence = PersistenceService::new(&config.data_dir)?;
+        let persistence = Arc::new(persistence);
 
-        let inner = StateInner {
-            dag: Dag::new(config.max_dag_nodes),
-            accounts: HashMap::new(),
-            validators: HashMap::new(),
-            checkpoints: Vec::new(),
-            current_gas_price: config.gas.min_gas_price,
-            total_supply: config.tokenomics.genesis_allocation,
-            genesis_time,
+        let inner = if let Some((accounts, validators, checkpoints, gas_price, supply, genesis, txs)) = 
+            persistence.load_snapshot()? 
+        {
+            info!("Restored from snapshot: {} accounts, {} txs", accounts.len(), txs.len());
+            let mut dag = Dag::new(config.max_dag_nodes);
+            for tx in txs {
+                let node = rinku_core::types::DagNode {
+                    hash: tx.hash.clone(),
+                    tx: tx.clone(),
+                    parents: tx.tx.parents.clone(),
+                    children: Vec::new(),
+                    weight: 1.0,
+                    finalized: false,
+                    checkpoint_height: None,
+                };
+                let _ = dag.add_node(node);
+            }
+            StateInner {
+                dag,
+                accounts,
+                validators,
+                checkpoints,
+                current_gas_price: gas_price,
+                total_supply: supply,
+                genesis_time: genesis,
+            }
+        } else {
+            let genesis_time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs();
+
+            StateInner {
+                dag: Dag::new(config.max_dag_nodes),
+                accounts: HashMap::new(),
+                validators: HashMap::new(),
+                checkpoints: Vec::new(),
+                current_gas_price: config.gas.min_gas_price,
+                total_supply: config.tokenomics.genesis_allocation,
+                genesis_time,
+            }
         };
 
         Ok(Self {
             config,
             inner: Arc::new(RwLock::new(inner)),
+            persistence,
         })
+    }
+
+    pub async fn save_snapshot(&self) -> Result<()> {
+        let state = self.inner.read().await;
+        let transactions: Vec<SignedTransaction> = state.dag.all_transactions();
+        self.persistence.save_snapshot(
+            &state.accounts,
+            &state.validators,
+            &state.checkpoints,
+            state.current_gas_price,
+            state.total_supply,
+            state.genesis_time,
+            &transactions,
+        )?;
+        Ok(())
     }
 
     pub async fn get_account(&self, address: &str) -> Option<Account> {
@@ -105,6 +167,31 @@ impl NodeState {
     pub async fn get_total_stake(&self) -> f64 {
         let state = self.inner.read().await;
         state.validators.values().map(|v| v.stake).sum()
+    }
+
+    pub async fn get_all_accounts(&self) -> Vec<Account> {
+        let state = self.inner.read().await;
+        state.accounts.values().cloned().collect()
+    }
+
+    pub async fn get_all_dag_nodes(&self) -> Vec<DagNodeInfo> {
+        let state = self.inner.read().await;
+        state
+            .dag
+            .get_all_nodes()
+            .into_iter()
+            .map(|n| DagNodeInfo {
+                hash: n.hash.clone(),
+                from: n.tx.tx.from.clone(),
+                to: n.tx.tx.to.clone(),
+                amount: n.tx.tx.amount,
+                nonce: n.tx.tx.nonce,
+                ts: n.tx.tx.timestamp,
+                parents: n.parents.clone(),
+                finalized: n.finalized,
+                weight: n.weight,
+            })
+            .collect()
     }
 
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<()> {

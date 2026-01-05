@@ -1,4 +1,4 @@
-use rinku_core::types::GasConfig;
+pub use rinku_core::types::GasConfig;
 use std::collections::VecDeque;
 
 pub struct GasService {
