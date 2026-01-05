@@ -1,0 +1,38 @@
+[package]
+name = "rinku-core"
+version.workspace = true
+edition = "2021"
+description = "Core primitives for Rinku URL-native distributed ledger"
+license.workspace = true
+
+[dependencies]
+# Crypto
+p256 = { workspace = true }
+sha2 = { workspace = true }
+bls12_381 = { workspace = true }
+hkdf = { workspace = true }
+rand = { workspace = true }
+rand_core = { workspace = true }
+hex = { workspace = true }
+base64 = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+
+# DAG/Graph
+petgraph = { workspace = true }
+
+# Compression
+flate2 = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

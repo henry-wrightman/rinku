@@ -9,6 +9,11 @@ coverage/
 .nyc_output/
 *.tsbuildinfo
 
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+
 # ZK build artifacts (large binary files)
 packages/zk/build/
 *.ptau
@@ -19,6 +24,7 @@ packages/zk/build/
 
 # Rinku data (snapshots, state)
 packages/node/.rinku-data/
+.rinku-data/
 
 # Replit specific
 .cache/

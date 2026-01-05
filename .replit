@@ -44,7 +44,7 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
-packages = ["nettools", "rustc", "circom"]
+packages = ["nettools", "rustc", "circom", "openssl", "pkg-config"]
 
 [deployment]
 deploymentTarget = "vm"

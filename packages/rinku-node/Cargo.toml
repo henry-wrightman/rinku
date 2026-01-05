@@ -1,0 +1,52 @@
+[package]
+name = "rinku-node"
+version.workspace = true
+edition = "2021"
+description = "Rinku node implementation with consensus, gossip, and API server"
+license.workspace = true
+
+[[bin]]
+name = "rinku-node"
+path = "src/main.rs"
+
+[dependencies]
+rinku-core = { path = "../rinku-core" }
+
+# Async runtime
+tokio = { workspace = true }
+
+# HTTP server
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Networking/Gossip
+libp2p = { workspace = true }
+
+# Persistence
+sled = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Telemetry
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+prometheus = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+# Utilities
+num_cpus = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
