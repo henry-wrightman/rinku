@@ -19,6 +19,7 @@ pub struct DagNodeInfo {
     pub from: String,
     pub to: String,
     pub amount: f64,
+    pub fee: f64,
     pub nonce: u64,
     pub ts: u64,
     pub parents: Vec<String>,
@@ -272,6 +273,7 @@ impl NodeState {
                 from: n.tx.tx.from.clone(),
                 to: n.tx.tx.to.clone(),
                 amount: n.tx.tx.amount,
+                fee: n.tx.tx.gas_price.unwrap_or(0.001),
                 nonce: n.tx.tx.nonce,
                 ts: n.tx.tx.timestamp,
                 parents: n.parents.clone(),
@@ -311,9 +313,9 @@ impl NodeState {
         state.dag.add_node(node)?;
 
         // Calculate gas fee (EIP-1559 style)
+        // For Rinku, fee = gas_price directly (no Ethereum-style gas units)
         let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
-        let gas_limit = tx.tx.gas_limit.unwrap_or(21000) as f64;
-        let total_gas_cost = gas_fee * gas_limit;
+        let total_gas_cost = gas_fee;
 
         if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
             // Deduct amount + gas fee from sender
@@ -337,12 +339,13 @@ impl NodeState {
         }
 
         // Adjust gas price based on utilization (simplified EIP-1559)
-        let target_gas_per_block = 1_000_000.0;
-        let recent_gas = state.gas_fees_collected.len() as f64 * gas_limit;
-        if recent_gas > target_gas_per_block {
+        // Target: 50 transactions per checkpoint (15s), adjust if above/below
+        let target_txs_per_checkpoint = 50.0;
+        let recent_tx_count = state.gas_fees_collected.len() as f64;
+        if recent_tx_count > target_txs_per_checkpoint {
             // Increase price when congested
             state.current_gas_price = (state.current_gas_price * 1.125).min(state.config.gas.max_gas_price);
-        } else if recent_gas < target_gas_per_block * 0.5 {
+        } else if recent_tx_count < target_txs_per_checkpoint * 0.5 {
             // Decrease price when underutilized
             state.current_gas_price = (state.current_gas_price * 0.875).max(state.config.gas.min_gas_price);
         }
