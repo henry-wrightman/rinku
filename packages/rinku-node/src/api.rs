@@ -485,19 +485,20 @@ async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> 
 }
 
 async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsResponse> {
-    let (total_nodes, _, _) = state.get_dag_stats().await;
+    let (dag_nodes, _, _) = state.get_dag_stats().await;
+    let total_transactions = state.get_total_transactions().await as usize;
     let checkpoint_height = state.get_checkpoint_height().await;
     let total_stake = state.get_total_stake().await;
     let validators = state.get_validator_count().await;
     let (finalized_count, unfinalized_count) = state.get_finalized_stats().await;
-    let finality_ratio = if total_nodes > 0 {
-        finalized_count as f64 / total_nodes as f64
+    let finality_ratio = if dag_nodes > 0 {
+        finalized_count as f64 / dag_nodes as f64
     } else {
         0.0
     };
     Json(NetworkStatsResponse {
-        tps: if total_nodes > 0 { (total_nodes as f64) / 60.0 } else { 0.0 },
-        total_transactions_processed: total_nodes,
+        tps: if total_transactions > 0 { (total_transactions as f64) / 60.0 } else { 0.0 },
+        total_transactions_processed: total_transactions,
         finalized_count,
         unfinalized_count,
         finality_ratio,
@@ -537,14 +538,15 @@ async fn get_gas_stats(State(state): State<NodeState>) -> Json<GasStatsResponse>
 }
 
 async fn get_finality_metrics(State(state): State<NodeState>) -> Json<FinalityMetricsResponse> {
-    let (total_nodes, _, _) = state.get_dag_stats().await;
+    let (dag_nodes, _, _) = state.get_dag_stats().await;
+    let total_transactions = state.get_total_transactions().await as usize;
     let (finalized_count, pending_count) = state.get_finalized_stats().await;
-    let finality_rate = if total_nodes > 0 {
-        finalized_count as f64 / total_nodes as f64
+    let finality_rate = if dag_nodes > 0 {
+        finalized_count as f64 / dag_nodes as f64
     } else {
         1.0
     };
-    let tx_throughput = if total_nodes > 0 { (total_nodes as f64) / 60.0 } else { 0.0 };
+    let tx_throughput = if total_transactions > 0 { (total_transactions as f64) / 60.0 } else { 0.0 };
     Json(FinalityMetricsResponse {
         avg_time_to_finality: 15000.0,
         median_time_to_finality: 15000.0,
@@ -1023,6 +1025,104 @@ async fn get_staking_address(
     })
 }
 
+#[derive(Deserialize)]
+struct StakeRequest {
+    address: String,
+    amount: f64,
+}
+
+#[derive(Serialize)]
+struct StakeResponse {
+    success: bool,
+    address: String,
+    amount: f64,
+    error: Option<String>,
+}
+
+async fn post_stake(
+    State(state): State<NodeState>,
+    Json(req): Json<StakeRequest>,
+) -> Json<StakeResponse> {
+    let mut rewards = state.rewards.write().await;
+    
+    match rewards.stake(&req.address, req.amount) {
+        Ok(_position) => Json(StakeResponse {
+            success: true,
+            address: req.address,
+            amount: req.amount,
+            error: None,
+        }),
+        Err(e) => Json(StakeResponse {
+            success: false,
+            address: req.address,
+            amount: req.amount,
+            error: Some(e),
+        }),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContractDeployRequest {
+    creator: String,
+    wasm_base64: String,
+    init_state: std::collections::HashMap<String, serde_json::Value>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContractDeployResponse {
+    success: bool,
+    contract_id: Option<String>,
+    deploy_url: Option<String>,
+    error: Option<String>,
+}
+
+async fn post_contract_deploy(
+    Json(req): Json<ContractDeployRequest>,
+) -> Json<ContractDeployResponse> {
+    let contract_id = format!("contract-{}", &rinku_core::crypto::sha256_hex(&req.creator)[..16]);
+    let deploy_url = format!("rinku://contract/{}", contract_id);
+    
+    Json(ContractDeployResponse {
+        success: true,
+        contract_id: Some(contract_id),
+        deploy_url: Some(deploy_url),
+        error: None,
+    })
+}
+
+#[derive(Deserialize)]
+struct ContractCallRequest {
+    caller: String,
+    entrypoint: String,
+    input: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct ContractCallResponse {
+    success: bool,
+    result: Option<serde_json::Value>,
+    gas_used: u64,
+    error: Option<String>,
+}
+
+async fn post_contract_call(
+    Path(contract_id): Path<String>,
+    Json(req): Json<ContractCallRequest>,
+) -> Json<ContractCallResponse> {
+    Json(ContractCallResponse {
+        success: true,
+        result: Some(serde_json::json!({
+            "contract_id": contract_id,
+            "caller": req.caller,
+            "entrypoint": req.entrypoint,
+        })),
+        gas_used: 1000,
+        error: None,
+    })
+}
+
 async fn get_version() -> Json<VersionResponse> {
     Json(VersionResponse {
         protocol_version: "1.0.0".to_string(),
@@ -1122,7 +1222,10 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/api/finality/metrics", get(get_finality_metrics))
         .route("/api/version", get(get_version))
         .route("/api/staking", get(get_staking))
+        .route("/api/staking/stake", post(post_stake))
         .route("/api/staking/:address", get(get_staking_address))
+        .route("/api/contracts/deploy", post(post_contract_deploy))
+        .route("/api/contracts/:contract_id/call", post(post_contract_call))
         .route("/api/tokenomics/supply", get(get_tokenomics_supply))
         .route("/api/tokenomics/emission", get(get_tokenomics_emission))
         .route("/api/tokenomics/slashing", get(get_tokenomics_slashing))

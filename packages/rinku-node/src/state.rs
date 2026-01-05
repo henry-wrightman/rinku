@@ -40,6 +40,7 @@ pub struct StateInner {
     pub total_to_validators: f64,
     pub txs_this_period: u64,
     pub period_start_ms: u64,
+    pub total_transactions: u64, // Persistent counter of all transactions ever processed
     pub config: NodeConfig,
 }
 
@@ -61,7 +62,8 @@ impl NodeState {
         let inner = if let Some((accounts, validators, checkpoints, gas_price, supply, genesis, txs)) = 
             persistence.load_snapshot()? 
         {
-            info!("Restored from snapshot: {} accounts, {} txs", accounts.len(), txs.len());
+            let tx_count = txs.len() as u64;
+            info!("Restored from snapshot: {} accounts, {} txs", accounts.len(), tx_count);
             let mut dag = Dag::new(config.max_dag_nodes);
             for tx in txs {
                 let node = rinku_core::types::DagNode {
@@ -91,6 +93,7 @@ impl NodeState {
                 total_to_validators: 0.0,
                 txs_this_period: 0,
                 period_start_ms: now_ms,
+                total_transactions: tx_count,
                 config: config.clone(),
             }
         } else {
@@ -161,6 +164,7 @@ impl NodeState {
                 total_to_validators: 0.0,
                 txs_this_period: 0,
                 period_start_ms: now_ms,
+                total_transactions: 1, // Genesis transaction
                 config: config.clone(),
             }
         };
@@ -266,6 +270,11 @@ impl NodeState {
         state.validators.values().map(|v| v.stake).sum()
     }
 
+    pub async fn get_total_transactions(&self) -> u64 {
+        let state = self.inner.read().await;
+        state.total_transactions
+    }
+
     pub async fn get_all_accounts(&self) -> Vec<Account> {
         let state = self.inner.read().await;
         state.accounts.values().cloned().collect()
@@ -344,6 +353,7 @@ impl NodeState {
         state.total_burned += gas_fee * 0.5;
         state.total_to_validators += gas_fee * 0.5;
         state.txs_this_period += 1;
+        state.total_transactions += 1;
 
         // Period-based gas adjustment
         const PERIOD_MS: u64 = 15000;
@@ -420,6 +430,7 @@ impl NodeState {
                 state.total_burned += gas_fee * 0.5;
                 state.total_to_validators += gas_fee * 0.5;
                 state.txs_this_period += 1;
+                state.total_transactions += 1;
             }
             results.push(result);
         }
