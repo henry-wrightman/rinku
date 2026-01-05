@@ -65,7 +65,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Version Endpoint Updated:** `/api/version` now returns `protocolVersion`, `nodeVersion`, `chainId`, `networkId`, and `features` array
 - **Legacy API Compatibility:** Added `/api/tipUrls` endpoint and legacy `{ tx: {...} }` format support for faucet and activity-bot compatibility
 - **Rust Node API Compatibility:** Updated all API response structures to use camelCase via serde rename_all, aligning with TypeScript explorer expectations
-- **New API Endpoints:** Added `/api/dag`, `/api/dag/summary`, `/api/accounts`, `/api/stats/network`, `/api/gas/price`, `/api/gas/stats`, `/api/finality/metrics`, `/api/version`, `/api/tipUrls`
+- **New API Endpoints:** Added `/api/dag`, `/api/dag/summary`, `/api/accounts`, `/api/stats/network`, `/api/gas/price`, `/api/gas/stats`, `/api/finality/metrics`, `/api/version`, `/api/tipUrls`, `/api/tokenomics/emission`, `/api/tokenomics/slashing`, `/api/checkpoints`, `/api/checkpoints/latest`, `/api/rewards/:address`, `/api/staking/:address`, `/api/fork/stats`, `/api/gossip/stats`, `/api/tip-consolidator/stats`
 - **Merkle Tree Security Fix:** Fixed critical bug where invalid hex leaves silently substituted zeros; now properly validates and returns errors
 - **Sled Persistence:** Integrated sled database for state snapshots with automatic recovery on startup
 - **Background Services:** Wired checkpoint (15s), gossip (200ms), fork remediation, and tip consolidation services into main event loop
