@@ -225,7 +225,7 @@ function App() {
         </div>
         <div className="stat-item">
           <span className="stat-value">
-            {networkStats?.finalityRatio || 0}%
+            {((networkStats?.finalityRatio || 0) * 100).toFixed(0)}%
           </span>
           <span className="stat-label">finalized</span>
         </div>

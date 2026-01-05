@@ -204,6 +204,14 @@ impl NodeState {
         )
     }
 
+    pub async fn get_finalized_stats(&self) -> (usize, usize) {
+        let state = self.inner.read().await;
+        let all_nodes = state.dag.get_all_nodes();
+        let finalized = all_nodes.iter().filter(|n| n.finalized).count();
+        let unfinalized = all_nodes.len() - finalized;
+        (finalized, unfinalized)
+    }
+
     pub async fn get_checkpoint_height(&self) -> u64 {
         let state = self.inner.read().await;
         state.checkpoints.len() as u64

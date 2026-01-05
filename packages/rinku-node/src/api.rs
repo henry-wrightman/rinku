@@ -363,11 +363,12 @@ async fn get_dag_summary(State(state): State<NodeState>) -> Json<DagSummaryRespo
     let (total_nodes, tip_count, account_count) = state.get_dag_stats().await;
     let checkpoint_height = state.get_checkpoint_height().await;
     let tips = state.get_tips().await;
+    let (finalized_count, _) = state.get_finalized_stats().await;
     Json(DagSummaryResponse {
         total_nodes,
         tip_count,
         checkpoint_height,
-        finalized_count: 0,
+        finalized_count,
         tips,
         merkle_root: "".to_string(),
         account_count,
@@ -381,7 +382,8 @@ async fn get_dag(State(state): State<NodeState>) -> Json<DagResponse> {
     let nodes: Vec<DagNodeResponse> = nodes_data
         .into_iter()
         .map(|n| {
-            let url = format!("rinku://tx/{}", &n.hash);
+            // Use /tx/h/{hash} format for explorer hash-based routing
+            let url = format!("/tx/h/{}", &n.hash);
             DagNodeResponse {
                 hash: n.hash,
                 from: n.from,
@@ -422,12 +424,18 @@ async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsR
     let checkpoint_height = state.get_checkpoint_height().await;
     let total_stake = state.get_total_stake().await;
     let validators = state.get_validator_count().await;
+    let (finalized_count, unfinalized_count) = state.get_finalized_stats().await;
+    let finality_ratio = if total_nodes > 0 {
+        finalized_count as f64 / total_nodes as f64
+    } else {
+        0.0
+    };
     Json(NetworkStatsResponse {
-        tps: 0.0,
+        tps: if total_nodes > 0 { (total_nodes as f64) / 60.0 } else { 0.0 },
         total_transactions_processed: total_nodes,
-        finalized_count: 0,
-        unfinalized_count: total_nodes,
-        finality_ratio: 0.0,
+        finalized_count,
+        unfinalized_count,
+        finality_ratio,
         checkpoint_count: checkpoint_height,
         latest_checkpoint_height: checkpoint_height,
         latest_checkpoint_id: None,
@@ -463,18 +471,25 @@ async fn get_gas_stats() -> Json<GasStatsResponse> {
 }
 
 async fn get_finality_metrics(State(state): State<NodeState>) -> Json<FinalityMetricsResponse> {
-    let (_, _, _) = state.get_dag_stats().await;
+    let (total_nodes, _, _) = state.get_dag_stats().await;
+    let (finalized_count, pending_count) = state.get_finalized_stats().await;
+    let finality_rate = if total_nodes > 0 {
+        finalized_count as f64 / total_nodes as f64
+    } else {
+        1.0
+    };
+    let tx_throughput = if total_nodes > 0 { (total_nodes as f64) / 60.0 } else { 0.0 };
     Json(FinalityMetricsResponse {
         avg_time_to_finality: 15000.0,
         median_time_to_finality: 15000.0,
         p95_time_to_finality: 20000.0,
-        pending_count: 0,
-        finalized_count: 0,
-        finality_rate: 1.0,
+        pending_count,
+        finalized_count,
+        finality_rate,
         checkpoint_latency: 15000.0,
         checkpoints_per_minute: 4.0,
         last_checkpoint_age: 0,
-        tx_throughput: 0.0,
+        tx_throughput,
     })
 }
 
@@ -487,10 +502,12 @@ struct TransactionResponse {
     amount: f64,
     fee: f64,
     nonce: u64,
-    timestamp: u64,
-    parents: Vec<String>,
+    ts: u64,
+    #[serde(rename = "tipUrls")]
+    tip_urls: Vec<String>,
     finalized: bool,
     weight: f64,
+    url: String,
 }
 
 async fn get_transaction(
@@ -498,6 +515,7 @@ async fn get_transaction(
     Path(hash): Path<String>,
 ) -> Result<Json<TransactionResponse>, (StatusCode, String)> {
     if let Some(tx) = state.get_transaction(&hash).await {
+        let finalized = state.is_finalized(&hash).await;
         Ok(Json(TransactionResponse {
             hash: tx.hash.clone(),
             from: tx.tx.from.clone(),
@@ -505,10 +523,11 @@ async fn get_transaction(
             amount: tx.tx.amount,
             fee: tx.tx.gas_price.unwrap_or(0.0),
             nonce: tx.tx.nonce,
-            timestamp: tx.tx.timestamp,
-            parents: tx.tx.parents.clone(),
-            finalized: state.is_finalized(&hash).await,
+            ts: tx.tx.timestamp,
+            tip_urls: tx.tx.parents.clone(),
+            finalized,
             weight: 1.0,
+            url: format!("/tx/h/{}", tx.hash),
         }))
     } else {
         Err((StatusCode::NOT_FOUND, format!("Transaction {} not found", hash)))

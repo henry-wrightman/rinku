@@ -84,6 +84,9 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **StateTrie Module (Rust):** Contract state management with Merkle proof generation/verification, contract isolation, and snapshot/restore functionality (6 tests passing)
 - **Protocol Versioning Module (Rust):** FeatureFlags, UpgradeProposals, VersionCompatibility checks, and 5 known features with activation thresholds (5 tests passing)
 - **Enhanced /api/version:** Now exposes 11 active features (dag-consensus, url-native, sled-persistence, finality-proofs, merkle-sum-tree, bls-aggregation, dynamic-gas, smart-contracts, tip-consolidation, fork-remediation, zk-privacy)
+- **Fixed Finality Stats Tracking:** Added `get_finalized_stats()` method to NodeState, updated `/api/stats/network` and `/api/finality/metrics` to return real finalized/unfinalized counts and TPS
+- **Fixed Transaction URL Format:** Changed DAG node URLs from `rinku://tx/{hash}` to `/tx/h/{hash}` for proper explorer React Router compatibility
+- **Fixed /api/tx/:hash Response:** Updated to return `ts`, `tipUrls`, and `url` fields matching explorer expectations
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000
