@@ -3,6 +3,7 @@ use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod api;
+mod bls;
 mod checkpoint;
 mod config;
 mod consensus;
@@ -11,6 +12,7 @@ mod fork_remediation;
 mod gas;
 mod gossip;
 mod persistence;
+mod proofs;
 mod rewards;
 mod slashing;
 mod state;

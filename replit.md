@@ -59,6 +59,8 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Rust Dependencies:** `p256`, `sha2`, `petgraph`, `tokio`, `axum`, `serde`, `serde_json`, `flate2`, `sled`, `tower-http`, `tracing`.
 
 ### Recent Changes (January 2026)
+- **BLS12-381 Cryptography Module:** Added complete BLS signature support using `blst` crate with key generation, signing, aggregation, verification, and signer bitmaps (4 tests passing)
+- **Self-Contained Proof System (Rust):** Implemented SelfContainedProof (Profile C) and CompactProof (Profile B) structures with DEFLATE compression, base64url encoding, and Merkle proof verification (2 tests passing)
 - **Full Service Implementation:** Added RewardsService (staking/distribution), EmissionService (tokenomics/halving), and SlashingService (validator penalties) to Rust node
 - **Genesis Initialization:** Rust node now seeds faucet account with 1M RKU and creates genesis transaction on first startup, matching TypeScript behavior
 - **Extended API Endpoints:** Added `/api/tx/:hash`, `/api/staking`, `/api/tokenomics/supply`, `/api/rewards/config` for explorer compatibility
@@ -75,6 +77,8 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000
-- 19 Rust node tests + 25 core tests = 44 tests passing
+- 25 Rust node tests + 25 core tests = 50 tests passing
 - Hybrid architecture: Rust for consensus/validation, TypeScript for user-facing interfaces
 - All Rust services match TypeScript behavior with proper serialization
+- BLS crypto: `bls.rs` module with keypair generation, sign/verify, aggregate signatures/keys, and signer bitmaps
+- Proofs: `proofs.rs` module with SelfContainedProof (verbose, Profile C) and CompactProof (binary, Profile B) formats
