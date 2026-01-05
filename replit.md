@@ -92,6 +92,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Real Finality Metrics:** Fixed `/api/finality/metrics` to return real-time data: avg/median/p95 finality times from rolling 100-tx window, last checkpoint age, and checkpoints per minute. Previously hardcoded to 15s/20s defaults.
 - **Finality Time Tracking:** Checkpoints now record finalization latency (time from tx creation to finalization) in a rolling VecDeque, enabling dynamic avg/p95 finality calculations
 - **Timestamp Format Handling:** Fixed finality time calculation to handle both seconds and milliseconds timestamps correctly
+- **Finality Metrics Accuracy Fix:** Fixed sampling bias where rolling window of 100 entries only captured recently-created transactions. Now tracks aggregate stats (sum/count) across ALL finalized transactions for accurate average, with expanded 1000-entry rolling window for percentiles. Avg finality now correctly shows ~7s (matching 15s checkpoint interval)
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000

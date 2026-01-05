@@ -45,7 +45,10 @@ pub struct StateInner {
     pub total_transactions: u64,
     pub config: NodeConfig,
     pub last_checkpoint_time_ms: u64,
-    pub finality_times_ms: VecDeque<u64>, // Rolling window of finality durations
+    pub finality_times_ms: VecDeque<u64>, // Rolling window for percentile calculations
+    pub finality_sum_ms: u64,   // Sum of all finality times for accurate average
+    pub finality_count: u64,    // Count of all finalized transactions
+    pub finality_max_ms: u64,   // Track maximum finality time
 }
 
 #[derive(Clone)]
@@ -101,7 +104,10 @@ impl NodeState {
                 total_transactions: tx_count,
                 config: config.clone(),
                 last_checkpoint_time_ms: last_checkpoint_time,
-                finality_times_ms: VecDeque::with_capacity(100),
+                finality_times_ms: VecDeque::with_capacity(1000),
+                finality_sum_ms: 0,
+                finality_count: 0,
+                finality_max_ms: 0,
             }
         } else {
             let genesis_time = std::time::SystemTime::now()
@@ -174,7 +180,10 @@ impl NodeState {
                 total_transactions: 1,
                 config: config.clone(),
                 last_checkpoint_time_ms: now_ms,
-                finality_times_ms: VecDeque::with_capacity(100),
+                finality_times_ms: VecDeque::with_capacity(1000),
+                finality_sum_ms: 0,
+                finality_count: 0,
+                finality_max_ms: 0,
             }
         };
 
@@ -267,14 +276,21 @@ impl NodeState {
             0.0
         };
         
+        // Use aggregate stats for accurate average (not biased by rolling window)
+        let avg = if state.finality_count > 0 {
+            state.finality_sum_ms as f64 / state.finality_count as f64
+        } else {
+            0.0
+        };
+        
         if state.finality_times_ms.is_empty() {
-            return (0.0, 0.0, 0.0, last_checkpoint_age, checkpoints_per_minute);
+            return (avg, avg, avg, last_checkpoint_age, checkpoints_per_minute);
         }
         
+        // Use rolling window for percentile calculations
         let mut times: Vec<u64> = state.finality_times_ms.iter().copied().collect();
         times.sort();
         
-        let avg = times.iter().sum::<u64>() as f64 / times.len() as f64;
         let median = times[times.len() / 2] as f64;
         let p95_idx = (times.len() as f64 * 0.95) as usize;
         let p95 = times.get(p95_idx).copied().unwrap_or(times[times.len() - 1]) as f64;

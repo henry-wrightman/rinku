@@ -168,7 +168,7 @@ impl CheckpointService {
         state.checkpoints.push(checkpoint.clone());
         state.last_checkpoint_time_ms = now_ms;
 
-        // Record finality times for finalized transactions
+        // Record finality times for ALL finalized transactions
         for hash in &unfinalized_hashes {
             if let Some(node) = state.dag.get_node(hash) {
                 // Transaction timestamp may be in seconds or milliseconds
@@ -180,7 +180,16 @@ impl CheckpointService {
                     tx_timestamp // Already in milliseconds
                 };
                 let finality_time = now_ms.saturating_sub(tx_time_ms);
-                if state.finality_times_ms.len() >= 100 {
+                
+                // Track aggregate stats for accurate average
+                state.finality_sum_ms += finality_time;
+                state.finality_count += 1;
+                if finality_time > state.finality_max_ms {
+                    state.finality_max_ms = finality_time;
+                }
+                
+                // Keep rolling window for percentile calculations (larger window)
+                if state.finality_times_ms.len() >= 1000 {
                     state.finality_times_ms.pop_front();
                 }
                 state.finality_times_ms.push_back(finality_time);
