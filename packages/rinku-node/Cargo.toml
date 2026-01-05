@@ -60,6 +60,7 @@ ark-std = { workspace = true }
 ark-ff = { workspace = true }
 ark-ec = { workspace = true }
 ark-relations = { workspace = true }
+light-poseidon = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

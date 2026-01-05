@@ -12,6 +12,7 @@ mod emission;
 mod fork_remediation;
 mod gas;
 mod gossip;
+mod network;
 mod persistence;
 mod proofs;
 mod rewards;

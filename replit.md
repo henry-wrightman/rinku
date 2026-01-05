@@ -89,6 +89,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - BLS crypto: `bls.rs` module with keypair generation, sign/verify, aggregate signatures/keys, and signer bitmaps
 - Proofs: `proofs.rs` module with SelfContainedProof (verbose, Profile C) and CompactProof (binary, Profile B) formats
 - Contracts: `contracts.rs` module with mock runtime (matching TypeScript createMockRuntime), GasSchedule, GasMeter, state diffs
-- ZK Privacy: `zk.rs` module with Poseidon hash, Groth16 verification, NullifierRegistry with sled persistence
-- Gossip: `gossip.rs` module stubbed for future libp2p integration, currently provides infrastructure for tx propagation
+- ZK Privacy: `zk.rs` module using `light-poseidon` crate (Veridise-audited) for circomlib-compatible Poseidon hash, Groth16 verification, NullifierRegistry with sled persistence
+- Network: `network.rs` module with libp2p gossipsub protocol (SHA256 message IDs for deterministic deduplication), mDNS peer discovery, and NetworkHandle for async broadcasting
+- Gossip: `gossip.rs` module for HTTP-based gossip fallback, with `network.rs` providing libp2p alternative
 - Fork Remediation: `fork_remediation.rs` with cumulative weight calculation, branch pruning, nonce-based double-spend detection

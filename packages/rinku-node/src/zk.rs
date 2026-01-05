@@ -7,6 +7,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
 use flate2::Compression;
+use light_poseidon::{Poseidon, PoseidonBytesHasher, PoseidonHasher};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::io::{Read, Write};
@@ -18,26 +19,6 @@ pub const ZK_URL_VERSION: u8 = 1;
 pub const CHAIN_ID_MAINNET: &str = "rinku-mainnet";
 pub const CHAIN_ID_TESTNET: &str = "rinku-testnet";
 pub const MERKLE_DEPTH: usize = 10;
-
-const POSEIDON_C: [u64; 65] = [
-    0x09c46e9ec68e9bd4u64, 0x4f8e3f29e2fa6f38, 0xf37f88f29f8f0f38, 0x3f8e8f29f8f0f38f,
-    0x8e3f29f2fa6f3878, 0x29f8f0f38f3f8e8f, 0xf8f0f38f3f8e8f29, 0x0f38f3f8e8f29f8f,
-    0x38f3f8e8f29f8f0f, 0xf3f8e8f29f8f0f38, 0x8e8f29f8f0f38f3f, 0xf29f8f0f38f3f8e8,
-    0x9f8f0f38f3f8e8f2, 0x8f0f38f3f8e8f29f, 0x0f38f3f8e8f29f8f, 0x38f3f8e8f29f8f0f,
-    0xf3f8e8f29f8f0f38, 0x8e8f29f8f0f38f3f, 0xf29f8f0f38f3f8e8, 0x9f8f0f38f3f8e8f2,
-    0x8f0f38f3f8e8f29f, 0x0f38f3f8e8f29f8f, 0x38f3f8e8f29f8f0f, 0xf3f8e8f29f8f0f38,
-    0x8e8f29f8f0f38f3f, 0xf29f8f0f38f3f8e8, 0x9f8f0f38f3f8e8f2, 0x8f0f38f3f8e8f29f,
-    0x0f38f3f8e8f29f8f, 0x38f3f8e8f29f8f0f, 0xf3f8e8f29f8f0f38, 0x8e8f29f8f0f38f3f,
-    0xf29f8f0f38f3f8e8, 0x9f8f0f38f3f8e8f2, 0x8f0f38f3f8e8f29f, 0x0f38f3f8e8f29f8f,
-    0x38f3f8e8f29f8f0f, 0xf3f8e8f29f8f0f38, 0x8e8f29f8f0f38f3f, 0xf29f8f0f38f3f8e8,
-    0x9f8f0f38f3f8e8f2, 0x8f0f38f3f8e8f29f, 0x0f38f3f8e8f29f8f, 0x38f3f8e8f29f8f0f,
-    0xf3f8e8f29f8f0f38, 0x8e8f29f8f0f38f3f, 0xf29f8f0f38f3f8e8, 0x9f8f0f38f3f8e8f2,
-    0x8f0f38f3f8e8f29f, 0x0f38f3f8e8f29f8f, 0x38f3f8e8f29f8f0f, 0xf3f8e8f29f8f0f38,
-    0x8e8f29f8f0f38f3f, 0xf29f8f0f38f3f8e8, 0x9f8f0f38f3f8e8f2, 0x8f0f38f3f8e8f29f,
-    0x0f38f3f8e8f29f8f, 0x38f3f8e8f29f8f0f, 0xf3f8e8f29f8f0f38, 0x8e8f29f8f0f38f3f,
-    0xf29f8f0f38f3f8e8, 0x9f8f0f38f3f8e8f2, 0x8f0f38f3f8e8f29f, 0x0f38f3f8e8f29f8f,
-    0x38f3f8e8f29f8f0f,
-];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -106,80 +87,23 @@ pub struct MerkleWitness {
 }
 
 pub fn poseidon_hash(inputs: &[Fr]) -> Fr {
-    let t = inputs.len() + 1;
-    let rounds_f = 8;
-    let rounds_p = 56;
-
-    let mut state: Vec<Fr> = std::iter::once(Fr::from(0u64))
-        .chain(inputs.iter().cloned())
-        .collect();
-
-    while state.len() < t {
-        state.push(Fr::from(0u64));
+    use light_poseidon::parameters::bn254_x5;
+    
+    if inputs.is_empty() {
+        return Fr::from(0u64);
     }
-
-    for r in 0..(rounds_f / 2) {
-        state = state
-            .iter()
-            .enumerate()
-            .map(|(i, s)| {
-                let c = Fr::from(POSEIDON_C[(r * t + i) % POSEIDON_C.len()]);
-                *s + c
-            })
-            .collect();
-
-        state = state.iter().map(|s| s.square() * s.square() * *s).collect();
-
-        state = mix(&state);
+    
+    if inputs.len() > 12 {
+        let first = poseidon_hash(&inputs[0..12]);
+        let rest = &inputs[12..];
+        let mut combined = vec![first];
+        combined.extend_from_slice(rest);
+        return poseidon_hash(&combined);
     }
-
-    for r in 0..rounds_p {
-        state = state
-            .iter()
-            .enumerate()
-            .map(|(i, s)| {
-                let c = Fr::from(POSEIDON_C[((rounds_f / 2 + r) * t + i) % POSEIDON_C.len()]);
-                *s + c
-            })
-            .collect();
-
-        state[0] = state[0].square() * state[0].square() * state[0];
-
-        state = mix(&state);
-    }
-
-    for r in 0..(rounds_f / 2) {
-        state = state
-            .iter()
-            .enumerate()
-            .map(|(i, s)| {
-                let c = Fr::from(
-                    POSEIDON_C[((rounds_f / 2 + rounds_p + r) * t + i) % POSEIDON_C.len()],
-                );
-                *s + c
-            })
-            .collect();
-
-        state = state.iter().map(|s| s.square() * s.square() * *s).collect();
-
-        state = mix(&state);
-    }
-
-    state[0]
-}
-
-fn mix(state: &[Fr]) -> Vec<Fr> {
-    let t = state.len();
-    let mut new_state = vec![Fr::from(0u64); t];
-
-    for i in 0..t {
-        for j in 0..t {
-            let m = Fr::from(((i + 1) * (j + 1)) as u64);
-            new_state[i] += m * state[j];
-        }
-    }
-
-    new_state
+    
+    let mut poseidon = Poseidon::<Fr>::new_circom(inputs.len()).expect("Failed to create Poseidon hasher");
+    
+    poseidon.hash(inputs).expect("Failed to compute Poseidon hash")
 }
 
 pub fn compute_nullifier(priv_key: &Fr, checkpoint_height: u64, tx_hash: &Fr) -> Fr {

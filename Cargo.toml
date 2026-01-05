@@ -37,7 +37,7 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # Networking/Gossip
-libp2p = { version = "0.54", features = ["tcp", "noise", "yamux", "gossipsub", "mdns", "tokio"] }
+libp2p = { version = "0.54", features = ["tcp", "noise", "yamux", "gossipsub", "mdns", "tokio", "macros"] }
 
 # DAG/Graph
 petgraph = "0.6"
@@ -75,3 +75,6 @@ ark-std = "0.4"
 ark-ff = "0.4"
 ark-ec = "0.4"
 ark-relations = "0.4"
+
+# Poseidon hash (circomlib-compatible)
+light-poseidon = "0.2"
