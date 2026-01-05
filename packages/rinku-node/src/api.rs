@@ -247,8 +247,10 @@ async fn get_stats(State(state): State<NodeState>) -> Json<StatsResponse> {
     let checkpoint_height = state.get_checkpoint_height().await;
     let gas_price = state.get_gas_price().await;
     let total_supply = state.get_total_supply().await;
-    let validators = state.get_validator_count().await;
-    let total_stake = state.get_total_stake().await;
+    let rewards = state.rewards.read().await;
+    let validators = rewards.get_active_validators().len();
+    let total_stake = rewards.get_total_staked();
+    drop(rewards);
 
     Json(StatsResponse {
         dag_nodes,
@@ -488,8 +490,10 @@ async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsR
     let (dag_nodes, _, _) = state.get_dag_stats().await;
     let total_transactions = state.get_total_transactions().await as usize;
     let checkpoint_height = state.get_checkpoint_height().await;
-    let total_stake = state.get_total_stake().await;
-    let validators = state.get_validator_count().await;
+    let rewards = state.rewards.read().await;
+    let total_stake = rewards.get_total_staked();
+    let validators = rewards.get_active_validators().len();
+    drop(rewards);
     let (finalized_count, unfinalized_count) = state.get_finalized_stats().await;
     let finality_ratio = if dag_nodes > 0 {
         finalized_count as f64 / dag_nodes as f64
@@ -689,18 +693,19 @@ struct ValidatorInfo {
 }
 
 async fn get_staking(State(state): State<NodeState>) -> Json<StakingResponse> {
-    let validators = state.get_validators().await;
-    let total_staked = state.get_total_stake().await;
+    let rewards = state.rewards.read().await;
+    let total_staked = rewards.get_total_staked();
+    let active_validators = rewards.get_active_validators();
     
     Json(StakingResponse {
         total_staked,
-        validator_count: validators.len(),
+        validator_count: active_validators.len(),
         min_stake: 1000.0,
         unbonding_period_ms: 7 * 24 * 60 * 60 * 1000,
-        validators: validators.into_iter().map(|v| ValidatorInfo {
-            address: v.address.clone(),
-            stake: v.stake,
-            active: v.missed_checkpoints < 10,
+        validators: active_validators.into_iter().map(|v| ValidatorInfo {
+            address: v.staker.clone(),
+            stake: v.amount,
+            active: true,
         }).collect(),
     })
 }
