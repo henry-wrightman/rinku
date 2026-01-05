@@ -311,4 +311,48 @@ impl NodeState {
         let state = self.inner.read().await;
         state.validators.values().cloned().collect()
     }
+
+    pub async fn get_finalization_info(&self, hash: &str) -> (bool, Option<u64>) {
+        let state = self.inner.read().await;
+        if let Some(node) = state.dag.get_node(hash) {
+            (node.finalized, node.checkpoint_height)
+        } else {
+            (false, None)
+        }
+    }
+
+    pub async fn get_merkle_proof(
+        &self,
+        tx_hash: &str,
+        checkpoint_height: u64,
+    ) -> Option<(Vec<String>, usize, Checkpoint)> {
+        use rinku_core::merkle::MerkleTree;
+
+        let state = self.inner.read().await;
+
+        let checkpoint = state
+            .checkpoints
+            .iter()
+            .find(|c| c.height == checkpoint_height)?
+            .clone();
+
+        let finalized_hashes: Vec<String> = state
+            .dag
+            .get_all_nodes()
+            .into_iter()
+            .filter(|n| n.finalized && n.checkpoint_height == Some(checkpoint_height))
+            .map(|n| n.hash.clone())
+            .collect();
+
+        if finalized_hashes.is_empty() {
+            return None;
+        }
+
+        let index = finalized_hashes.iter().position(|h| h == tx_hash)?;
+
+        let tree = MerkleTree::from_hex_leaves(&finalized_hashes).ok()?;
+        let merkle_proof = tree.get_proof(index).ok()?;
+
+        Some((merkle_proof.siblings, index, checkpoint))
+    }
 }

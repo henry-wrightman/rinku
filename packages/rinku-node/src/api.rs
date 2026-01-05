@@ -180,6 +180,40 @@ struct VersionResponse {
     features: Vec<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SelfProvableTransactionResponse {
+    tx_hash: String,
+    from: String,
+    to: String,
+    amount: f64,
+    nonce: u64,
+    timestamp: u64,
+    signature: String,
+    parents: Vec<String>,
+    finalized: bool,
+    checkpoint_height: Option<u64>,
+    merkle_proof: Option<Vec<String>>,
+    merkle_index: Option<usize>,
+    checkpoint: Option<CheckpointProofData>,
+    proof_url: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckpointProofData {
+    height: u64,
+    hash: String,
+    tx_merkle_root: String,
+    state_root: String,
+    receipt_root: String,
+    tip_count: u32,
+    timestamp: u64,
+    aggregated_signature: Option<String>,
+    signer_bitmap: Option<Vec<u8>>,
+    validator_count: usize,
+}
+
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
@@ -479,6 +513,70 @@ async fn get_transaction(
     } else {
         Err((StatusCode::NOT_FOUND, format!("Transaction {} not found", hash)))
     }
+}
+
+async fn get_self_provable_tx(
+    State(state): State<NodeState>,
+    Path(hash): Path<String>,
+) -> Result<Json<SelfProvableTransactionResponse>, (StatusCode, String)> {
+    let tx = state
+        .get_transaction(&hash)
+        .await
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Transaction {} not found", hash)))?;
+
+    let (finalized, checkpoint_height) = state.get_finalization_info(&hash).await;
+
+    let (merkle_proof, merkle_index, checkpoint_data, proof_url) = if finalized {
+        if let Some(cp_height) = checkpoint_height {
+            if let Some((proof, index, checkpoint)) = state.get_merkle_proof(&hash, cp_height).await {
+                let cp_data = CheckpointProofData {
+                    height: checkpoint.height,
+                    hash: checkpoint.hash.clone(),
+                    tx_merkle_root: checkpoint.tx_merkle_root.clone(),
+                    state_root: checkpoint.state_root.clone(),
+                    receipt_root: checkpoint.receipt_root.clone(),
+                    tip_count: checkpoint.tip_count,
+                    timestamp: checkpoint.timestamp,
+                    aggregated_signature: checkpoint.aggregated_signature.clone(),
+                    signer_bitmap: checkpoint.signer_bitmap.clone(),
+                    validator_count: checkpoint.validator_signatures.len(),
+                };
+
+                let proof_url = format!(
+                    "rinku://txp/{}?cp={}&idx={}&proof={}",
+                    hash,
+                    cp_height,
+                    index,
+                    proof.join(",")
+                );
+
+                (Some(proof), Some(index), Some(cp_data), Some(proof_url))
+            } else {
+                (None, None, None, None)
+            }
+        } else {
+            (None, None, None, None)
+        }
+    } else {
+        (None, None, None, None)
+    };
+
+    Ok(Json(SelfProvableTransactionResponse {
+        tx_hash: tx.hash.clone(),
+        from: tx.tx.from.clone(),
+        to: tx.tx.to.clone(),
+        amount: tx.tx.amount,
+        nonce: tx.tx.nonce,
+        timestamp: tx.tx.timestamp,
+        signature: tx.signature.clone(),
+        parents: tx.tx.parents.clone(),
+        finalized,
+        checkpoint_height,
+        merkle_proof,
+        merkle_index,
+        checkpoint: checkpoint_data,
+        proof_url,
+    }))
 }
 
 #[derive(Serialize)]
@@ -922,6 +1020,7 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/api/account/:address", get(get_account))
         .route("/api/tx", post(submit_legacy_transaction))
         .route("/api/tx/:hash", get(get_transaction))
+        .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/dag", get(get_dag))
         .route("/api/dag/summary", get(get_dag_summary))
         .route("/api/accounts", get(get_accounts))

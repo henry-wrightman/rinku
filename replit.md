@@ -61,6 +61,8 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 ### Recent Changes (January 2026)
 - **BLS12-381 Cryptography Module:** Added complete BLS signature support using `blst` crate with key generation, signing, aggregation, verification, and signer bitmaps (4 tests passing)
 - **Self-Contained Proof System (Rust):** Implemented SelfContainedProof (Profile C) and CompactProof (Profile B) structures with DEFLATE compression, base64url encoding, and Merkle proof verification (2 tests passing)
+- **Checkpoint BLS Signing:** CheckpointService now signs checkpoints with BLS12-381 signatures, generating aggregated signatures and signer bitmaps for finality proofs
+- **Self-Provable Transaction Endpoint:** Added `/api/txp/:hash` endpoint returning finalized transactions with Merkle proofs, checkpoint data, and proof URLs for offline verification
 - **Full Service Implementation:** Added RewardsService (staking/distribution), EmissionService (tokenomics/halving), and SlashingService (validator penalties) to Rust node
 - **Genesis Initialization:** Rust node now seeds faucet account with 1M RKU and creates genesis transaction on first startup, matching TypeScript behavior
 - **Extended API Endpoints:** Added `/api/tx/:hash`, `/api/staking`, `/api/tokenomics/supply`, `/api/rewards/config` for explorer compatibility
