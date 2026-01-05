@@ -6,19 +6,25 @@ mod api;
 mod checkpoint;
 mod config;
 mod consensus;
+mod emission;
 mod fork_remediation;
 mod gas;
 mod gossip;
 mod persistence;
+mod rewards;
+mod slashing;
 mod state;
 mod tip_consolidator;
 mod validator;
 
 use checkpoint::CheckpointService;
 use config::NodeConfig;
+use emission::EmissionService;
 use fork_remediation::ForkRemediationService;
 use gas::{GasConfig, GasService};
 use gossip::GossipService;
+use rewards::{RewardConfig, RewardsService};
+use slashing::SlashingService;
 use tip_consolidator::TipConsolidator;
 use validator::ValidatorKeyManager;
 
@@ -47,6 +53,15 @@ async fn main() -> Result<()> {
 
     let _gas_service = GasService::new(GasConfig::default());
     info!("Gas service initialized");
+
+    let _rewards_service = RewardsService::new(RewardConfig::default());
+    info!("Rewards service initialized");
+
+    let _emission_service = EmissionService::new();
+    info!("Emission service initialized (30M max supply, halving every 3.15M checkpoints)");
+
+    let _slashing_service = SlashingService::new();
+    info!("Slashing service initialized");
 
     let checkpoint_service = CheckpointService::new(
         state.clone(),

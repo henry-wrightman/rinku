@@ -59,6 +59,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Rust Dependencies:** `p256`, `sha2`, `petgraph`, `tokio`, `axum`, `serde`, `serde_json`, `flate2`, `sled`, `tower-http`, `tracing`.
 
 ### Recent Changes (January 2026)
+- **Full Service Implementation:** Added RewardsService (staking/distribution), EmissionService (tokenomics/halving), and SlashingService (validator penalties) to Rust node
 - **Genesis Initialization:** Rust node now seeds faucet account with 1M RKU and creates genesis transaction on first startup, matching TypeScript behavior
 - **Extended API Endpoints:** Added `/api/tx/:hash`, `/api/staking`, `/api/tokenomics/supply`, `/api/rewards/config` for explorer compatibility
 - **Version Endpoint Updated:** `/api/version` now returns `protocolVersion`, `nodeVersion`, `chainId`, `networkId`, and `features` array
