@@ -65,11 +65,15 @@ struct HealthResponse {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DagSummaryResponse {
     total_nodes: usize,
     tip_count: usize,
     checkpoint_height: u64,
     finalized_count: usize,
+    tips: Vec<String>,
+    merkle_root: String,
+    account_count: usize,
 }
 
 #[derive(Serialize)]
@@ -99,38 +103,44 @@ struct AccountsResponse {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct NetworkStatsResponse {
-    peers: usize,
-    tips: usize,
-    pending_txs: usize,
-    avg_block_time: f64,
+    tps: f64,
+    total_transactions_processed: usize,
+    finalized_count: usize,
+    unfinalized_count: usize,
+    finality_ratio: f64,
+    checkpoint_count: u64,
+    latest_checkpoint_height: u64,
+    latest_checkpoint_id: Option<String>,
+    total_staked: f64,
+    validator_count: usize,
+    network_age: u64,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GasPriceResponse {
     current: f64,
     min: f64,
     max: f64,
-    #[serde(rename = "avgLast100")]
     avg_last_100: f64,
-}
-
-#[derive(Serialize)]
-struct GasStatsResponse {
-    #[serde(rename = "totalBurned")]
     total_burned: f64,
-    #[serde(rename = "totalCollected")]
-    total_collected: f64,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct FinalityMetricsResponse {
-    #[serde(rename = "avgTimeToFinality")]
     avg_time_to_finality: f64,
-    #[serde(rename = "pendingTransactions")]
-    pending_transactions: usize,
-    #[serde(rename = "checkpointLatency")]
+    median_time_to_finality: f64,
+    p95_time_to_finality: f64,
+    pending_count: usize,
+    finalized_count: usize,
+    finality_rate: f64,
     checkpoint_latency: f64,
+    checkpoints_per_minute: f64,
+    last_checkpoint_age: u64,
+    tx_throughput: f64,
 }
 
 #[derive(Serialize)]
@@ -234,13 +244,17 @@ async fn submit_transaction(
 }
 
 async fn get_dag_summary(State(state): State<NodeState>) -> Json<DagSummaryResponse> {
-    let (total_nodes, tip_count, _) = state.get_dag_stats().await;
+    let (total_nodes, tip_count, account_count) = state.get_dag_stats().await;
     let checkpoint_height = state.get_checkpoint_height().await;
+    let tips = state.get_tips().await;
     Json(DagSummaryResponse {
         total_nodes,
         tip_count,
         checkpoint_height,
         finalized_count: 0,
+        tips,
+        merkle_root: "".to_string(),
+        account_count,
     })
 }
 
@@ -286,12 +300,22 @@ async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> 
 }
 
 async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsResponse> {
-    let (_, tips, _) = state.get_dag_stats().await;
+    let (total_nodes, _, _) = state.get_dag_stats().await;
+    let checkpoint_height = state.get_checkpoint_height().await;
+    let total_stake = state.get_total_stake().await;
+    let validators = state.get_validator_count().await;
     Json(NetworkStatsResponse {
-        peers: 0,
-        tips,
-        pending_txs: 0,
-        avg_block_time: 15.0,
+        tps: 0.0,
+        total_transactions_processed: total_nodes,
+        finalized_count: 0,
+        unfinalized_count: total_nodes,
+        finality_ratio: 0.0,
+        checkpoint_count: checkpoint_height,
+        latest_checkpoint_height: checkpoint_height,
+        latest_checkpoint_id: None,
+        total_staked: total_stake,
+        validator_count: validators,
+        network_age: 0,
     })
 }
 
@@ -302,7 +326,15 @@ async fn get_gas_price(State(state): State<NodeState>) -> Json<GasPriceResponse>
         min: 0.001,
         max: 100.0,
         avg_last_100: current,
+        total_burned: 0.0,
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GasStatsResponse {
+    total_burned: f64,
+    total_collected: f64,
 }
 
 async fn get_gas_stats() -> Json<GasStatsResponse> {
@@ -314,9 +346,16 @@ async fn get_gas_stats() -> Json<GasStatsResponse> {
 
 async fn get_finality_metrics() -> Json<FinalityMetricsResponse> {
     Json(FinalityMetricsResponse {
-        avg_time_to_finality: 15.0,
-        pending_transactions: 0,
-        checkpoint_latency: 15.0,
+        avg_time_to_finality: 15000.0,
+        median_time_to_finality: 15000.0,
+        p95_time_to_finality: 20000.0,
+        pending_count: 0,
+        finalized_count: 0,
+        finality_rate: 1.0,
+        checkpoint_latency: 15000.0,
+        checkpoints_per_minute: 4.0,
+        last_checkpoint_age: 0,
+        tx_throughput: 0.0,
     })
 }
 
