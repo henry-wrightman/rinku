@@ -31,6 +31,12 @@ struct TipsResponse {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TipUrlsResponse {
+    tip_urls: Vec<String>,
+}
+
+#[derive(Serialize)]
 struct AccountResponse {
     address: String,
     balance: f64,
@@ -48,6 +54,27 @@ struct SubmitTxRequest {
     parents: Vec<String>,
     signature: String,
     hash: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyTxInner {
+    from: String,
+    to: String,
+    amount: f64,
+    #[serde(default)]
+    fee: f64,
+    nonce: u64,
+    #[serde(default)]
+    tip_urls: Vec<String>,
+    sig: String,
+    ts: u64,
+    hash: String,
+}
+
+#[derive(Deserialize)]
+struct LegacySubmitTxRequest {
+    tx: LegacyTxInner,
 }
 
 #[derive(Serialize)]
@@ -182,6 +209,15 @@ async fn get_tips(State(state): State<NodeState>) -> Json<TipsResponse> {
     Json(TipsResponse { tips })
 }
 
+async fn get_tip_urls(State(state): State<NodeState>) -> Json<TipUrlsResponse> {
+    let tips = state.get_tips().await;
+    let tip_urls: Vec<String> = tips
+        .into_iter()
+        .map(|hash| format!("rinku://tx/h/{}", hash))
+        .collect();
+    Json(TipUrlsResponse { tip_urls })
+}
+
 async fn get_account(
     State(state): State<NodeState>,
     Path(address): Path<String>,
@@ -237,6 +273,49 @@ async fn submit_transaction(
             Json(SubmitTxResponse {
                 success: false,
                 hash: req.hash,
+                error: Some(e.to_string()),
+            }),
+        ),
+    }
+}
+
+async fn submit_legacy_transaction(
+    State(state): State<NodeState>,
+    Json(req): Json<LegacySubmitTxRequest>,
+) -> impl IntoResponse {
+    let inner = req.tx;
+    let tx = rinku_core::types::SignedTransaction {
+        tx: rinku_core::types::Transaction {
+            from: inner.from,
+            to: inner.to,
+            amount: inner.amount,
+            nonce: inner.nonce,
+            timestamp: inner.ts,
+            parents: inner.tip_urls,
+            kind: None,
+            gas_limit: None,
+            gas_price: Some(inner.fee),
+            data: None,
+            signature: Some(inner.sig.clone()),
+        },
+        hash: inner.hash.clone(),
+        signature: inner.sig,
+    };
+
+    match state.add_transaction(tx).await {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(SubmitTxResponse {
+                success: true,
+                hash: inner.hash,
+                error: None,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(SubmitTxResponse {
+                success: false,
+                hash: inner.hash,
                 error: Some(e.to_string()),
             }),
         ),
@@ -433,8 +512,9 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/health", get(health))
         .route("/api/stats", get(get_stats))
         .route("/api/tips", get(get_tips))
+        .route("/api/tipUrls", get(get_tip_urls))
         .route("/api/account/:address", get(get_account))
-        .route("/api/tx", post(submit_transaction))
+        .route("/api/tx", post(submit_legacy_transaction))
         .route("/api/dag", get(get_dag))
         .route("/api/dag/summary", get(get_dag_summary))
         .route("/api/accounts", get(get_accounts))
