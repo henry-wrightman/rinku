@@ -385,34 +385,36 @@ async fn submit_batch_transaction(
     Json(req): Json<BatchSubmitTxRequest>,
 ) -> Json<BatchSubmitTxResponse> {
     let total = req.transactions.len();
-    let mut successful = 0;
-    let mut failed = 0;
 
-    for item in req.transactions {
-        let inner = item.tx;
-        let tx = rinku_core::types::SignedTransaction {
-            tx: rinku_core::types::Transaction {
-                from: inner.from,
-                to: inner.to,
-                amount: inner.amount,
-                nonce: inner.nonce,
-                timestamp: inner.ts,
-                parents: inner.tip_urls,
-                kind: None,
-                gas_limit: None,
-                gas_price: Some(inner.fee),
-                data: None,
-                signature: Some(inner.sig.clone()),
-            },
-            hash: inner.hash,
-            signature: inner.sig,
-        };
+    // Pre-convert all transactions outside of any locks
+    let txs: Vec<rinku_core::types::SignedTransaction> = req.transactions
+        .into_iter()
+        .map(|item| {
+            let inner = item.tx;
+            rinku_core::types::SignedTransaction {
+                tx: rinku_core::types::Transaction {
+                    from: inner.from,
+                    to: inner.to,
+                    amount: inner.amount,
+                    nonce: inner.nonce,
+                    timestamp: inner.ts,
+                    parents: inner.tip_urls,
+                    kind: None,
+                    gas_limit: None,
+                    gas_price: Some(inner.fee),
+                    data: None,
+                    signature: Some(inner.sig.clone()),
+                },
+                hash: inner.hash,
+                signature: inner.sig,
+            }
+        })
+        .collect();
 
-        match state.add_transaction(tx).await {
-            Ok(()) => successful += 1,
-            Err(_) => failed += 1,
-        }
-    }
+    // Use optimized batch method - single lock acquisition
+    let results = state.add_transactions_batch(txs).await;
+    let successful = results.iter().filter(|r| r.is_ok()).count();
+    let failed = results.len() - successful;
 
     Json(BatchSubmitTxResponse {
         successful,

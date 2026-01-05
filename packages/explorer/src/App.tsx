@@ -192,7 +192,11 @@ function App() {
   if (loading) {
     return (
       <div className="container">
-        <Header connected={false} protocolVersion={versionInfo?.protocolVersion} nodeVersion={versionInfo?.nodeVersion} />
+        <Header
+          connected={false}
+          protocolVersion={versionInfo?.protocolVersion}
+          nodeVersion={versionInfo?.nodeVersion}
+        />
         <div className="loading">loading...</div>
       </div>
     );
@@ -200,7 +204,11 @@ function App() {
 
   return (
     <div className="container">
-      <Header connected={connected} protocolVersion={versionInfo?.protocolVersion} nodeVersion={versionInfo?.nodeVersion} />
+      <Header
+        connected={connected}
+        protocolVersion={versionInfo?.protocolVersion}
+        nodeVersion={versionInfo?.nodeVersion}
+      />
 
       <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
         {darkMode ? "☀" : "☾"}

@@ -15,19 +15,19 @@ export const timeAgo = (ts: number): string => {
 
 export const formatNumber = (n: number): string => {
   if (n >= 1_000_000_000) {
-    return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+    return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
   }
   if (n >= 1_000_000) {
-    return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
   }
   if (n >= 1_000) {
-    return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'k';
+    return (n / 1_000).toFixed(1).replace(/\.0$/, "") + "k";
   }
-  return n.toString();
+  return n?.toFixed(2).toString();
 };
 
 export const formatTps = (tps: number): string => {
-  if (tps < 0.01) return '0';
+  if (tps < 0.01) return "0";
   if (tps < 1) return tps.toFixed(2);
   if (tps < 10) return tps.toFixed(1);
   return Math.round(tps).toString();

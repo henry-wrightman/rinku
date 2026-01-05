@@ -293,10 +293,8 @@ impl NodeState {
     }
 
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<()> {
-        let mut state = self.inner.write().await;
-
+        // PHASE 1: Pre-compute everything outside the lock
         // Normalize parent URLs to just hashes
-        // Parents can come as "rinku://tx/h/{hash}" or just "{hash}"
         let normalized_parents: Vec<String> = tx.tx.parents.iter()
             .map(|p| {
                 if p.starts_with("rinku://tx/h/") {
@@ -319,14 +317,19 @@ impl NodeState {
             checkpoint_height: None,
         };
 
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        // PHASE 2: Minimal write lock - just state mutation
+        let mut state = self.inner.write().await;
+
         state.dag.add_node(node)?;
 
-        // Calculate gas fee (EIP-1559 style)
-        // For Rinku, fee = gas_price directly (no Ethereum-style gas units)
         let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
 
         if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-            // Deduct amount + gas fee from sender
             from_account.balance -= tx.tx.amount + gas_fee;
             from_account.nonce = tx.tx.nonce + 1;
         }
@@ -337,43 +340,108 @@ impl NodeState {
             .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
         to_account.balance += tx.tx.amount;
 
-        // Record fee for EIP-1559 tracking (50% burned, 50% to validators)
-        let burn_amount = gas_fee * 0.5;
-        let validator_amount = gas_fee * 0.5;
-        state.total_burned += burn_amount;
-        state.total_to_validators += validator_amount;
+        // EIP-1559 tracking
+        state.total_burned += gas_fee * 0.5;
+        state.total_to_validators += gas_fee * 0.5;
         state.txs_this_period += 1;
 
-        // EIP-1559 period-based gas adjustment (only once per period)
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        
-        const PERIOD_MS: u64 = 15000; // 15 second periods
-        const TARGET_TPS: f64 = 1000.0; // High target for testnet
-        const MAX_CHANGE_PERCENT: f64 = 0.125; // 12.5% max change per period
+        // Period-based gas adjustment
+        const PERIOD_MS: u64 = 15000;
+        const TARGET_TPS: f64 = 1000.0;
+        const MAX_CHANGE_PERCENT: f64 = 0.125;
         const ELASTICITY: f64 = 2.0;
         
         if now_ms - state.period_start_ms >= PERIOD_MS {
-            let target_txs_per_period = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
-            let utilization = state.txs_this_period as f64 / target_txs_per_period;
-            
-            // Calculate change factor (-12.5% to +12.5%)
-            // At 0 txs: -12.5%, at target: 0%, at 2x target: +12.5%
+            let target_txs = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
+            let utilization = state.txs_this_period as f64 / target_txs;
             let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
             let change_factor = 1.0 + change_ratio * MAX_CHANGE_PERCENT;
-            
-            // Apply change with bounds
             state.current_gas_price = (state.current_gas_price * change_factor)
                 .clamp(state.config.gas.min_gas_price, state.config.gas.max_gas_price);
-            
-            // Reset period
             state.txs_this_period = 0;
             state.period_start_ms = now_ms;
         }
 
         Ok(())
+    }
+
+    /// Batch add transactions - optimized for high throughput
+    pub async fn add_transactions_batch(&self, txs: Vec<SignedTransaction>) -> Vec<Result<()>> {
+        // PHASE 1: Pre-compute all nodes outside lock
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let prepared: Vec<_> = txs.iter().map(|tx| {
+            let normalized_parents: Vec<String> = tx.tx.parents.iter()
+                .map(|p| {
+                    if p.starts_with("rinku://tx/h/") {
+                        p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+                    } else if p.starts_with("rinku://tx/") {
+                        p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+                    } else {
+                        p.clone()
+                    }
+                })
+                .collect();
+
+            rinku_core::types::DagNode {
+                hash: tx.hash.clone(),
+                tx: tx.clone(),
+                parents: normalized_parents,
+                children: Vec::new(),
+                weight: 1.0,
+                finalized: false,
+                checkpoint_height: None,
+            }
+        }).collect();
+
+        // PHASE 2: Single write lock for entire batch
+        let mut state = self.inner.write().await;
+        let mut results = Vec::with_capacity(txs.len());
+
+        for (node, tx) in prepared.into_iter().zip(txs.iter()) {
+            let result = state.dag.add_node(node).map_err(|e| anyhow::anyhow!("{}", e));
+            if result.is_ok() {
+                let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+                
+                if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
+                    from_account.balance -= tx.tx.amount + gas_fee;
+                    from_account.nonce = tx.tx.nonce + 1;
+                }
+
+                let to_account = state
+                    .accounts
+                    .entry(tx.tx.to.clone())
+                    .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
+                to_account.balance += tx.tx.amount;
+
+                state.total_burned += gas_fee * 0.5;
+                state.total_to_validators += gas_fee * 0.5;
+                state.txs_this_period += 1;
+            }
+            results.push(result);
+        }
+
+        // Gas adjustment once per batch
+        const PERIOD_MS: u64 = 15000;
+        const TARGET_TPS: f64 = 1000.0;
+        const MAX_CHANGE_PERCENT: f64 = 0.125;
+        const ELASTICITY: f64 = 2.0;
+        
+        if now_ms - state.period_start_ms >= PERIOD_MS {
+            let target_txs = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
+            let utilization = state.txs_this_period as f64 / target_txs;
+            let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
+            let change_factor = 1.0 + change_ratio * MAX_CHANGE_PERCENT;
+            state.current_gas_price = (state.current_gas_price * change_factor)
+                .clamp(state.config.gas.min_gas_price, state.config.gas.max_gas_price);
+            state.txs_this_period = 0;
+            state.period_start_ms = now_ms;
+        }
+
+        results
     }
 
     pub async fn get_transaction(&self, hash: &str) -> Option<SignedTransaction> {
