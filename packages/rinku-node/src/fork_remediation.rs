@@ -363,3 +363,76 @@ impl ForkRemediationService {
         inner.fork_events.iter().rev().take(limit).cloned().collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fork_event_serialization() {
+        let event = ForkEvent {
+            fork_id: "abc:def".to_string(),
+            tip_a: "abc123".to_string(),
+            tip_b: "def456".to_string(),
+            weight_a: 10.5,
+            weight_b: 5.2,
+            winner: Some("abc123".to_string()),
+            loser: Some("def456".to_string()),
+            detected_at: 1000,
+            resolved_at: Some(1001),
+            pruned_count: 3,
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: ForkEvent = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.fork_id, "abc:def");
+        assert_eq!(deserialized.weight_a, 10.5);
+        assert_eq!(deserialized.pruned_count, 3);
+    }
+
+    #[test]
+    fn test_double_spend_event_serialization() {
+        let event = DoubleSpendEvent {
+            account: "alice".to_string(),
+            nonce: 5,
+            tx_hashes: vec!["tx1".to_string(), "tx2".to_string()],
+            winner: Some("tx1".to_string()),
+            detected_at: 2000,
+            resolved: true,
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: DoubleSpendEvent = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.account, "alice");
+        assert_eq!(deserialized.nonce, 5);
+        assert_eq!(deserialized.tx_hashes.len(), 2);
+        assert!(deserialized.resolved);
+    }
+
+    #[test]
+    fn test_fork_stats_default() {
+        let stats = ForkStats::default();
+
+        assert_eq!(stats.total_forks_detected, 0);
+        assert_eq!(stats.total_forks_resolved, 0);
+        assert_eq!(stats.total_double_spends, 0);
+        assert_eq!(stats.total_branches_pruned, 0);
+        assert_eq!(stats.total_txs_pruned, 0);
+        assert_eq!(stats.active_forks, 0);
+    }
+
+    #[test]
+    fn test_weight_threshold() {
+        assert_eq!(WEIGHT_THRESHOLD, 1.5);
+        
+        let weight_a = 16.0;
+        let weight_b = 10.0;
+        assert!(weight_a > weight_b * WEIGHT_THRESHOLD);
+
+        let weight_c = 14.0;
+        let weight_d = 10.0;
+        assert!(!(weight_c > weight_d * WEIGHT_THRESHOLD));
+    }
+}

@@ -257,6 +257,75 @@ impl Dag {
 
         total_weight
     }
+
+    pub fn remove_node(&mut self, hash: &str) -> Option<DagNode> {
+        let idx = self.hash_to_index.remove(hash)?;
+        self.tips.remove(hash);
+
+        let parent_hashes: Vec<String> = self.graph
+            .node_weight(idx)
+            .map(|n| n.parents.clone())
+            .unwrap_or_default();
+
+        for parent_hash in parent_hashes {
+            if let Some(&parent_idx) = self.hash_to_index.get(&parent_hash) {
+                if let Some(parent_node) = self.graph.node_weight_mut(parent_idx) {
+                    parent_node.children.retain(|c| c != hash);
+                    if parent_node.children.is_empty() {
+                        self.tips.insert(parent_hash.clone());
+                    }
+                }
+            }
+        }
+
+        let removed = self.graph.remove_node(idx);
+        
+        self.rebuild_index();
+        
+        removed
+    }
+
+    pub fn prune_branch(&mut self, root_hash: &str) -> Vec<DagNode> {
+        let descendants = self.get_descendants(root_hash, usize::MAX);
+        
+        let mut to_remove: Vec<String> = descendants;
+        to_remove.push(root_hash.to_string());
+
+        to_remove.sort_by(|a, b| {
+            let depth_a = self.get_ancestors(a, usize::MAX).len();
+            let depth_b = self.get_ancestors(b, usize::MAX).len();
+            depth_b.cmp(&depth_a)
+        });
+
+        let mut removed_nodes = Vec::new();
+        for hash in to_remove {
+            if let Some(node) = self.remove_node(&hash) {
+                if !node.finalized {
+                    removed_nodes.push(node);
+                }
+            }
+        }
+
+        removed_nodes
+    }
+
+    pub fn is_ancestor(&self, ancestor_hash: &str, descendant_hash: &str) -> bool {
+        let ancestors = self.get_ancestors(descendant_hash, usize::MAX);
+        ancestors.contains(&ancestor_hash.to_string())
+    }
+
+    pub fn find_common_ancestor(&self, hash_a: &str, hash_b: &str) -> Option<String> {
+        let ancestors_a: HashSet<String> = self.get_ancestors(hash_a, usize::MAX).into_iter().collect();
+        let ancestors_b = self.get_ancestors(hash_b, usize::MAX);
+
+        for ancestor in ancestors_b {
+            if ancestors_a.contains(&ancestor) {
+                return Some(ancestor);
+            }
+        }
+
+        None
+    }
 }
 
 #[cfg(test)]
@@ -350,5 +419,76 @@ mod tests {
         assert_eq!(descendants.len(), 2);
         assert!(descendants.contains(&"b".to_string()));
         assert!(descendants.contains(&"c".to_string()));
+    }
+
+    #[test]
+    fn test_remove_node() {
+        let mut dag = Dag::new(100);
+
+        dag.add_node(make_tx("a", vec![])).unwrap();
+        dag.add_node(make_tx("b", vec!["a".to_string()])).unwrap();
+
+        assert_eq!(dag.node_count(), 2);
+        assert!(dag.tips().contains(&"b".to_string()));
+
+        let removed = dag.remove_node("b");
+        assert!(removed.is_some());
+        assert_eq!(dag.node_count(), 1);
+        assert!(dag.tips().contains(&"a".to_string()));
+        assert!(!dag.contains("b"));
+    }
+
+    #[test]
+    fn test_prune_branch() {
+        let mut dag = Dag::new(100);
+
+        dag.add_node(make_tx("root", vec![])).unwrap();
+        dag.add_node(make_tx("a", vec!["root".to_string()])).unwrap();
+        dag.add_node(make_tx("b", vec!["root".to_string()])).unwrap();
+        dag.add_node(make_tx("a1", vec!["a".to_string()])).unwrap();
+        dag.add_node(make_tx("a2", vec!["a".to_string()])).unwrap();
+
+        assert_eq!(dag.node_count(), 5);
+
+        let removed = dag.prune_branch("a");
+        assert_eq!(removed.len(), 3);
+        assert_eq!(dag.node_count(), 2);
+        assert!(dag.contains("root"));
+        assert!(dag.contains("b"));
+        assert!(!dag.contains("a"));
+        assert!(!dag.contains("a1"));
+        assert!(!dag.contains("a2"));
+    }
+
+    #[test]
+    fn test_cumulative_weight() {
+        let mut dag = Dag::new(100);
+
+        dag.add_node(make_tx("a", vec![])).unwrap();
+        dag.add_node(make_tx("b", vec!["a".to_string()])).unwrap();
+        dag.add_node(make_tx("c", vec!["b".to_string()])).unwrap();
+
+        let weight = dag.calculate_cumulative_weight("a");
+        assert_eq!(weight, 3.0);
+
+        let weight_b = dag.calculate_cumulative_weight("b");
+        assert_eq!(weight_b, 2.0);
+
+        let weight_c = dag.calculate_cumulative_weight("c");
+        assert_eq!(weight_c, 1.0);
+    }
+
+    #[test]
+    fn test_find_common_ancestor() {
+        let mut dag = Dag::new(100);
+
+        dag.add_node(make_tx("root", vec![])).unwrap();
+        dag.add_node(make_tx("a", vec!["root".to_string()])).unwrap();
+        dag.add_node(make_tx("b", vec!["root".to_string()])).unwrap();
+        dag.add_node(make_tx("a1", vec!["a".to_string()])).unwrap();
+        dag.add_node(make_tx("b1", vec!["b".to_string()])).unwrap();
+
+        let common = dag.find_common_ancestor("a1", "b1");
+        assert_eq!(common, Some("root".to_string()));
     }
 }
