@@ -160,9 +160,9 @@ impl Default for GasConfig {
     fn default() -> Self {
         Self {
             min_gas_price: 0.001,
-            max_gas_price: 100.0,
-            target_txs_per_period: 15,
-            adjustment_factor: 0.125,
+            max_gas_price: 10.0, // Match TypeScript GAS_MAX_FEE
+            target_txs_per_period: 15000, // 1000 TPS × 15s period
+            adjustment_factor: 0.125, // 12.5% max change per period
             period_duration_ms: 15000,
         }
     }

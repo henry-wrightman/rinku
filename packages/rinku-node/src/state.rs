@@ -37,7 +37,9 @@ pub struct StateInner {
     pub total_supply: f64,
     pub genesis_time: u64,
     pub total_burned: f64,
-    pub gas_fees_collected: Vec<f64>,
+    pub total_to_validators: f64,
+    pub txs_this_period: u64,
+    pub period_start_ms: u64,
     pub config: NodeConfig,
 }
 
@@ -73,6 +75,10 @@ impl NodeState {
                 };
                 let _ = dag.add_node(node);
             }
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
             StateInner {
                 dag,
                 accounts,
@@ -82,7 +88,9 @@ impl NodeState {
                 total_supply: supply,
                 genesis_time: genesis,
                 total_burned: 0.0,
-                gas_fees_collected: Vec::new(),
+                total_to_validators: 0.0,
+                txs_this_period: 0,
+                period_start_ms: now_ms,
                 config: config.clone(),
             }
         } else {
@@ -137,6 +145,10 @@ impl NodeState {
             let _ = dag.add_node(genesis_node);
             info!("Genesis transaction created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
 
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
             StateInner {
                 dag,
                 accounts,
@@ -146,7 +158,9 @@ impl NodeState {
                 total_supply: config.tokenomics.genesis_allocation,
                 genesis_time,
                 total_burned: 0.0,
-                gas_fees_collected: Vec::new(),
+                total_to_validators: 0.0,
+                txs_this_period: 0,
+                period_start_ms: now_ms,
                 config: config.clone(),
             }
         };
@@ -232,14 +246,9 @@ impl NodeState {
         state.current_gas_price
     }
 
-    pub async fn get_gas_stats(&self) -> (f64, f64, f64) {
+    pub async fn get_gas_stats(&self) -> (f64, f64, f64, f64) {
         let state = self.inner.read().await;
-        let avg = if state.gas_fees_collected.is_empty() {
-            state.current_gas_price
-        } else {
-            state.gas_fees_collected.iter().sum::<f64>() / state.gas_fees_collected.len() as f64
-        };
-        (state.current_gas_price, state.total_burned, avg)
+        (state.current_gas_price, state.total_burned, state.total_to_validators, state.current_gas_price)
     }
 
     pub async fn get_total_supply(&self) -> f64 {
@@ -315,11 +324,10 @@ impl NodeState {
         // Calculate gas fee (EIP-1559 style)
         // For Rinku, fee = gas_price directly (no Ethereum-style gas units)
         let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
-        let total_gas_cost = gas_fee;
 
         if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
             // Deduct amount + gas fee from sender
-            from_account.balance -= tx.tx.amount + total_gas_cost;
+            from_account.balance -= tx.tx.amount + gas_fee;
             from_account.nonce = tx.tx.nonce + 1;
         }
 
@@ -329,25 +337,40 @@ impl NodeState {
             .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
         to_account.balance += tx.tx.amount;
 
-        // Update gas metrics (EIP-1559 dynamic adjustment)
-        // Burn portion of gas (30% burned, 70% to validators)
-        let burn_amount = total_gas_cost * 0.3;
+        // Record fee for EIP-1559 tracking (50% burned, 50% to validators)
+        let burn_amount = gas_fee * 0.5;
+        let validator_amount = gas_fee * 0.5;
         state.total_burned += burn_amount;
-        state.gas_fees_collected.push(gas_fee);
-        if state.gas_fees_collected.len() > 100 {
-            state.gas_fees_collected.remove(0);
-        }
+        state.total_to_validators += validator_amount;
+        state.txs_this_period += 1;
 
-        // Adjust gas price based on utilization (simplified EIP-1559)
-        // Target: 50 transactions per checkpoint (15s), adjust if above/below
-        let target_txs_per_checkpoint = 50.0;
-        let recent_tx_count = state.gas_fees_collected.len() as f64;
-        if recent_tx_count > target_txs_per_checkpoint {
-            // Increase price when congested
-            state.current_gas_price = (state.current_gas_price * 1.125).min(state.config.gas.max_gas_price);
-        } else if recent_tx_count < target_txs_per_checkpoint * 0.5 {
-            // Decrease price when underutilized
-            state.current_gas_price = (state.current_gas_price * 0.875).max(state.config.gas.min_gas_price);
+        // EIP-1559 period-based gas adjustment (only once per period)
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        
+        const PERIOD_MS: u64 = 15000; // 15 second periods
+        const TARGET_TPS: f64 = 1000.0; // High target for testnet
+        const MAX_CHANGE_PERCENT: f64 = 0.125; // 12.5% max change per period
+        const ELASTICITY: f64 = 2.0;
+        
+        if now_ms - state.period_start_ms >= PERIOD_MS {
+            let target_txs_per_period = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
+            let utilization = state.txs_this_period as f64 / target_txs_per_period;
+            
+            // Calculate change factor (-12.5% to +12.5%)
+            // At 0 txs: -12.5%, at target: 0%, at 2x target: +12.5%
+            let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
+            let change_factor = 1.0 + change_ratio * MAX_CHANGE_PERCENT;
+            
+            // Apply change with bounds
+            state.current_gas_price = (state.current_gas_price * change_factor)
+                .clamp(state.config.gas.min_gas_price, state.config.gas.max_gas_price);
+            
+            // Reset period
+            state.txs_this_period = 0;
+            state.period_start_ms = now_ms;
         }
 
         Ok(())
