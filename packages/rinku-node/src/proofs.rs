@@ -27,6 +27,8 @@ pub struct MerkleSumRoot {
 pub struct MerkleSumProof {
     pub leaf: MerkleSumLeaf,
     pub siblings: Vec<MerkleSumProofSibling>,
+    #[serde(default)]
+    pub path_bits: Vec<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +37,216 @@ pub struct MerkleSumProofSibling {
     pub hash: String,
     pub weight: f64,
     pub is_left: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct MerkleSumNode {
+    pub hash: String,
+    pub sum_weight: f64,
+}
+
+fn hash_leaf(leaf: &MerkleSumLeaf) -> String {
+    let data = format!(
+        "leaf:{}:{}:{}:{}",
+        leaf.index, leaf.address, leaf.bls_public_key, leaf.weight
+    );
+    let mut hasher = Sha256::new();
+    hasher.update(data.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn hash_internal(left: &MerkleSumNode, right: &MerkleSumNode) -> String {
+    let data = format!(
+        "node:{}:{}:{}:{}",
+        left.hash, left.sum_weight, right.hash, right.sum_weight
+    );
+    let mut hasher = Sha256::new();
+    hasher.update(data.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn empty_node() -> MerkleSumNode {
+    let mut hasher = Sha256::new();
+    hasher.update(b"rinku:empty_node:v1");
+    MerkleSumNode {
+        hash: hex::encode(hasher.finalize()),
+        sum_weight: 0.0,
+    }
+}
+
+pub struct MerkleSumTreeResult {
+    pub root: MerkleSumRoot,
+    pub layers: Vec<Vec<MerkleSumNode>>,
+}
+
+pub fn build_merkle_sum_tree(leaves: &[MerkleSumLeaf]) -> MerkleSumTreeResult {
+    if leaves.is_empty() {
+        let mut hasher = Sha256::new();
+        hasher.update(b"empty");
+        return MerkleSumTreeResult {
+            root: MerkleSumRoot {
+                hash: hex::encode(hasher.finalize()),
+                total_weight: 0.0,
+            },
+            layers: vec![],
+        };
+    }
+
+    let mut sorted_leaves: Vec<MerkleSumLeaf> = leaves.to_vec();
+    sorted_leaves.sort_by_key(|l| l.index);
+
+    let mut current_layer: Vec<MerkleSumNode> = sorted_leaves
+        .iter()
+        .map(|leaf| MerkleSumNode {
+            hash: hash_leaf(leaf),
+            sum_weight: leaf.weight,
+        })
+        .collect();
+
+    let mut layers: Vec<Vec<MerkleSumNode>> = vec![current_layer.clone()];
+
+    while current_layer.len() > 1 {
+        let mut next_layer: Vec<MerkleSumNode> = Vec::new();
+
+        let mut i = 0;
+        while i < current_layer.len() {
+            let left = &current_layer[i];
+            let right = if i + 1 < current_layer.len() {
+                &current_layer[i + 1]
+            } else {
+                &empty_node()
+            };
+
+            next_layer.push(MerkleSumNode {
+                hash: hash_internal(left, right),
+                sum_weight: left.sum_weight + right.sum_weight,
+            });
+            i += 2;
+        }
+
+        current_layer = next_layer;
+        layers.push(current_layer.clone());
+    }
+
+    let root_node = &current_layer[0];
+    MerkleSumTreeResult {
+        root: MerkleSumRoot {
+            hash: root_node.hash.clone(),
+            total_weight: root_node.sum_weight,
+        },
+        layers,
+    }
+}
+
+pub fn get_merkle_sum_proof(leaves: &[MerkleSumLeaf], leaf_index: usize) -> Option<MerkleSumProof> {
+    let mut sorted_leaves: Vec<MerkleSumLeaf> = leaves.to_vec();
+    sorted_leaves.sort_by_key(|l| l.index);
+
+    let target_leaf = sorted_leaves.iter().find(|l| l.index == leaf_index)?.clone();
+    let position_in_array = sorted_leaves.iter().position(|l| l.index == leaf_index)?;
+
+    let mut current_layer: Vec<MerkleSumNode> = sorted_leaves
+        .iter()
+        .map(|leaf| MerkleSumNode {
+            hash: hash_leaf(leaf),
+            sum_weight: leaf.weight,
+        })
+        .collect();
+
+    let mut siblings: Vec<MerkleSumProofSibling> = Vec::new();
+    let mut path_bits: Vec<bool> = Vec::new();
+    let mut pos = position_in_array;
+
+    while current_layer.len() > 1 {
+        let is_right = pos % 2 == 1;
+        let sibling_pos = if is_right { pos - 1 } else { pos + 1 };
+
+        let sibling = if sibling_pos < current_layer.len() {
+            current_layer[sibling_pos].clone()
+        } else {
+            empty_node()
+        };
+
+        siblings.push(MerkleSumProofSibling {
+            hash: sibling.hash,
+            weight: sibling.sum_weight,
+            is_left: !is_right,
+        });
+        path_bits.push(is_right);
+
+        let mut next_layer: Vec<MerkleSumNode> = Vec::new();
+        let mut i = 0;
+        while i < current_layer.len() {
+            let left = &current_layer[i];
+            let right = if i + 1 < current_layer.len() {
+                &current_layer[i + 1]
+            } else {
+                &empty_node()
+            };
+            next_layer.push(MerkleSumNode {
+                hash: hash_internal(left, right),
+                sum_weight: left.sum_weight + right.sum_weight,
+            });
+            i += 2;
+        }
+
+        pos /= 2;
+        current_layer = next_layer;
+    }
+
+    Some(MerkleSumProof {
+        leaf: target_leaf,
+        siblings,
+        path_bits,
+    })
+}
+
+pub fn verify_merkle_sum_proof(
+    proof: &MerkleSumProof,
+    expected_root: &MerkleSumRoot,
+) -> (bool, f64, Vec<String>) {
+    let mut errors: Vec<String> = Vec::new();
+
+    let mut current = MerkleSumNode {
+        hash: hash_leaf(&proof.leaf),
+        sum_weight: proof.leaf.weight,
+    };
+
+    for (i, sibling) in proof.siblings.iter().enumerate() {
+        let is_right = proof.path_bits.get(i).copied().unwrap_or(false);
+
+        let sibling_node = MerkleSumNode {
+            hash: sibling.hash.clone(),
+            sum_weight: sibling.weight,
+        };
+
+        let (left, right) = if is_right {
+            (&sibling_node, &current)
+        } else {
+            (&current, &sibling_node)
+        };
+
+        current = MerkleSumNode {
+            hash: hash_internal(left, right),
+            sum_weight: left.sum_weight + right.sum_weight,
+        };
+    }
+
+    if current.hash != expected_root.hash {
+        errors.push(format!(
+            "Root hash mismatch: expected {}, got {}",
+            expected_root.hash, current.hash
+        ));
+    }
+
+    if (current.sum_weight - expected_root.total_weight).abs() > 0.0001 {
+        errors.push(format!(
+            "Total weight mismatch: expected {}, got {}",
+            expected_root.total_weight, current.sum_weight
+        ));
+    }
+
+    (errors.is_empty(), proof.leaf.weight, errors)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -474,5 +686,86 @@ mod tests {
         let root = "abc123";
 
         assert!(verify_tx_merkle_proof(tx_hash, &proof, 0, root));
+    }
+
+    #[test]
+    fn test_build_merkle_sum_tree() {
+        let leaves = vec![
+            MerkleSumLeaf {
+                index: 0,
+                address: "alice".to_string(),
+                bls_public_key: "pk_alice".to_string(),
+                weight: 100.0,
+            },
+            MerkleSumLeaf {
+                index: 1,
+                address: "bob".to_string(),
+                bls_public_key: "pk_bob".to_string(),
+                weight: 50.0,
+            },
+        ];
+
+        let result = build_merkle_sum_tree(&leaves);
+
+        assert_eq!(result.root.total_weight, 150.0);
+        assert!(!result.root.hash.is_empty());
+        assert_eq!(result.layers.len(), 2);
+    }
+
+    #[test]
+    fn test_merkle_sum_tree_single_leaf() {
+        let leaves = vec![MerkleSumLeaf {
+            index: 0,
+            address: "alice".to_string(),
+            bls_public_key: "pk_alice".to_string(),
+            weight: 100.0,
+        }];
+
+        let result = build_merkle_sum_tree(&leaves);
+
+        assert_eq!(result.root.total_weight, 100.0);
+        assert_eq!(result.layers.len(), 1);
+    }
+
+    #[test]
+    fn test_merkle_sum_tree_empty() {
+        let leaves: Vec<MerkleSumLeaf> = vec![];
+        let result = build_merkle_sum_tree(&leaves);
+
+        assert_eq!(result.root.total_weight, 0.0);
+        assert!(result.layers.is_empty());
+    }
+
+    #[test]
+    fn test_get_and_verify_merkle_sum_proof() {
+        let leaves = vec![
+            MerkleSumLeaf {
+                index: 0,
+                address: "alice".to_string(),
+                bls_public_key: "pk_alice".to_string(),
+                weight: 100.0,
+            },
+            MerkleSumLeaf {
+                index: 1,
+                address: "bob".to_string(),
+                bls_public_key: "pk_bob".to_string(),
+                weight: 50.0,
+            },
+            MerkleSumLeaf {
+                index: 2,
+                address: "charlie".to_string(),
+                bls_public_key: "pk_charlie".to_string(),
+                weight: 75.0,
+            },
+        ];
+
+        let tree = build_merkle_sum_tree(&leaves);
+        let proof = get_merkle_sum_proof(&leaves, 1).unwrap();
+
+        let (valid, weight, errors) = verify_merkle_sum_proof(&proof, &tree.root);
+
+        assert!(valid, "Proof verification failed: {:?}", errors);
+        assert_eq!(weight, 50.0);
+        assert!(errors.is_empty());
     }
 }

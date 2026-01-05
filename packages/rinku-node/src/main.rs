@@ -18,8 +18,10 @@ mod proofs;
 mod rewards;
 mod slashing;
 mod state;
+mod state_trie;
 mod tip_consolidator;
 mod validator;
+mod versioning;
 mod zk;
 
 use checkpoint::CheckpointService;

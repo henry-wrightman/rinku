@@ -950,6 +950,12 @@ async fn get_version() -> Json<VersionResponse> {
             "sled-persistence".to_string(),
             "finality-proofs".to_string(),
             "merkle-sum-tree".to_string(),
+            "bls-aggregation".to_string(),
+            "dynamic-gas".to_string(),
+            "smart-contracts".to_string(),
+            "tip-consolidation".to_string(),
+            "fork-remediation".to_string(),
+            "zk-privacy".to_string(),
         ],
     })
 }
