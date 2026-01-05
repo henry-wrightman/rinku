@@ -59,6 +59,10 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Rust Dependencies:** `p256`, `sha2`, `petgraph`, `tokio`, `axum`, `serde`, `serde_json`, `flate2`, `sled`, `tower-http`, `tracing`.
 
 ### Recent Changes (January 2026)
+- **Smart Contracts Execution Engine (Rust):** Implemented ContractService with GasSchedule, GasMeter, state diff computation, and support for init/transfer/mint/burn/get_balance entrypoints (9 tests passing)
+- **ZK Privacy Layer (Rust):** Poseidon hash implementation with arkworks (ark-bn254, ark-groth16), Groth16 prover/verifier, NullifierRegistry with sled persistence, and ZK URL encoding/decoding (7 tests passing)
+- **Fork Remediation Service (Rust):** Branch pruning wired to DAG operations with cumulative weight calculation (WEIGHT_THRESHOLD=1.5), double-spend detection via nonce indexing, and fork resolution with winner/loser tracking
+- **Gossip Protocol (Rust):** Transaction propagation infrastructure, peer discovery, sync requests, conflict resolution broadcasting, and health monitoring with Arc<RwLock> thread-safe peer management (stubbed for libp2p integration)
 - **BLS12-381 Cryptography Module:** Added complete BLS signature support using `blst` crate with key generation, signing, aggregation, verification, and signer bitmaps (4 tests passing)
 - **Self-Contained Proof System (Rust):** Implemented SelfContainedProof (Profile C) and CompactProof (Profile B) structures with DEFLATE compression, base64url encoding, and Merkle proof verification (2 tests passing)
 - **Checkpoint BLS Signing:** CheckpointService now signs checkpoints with BLS12-381 signatures, generating aggregated signatures and signer bitmaps for finality proofs
@@ -79,8 +83,12 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000
-- 25 Rust node tests + 25 core tests = 50 tests passing
+- 41 Rust node tests + 25 core tests = 66 tests passing
 - Hybrid architecture: Rust for consensus/validation, TypeScript for user-facing interfaces
 - All Rust services match TypeScript behavior with proper serialization
 - BLS crypto: `bls.rs` module with keypair generation, sign/verify, aggregate signatures/keys, and signer bitmaps
 - Proofs: `proofs.rs` module with SelfContainedProof (verbose, Profile C) and CompactProof (binary, Profile B) formats
+- Contracts: `contracts.rs` module with mock runtime (matching TypeScript createMockRuntime), GasSchedule, GasMeter, state diffs
+- ZK Privacy: `zk.rs` module with Poseidon hash, Groth16 verification, NullifierRegistry with sled persistence
+- Gossip: `gossip.rs` module stubbed for future libp2p integration, currently provides infrastructure for tx propagation
+- Fork Remediation: `fork_remediation.rs` with cumulative weight calculation, branch pruning, nonce-based double-spend detection

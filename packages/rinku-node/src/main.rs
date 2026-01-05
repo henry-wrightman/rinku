@@ -7,6 +7,7 @@ mod bls;
 mod checkpoint;
 mod config;
 mod consensus;
+mod contracts;
 mod emission;
 mod fork_remediation;
 mod gas;
@@ -18,6 +19,7 @@ mod slashing;
 mod state;
 mod tip_consolidator;
 mod validator;
+mod zk;
 
 use checkpoint::CheckpointService;
 use config::NodeConfig;

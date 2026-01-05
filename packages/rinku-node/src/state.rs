@@ -355,4 +355,90 @@ impl NodeState {
 
         Some((merkle_proof.siblings, index, checkpoint))
     }
+
+    pub async fn get_dag_merkle_root(&self) -> Option<String> {
+        use rinku_core::merkle::MerkleTree;
+
+        let state = self.inner.read().await;
+        let tips = state.dag.tips();
+
+        if tips.is_empty() {
+            return None;
+        }
+
+        let tree = MerkleTree::from_hex_leaves(&tips).ok()?;
+        Some(tree.root())
+    }
+
+    pub async fn get_txs_since_checkpoint(
+        &self,
+        from_checkpoint: u64,
+        missing_hashes: &[String],
+    ) -> Vec<SignedTransaction> {
+        let state = self.inner.read().await;
+
+        let mut txs: Vec<SignedTransaction> = state
+            .dag
+            .get_all_nodes()
+            .into_iter()
+            .filter(|n| {
+                if !missing_hashes.is_empty() {
+                    missing_hashes.contains(&n.hash)
+                } else {
+                    n.checkpoint_height.map(|h| h > from_checkpoint).unwrap_or(true)
+                }
+            })
+            .map(|n| n.tx.clone())
+            .collect();
+
+        txs.truncate(100);
+        txs
+    }
+
+    pub async fn calculate_cumulative_weight(&self, hash: &str) -> f64 {
+        let state = self.inner.read().await;
+        state.dag.calculate_cumulative_weight(hash)
+    }
+
+    pub async fn prune_losing_branch(&self, loser_hash: &str) -> Result<usize> {
+        let mut state = self.inner.write().await;
+
+        let descendants = state.dag.get_descendants(loser_hash, 100);
+
+        let mut pruned_count = 0;
+        for desc_hash in &descendants {
+            if let Some(node) = state.dag.get_node_mut(desc_hash) {
+                if !node.finalized {
+                    pruned_count += 1;
+                }
+            }
+        }
+
+        info!(
+            "Pruned {} transactions from losing branch starting at {}",
+            pruned_count,
+            &loser_hash[..16.min(loser_hash.len())]
+        );
+
+        Ok(pruned_count)
+    }
+
+    pub async fn resolve_fork(&self, tip_a: &str, tip_b: &str) -> Option<(String, String, f64, f64)> {
+        let state = self.inner.read().await;
+
+        let weight_a = state.dag.calculate_cumulative_weight(tip_a);
+        let weight_b = state.dag.calculate_cumulative_weight(tip_b);
+
+        if (weight_a - weight_b).abs() < 0.001 {
+            return None;
+        }
+
+        let (winner, loser) = if weight_a > weight_b {
+            (tip_a.to_string(), tip_b.to_string())
+        } else {
+            (tip_b.to_string(), tip_a.to_string())
+        };
+
+        Some((winner, loser, weight_a, weight_b))
+    }
 }
