@@ -570,6 +570,225 @@ async fn get_rewards_config() -> Json<RewardsConfigResponse> {
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EmissionResponse {
+    current_reward: f64,
+    halving_epoch: u32,
+    next_halving_at: u64,
+    total_emitted: f64,
+    remaining_to_emit: f64,
+    circulating_supply: f64,
+    total_burned: f64,
+    validator_fee_percent: f64,
+    burn_percent: f64,
+}
+
+async fn get_tokenomics_emission(State(state): State<NodeState>) -> Json<EmissionResponse> {
+    let checkpoint_height = state.get_checkpoint_height().await;
+    let max_supply = 30_000_000.0;
+    let genesis_allocation = 6_000_000.0;
+    let halving_interval = 3_150_000_u64;
+    let initial_reward = 3.932411_f64;
+    
+    let halvings = (checkpoint_height / halving_interval) as u32;
+    let effective_halvings = halvings.min(5);
+    let current_reward = initial_reward / (1u64 << effective_halvings) as f64;
+    
+    Json(EmissionResponse {
+        current_reward,
+        halving_epoch: halvings,
+        next_halving_at: ((halvings as u64) + 1) * halving_interval,
+        total_emitted: 0.0,
+        remaining_to_emit: max_supply - genesis_allocation,
+        circulating_supply: genesis_allocation,
+        total_burned: 0.0,
+        validator_fee_percent: 88.0,
+        burn_percent: 12.0,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SlashingResponse {
+    total_slashed: f64,
+    slash_events: Vec<SlashEventResponse>,
+    unbonding_queue: Vec<UnbondingEntryResponse>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SlashEventResponse {
+    id: String,
+    validator: String,
+    reason: String,
+    amount: f64,
+    percent_slashed: f64,
+    checkpoint_height: u64,
+    timestamp: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnbondingEntryResponse {
+    validator: String,
+    amount: f64,
+    started_at: u64,
+    available_at: u64,
+    slashable: bool,
+}
+
+async fn get_tokenomics_slashing() -> Json<SlashingResponse> {
+    Json(SlashingResponse {
+        total_slashed: 0.0,
+        slash_events: vec![],
+        unbonding_queue: vec![],
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckpointsResponse {
+    checkpoints: Vec<CheckpointInfo>,
+    total: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckpointInfo {
+    height: u64,
+    merkle_root: String,
+    tx_count: usize,
+    timestamp: u64,
+    validators: usize,
+}
+
+async fn get_checkpoints(State(state): State<NodeState>) -> Json<CheckpointsResponse> {
+    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoints: Vec<CheckpointInfo> = (0..=checkpoint_height.min(10))
+        .rev()
+        .map(|h| CheckpointInfo {
+            height: h,
+            merkle_root: format!("root_{}", h),
+            tx_count: 0,
+            timestamp: 0,
+            validators: 0,
+        })
+        .collect();
+    
+    Json(CheckpointsResponse {
+        total: checkpoints.len(),
+        checkpoints,
+    })
+}
+
+async fn get_checkpoints_latest(State(state): State<NodeState>) -> Json<CheckpointInfo> {
+    let height = state.get_checkpoint_height().await;
+    Json(CheckpointInfo {
+        height,
+        merkle_root: format!("root_{}", height),
+        tx_count: 0,
+        timestamp: 0,
+        validators: 0,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ForkStatsResponse {
+    detected_forks: usize,
+    resolved_forks: usize,
+    double_spends_detected: usize,
+    double_spends_resolved: usize,
+}
+
+async fn get_fork_stats() -> Json<ForkStatsResponse> {
+    Json(ForkStatsResponse {
+        detected_forks: 0,
+        resolved_forks: 0,
+        double_spends_detected: 0,
+        double_spends_resolved: 0,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GossipStatsResponse {
+    peers_connected: usize,
+    messages_sent: u64,
+    messages_received: u64,
+    last_gossip_at: u64,
+}
+
+async fn get_gossip_stats() -> Json<GossipStatsResponse> {
+    Json(GossipStatsResponse {
+        peers_connected: 0,
+        messages_sent: 0,
+        messages_received: 0,
+        last_gossip_at: 0,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TipConsolidatorStatsResponse {
+    consolidations_created: u64,
+    tips_reduced: u64,
+    enabled: bool,
+}
+
+async fn get_tip_consolidator_stats() -> Json<TipConsolidatorStatsResponse> {
+    Json(TipConsolidatorStatsResponse {
+        consolidations_created: 0,
+        tips_reduced: 0,
+        enabled: true,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RewardsAddressResponse {
+    address: String,
+    tip_rewards: f64,
+    stake_rewards: f64,
+    witness_rewards: f64,
+    total_rewards: f64,
+    pending_rewards: f64,
+}
+
+async fn get_rewards_address(Path(address): Path<String>) -> Json<RewardsAddressResponse> {
+    Json(RewardsAddressResponse {
+        address,
+        tip_rewards: 0.0,
+        stake_rewards: 0.0,
+        witness_rewards: 0.0,
+        total_rewards: 0.0,
+        pending_rewards: 0.0,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StakingAddressResponse {
+    address: String,
+    staked_amount: f64,
+    staked_at: Option<u64>,
+    can_unstake: bool,
+    cooldown_remaining_ms: u64,
+    stake_rewards_total: f64,
+}
+
+async fn get_staking_address(Path(address): Path<String>) -> Json<StakingAddressResponse> {
+    Json(StakingAddressResponse {
+        address,
+        staked_amount: 0.0,
+        staked_at: None,
+        can_unstake: false,
+        cooldown_remaining_ms: 0,
+        stake_rewards_total: 0.0,
+    })
+}
+
 async fn get_version() -> Json<VersionResponse> {
     Json(VersionResponse {
         protocol_version: "1.0.0".to_string(),
@@ -661,8 +880,17 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/api/finality/metrics", get(get_finality_metrics))
         .route("/api/version", get(get_version))
         .route("/api/staking", get(get_staking))
+        .route("/api/staking/:address", get(get_staking_address))
         .route("/api/tokenomics/supply", get(get_tokenomics_supply))
+        .route("/api/tokenomics/emission", get(get_tokenomics_emission))
+        .route("/api/tokenomics/slashing", get(get_tokenomics_slashing))
         .route("/api/rewards/config", get(get_rewards_config))
+        .route("/api/rewards/:address", get(get_rewards_address))
+        .route("/api/checkpoints", get(get_checkpoints))
+        .route("/api/checkpoints/latest", get(get_checkpoints_latest))
+        .route("/api/fork/stats", get(get_fork_stats))
+        .route("/api/gossip/stats", get(get_gossip_stats))
+        .route("/api/tip-consolidator/stats", get(get_tip_consolidator_stats))
         .route("/metrics", get(get_metrics))
         .layer(cors)
         .with_state(state);
