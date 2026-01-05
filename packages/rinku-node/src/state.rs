@@ -77,9 +77,56 @@ impl NodeState {
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_secs();
 
+            let mut accounts = HashMap::new();
+            let faucet_balance = 1_000_000.0;
+            accounts.insert(
+                "faucet".to_string(),
+                Account {
+                    address: "faucet".to_string(),
+                    balance: faucet_balance,
+                    nonce: 0,
+                    first_seen: genesis_time,
+                    staked: 0.0,
+                    unbonding: 0.0,
+                    unbonding_release: None,
+                },
+            );
+            info!("Faucet account initialized with {} RKU", faucet_balance);
+
+            let mut dag = Dag::new(config.max_dag_nodes);
+            let genesis_hash = format!("genesis-{}", genesis_time);
+            let genesis_tx = SignedTransaction {
+                tx: rinku_core::types::Transaction {
+                    from: "genesis".to_string(),
+                    to: "faucet".to_string(),
+                    amount: faucet_balance,
+                    nonce: 0,
+                    timestamp: genesis_time,
+                    parents: vec![],
+                    kind: None,
+                    gas_limit: None,
+                    gas_price: Some(0.0),
+                    data: None,
+                    signature: Some("genesis-signature".to_string()),
+                },
+                hash: genesis_hash.clone(),
+                signature: "genesis-signature".to_string(),
+            };
+            let genesis_node = rinku_core::types::DagNode {
+                hash: genesis_hash.clone(),
+                tx: genesis_tx,
+                parents: vec![],
+                children: vec![],
+                weight: 1.0,
+                finalized: true,
+                checkpoint_height: Some(0),
+            };
+            let _ = dag.add_node(genesis_node);
+            info!("Genesis transaction created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
+
             StateInner {
-                dag: Dag::new(config.max_dag_nodes),
-                accounts: HashMap::new(),
+                dag,
+                accounts,
                 validators: HashMap::new(),
                 checkpoints: Vec::new(),
                 current_gas_price: config.gas.min_gas_price,
@@ -221,5 +268,20 @@ impl NodeState {
         to_account.balance += tx.tx.amount;
 
         Ok(())
+    }
+
+    pub async fn get_transaction(&self, hash: &str) -> Option<SignedTransaction> {
+        let state = self.inner.read().await;
+        state.dag.get_node(hash).map(|n| n.tx.clone())
+    }
+
+    pub async fn is_finalized(&self, hash: &str) -> bool {
+        let state = self.inner.read().await;
+        state.dag.get_node(hash).map(|n| n.finalized).unwrap_or(false)
+    }
+
+    pub async fn get_validators(&self) -> Vec<Validator> {
+        let state = self.inner.read().await;
+        state.validators.values().cloned().collect()
     }
 }

@@ -171,9 +171,12 @@ struct FinalityMetricsResponse {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct VersionResponse {
-    protocol: String,
-    node: String,
+    protocol_version: String,
+    node_version: String,
+    chain_id: String,
+    network_id: String,
     features: Vec<String>,
 }
 
@@ -423,7 +426,8 @@ async fn get_gas_stats() -> Json<GasStatsResponse> {
     })
 }
 
-async fn get_finality_metrics() -> Json<FinalityMetricsResponse> {
+async fn get_finality_metrics(State(state): State<NodeState>) -> Json<FinalityMetricsResponse> {
+    let (_, _, _) = state.get_dag_stats().await;
     Json(FinalityMetricsResponse {
         avg_time_to_finality: 15000.0,
         median_time_to_finality: 15000.0,
@@ -438,14 +442,146 @@ async fn get_finality_metrics() -> Json<FinalityMetricsResponse> {
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TransactionResponse {
+    hash: String,
+    from: String,
+    to: String,
+    amount: f64,
+    fee: f64,
+    nonce: u64,
+    timestamp: u64,
+    parents: Vec<String>,
+    finalized: bool,
+    weight: f64,
+}
+
+async fn get_transaction(
+    State(state): State<NodeState>,
+    Path(hash): Path<String>,
+) -> Result<Json<TransactionResponse>, (StatusCode, String)> {
+    if let Some(tx) = state.get_transaction(&hash).await {
+        Ok(Json(TransactionResponse {
+            hash: tx.hash.clone(),
+            from: tx.tx.from.clone(),
+            to: tx.tx.to.clone(),
+            amount: tx.tx.amount,
+            fee: tx.tx.gas_price.unwrap_or(0.0),
+            nonce: tx.tx.nonce,
+            timestamp: tx.tx.timestamp,
+            parents: tx.tx.parents.clone(),
+            finalized: state.is_finalized(&hash).await,
+            weight: 1.0,
+        }))
+    } else {
+        Err((StatusCode::NOT_FOUND, format!("Transaction {} not found", hash)))
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StakingResponse {
+    total_staked: f64,
+    validator_count: usize,
+    min_stake: f64,
+    unbonding_period_ms: u64,
+    validators: Vec<ValidatorInfo>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidatorInfo {
+    address: String,
+    stake: f64,
+    active: bool,
+}
+
+async fn get_staking(State(state): State<NodeState>) -> Json<StakingResponse> {
+    let validators = state.get_validators().await;
+    let total_staked = state.get_total_stake().await;
+    
+    Json(StakingResponse {
+        total_staked,
+        validator_count: validators.len(),
+        min_stake: 1000.0,
+        unbonding_period_ms: 7 * 24 * 60 * 60 * 1000,
+        validators: validators.into_iter().map(|v| ValidatorInfo {
+            address: v.address.clone(),
+            stake: v.stake,
+            active: v.missed_checkpoints < 10,
+        }).collect(),
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TokenomicsSupplyResponse {
+    max_supply: f64,
+    genesis_allocation: f64,
+    circulating_supply: f64,
+    total_emitted: f64,
+    total_burned: f64,
+    remaining_to_emit: f64,
+    current_reward: f64,
+    halving_epoch: u32,
+    next_halving_at: u64,
+    halving_interval: u64,
+    checkpoint_height: u64,
+}
+
+async fn get_tokenomics_supply(State(state): State<NodeState>) -> Json<TokenomicsSupplyResponse> {
+    let total_supply = state.get_total_supply().await;
+    let checkpoint_height = state.get_checkpoint_height().await;
+    
+    let max_supply = 30_000_000.0;
+    let genesis_allocation = 6_000_000.0;
+    
+    Json(TokenomicsSupplyResponse {
+        max_supply,
+        genesis_allocation,
+        circulating_supply: total_supply,
+        total_emitted: 0.0,
+        total_burned: 0.0,
+        remaining_to_emit: max_supply - genesis_allocation,
+        current_reward: 12.5,
+        halving_epoch: 0,
+        next_halving_at: 350000,
+        halving_interval: 350000,
+        checkpoint_height,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RewardsConfigResponse {
+    tip_reward_percent: f64,
+    stake_reward_percent: f64,
+    witness_reward_percent: f64,
+    min_stake_for_rewards: f64,
+}
+
+async fn get_rewards_config() -> Json<RewardsConfigResponse> {
+    Json(RewardsConfigResponse {
+        tip_reward_percent: 30.0,
+        stake_reward_percent: 50.0,
+        witness_reward_percent: 20.0,
+        min_stake_for_rewards: 100.0,
+    })
+}
+
 async fn get_version() -> Json<VersionResponse> {
     Json(VersionResponse {
-        protocol: "1.0.0".to_string(),
-        node: env!("CARGO_PKG_VERSION").to_string(),
+        protocol_version: "1.0.0".to_string(),
+        node_version: env!("CARGO_PKG_VERSION").to_string(),
+        chain_id: "rinku-mainnet".to_string(),
+        network_id: "rinku".to_string(),
         features: vec![
             "dag-consensus".to_string(),
             "url-native".to_string(),
             "sled-persistence".to_string(),
+            "finality-proofs".to_string(),
+            "merkle-sum-tree".to_string(),
         ],
     })
 }
@@ -515,6 +651,7 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/api/tipUrls", get(get_tip_urls))
         .route("/api/account/:address", get(get_account))
         .route("/api/tx", post(submit_legacy_transaction))
+        .route("/api/tx/:hash", get(get_transaction))
         .route("/api/dag", get(get_dag))
         .route("/api/dag/summary", get(get_dag_summary))
         .route("/api/accounts", get(get_accounts))
@@ -523,6 +660,9 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/api/gas/stats", get(get_gas_stats))
         .route("/api/finality/metrics", get(get_finality_metrics))
         .route("/api/version", get(get_version))
+        .route("/api/staking", get(get_staking))
+        .route("/api/tokenomics/supply", get(get_tokenomics_supply))
+        .route("/api/rewards/config", get(get_rewards_config))
         .route("/metrics", get(get_metrics))
         .layer(cors)
         .with_state(state);
