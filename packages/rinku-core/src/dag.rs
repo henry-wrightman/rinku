@@ -297,12 +297,22 @@ impl Dag {
             depth_b.cmp(&depth_a)
         });
 
-        let mut removed_nodes = Vec::new();
-        for hash in to_remove {
-            if let Some(node) = self.remove_node(&hash) {
-                if !node.finalized {
-                    removed_nodes.push(node);
+        let non_finalized: Vec<String> = to_remove
+            .into_iter()
+            .filter(|hash| {
+                if let Some(idx) = self.hash_to_index.get(hash) {
+                    if let Some(node) = self.graph.node_weight(*idx) {
+                        return !node.finalized;
+                    }
                 }
+                false
+            })
+            .collect();
+
+        let mut removed_nodes = Vec::new();
+        for hash in non_finalized {
+            if let Some(node) = self.remove_node(&hash) {
+                removed_nodes.push(node);
             }
         }
 
@@ -458,6 +468,33 @@ mod tests {
         assert!(!dag.contains("a"));
         assert!(!dag.contains("a1"));
         assert!(!dag.contains("a2"));
+    }
+
+    #[test]
+    fn test_prune_branch_protects_finalized() {
+        let mut dag = Dag::new(100);
+
+        dag.add_node(make_tx("root", vec![])).unwrap();
+        dag.add_node(make_tx("a", vec!["root".to_string()])).unwrap();
+        dag.add_node(make_tx("a1", vec!["a".to_string()])).unwrap();
+        dag.add_node(make_tx("a2", vec!["a1".to_string()])).unwrap();
+
+        if let Some(idx) = dag.hash_to_index.get("a1").copied() {
+            if let Some(node) = dag.graph.node_weight_mut(idx) {
+                node.finalized = true;
+            }
+        }
+
+        assert_eq!(dag.node_count(), 4);
+
+        let removed = dag.prune_branch("a");
+        
+        assert_eq!(removed.len(), 2);
+        assert!(dag.contains("root"));
+        assert!(!dag.contains("a"));
+        assert!(dag.contains("a1"));
+        assert!(!dag.contains("a2"));
+        assert_eq!(dag.node_count(), 2);
     }
 
     #[test]
