@@ -35,6 +35,9 @@ pub struct StateInner {
     pub current_gas_price: f64,
     pub total_supply: f64,
     pub genesis_time: u64,
+    pub total_burned: f64,
+    pub gas_fees_collected: Vec<f64>,
+    pub config: NodeConfig,
 }
 
 #[derive(Clone)]
@@ -77,6 +80,9 @@ impl NodeState {
                 current_gas_price: gas_price,
                 total_supply: supply,
                 genesis_time: genesis,
+                total_burned: 0.0,
+                gas_fees_collected: Vec::new(),
+                config: config.clone(),
             }
         } else {
             let genesis_time = std::time::SystemTime::now()
@@ -138,6 +144,9 @@ impl NodeState {
                 current_gas_price: config.gas.min_gas_price,
                 total_supply: config.tokenomics.genesis_allocation,
                 genesis_time,
+                total_burned: 0.0,
+                gas_fees_collected: Vec::new(),
+                config: config.clone(),
             }
         };
 
@@ -222,6 +231,16 @@ impl NodeState {
         state.current_gas_price
     }
 
+    pub async fn get_gas_stats(&self) -> (f64, f64, f64) {
+        let state = self.inner.read().await;
+        let avg = if state.gas_fees_collected.is_empty() {
+            state.current_gas_price
+        } else {
+            state.gas_fees_collected.iter().sum::<f64>() / state.gas_fees_collected.len() as f64
+        };
+        (state.current_gas_price, state.total_burned, avg)
+    }
+
     pub async fn get_total_supply(&self) -> f64 {
         let state = self.inner.read().await;
         state.total_supply
@@ -291,8 +310,14 @@ impl NodeState {
 
         state.dag.add_node(node)?;
 
+        // Calculate gas fee (EIP-1559 style)
+        let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+        let gas_limit = tx.tx.gas_limit.unwrap_or(21000) as f64;
+        let total_gas_cost = gas_fee * gas_limit;
+
         if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-            from_account.balance -= tx.tx.amount;
+            // Deduct amount + gas fee from sender
+            from_account.balance -= tx.tx.amount + total_gas_cost;
             from_account.nonce = tx.tx.nonce + 1;
         }
 
@@ -301,6 +326,26 @@ impl NodeState {
             .entry(tx.tx.to.clone())
             .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
         to_account.balance += tx.tx.amount;
+
+        // Update gas metrics (EIP-1559 dynamic adjustment)
+        // Burn portion of gas (30% burned, 70% to validators)
+        let burn_amount = total_gas_cost * 0.3;
+        state.total_burned += burn_amount;
+        state.gas_fees_collected.push(gas_fee);
+        if state.gas_fees_collected.len() > 100 {
+            state.gas_fees_collected.remove(0);
+        }
+
+        // Adjust gas price based on utilization (simplified EIP-1559)
+        let target_gas_per_block = 1_000_000.0;
+        let recent_gas = state.gas_fees_collected.len() as f64 * gas_limit;
+        if recent_gas > target_gas_per_block {
+            // Increase price when congested
+            state.current_gas_price = (state.current_gas_price * 1.125).min(state.config.gas.max_gas_price);
+        } else if recent_gas < target_gas_per_block * 0.5 {
+            // Decrease price when underutilized
+            state.current_gas_price = (state.current_gas_price * 0.875).max(state.config.gas.min_gas_price);
+        }
 
         Ok(())
     }

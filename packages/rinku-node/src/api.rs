@@ -507,13 +507,13 @@ async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsR
 }
 
 async fn get_gas_price(State(state): State<NodeState>) -> Json<GasPriceResponse> {
-    let current = state.get_gas_price().await;
+    let (current, total_burned, avg) = state.get_gas_stats().await;
     Json(GasPriceResponse {
         current,
         min: 0.001,
         max: 100.0,
-        avg_last_100: current,
-        total_burned: 0.0,
+        avg_last_100: avg,
+        total_burned,
     })
 }
 
@@ -524,10 +524,11 @@ struct GasStatsResponse {
     total_collected: f64,
 }
 
-async fn get_gas_stats() -> Json<GasStatsResponse> {
+async fn get_gas_stats(State(state): State<NodeState>) -> Json<GasStatsResponse> {
+    let (_, total_burned, _) = state.get_gas_stats().await;
     Json(GasStatsResponse {
-        total_burned: 0.0,
-        total_collected: 0.0,
+        total_burned,
+        total_collected: total_burned / 0.3, // Reverse the 30% burn to get total
     })
 }
 
