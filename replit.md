@@ -56,4 +56,16 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **circomlib:** ZK circuit library.
 - **snarkjs:** Groth16 ZK-SNARK prover and verifier.
 - **circomlibjs:** JavaScript implementation of Poseidon hash.
-- **Rust Dependencies:** `p256`, `sha2`, `petgraph`, `tokio`, `axum`, `serde`, `serde_json`, `flate2`.
+- **Rust Dependencies:** `p256`, `sha2`, `petgraph`, `tokio`, `axum`, `serde`, `serde_json`, `flate2`, `sled`, `tower-http`, `tracing`.
+
+### Recent Changes (January 2026)
+- **Rust Node API Compatibility:** Updated all API response structures to use camelCase via serde rename_all, aligning with TypeScript explorer expectations
+- **New API Endpoints:** Added `/api/dag`, `/api/dag/summary`, `/api/accounts`, `/api/stats/network`, `/api/gas/price`, `/api/gas/stats`, `/api/finality/metrics`, `/api/version`
+- **Merkle Tree Security Fix:** Fixed critical bug where invalid hex leaves silently substituted zeros; now properly validates and returns errors
+- **Sled Persistence:** Integrated sled database for state snapshots with automatic recovery on startup
+- **Background Services:** Wired checkpoint (15s), gossip (200ms), fork remediation, and tip consolidation services into main event loop
+
+### Development Notes
+- Rust node runs on port 3001, TypeScript explorer on port 5000
+- All 30 tests passing (25 core + 5 node)
+- Hybrid architecture: Rust for consensus/validation, TypeScript for user-facing interfaces
