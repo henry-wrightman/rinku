@@ -341,7 +341,9 @@ async fn get_dag_summary(State(state): State<NodeState>) -> Json<DagSummaryRespo
 }
 
 async fn get_dag(State(state): State<NodeState>) -> Json<DagResponse> {
-    let nodes_data = state.get_all_dag_nodes().await;
+    let mut nodes_data = state.get_all_dag_nodes().await;
+    // Sort by timestamp descending (newest first)
+    nodes_data.sort_by(|a, b| b.ts.cmp(&a.ts));
     let nodes: Vec<DagNodeResponse> = nodes_data
         .into_iter()
         .map(|n| {
