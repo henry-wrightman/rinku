@@ -541,22 +541,26 @@ async fn get_finality_metrics(State(state): State<NodeState>) -> Json<FinalityMe
     let (dag_nodes, _, _) = state.get_dag_stats().await;
     let total_transactions = state.get_total_transactions().await as usize;
     let (finalized_count, pending_count) = state.get_finalized_stats().await;
+    let (avg_ms, median_ms, p95_ms, last_checkpoint_age_ms, checkpoints_per_min) = 
+        state.get_finality_timing().await;
+    
     let finality_rate = if dag_nodes > 0 {
         finalized_count as f64 / dag_nodes as f64
     } else {
         1.0
     };
     let tx_throughput = if total_transactions > 0 { (total_transactions as f64) / 60.0 } else { 0.0 };
+    
     Json(FinalityMetricsResponse {
-        avg_time_to_finality: 15000.0,
-        median_time_to_finality: 15000.0,
-        p95_time_to_finality: 20000.0,
+        avg_time_to_finality: avg_ms,
+        median_time_to_finality: median_ms,
+        p95_time_to_finality: p95_ms,
         pending_count,
         finalized_count,
         finality_rate,
-        checkpoint_latency: 15000.0,
-        checkpoints_per_minute: 4.0,
-        last_checkpoint_age: 0,
+        checkpoint_latency: avg_ms,
+        checkpoints_per_minute: checkpoints_per_min,
+        last_checkpoint_age: last_checkpoint_age_ms,
         tx_throughput,
     })
 }

@@ -13,7 +13,7 @@ export const timeAgo = (ts: number): string => {
   return `${Math.floor(hours / 24)}d ago`;
 };
 
-export const formatNumber = (n: number): string => {
+export const formatNumber = (n: number, fixed: number = 0): string => {
   if (n >= 1_000_000_000) {
     return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
   }
@@ -23,7 +23,7 @@ export const formatNumber = (n: number): string => {
   if (n >= 1_000) {
     return (n / 1_000).toFixed(1).replace(/\.0$/, "") + "k";
   }
-  return n?.toFixed(2).toString();
+  return n?.toFixed(fixed).toString();
 };
 
 export const formatTps = (tps: number): string => {

@@ -87,6 +87,11 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Fixed Finality Stats Tracking:** Added `get_finalized_stats()` method to NodeState, updated `/api/stats/network` and `/api/finality/metrics` to return real finalized/unfinalized counts and TPS
 - **Fixed Transaction URL Format:** Changed DAG node URLs from `rinku://tx/{hash}` to `/tx/h/{hash}` for proper explorer React Router compatibility
 - **Fixed /api/tx/:hash Response:** Updated to return `ts`, `tipUrls`, and `url` fields matching explorer expectations
+- **Total Transaction Counter:** Added persistent `total_transactions` counter to NodeState that tracks all historical transactions (not pruned DAG nodes), ensuring accurate transaction count display in explorer
+- **POST Staking/Contract Endpoints:** Added `POST /api/staking/stake`, `POST /api/contracts/deploy`, and `POST /api/contracts/:id/call` endpoints for activity-bot compatibility
+- **Real Finality Metrics:** Fixed `/api/finality/metrics` to return real-time data: avg/median/p95 finality times from rolling 100-tx window, last checkpoint age, and checkpoints per minute. Previously hardcoded to 15s/20s defaults.
+- **Finality Time Tracking:** Checkpoints now record finalization latency (time from tx creation to finalization) in a rolling VecDeque, enabling dynamic avg/p95 finality calculations
+- **Timestamp Format Handling:** Fixed finality time calculation to handle both seconds and milliseconds timestamps correctly
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000

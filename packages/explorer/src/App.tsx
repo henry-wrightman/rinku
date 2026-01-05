@@ -263,7 +263,7 @@ function App() {
         </div>
         <div className="stat-item">
           <span className="stat-value">
-            {formatNumber(gasStats?.totalBurned || 0)}
+            {formatNumber(gasStats?.totalBurned || 0, 2)}
           </span>
           <span className="stat-label">burned</span>
         </div>

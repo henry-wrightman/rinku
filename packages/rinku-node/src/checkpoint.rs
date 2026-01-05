@@ -159,10 +159,32 @@ impl CheckpointService {
             );
         }
 
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
         let mut state = self.state.inner.write().await;
         state.checkpoints.push(checkpoint.clone());
+        state.last_checkpoint_time_ms = now_ms;
 
+        // Record finality times for finalized transactions
         for hash in &unfinalized_hashes {
+            if let Some(node) = state.dag.get_node(hash) {
+                // Transaction timestamp may be in seconds or milliseconds
+                // If timestamp is small (before year 2100 in seconds), it's in seconds
+                let tx_timestamp = node.tx.tx.timestamp;
+                let tx_time_ms = if tx_timestamp < 4_000_000_000 {
+                    tx_timestamp * 1000 // Convert seconds to milliseconds
+                } else {
+                    tx_timestamp // Already in milliseconds
+                };
+                let finality_time = now_ms.saturating_sub(tx_time_ms);
+                if state.finality_times_ms.len() >= 100 {
+                    state.finality_times_ms.pop_front();
+                }
+                state.finality_times_ms.push_back(finality_time);
+            }
             let _ = state.dag.mark_finalized(hash, height);
         }
 

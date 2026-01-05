@@ -27,6 +27,8 @@ pub struct DagNodeInfo {
     pub weight: f64,
 }
 
+use std::collections::VecDeque;
+
 #[derive(Debug)]
 pub struct StateInner {
     pub dag: Dag,
@@ -40,8 +42,10 @@ pub struct StateInner {
     pub total_to_validators: f64,
     pub txs_this_period: u64,
     pub period_start_ms: u64,
-    pub total_transactions: u64, // Persistent counter of all transactions ever processed
+    pub total_transactions: u64,
     pub config: NodeConfig,
+    pub last_checkpoint_time_ms: u64,
+    pub finality_times_ms: VecDeque<u64>, // Rolling window of finality durations
 }
 
 #[derive(Clone)]
@@ -81,6 +85,7 @@ impl NodeState {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64;
+            let last_checkpoint_time = checkpoints.last().map(|c| c.timestamp * 1000).unwrap_or(now_ms);
             StateInner {
                 dag,
                 accounts,
@@ -95,6 +100,8 @@ impl NodeState {
                 period_start_ms: now_ms,
                 total_transactions: tx_count,
                 config: config.clone(),
+                last_checkpoint_time_ms: last_checkpoint_time,
+                finality_times_ms: VecDeque::with_capacity(100),
             }
         } else {
             let genesis_time = std::time::SystemTime::now()
@@ -164,8 +171,10 @@ impl NodeState {
                 total_to_validators: 0.0,
                 txs_this_period: 0,
                 period_start_ms: now_ms,
-                total_transactions: 1, // Genesis transaction
+                total_transactions: 1,
                 config: config.clone(),
+                last_checkpoint_time_ms: now_ms,
+                finality_times_ms: VecDeque::with_capacity(100),
             }
         };
 
@@ -238,6 +247,39 @@ impl NodeState {
         let finalized = all_nodes.iter().filter(|n| n.finalized).count();
         let unfinalized = all_nodes.len() - finalized;
         (finalized, unfinalized)
+    }
+
+    /// Returns (avg_finality_ms, median_finality_ms, p95_finality_ms, last_checkpoint_age_ms, checkpoints_per_minute)
+    pub async fn get_finality_timing(&self) -> (f64, f64, f64, u64, f64) {
+        let state = self.inner.read().await;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        
+        let last_checkpoint_age = now_ms.saturating_sub(state.last_checkpoint_time_ms);
+        
+        // Calculate checkpoints per minute based on genesis time
+        let elapsed_minutes = (now_ms / 1000).saturating_sub(state.genesis_time) as f64 / 60.0;
+        let checkpoints_per_minute = if elapsed_minutes > 0.0 {
+            state.checkpoints.len() as f64 / elapsed_minutes
+        } else {
+            0.0
+        };
+        
+        if state.finality_times_ms.is_empty() {
+            return (0.0, 0.0, 0.0, last_checkpoint_age, checkpoints_per_minute);
+        }
+        
+        let mut times: Vec<u64> = state.finality_times_ms.iter().copied().collect();
+        times.sort();
+        
+        let avg = times.iter().sum::<u64>() as f64 / times.len() as f64;
+        let median = times[times.len() / 2] as f64;
+        let p95_idx = (times.len() as f64 * 0.95) as usize;
+        let p95 = times.get(p95_idx).copied().unwrap_or(times[times.len() - 1]) as f64;
+        
+        (avg, median, p95, last_checkpoint_age, checkpoints_per_minute)
     }
 
     pub async fn get_checkpoint_height(&self) -> u64 {
