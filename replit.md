@@ -59,6 +59,9 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Rust Dependencies:** `p256`, `sha2`, `petgraph`, `tokio`, `axum`, `serde`, `serde_json`, `flate2`, `sled`, `tower-http`, `tracing`.
 
 ### Recent Changes (January 2026)
+- **Genesis Initialization:** Rust node now seeds faucet account with 1M RKU and creates genesis transaction on first startup, matching TypeScript behavior
+- **Extended API Endpoints:** Added `/api/tx/:hash`, `/api/staking`, `/api/tokenomics/supply`, `/api/rewards/config` for explorer compatibility
+- **Version Endpoint Updated:** `/api/version` now returns `protocolVersion`, `nodeVersion`, `chainId`, `networkId`, and `features` array
 - **Legacy API Compatibility:** Added `/api/tipUrls` endpoint and legacy `{ tx: {...} }` format support for faucet and activity-bot compatibility
 - **Rust Node API Compatibility:** Updated all API response structures to use camelCase via serde rename_all, aligning with TypeScript explorer expectations
 - **New API Endpoints:** Added `/api/dag`, `/api/dag/summary`, `/api/accounts`, `/api/stats/network`, `/api/gas/price`, `/api/gas/stats`, `/api/finality/metrics`, `/api/version`, `/api/tipUrls`
