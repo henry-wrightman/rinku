@@ -77,6 +77,26 @@ struct LegacySubmitTxRequest {
     tx: LegacyTxInner,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchTxItem {
+    tx: LegacyTxInner,
+    #[serde(default)]
+    public_key: Option<Vec<u8>>,
+}
+
+#[derive(Deserialize)]
+struct BatchSubmitTxRequest {
+    transactions: Vec<BatchTxItem>,
+}
+
+#[derive(Serialize)]
+struct BatchSubmitTxResponse {
+    successful: usize,
+    failed: usize,
+    total: usize,
+}
+
 #[derive(Serialize)]
 struct SubmitTxResponse {
     success: bool,
@@ -357,6 +377,47 @@ async fn submit_legacy_transaction(
             }),
         ),
     }
+}
+
+async fn submit_batch_transaction(
+    State(state): State<NodeState>,
+    Json(req): Json<BatchSubmitTxRequest>,
+) -> Json<BatchSubmitTxResponse> {
+    let total = req.transactions.len();
+    let mut successful = 0;
+    let mut failed = 0;
+
+    for item in req.transactions {
+        let inner = item.tx;
+        let tx = rinku_core::types::SignedTransaction {
+            tx: rinku_core::types::Transaction {
+                from: inner.from,
+                to: inner.to,
+                amount: inner.amount,
+                nonce: inner.nonce,
+                timestamp: inner.ts,
+                parents: inner.tip_urls,
+                kind: None,
+                gas_limit: None,
+                gas_price: Some(inner.fee),
+                data: None,
+                signature: Some(inner.sig.clone()),
+            },
+            hash: inner.hash,
+            signature: inner.sig,
+        };
+
+        match state.add_transaction(tx).await {
+            Ok(()) => successful += 1,
+            Err(_) => failed += 1,
+        }
+    }
+
+    Json(BatchSubmitTxResponse {
+        successful,
+        failed,
+        total,
+    })
 }
 
 async fn get_dag_summary(State(state): State<NodeState>) -> Json<DagSummaryResponse> {
@@ -1044,6 +1105,7 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/api/tipUrls", get(get_tip_urls))
         .route("/api/account/:address", get(get_account))
         .route("/api/tx", post(submit_legacy_transaction))
+        .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/dag", get(get_dag))
