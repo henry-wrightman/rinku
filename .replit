@@ -12,35 +12,43 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Rinku Services"
+args = "Rinku Rust Node"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Rinku Explorer"
 
 [[workflows.workflow]]
-name = "Rinku Services"
+name = "Rinku Rust Node"
 author = "agent"
 
 [workflows.workflow.metadata]
-outputType = "webview"
+outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run build -w @rinku/core && (npm run dev -w @rinku/node & npm run dev -w @rinku/faucet & sleep 3 && npm run dev -w @rinku/explorer)"
+args = "cargo run -p rinku-node"
+waitForPort = 3001
+
+[[workflows.workflow]]
+name = "Rinku Explorer"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build -w @rinku/core && npm run dev -w @rinku/explorer"
 waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [[ports]]
 localPort = 3001
 externalPort = 3001
 
 [[ports]]
-localPort = 3002
-externalPort = 3002
-
-[[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 5001
-externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
