@@ -63,7 +63,7 @@ impl CheckpointService {
             tx_merkle_root,
             state_root: "0".repeat(64),
             receipt_root: "0".repeat(64),
-            tip_count: 0,
+            tip_count: unfinalized_hashes.len() as u32,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_secs(),
@@ -71,6 +71,28 @@ impl CheckpointService {
             aggregated_signature: None,
             signer_bitmap: None,
         };
+
+        // Process emissions and rewards for this checkpoint
+        let checkpoint_reward = {
+            let mut emission = self.state.emission.write().await;
+            let reward = emission.get_checkpoint_reward(height);
+            emission.record_emission(reward);
+            reward
+        };
+
+        // Distribute checkpoint rewards to staked validators
+        let distributions = {
+            let mut rewards = self.state.rewards.write().await;
+            rewards.distribute_checkpoint_rewards(checkpoint_reward)
+        };
+
+        if !distributions.is_empty() {
+            info!(
+                "Distributed {:.6} RKU to {} validators",
+                checkpoint_reward,
+                distributions.len()
+            );
+        }
 
         let mut state = self.state.inner.write().await;
         state.checkpoints.push(checkpoint.clone());
@@ -80,9 +102,11 @@ impl CheckpointService {
         }
 
         info!(
-            "Created checkpoint {} at height {}",
+            "Created checkpoint {} at height {} ({} txs finalized, {:.6} RKU emitted)",
             &checkpoint.hash[..16],
-            height
+            height,
+            unfinalized_hashes.len(),
+            checkpoint_reward
         );
 
         Ok(())
