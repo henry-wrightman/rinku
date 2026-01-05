@@ -69,6 +69,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Merkle Tree Security Fix:** Fixed critical bug where invalid hex leaves silently substituted zeros; now properly validates and returns errors
 - **Sled Persistence:** Integrated sled database for state snapshots with automatic recovery on startup
 - **Background Services:** Wired checkpoint (15s), gossip (200ms), fork remediation, and tip consolidation services into main event loop
+- **Service Integration:** EmissionService, SlashingService, and RewardsService wired to NodeState with Arc<RwLock<>> for thread-safe API access. All tokenomics endpoints now return live service data.
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000
