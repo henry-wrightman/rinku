@@ -83,7 +83,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000
-- 41 Rust node tests + 25 core tests = 66 tests passing
+- 45 Rust node tests + 30 core tests = 75 tests passing
 - Hybrid architecture: Rust for consensus/validation, TypeScript for user-facing interfaces
 - All Rust services match TypeScript behavior with proper serialization
 - BLS crypto: `bls.rs` module with keypair generation, sign/verify, aggregate signatures/keys, and signer bitmaps
