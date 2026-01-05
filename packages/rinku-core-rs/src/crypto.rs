@@ -92,16 +92,22 @@ pub fn hex_to_array(hex: &str) -> Vec<u8> {
 }
 
 pub fn hash_transaction(tx: &Transaction) -> String {
-    let tx_data = serde_json::json!({
-        "from": tx.from,
-        "to": tx.to,
-        "amount": tx.amount,
-        "fee": tx.fee,
-        "nonce": tx.nonce,
-        "tipUrls": tx.tip_urls,
-        "ts": tx.ts
-    });
-    hash(&tx_data.to_string())
+    let tip_urls_json = tx.tip_urls.iter()
+        .map(|s| format!("\"{}\"", s))
+        .collect::<Vec<_>>()
+        .join(",");
+    
+    let tx_json = format!(
+        r#"{{"amount":{},"fee":{},"from":"{}","nonce":{},"tipUrls":[{}],"to":"{}","ts":{}}}"#,
+        tx.amount,
+        tx.fee,
+        tx.from,
+        tx.nonce,
+        tip_urls_json,
+        tx.to,
+        tx.ts
+    );
+    hash(&tx_json)
 }
 
 pub fn extract_private_key_scalar_from_pkcs8(pkcs8_der: &[u8]) -> Result<Vec<u8>> {
