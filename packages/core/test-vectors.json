@@ -1,0 +1,219 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-01-05T12:53:24.855Z",
+  "hash": {
+    "description": "SHA-256 hash of UTF-8 encoded string, output as lowercase hex",
+    "vectors": [
+      {
+        "input": "",
+        "expected": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "input": "Hello, Rinku!",
+        "expected": "e2d6c45f1ee517481b6adf19680e5a0c99df318402ad116edf203e2c4887310b"
+      },
+      {
+        "input": "test",
+        "expected": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+      },
+      {
+        "input": "abc",
+        "expected": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      },
+      {
+        "input": "{\"key\":\"value\"}",
+        "expected": "e43abcf3375244839c012f9633f95862d232a95b00d5bc7348b3098b9fed7f32"
+      }
+    ]
+  },
+  "fingerprint": {
+    "description": "First 40 hex chars of SHA-256(publicKey)",
+    "vectors": [
+      {
+        "public_key_hex": "04efc918f027ae293ce881dcb32ddea8eda78615cfd9f0a3f53fb30cca084720a58204f0da12b189401818390b3c967c1411a4443624c4ff75409fca2230af0a3f",
+        "expected": "1ed679715cd3069a1b17ae18dedc3d042a02d3c4"
+      }
+    ]
+  },
+  "ecdsa_p256": {
+    "description": "ECDSA P-256 with SHA-256 hash",
+    "key_format": {
+      "public_key": "65 bytes uncompressed (0x04 prefix)",
+      "private_key": "32 bytes raw scalar (for Rust compatibility)"
+    },
+    "signature_format": "64 bytes raw (r || s), output as lowercase hex",
+    "vectors": [
+      {
+        "name": "sign_verify_Hello__Rinku_",
+        "message": "Hello, Rinku!",
+        "public_key_hex": "04dc281510bb1d1cdf340c84aa9d3abef38fad2a76de52f16d3965365661014794ed785393e96950dfbfd42989f175f256c188a0914b27468269022cc6c3c0c5b4",
+        "private_key_hex": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b020101042004490ca38837f471986cfe3c6f33d649395fcefdd0c13f2fce3f6e11b650bf7da14403420004dc281510bb1d1cdf340c84aa9d3abef38fad2a76de52f16d3965365661014794ed785393e96950dfbfd42989f175f256c188a0914b27468269022cc6c3c0c5b4",
+        "signature_hex": "fba0e5d89168a2d67153244322947ee4f3694394547978453d7dff44d4bfe87ef5ae922e47989fce9ff18fe7236b5e21f40a4f46f3c0ae6614a9bf25af700e1f",
+        "valid": true
+      },
+      {
+        "name": "sign_verify_test_message",
+        "message": "test message",
+        "public_key_hex": "048ea0e973feafcc737b2da2a968c046e59cde585832419845ca439317f92d3454edaccdf2013d94061a383aff906a83bb17cf37c571c54c031052b12befb8c03b",
+        "private_key_hex": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b0201010420cfe2e4076d8435a250234514bcbef8354103360fdb88d74c291a1a408408d3dea144034200048ea0e973feafcc737b2da2a968c046e59cde585832419845ca439317f92d3454edaccdf2013d94061a383aff906a83bb17cf37c571c54c031052b12befb8c03b",
+        "signature_hex": "0fedd67a60973a692b896db2ffe86cf36f4999fedf9aaa2677adb8067e299f5912afe980adc33a28c3a848dadbb5004f0cd2c49321f1f12ab346a52c7336b812",
+        "valid": true
+      },
+      {
+        "name": "sign_verify_empty",
+        "message": "",
+        "public_key_hex": "047b694c9e960daae0751164cae44f11f8f8708ed9b4df50a23dd5cd320666fd3b3d960f604192dc7a4644a98641f09928c03f3851ea5acbbff2db2aef77610556",
+        "private_key_hex": "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b0201010420c5b7e16503f914939d556971a6788440fdad5b7c67efaf64bda9fb42e9b57137a144034200047b694c9e960daae0751164cae44f11f8f8708ed9b4df50a23dd5cd320666fd3b3d960f604192dc7a4644a98641f09928c03f3851ea5acbbff2db2aef77610556",
+        "signature_hex": "5df408b42ad4efecfde5205fb29a9a40fb11172f313792a66c65f63c6b456f6b25b60ea4d3b21f2ad1f35c5561b78ba0f484b547b2f411cc8c11404fb6b27633",
+        "valid": true
+      }
+    ]
+  },
+  "merkle": {
+    "description": "Binary Merkle tree with SHA-256, leaves sorted alphabetically by fingerprint",
+    "leaf_format": "SHA-256('{fingerprint}:{balance}:{nonce}')",
+    "internal_node_format": "SHA-256(left_hash + right_hash)",
+    "odd_handling": "Duplicate last node if odd count",
+    "vectors": [
+      {
+        "name": "single_account",
+        "accounts": [
+          {
+            "fingerprint": "account1",
+            "balance": 1000,
+            "nonce": 1
+          }
+        ],
+        "expected_root": "0e6f7b2ee76b4e8c1da2a7a10379d864cd8c7248a72ddf99f0f02b29d3888a09",
+        "leaf_hashes": [
+          "0e6f7b2ee76b4e8c1da2a7a10379d864cd8c7248a72ddf99f0f02b29d3888a09"
+        ]
+      },
+      {
+        "name": "two_accounts",
+        "accounts": [
+          {
+            "fingerprint": "a",
+            "balance": 100,
+            "nonce": 1
+          },
+          {
+            "fingerprint": "b",
+            "balance": 200,
+            "nonce": 2
+          }
+        ],
+        "expected_root": "e77a703ade2a260105019cfca9c2d841893e1723185ad471dc76395ea334d703",
+        "leaf_hashes": [
+          "f9b4f040d2353c5dde72aedc6b006807b5399d762b94f8bc51cc8682629dfa0e",
+          "776c7b1905dae9f4f34740ec5801bb13b0cdc7390458ab40b8ad15f191095801"
+        ]
+      },
+      {
+        "name": "three_accounts",
+        "accounts": [
+          {
+            "fingerprint": "alice",
+            "balance": 1000,
+            "nonce": 5
+          },
+          {
+            "fingerprint": "bob",
+            "balance": 2000,
+            "nonce": 3
+          },
+          {
+            "fingerprint": "charlie",
+            "balance": 500,
+            "nonce": 1
+          }
+        ],
+        "expected_root": "3381af47d74047ff64e508ac51baa69e853fe449a388587b461feda6cbf0ff53",
+        "leaf_hashes": [
+          "56d45d495d367378fbf4bbde18d4f06638a99dd76c8c3197012e1f78c94d0351",
+          "d6935b23018fcc8fa3bce9e7f223fd7f7789ffb9fb6960569749d71475dc44df",
+          "419ba8e661551229e0b4348ea0b755a8eb5df7b462f6fadd9f0882f0d08c9929"
+        ]
+      },
+      {
+        "name": "four_accounts",
+        "accounts": [
+          {
+            "fingerprint": "a",
+            "balance": 100,
+            "nonce": 1
+          },
+          {
+            "fingerprint": "b",
+            "balance": 200,
+            "nonce": 2
+          },
+          {
+            "fingerprint": "c",
+            "balance": 300,
+            "nonce": 3
+          },
+          {
+            "fingerprint": "d",
+            "balance": 400,
+            "nonce": 4
+          }
+        ],
+        "expected_root": "8b4d3df0e89c74c39d73e523af3af8c72b6528a55b9a889297a3bbb3e1279425",
+        "leaf_hashes": [
+          "f9b4f040d2353c5dde72aedc6b006807b5399d762b94f8bc51cc8682629dfa0e",
+          "776c7b1905dae9f4f34740ec5801bb13b0cdc7390458ab40b8ad15f191095801",
+          "1e493a953f78232db9937dc84e5477b00dfe1c977001d4bc5f608399b8d6237f",
+          "802212b2b2e67a0bedb354637613f5bab227fef1c02ef707b411b5f340f89266"
+        ]
+      }
+    ]
+  },
+  "transaction_hash": {
+    "description": "SHA-256 of JSON.stringify({from, to, amount, fee, nonce, tipUrls, ts})",
+    "vectors": [
+      {
+        "name": "simple_transfer",
+        "tx": {
+          "from": "alice_fingerprint_40chars_________________",
+          "to": "bob_fingerprint_40chars___________________",
+          "amount": 100,
+          "fee": 0.001,
+          "nonce": 1,
+          "tipUrls": [],
+          "ts": 1700000000000
+        },
+        "expected_hash": "8151d2e357a0bb99a0d163acd39663ff923054fce81c3e7d76ed89488efa35d8"
+      },
+      {
+        "name": "with_tips",
+        "tx": {
+          "from": "sender123456789012345678901234567890",
+          "to": "receiver12345678901234567890123456789",
+          "amount": 50.5,
+          "fee": 0.01,
+          "nonce": 42,
+          "tipUrls": [
+            "/tx/h/abc123",
+            "/tx/h/def456"
+          ],
+          "ts": 1700000001000
+        },
+        "expected_hash": "49cc55bc9969130ea1c450865090b9659c951724e25f9916f43876251f9a3496"
+      },
+      {
+        "name": "zero_amount",
+        "tx": {
+          "from": "from_address_40_chars_____________________",
+          "to": "to_address_40_chars_______________________",
+          "amount": 0,
+          "fee": 0,
+          "nonce": 0,
+          "tipUrls": [],
+          "ts": 0
+        },
+        "expected_hash": "a10eccb0f3ac12b940425711875d5a73472fd16933cba1b73678c520b3cc29b1"
+      }
+    ]
+  }
+}

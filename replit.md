@@ -74,6 +74,28 @@ Run `npm run stress-test` to execute the stress test suite. Tests include:
 - Tip consolidation monitoring
 - Checkpoint progression tracking
 
+### Rust Migration (In Progress)
+The core library is being migrated to Rust for production-scale performance (1000+ TPS target). Phase 1 complete:
+- **Package:** `packages/rinku-core-rs/` - Rust implementation of core primitives
+- **Implemented:** SHA-256 hashing, ECDSA P-256 signatures, Merkle trees, core types
+- **Test Vectors:** Cross-language validation ensures Rust output matches TypeScript exactly
+- **Tests:** 37 tests passing (13 cross-language validation tests)
+- **Crates:** p256, sha2, serde, serde_json, thiserror, rand, hex
+- **Build:** `cd packages/rinku-core-rs && cargo build`
+- **Test:** `cd packages/rinku-core-rs && cargo test`
+
+**Migration Plan:**
+1. ✅ Phase 1: Rust core crate with crypto, Merkle, types (complete)
+2. Phase 2: WASM/N-API bindings for drop-in TS integration
+3. Phase 3: Rust node services (consensus, gossip, checkpoint)
+4. Phase 4: Full Rust node with HTTP API
+
+**Why Rust:**
+- TypeScript ceiling: ~12 TPS at 50-60% CPU
+- Rust target: 1000-10,000+ TPS at similar CPU
+- No GC pauses during consensus
+- 10x lower memory footprint per node
+
 ### External Dependencies
 - **npm workspaces:** Monorepo management.
 - **React:** Frontend development for the explorer.
@@ -88,3 +110,4 @@ Run `npm run stress-test` to execute the stress test suite. Tests include:
 - **circomlib:** ZK circuit library for Poseidon, EdDSA, and Merkle proof circuits.
 - **snarkjs:** Groth16 ZK-SNARK prover and verifier for TypeScript/JavaScript.
 - **circomlibjs:** JavaScript implementation of Poseidon hash for off-chain computation.
+- **Rust (rinku-core-rs):** p256 (ECDSA), sha2 (hashing), serde (serialization), thiserror (errors).
