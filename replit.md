@@ -80,14 +80,20 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Service Integration:** EmissionService, SlashingService, and RewardsService wired to NodeState with Arc<RwLock<>> for thread-safe API access. All tokenomics endpoints now return live service data.
 - **Checkpoint Reward Processing:** CheckpointService now calls EmissionService.record_emission() and RewardsService.distribute_checkpoint_rewards() on each checkpoint, updating live emission totals and validator rewards.
 - **Parent URL Normalization:** Transaction submission now correctly normalizes parent URLs (e.g., `rinku://tx/h/{hash}` → `{hash}`) for proper DAG parent resolution, enabling faucet/activity-bot compatibility.
+- **MerkleSumTree (Rust):** Added buildMerkleSumTree, getMerkleSumProof, and verifyMerkleSumProof for BLS validator weight aggregation with deterministic SHA256 hashing (4 tests passing)
+- **StateTrie Module (Rust):** Contract state management with Merkle proof generation/verification, contract isolation, and snapshot/restore functionality (6 tests passing)
+- **Protocol Versioning Module (Rust):** FeatureFlags, UpgradeProposals, VersionCompatibility checks, and 5 known features with activation thresholds (5 tests passing)
+- **Enhanced /api/version:** Now exposes 11 active features (dag-consensus, url-native, sled-persistence, finality-proofs, merkle-sum-tree, bls-aggregation, dynamic-gas, smart-contracts, tip-consolidation, fork-remediation, zk-privacy)
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000
-- 45 Rust node tests + 30 core tests = 75 tests passing
+- 60 Rust node tests + 30 core tests = 90 tests passing
 - Hybrid architecture: Rust for consensus/validation, TypeScript for user-facing interfaces
 - All Rust services match TypeScript behavior with proper serialization
 - BLS crypto: `bls.rs` module with keypair generation, sign/verify, aggregate signatures/keys, and signer bitmaps
-- Proofs: `proofs.rs` module with SelfContainedProof (verbose, Profile C) and CompactProof (binary, Profile B) formats
+- Proofs: `proofs.rs` module with SelfContainedProof (verbose, Profile C), CompactProof (binary, Profile B), and MerkleSumTree for BLS validator weight aggregation
+- StateTrie: `state_trie.rs` module for contract state management with Merkle proof generation/verification and snapshot/restore
+- Versioning: `versioning.rs` module with FeatureFlags, UpgradeProposals, version compatibility checks, and 5 known features (bls-aggregation, zk-privacy, dynamic-gas, smart-contracts, tip-consolidation)
 - Contracts: `contracts.rs` module with mock runtime (matching TypeScript createMockRuntime), GasSchedule, GasMeter, state diffs
 - ZK Privacy: `zk.rs` module using `light-poseidon` crate (Veridise-audited) for circomlib-compatible Poseidon hash, Groth16 verification, NullifierRegistry with sled persistence
 - Network: `network.rs` module with libp2p gossipsub protocol (SHA256 message IDs for deterministic deduplication), mDNS peer discovery, and NetworkHandle for async broadcasting
