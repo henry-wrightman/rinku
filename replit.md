@@ -71,6 +71,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Background Services:** Wired checkpoint (15s), gossip (200ms), fork remediation, and tip consolidation services into main event loop
 - **Service Integration:** EmissionService, SlashingService, and RewardsService wired to NodeState with Arc<RwLock<>> for thread-safe API access. All tokenomics endpoints now return live service data.
 - **Checkpoint Reward Processing:** CheckpointService now calls EmissionService.record_emission() and RewardsService.distribute_checkpoint_rewards() on each checkpoint, updating live emission totals and validator rewards.
+- **Parent URL Normalization:** Transaction submission now correctly normalizes parent URLs (e.g., `rinku://tx/h/{hash}` → `{hash}`) for proper DAG parent resolution, enabling faucet/activity-bot compatibility.
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000

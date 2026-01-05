@@ -257,10 +257,24 @@ impl NodeState {
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<()> {
         let mut state = self.inner.write().await;
 
+        // Normalize parent URLs to just hashes
+        // Parents can come as "rinku://tx/h/{hash}" or just "{hash}"
+        let normalized_parents: Vec<String> = tx.tx.parents.iter()
+            .map(|p| {
+                if p.starts_with("rinku://tx/h/") {
+                    p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+                } else if p.starts_with("rinku://tx/") {
+                    p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+                } else {
+                    p.clone()
+                }
+            })
+            .collect();
+
         let node = rinku_core::types::DagNode {
             hash: tx.hash.clone(),
             tx: tx.clone(),
-            parents: tx.tx.parents.clone(),
+            parents: normalized_parents,
             children: Vec::new(),
             weight: 1.0,
             finalized: false,
