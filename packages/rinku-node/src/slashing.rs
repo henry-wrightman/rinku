@@ -6,9 +6,12 @@ pub const UNBONDING_PERIOD_MS: u64 = 14 * 24 * 60 * 60 * 1000;
 pub const SLASH_DOUBLE_SIGN_PERCENT: f64 = 0.15;
 pub const SLASH_INVALID_CHECKPOINT_PERCENT: f64 = 0.25;
 pub const SLASH_INVALID_PROOF_PERCENT: f64 = 0.20;
+pub const SLASH_INVALID_WITNESS_PERCENT: f64 = 0.15;
+pub const SLASH_RECEIPT_TAMPERING_PERCENT: f64 = 0.25;
 pub const SLASH_LIVENESS_PERCENT: f64 = 0.05;
 pub const SLASH_LIVENESS_REPEAT_PERCENT: f64 = 0.10;
 pub const LIVENESS_MISS_THRESHOLD: u32 = 3;
+pub const LIVENESS_REPEAT_WINDOW_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -16,6 +19,8 @@ pub enum SlashReason {
     DoubleSign,
     InvalidCheckpoint,
     InvalidProof,
+    InvalidWitness,
+    ReceiptTampering,
     LivenessFailure,
     LivenessRepeat,
 }
@@ -26,6 +31,8 @@ impl SlashReason {
             SlashReason::DoubleSign => SLASH_DOUBLE_SIGN_PERCENT,
             SlashReason::InvalidCheckpoint => SLASH_INVALID_CHECKPOINT_PERCENT,
             SlashReason::InvalidProof => SLASH_INVALID_PROOF_PERCENT,
+            SlashReason::InvalidWitness => SLASH_INVALID_WITNESS_PERCENT,
+            SlashReason::ReceiptTampering => SLASH_RECEIPT_TAMPERING_PERCENT,
             SlashReason::LivenessFailure => SLASH_LIVENESS_PERCENT,
             SlashReason::LivenessRepeat => SLASH_LIVENESS_REPEAT_PERCENT,
         }
@@ -55,7 +62,8 @@ pub struct UnbondingEntry {
     pub slashable: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct LivenessRecord {
     count: u32,
     last_failure: u64,
@@ -66,6 +74,7 @@ pub struct SlashingService {
     unbonding_queue: Vec<UnbondingEntry>,
     liveness_failures: HashMap<String, LivenessRecord>,
     total_slashed: f64,
+    next_slash_id: u64,
 }
 
 impl SlashingService {
@@ -75,7 +84,15 @@ impl SlashingService {
             unbonding_queue: Vec::new(),
             liveness_failures: HashMap::new(),
             total_slashed: 0.0,
+            next_slash_id: 1,
         }
+    }
+
+    fn current_time_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
     }
 
     pub fn slash(
@@ -85,16 +102,17 @@ impl SlashingService {
         reason: SlashReason,
         checkpoint_height: u64,
         details: Option<String>,
-    ) -> SlashEvent {
+    ) -> Option<SlashEvent> {
+        if stake_amount <= 0.0 {
+            return None;
+        }
+
         let percent = reason.percent();
         let amount = stake_amount * percent;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let now = Self::current_time_ms();
 
         let event = SlashEvent {
-            id: format!("slash-{}-{}", validator, now),
+            id: format!("slash_{}", self.next_slash_id),
             validator: validator.to_string(),
             reason,
             amount,
@@ -104,8 +122,13 @@ impl SlashingService {
             details,
         };
 
+        self.next_slash_id += 1;
         self.total_slashed += amount;
         self.slash_events.push(event.clone());
+
+        if self.slash_events.len() > 1000 {
+            self.slash_events = self.slash_events.split_off(self.slash_events.len() - 500);
+        }
 
         warn!(
             "Slashed {} for {:?}: {} RKU ({}%)",
@@ -115,14 +138,16 @@ impl SlashingService {
             percent * 100.0
         );
 
-        event
+        Some(event)
     }
 
-    pub fn record_liveness_failure(&mut self, validator: &str) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+    pub fn record_liveness_failure(
+        &mut self,
+        validator: &str,
+        checkpoint_height: u64,
+        stake_amount: f64,
+    ) -> Option<SlashEvent> {
+        let now = Self::current_time_ms();
 
         let record = self
             .liveness_failures
@@ -132,21 +157,39 @@ impl SlashingService {
                 last_failure: now,
             });
 
+        let within_repeat_window = (now - record.last_failure) < LIVENESS_REPEAT_WINDOW_MS;
         record.count += 1;
         record.last_failure = now;
 
-        record.count >= LIVENESS_MISS_THRESHOLD
+        if record.count >= LIVENESS_MISS_THRESHOLD {
+            let is_repeat = within_repeat_window && record.count > LIVENESS_MISS_THRESHOLD;
+            let reason = if is_repeat {
+                SlashReason::LivenessRepeat
+            } else {
+                SlashReason::LivenessFailure
+            };
+
+            return self.slash(
+                validator,
+                stake_amount,
+                reason,
+                checkpoint_height,
+                Some(format!(
+                    "Missed {} consecutive checkpoints",
+                    LIVENESS_MISS_THRESHOLD
+                )),
+            );
+        }
+
+        None
     }
 
-    pub fn clear_liveness_failures(&mut self, validator: &str) {
+    pub fn reset_liveness_counter(&mut self, validator: &str) {
         self.liveness_failures.remove(validator);
     }
 
-    pub fn add_to_unbonding_queue(&mut self, validator: &str, amount: f64) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+    pub fn start_unbonding(&mut self, validator: &str, amount: f64) -> UnbondingEntry {
+        let now = Self::current_time_ms();
 
         let entry = UnbondingEntry {
             validator: validator.to_string(),
@@ -156,22 +199,34 @@ impl SlashingService {
             slashable: true,
         };
 
-        self.unbonding_queue.push(entry);
+        self.unbonding_queue.push(entry.clone());
+        entry
     }
 
     pub fn process_unbonding_queue(&mut self) -> Vec<UnbondingEntry> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let now = Self::current_time_ms();
 
         let (ready, pending): (Vec<_>, Vec<_>) = self
             .unbonding_queue
             .drain(..)
-            .partition(|e| e.available_at <= now);
+            .partition(|e| e.available_at <= now && e.slashable);
 
         self.unbonding_queue = pending;
         ready
+    }
+
+    pub fn slash_unbonding_stake(&mut self, validator: &str, percent: f64) -> f64 {
+        let mut slashed = 0.0;
+        for entry in &mut self.unbonding_queue {
+            if entry.validator == validator && entry.slashable {
+                let slash_amount = entry.amount * percent;
+                entry.amount -= slash_amount;
+                slashed += slash_amount;
+            }
+        }
+        self.unbonding_queue.retain(|e| e.amount > 0.0);
+        self.total_slashed += slashed;
+        slashed
     }
 
     pub fn get_unbonding_queue(&self) -> &[UnbondingEntry] {
@@ -208,12 +263,17 @@ impl SlashingService {
             liveness_failures: self
                 .liveness_failures
                 .iter()
-                .map(|(k, v)| (k.clone(), (v.count, v.last_failure)))
+                .map(|(k, v)| (k.clone(), LivenessInfo { count: v.count, last_failure: v.last_failure }))
                 .collect(),
         }
     }
 
     pub fn from_json(snapshot: SlashingSnapshot) -> Self {
+        let next_slash_id = snapshot.slash_events.iter()
+            .filter_map(|e| e.id.strip_prefix("slash_").and_then(|s| s.parse::<u64>().ok()))
+            .max()
+            .unwrap_or(0) + 1;
+
         Self {
             slash_events: snapshot.slash_events,
             unbonding_queue: snapshot.unbonding_queue,
@@ -221,10 +281,11 @@ impl SlashingService {
             liveness_failures: snapshot
                 .liveness_failures
                 .into_iter()
-                .map(|(k, (count, last_failure))| {
-                    (k, LivenessRecord { count, last_failure })
+                .map(|(k, v)| {
+                    (k, LivenessRecord { count: v.count, last_failure: v.last_failure })
                 })
                 .collect(),
+            next_slash_id,
         }
     }
 }
@@ -237,9 +298,68 @@ impl Default for SlashingService {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LivenessInfo {
+    pub count: u32,
+    pub last_failure: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SlashingSnapshot {
     pub slash_events: Vec<SlashEvent>,
     pub unbonding_queue: Vec<UnbondingEntry>,
     pub total_slashed: f64,
-    pub liveness_failures: Vec<(String, (u32, u64))>,
+    pub liveness_failures: Vec<(String, LivenessInfo)>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_slash_event() {
+        let mut service = SlashingService::new();
+        let event = service.slash("validator1", 1000.0, SlashReason::DoubleSign, 100, None);
+        
+        assert!(event.is_some());
+        let event = event.unwrap();
+        assert_eq!(event.validator, "validator1");
+        assert_eq!(event.amount, 150.0);
+        assert_eq!(event.percent_slashed, 15.0);
+    }
+
+    #[test]
+    fn test_liveness_tracking() {
+        let mut service = SlashingService::new();
+        
+        let result1 = service.record_liveness_failure("v1", 1, 1000.0);
+        assert!(result1.is_none());
+        
+        let result2 = service.record_liveness_failure("v1", 2, 1000.0);
+        assert!(result2.is_none());
+        
+        let result3 = service.record_liveness_failure("v1", 3, 1000.0);
+        assert!(result3.is_some());
+    }
+
+    #[test]
+    fn test_all_slash_reasons() {
+        assert_eq!(SlashReason::DoubleSign.percent(), 0.15);
+        assert_eq!(SlashReason::InvalidCheckpoint.percent(), 0.25);
+        assert_eq!(SlashReason::InvalidProof.percent(), 0.20);
+        assert_eq!(SlashReason::InvalidWitness.percent(), 0.15);
+        assert_eq!(SlashReason::ReceiptTampering.percent(), 0.25);
+        assert_eq!(SlashReason::LivenessFailure.percent(), 0.05);
+        assert_eq!(SlashReason::LivenessRepeat.percent(), 0.10);
+    }
+
+    #[test]
+    fn test_unbonding_queue() {
+        let mut service = SlashingService::new();
+        service.start_unbonding("v1", 500.0);
+        
+        assert_eq!(service.get_unbonding_queue().len(), 1);
+        assert_eq!(service.get_unbonding_for_validator("v1").len(), 1);
+        assert_eq!(service.get_unbonding_for_validator("v2").len(), 0);
+    }
 }
