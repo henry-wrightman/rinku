@@ -52,15 +52,18 @@ impl MerkleTree {
     }
 
     pub fn from_hex_leaves(hex_leaves: &[String]) -> Result<Self, MerkleError> {
-        let leaves: Vec<[u8; 32]> = hex_leaves
-            .iter()
-            .map(|h| {
-                let bytes = hex::decode(h).unwrap_or_default();
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes[..32.min(bytes.len())]);
-                arr
-            })
-            .collect();
+        let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(hex_leaves.len());
+        
+        for hex_str in hex_leaves {
+            let bytes = hex::decode(hex_str).map_err(|_| MerkleError::InvalidProof)?;
+            if bytes.len() != 32 {
+                return Err(MerkleError::InvalidProof);
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            leaves.push(arr);
+        }
+        
         Self::new(leaves)
     }
 
@@ -217,5 +220,24 @@ mod tests {
         let leaf_hash = hex::encode(leaves[1]);
         let proof = tree.get_proof_by_hash(&leaf_hash).unwrap();
         assert!(verify_proof(&proof).unwrap());
+    }
+
+    #[test]
+    fn test_from_hex_leaves_invalid_hex() {
+        let result = MerkleTree::from_hex_leaves(&["not_valid_hex".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_hex_leaves_wrong_length() {
+        let result = MerkleTree::from_hex_leaves(&["aabbcc".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_hex_leaves_valid() {
+        let hash = hex::encode(sha256(b"test"));
+        let result = MerkleTree::from_hex_leaves(&[hash]);
+        assert!(result.is_ok());
     }
 }
