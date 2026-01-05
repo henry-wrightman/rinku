@@ -9,7 +9,10 @@ use tokio::sync::RwLock;
 use tracing::info;
 
 use crate::config::NodeConfig;
+use crate::emission::EmissionService;
 use crate::persistence::PersistenceService;
+use crate::rewards::RewardsService;
+use crate::slashing::SlashingService;
 
 pub struct DagNodeInfo {
     pub hash: String,
@@ -39,6 +42,9 @@ pub struct NodeState {
     config: NodeConfig,
     pub inner: Arc<RwLock<StateInner>>,
     persistence: Arc<PersistenceService>,
+    pub emission: Arc<RwLock<EmissionService>>,
+    pub slashing: Arc<RwLock<SlashingService>>,
+    pub rewards: Arc<RwLock<RewardsService>>,
 }
 
 impl NodeState {
@@ -135,10 +141,17 @@ impl NodeState {
             }
         };
 
+        let emission = EmissionService::new();
+        let slashing = SlashingService::new();
+        let rewards = RewardsService::new(crate::rewards::RewardConfig::default());
+
         Ok(Self {
             config,
             inner: Arc::new(RwLock::new(inner)),
             persistence,
+            emission: Arc::new(RwLock::new(emission)),
+            slashing: Arc::new(RwLock::new(slashing)),
+            rewards: Arc::new(RwLock::new(rewards)),
         })
     }
 

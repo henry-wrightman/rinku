@@ -586,25 +586,19 @@ struct EmissionResponse {
 
 async fn get_tokenomics_emission(State(state): State<NodeState>) -> Json<EmissionResponse> {
     let checkpoint_height = state.get_checkpoint_height().await;
-    let max_supply = 30_000_000.0;
-    let genesis_allocation = 6_000_000.0;
-    let halving_interval = 3_150_000_u64;
-    let initial_reward = 3.932411_f64;
-    
-    let halvings = (checkpoint_height / halving_interval) as u32;
-    let effective_halvings = halvings.min(5);
-    let current_reward = initial_reward / (1u64 << effective_halvings) as f64;
+    let emission = state.emission.read().await;
+    let stats = emission.get_stats(checkpoint_height);
     
     Json(EmissionResponse {
-        current_reward,
-        halving_epoch: halvings,
-        next_halving_at: ((halvings as u64) + 1) * halving_interval,
-        total_emitted: 0.0,
-        remaining_to_emit: max_supply - genesis_allocation,
-        circulating_supply: genesis_allocation,
-        total_burned: 0.0,
-        validator_fee_percent: 88.0,
-        burn_percent: 12.0,
+        current_reward: stats.current_reward,
+        halving_epoch: stats.halving_epoch,
+        next_halving_at: stats.next_halving_at,
+        total_emitted: stats.total_emitted,
+        remaining_to_emit: stats.remaining_to_emit,
+        circulating_supply: stats.circulating_supply,
+        total_burned: stats.total_burned,
+        validator_fee_percent: stats.validator_fee_percent,
+        burn_percent: stats.burn_percent,
     })
 }
 
@@ -638,11 +632,39 @@ struct UnbondingEntryResponse {
     slashable: bool,
 }
 
-async fn get_tokenomics_slashing() -> Json<SlashingResponse> {
+async fn get_tokenomics_slashing(State(state): State<NodeState>) -> Json<SlashingResponse> {
+    let slashing = state.slashing.read().await;
+    let events = slashing.get_slash_events(100);
+    let queue = slashing.get_unbonding_queue();
+    
+    let slash_events: Vec<SlashEventResponse> = events
+        .iter()
+        .map(|e| SlashEventResponse {
+            id: e.id.clone(),
+            validator: e.validator.clone(),
+            reason: format!("{:?}", e.reason).to_lowercase(),
+            amount: e.amount,
+            percent_slashed: e.percent_slashed,
+            checkpoint_height: e.checkpoint_height,
+            timestamp: e.timestamp,
+        })
+        .collect();
+    
+    let unbonding_queue: Vec<UnbondingEntryResponse> = queue
+        .iter()
+        .map(|e| UnbondingEntryResponse {
+            validator: e.validator.clone(),
+            amount: e.amount,
+            started_at: e.started_at,
+            available_at: e.available_at,
+            slashable: e.slashable,
+        })
+        .collect();
+    
     Json(SlashingResponse {
-        total_slashed: 0.0,
-        slash_events: vec![],
-        unbonding_queue: vec![],
+        total_slashed: slashing.get_total_slashed(),
+        slash_events,
+        unbonding_queue,
     })
 }
 
@@ -664,33 +686,48 @@ struct CheckpointInfo {
 }
 
 async fn get_checkpoints(State(state): State<NodeState>) -> Json<CheckpointsResponse> {
-    let checkpoint_height = state.get_checkpoint_height().await;
-    let checkpoints: Vec<CheckpointInfo> = (0..=checkpoint_height.min(10))
+    let inner = state.inner.read().await;
+    let checkpoints: Vec<CheckpointInfo> = inner.checkpoints
+        .iter()
         .rev()
-        .map(|h| CheckpointInfo {
-            height: h,
-            merkle_root: format!("root_{}", h),
-            tx_count: 0,
-            timestamp: 0,
-            validators: 0,
+        .take(20)
+        .map(|cp| CheckpointInfo {
+            height: cp.height,
+            merkle_root: cp.tx_merkle_root.clone(),
+            tx_count: cp.tip_count as usize,
+            timestamp: cp.timestamp,
+            validators: cp.validator_signatures.len(),
         })
         .collect();
     
+    let total = inner.checkpoints.len();
+    drop(inner);
+    
     Json(CheckpointsResponse {
-        total: checkpoints.len(),
+        total,
         checkpoints,
     })
 }
 
 async fn get_checkpoints_latest(State(state): State<NodeState>) -> Json<CheckpointInfo> {
-    let height = state.get_checkpoint_height().await;
-    Json(CheckpointInfo {
-        height,
-        merkle_root: format!("root_{}", height),
-        tx_count: 0,
-        timestamp: 0,
-        validators: 0,
-    })
+    let inner = state.inner.read().await;
+    if let Some(cp) = inner.checkpoints.last() {
+        Json(CheckpointInfo {
+            height: cp.height,
+            merkle_root: cp.tx_merkle_root.clone(),
+            tx_count: cp.tip_count as usize,
+            timestamp: cp.timestamp,
+            validators: cp.validator_signatures.len(),
+        })
+    } else {
+        Json(CheckpointInfo {
+            height: 0,
+            merkle_root: "genesis".to_string(),
+            tx_count: 0,
+            timestamp: inner.genesis_time,
+            validators: 0,
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -756,14 +793,20 @@ struct RewardsAddressResponse {
     pending_rewards: f64,
 }
 
-async fn get_rewards_address(Path(address): Path<String>) -> Json<RewardsAddressResponse> {
+async fn get_rewards_address(
+    State(state): State<NodeState>,
+    Path(address): Path<String>,
+) -> Json<RewardsAddressResponse> {
+    let rewards = state.rewards.read().await;
+    let summary = rewards.get_rewards_summary(&address);
+    
     Json(RewardsAddressResponse {
-        address,
-        tip_rewards: 0.0,
-        stake_rewards: 0.0,
-        witness_rewards: 0.0,
-        total_rewards: 0.0,
-        pending_rewards: 0.0,
+        address: summary.address,
+        tip_rewards: summary.tip_rewards,
+        stake_rewards: summary.stake_rewards,
+        witness_rewards: summary.witness_rewards,
+        total_rewards: summary.total_rewards,
+        pending_rewards: summary.pending_rewards,
     })
 }
 
@@ -778,14 +821,20 @@ struct StakingAddressResponse {
     stake_rewards_total: f64,
 }
 
-async fn get_staking_address(Path(address): Path<String>) -> Json<StakingAddressResponse> {
+async fn get_staking_address(
+    State(state): State<NodeState>,
+    Path(address): Path<String>,
+) -> Json<StakingAddressResponse> {
+    let rewards = state.rewards.read().await;
+    let status = rewards.get_staking_status(&address);
+    
     Json(StakingAddressResponse {
-        address,
-        staked_amount: 0.0,
-        staked_at: None,
-        can_unstake: false,
-        cooldown_remaining_ms: 0,
-        stake_rewards_total: 0.0,
+        address: status.address,
+        staked_amount: status.position.as_ref().map(|p| p.amount).unwrap_or(0.0),
+        staked_at: status.position.as_ref().map(|p| p.staked_at),
+        can_unstake: status.can_unstake,
+        cooldown_remaining_ms: status.cooldown_remaining_ms,
+        stake_rewards_total: status.stake_rewards_total,
     })
 }
 
