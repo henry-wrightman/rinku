@@ -13,16 +13,8 @@ import {
 } from "./components";
 import { formatNumber, formatTps } from "./utils";
 
-// In production, API is on same host but port 3001. In dev, Vite proxies /api to 3001.
-const getApiBaseUrl = () => {
-  if (import.meta.env.PROD) {
-    // Production: construct API URL from current host
-    const host = window.location.hostname;
-    return `https://${host.replace(/-5000\./, '-3001.')}/api`;
-  }
-  return "/api"; // Dev: use Vite proxy
-};
-const NODE_URL = getApiBaseUrl();
+// API is served from the same origin (Rust node serves both API and static files)
+const NODE_URL = "/api";
 const PAGE_SIZE = 20;
 
 interface NetworkStats {
