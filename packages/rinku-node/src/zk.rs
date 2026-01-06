@@ -1,3 +1,5 @@
+#![cfg(feature = "zk")]
+
 use anyhow::{anyhow, Result};
 use ark_bn254::{Bn254, Fr, G1Affine, G2Affine};
 use ark_ff::{BigInteger, Field, PrimeField};

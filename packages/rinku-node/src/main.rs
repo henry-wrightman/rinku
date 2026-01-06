@@ -12,6 +12,7 @@ mod emission;
 mod fork_remediation;
 mod gas;
 mod gossip;
+#[cfg(feature = "p2p")]
 mod network;
 mod persistence;
 mod proofs;
@@ -22,6 +23,7 @@ mod state_trie;
 mod tip_consolidator;
 mod validator;
 mod versioning;
+#[cfg(feature = "zk")]
 mod zk;
 
 use checkpoint::CheckpointService;

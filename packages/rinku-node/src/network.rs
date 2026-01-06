@@ -1,3 +1,5 @@
+#![cfg(feature = "p2p")]
+
 use anyhow::Result;
 use libp2p::futures::StreamExt;
 use libp2p::{
