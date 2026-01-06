@@ -9,6 +9,12 @@ license.workspace = true
 name = "rinku-node"
 path = "src/main.rs"
 
+[features]
+default = []
+zk = ["ark-bn254", "ark-groth16", "ark-serialize", "ark-std", "ark-ff", "ark-ec", "ark-relations", "light-poseidon"]
+p2p = ["libp2p"]
+full = ["zk", "p2p"]
+
 [dependencies]
 rinku-core = { path = "../rinku-core" }
 
@@ -20,8 +26,8 @@ axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 
-# Networking/Gossip
-libp2p = { workspace = true }
+# Networking/Gossip (optional - heavy dependency)
+libp2p = { workspace = true, optional = true }
 
 # Persistence
 sled = { workspace = true }
@@ -52,15 +58,15 @@ flate2 = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
 
-# ZK-SNARKs
-ark-bn254 = { workspace = true }
-ark-groth16 = { workspace = true }
-ark-serialize = { workspace = true }
-ark-std = { workspace = true }
-ark-ff = { workspace = true }
-ark-ec = { workspace = true }
-ark-relations = { workspace = true }
-light-poseidon = { workspace = true }
+# ZK-SNARKs (optional - heavy dependencies)
+ark-bn254 = { workspace = true, optional = true }
+ark-groth16 = { workspace = true, optional = true }
+ark-serialize = { workspace = true, optional = true }
+ark-std = { workspace = true, optional = true }
+ark-ff = { workspace = true, optional = true }
+ark-ec = { workspace = true, optional = true }
+ark-relations = { workspace = true, optional = true }
+light-poseidon = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
