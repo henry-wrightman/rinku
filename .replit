@@ -75,6 +75,6 @@ channel = "stable-25_05"
 packages = ["nettools", "rustc", "circom", "openssl", "pkg-config"]
 
 [deployment]
-deploymentTarget = "autoscale"
-run = ["bash", "-c", "./rinku-node-bin & npx serve -s packages/explorer/dist -l 5000"]
-build = ["bash", "-c", "cargo build --release --no-default-features -p rinku-node && cp target/release/rinku-node ./rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
+deploymentTarget = "gce"
+run = ["sh", "-c", "bash -c target/release/rinku-node & npx serve -s packages/explorer/dist -l 5000"]
+build = ["sh", "-c", "bash -c cargo build --release --no-default-features -p rinku-node && cp target/release/rinku-node ./rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
