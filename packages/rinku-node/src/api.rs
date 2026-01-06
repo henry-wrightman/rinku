@@ -47,7 +47,7 @@ struct TipUrlsResponse {
 
 #[derive(Serialize)]
 struct AccountResponse {
-    address: String,
+    fingerprint: String,
     balance: f64,
     nonce: u64,
     staked: f64,
@@ -392,7 +392,7 @@ async fn get_account(
         Some(account) => (
             StatusCode::OK,
             Json(AccountResponse {
-                address: account.address,
+                fingerprint: account.address,
                 balance: account.balance,
                 nonce: account.nonce,
                 staked: account.staked,
@@ -556,6 +556,21 @@ async fn get_dag(State(state): State<NodeState>) -> Json<DagResponse> {
         .map(|n| {
             // Use /tx/h/{hash} format for explorer hash-based routing
             let url = format!("/tx/h/{}", &n.hash);
+            // Normalize parents to /tx/h/{hash} format for explorer traversal
+            let parents: Vec<String> = n.parents.iter()
+                .map(|p| {
+                    let h = if p.starts_with("rinku://tx/h/") {
+                        p.strip_prefix("rinku://tx/h/").unwrap_or(p)
+                    } else if p.starts_with("rinku://tx/") {
+                        p.strip_prefix("rinku://tx/").unwrap_or(p)
+                    } else if p.starts_with("/tx/h/") {
+                        return p.clone(); // Already in correct format
+                    } else {
+                        p.as_str()
+                    };
+                    format!("/tx/h/{}", h)
+                })
+                .collect();
             DagNodeResponse {
                 hash: n.hash,
                 from: n.from,
@@ -564,7 +579,7 @@ async fn get_dag(State(state): State<NodeState>) -> Json<DagResponse> {
                 fee: n.fee,
                 nonce: n.nonce,
                 ts: n.ts,
-                parents: n.parents,
+                parents,
                 finalized: n.finalized,
                 weight: n.weight,
                 url,
@@ -583,7 +598,7 @@ async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> 
         accounts: accounts
             .into_iter()
             .map(|a| AccountResponse {
-                address: a.address,
+                fingerprint: a.address,
                 balance: a.balance,
                 nonce: a.nonce,
                 staked: a.staked,
@@ -698,6 +713,21 @@ async fn get_transaction(
 ) -> Result<Json<TransactionResponse>, (StatusCode, String)> {
     if let Some(tx) = state.get_transaction(&hash).await {
         let finalized = state.is_finalized(&hash).await;
+        // Normalize parents to /tx/h/{hash} format for explorer navigation
+        let tip_urls: Vec<String> = tx.tx.parents.iter()
+            .map(|p| {
+                let h = if p.starts_with("rinku://tx/h/") {
+                    p.strip_prefix("rinku://tx/h/").unwrap_or(p)
+                } else if p.starts_with("rinku://tx/") {
+                    p.strip_prefix("rinku://tx/").unwrap_or(p)
+                } else if p.starts_with("/tx/h/") {
+                    p.strip_prefix("/tx/h/").unwrap_or(p)
+                } else {
+                    p.as_str()
+                };
+                format!("/tx/h/{}", h)
+            })
+            .collect();
         Ok(Json(TransactionResponse {
             hash: tx.hash.clone(),
             from: tx.tx.from.clone(),
@@ -706,7 +736,7 @@ async fn get_transaction(
             fee: tx.tx.gas_price.unwrap_or(0.0),
             nonce: tx.tx.nonce,
             ts: tx.tx.timestamp,
-            tip_urls: tx.tx.parents.clone(),
+            tip_urls,
             finalized,
             weight: 1.0,
             url: format!("/tx/h/{}", tx.hash),
