@@ -77,4 +77,4 @@ packages = ["nettools", "rustc", "circom", "openssl", "pkg-config"]
 [deployment]
 deploymentTarget = "vm"
 run = ["bash", "-c", "target/release/rinku-node & npx serve -s packages/explorer/dist -l 5000"]
-build = ["bash", "-c", "cargo build --release --manifest-path packages/rinku-node/Cargo.toml && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
+build = ["bash", "-c", "cargo build --release --manifest-path packages/rinku-node/Cargo.toml --no-default-features && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]

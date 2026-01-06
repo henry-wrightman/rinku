@@ -93,6 +93,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Finality Time Tracking:** Checkpoints now record finalization latency (time from tx creation to finalization) in a rolling VecDeque, enabling dynamic avg/p95 finality calculations
 - **Timestamp Format Handling:** Fixed finality time calculation to handle both seconds and milliseconds timestamps correctly
 - **Finality Metrics Accuracy Fix:** Fixed sampling bias where rolling window of 100 entries only captured recently-created transactions. Now tracks aggregate stats (sum/count) across ALL finalized transactions for accurate average, with expanded 1000-entry rolling window for percentiles. Avg finality now correctly shows ~7s (matching 15s checkpoint interval)
+- **Optional Feature Flags:** Added `zk` and `p2p` Cargo features to make heavy dependencies optional. Default build excludes ark-* ZK-SNARK libraries and libp2p networking stack, reducing binary size from ~50MB to 8.5MB. Use `--features full` for local development with all features enabled.
 
 ### Development Notes
 - Rust node runs on port 3001, TypeScript explorer on port 5000
