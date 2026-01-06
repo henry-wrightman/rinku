@@ -30,3 +30,4 @@ packages/node/.rinku-data/
 .cache/
 .upm/
 .config/
+rinku-node-bin
