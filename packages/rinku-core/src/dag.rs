@@ -38,20 +38,20 @@ impl Dag {
             return Ok(());
         }
 
-        for parent_hash in &node.parents {
-            if !parent_hash.is_empty() && !self.hash_to_index.contains_key(parent_hash) {
-                return Err(DagError::InvalidParent(parent_hash.clone()));
-            }
-        }
-
         let hash = node.hash.clone();
         let parents = node.parents.clone();
+
+        for parent_hash in &parents {
+            if !parent_hash.is_empty() && parent_hash == &hash {
+                return Err(DagError::CycleDetected);
+            }
+        }
 
         let node_idx = self.graph.add_node(node);
         self.hash_to_index.insert(hash.clone(), node_idx);
 
         for parent_hash in &parents {
-            if !parent_hash.is_empty() {
+            if !parent_hash.is_empty() && parent_hash != &hash {
                 if let Some(&parent_idx) = self.hash_to_index.get(parent_hash) {
                     self.graph.add_edge(parent_idx, node_idx, ());
 
@@ -73,6 +73,52 @@ impl Dag {
         }
 
         Ok(())
+    }
+
+    pub fn add_node_with_stats(&mut self, node: DagNode) -> Result<(usize, usize), DagError> {
+        if self.hash_to_index.contains_key(&node.hash) {
+            return Ok((0, 0));
+        }
+
+        let hash = node.hash.clone();
+        let parents = node.parents.clone();
+
+        for parent_hash in &parents {
+            if !parent_hash.is_empty() && parent_hash == &hash {
+                return Err(DagError::CycleDetected);
+            }
+        }
+
+        let total_parents = parents.iter().filter(|p| !p.is_empty() && *p != &hash).count();
+
+        let node_idx = self.graph.add_node(node);
+        self.hash_to_index.insert(hash.clone(), node_idx);
+
+        let mut linked_parents = 0;
+        for parent_hash in &parents {
+            if !parent_hash.is_empty() && parent_hash != &hash {
+                if let Some(&parent_idx) = self.hash_to_index.get(parent_hash) {
+                    self.graph.add_edge(parent_idx, node_idx, ());
+
+                    if let Some(parent_node) = self.graph.node_weight_mut(parent_idx) {
+                        if !parent_node.children.contains(&hash) {
+                            parent_node.children.push(hash.clone());
+                        }
+                    }
+
+                    self.tips.remove(parent_hash);
+                    linked_parents += 1;
+                }
+            }
+        }
+
+        self.tips.insert(hash);
+
+        if self.graph.node_count() > self.max_nodes {
+            self.prune_oldest()?;
+        }
+
+        Ok((linked_parents, total_parents))
     }
 
     pub fn get_node(&self, hash: &str) -> Option<&DagNode> {
@@ -527,5 +573,56 @@ mod tests {
 
         let common = dag.find_common_ancestor("a1", "b1");
         assert_eq!(common, Some("root".to_string()));
+    }
+
+    #[test]
+    fn test_missing_parents_accepted() {
+        let mut dag = Dag::new(100);
+
+        dag.add_node(make_tx("root", vec![])).unwrap();
+
+        let result = dag.add_node(make_tx("child", vec![
+            "root".to_string(),
+            "missing_parent".to_string(),
+        ]));
+        assert!(result.is_ok());
+
+        assert!(dag.contains("child"));
+        assert_eq!(dag.tip_count(), 1);
+        assert!(dag.tips().contains(&"child".to_string()));
+
+        let root_node = dag.get_node("root").unwrap();
+        assert!(root_node.children.contains(&"child".to_string()));
+    }
+
+    #[test]
+    fn test_add_node_with_stats_tracks_linked_parents() {
+        let mut dag = Dag::new(100);
+
+        dag.add_node(make_tx("root", vec![])).unwrap();
+
+        let (linked, total) = dag.add_node_with_stats(make_tx("child", vec![
+            "root".to_string(),
+            "missing1".to_string(),
+            "missing2".to_string(),
+        ])).unwrap();
+
+        assert_eq!(linked, 1);
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn test_self_parent_rejected() {
+        let mut dag = Dag::new(100);
+
+        let result = dag.add_node(make_tx("self_ref", vec!["self_ref".to_string()]));
+        assert!(result.is_err());
+        
+        match result {
+            Err(DagError::CycleDetected) => {}
+            _ => panic!("Expected CycleDetected error"),
+        }
+
+        assert!(!dag.contains("self_ref"));
     }
 }
