@@ -354,6 +354,10 @@ impl NodeState {
         state.total_transactions
     }
 
+    pub fn get_elapsed_seconds(&self) -> f64 {
+        self.start_time.elapsed().as_secs_f64()
+    }
+
     pub async fn get_all_accounts(&self) -> Vec<Account> {
         let state = self.inner.read().await;
         state.accounts.values().cloned().collect()

@@ -621,8 +621,14 @@ async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsR
     } else {
         0.0
     };
+    let elapsed_secs = state.get_elapsed_seconds();
+    let tps = if elapsed_secs > 0.0 && total_transactions > 0 {
+        (total_transactions as f64) / elapsed_secs
+    } else {
+        0.0
+    };
     Json(NetworkStatsResponse {
-        tps: if total_transactions > 0 { (total_transactions as f64) / 60.0 } else { 0.0 },
+        tps,
         total_transactions_processed: total_transactions,
         finalized_count,
         unfinalized_count,
