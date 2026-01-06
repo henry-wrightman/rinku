@@ -19,6 +19,7 @@ pub struct NodeConfig {
     pub rate_limit_tx_max: u32,
     pub rate_limit_contract_max: u32,
     pub rate_limit_general_max: u32,
+    pub static_dir: Option<String>,
 }
 
 impl NodeConfig {
@@ -79,6 +80,7 @@ impl NodeConfig {
                 .ok()
                 .and_then(|n| n.parse().ok())
                 .unwrap_or(100),
+            static_dir: env::var("STATIC_DIR").ok(),
         }
     }
 }

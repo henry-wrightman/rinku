@@ -7,8 +7,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
 use tracing::info;
 
 use crate::state::NodeState;
@@ -1206,13 +1208,17 @@ rinku_supply_total {}
     )
 }
 
-pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<JoinHandle<()>> {
+pub async fn start_api_server(
+    state: NodeState,
+    port: u16,
+    static_dir: Option<PathBuf>,
+) -> anyhow::Result<JoinHandle<()>> {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new()
+    let api_routes = Router::new()
         .route("/health", get(health))
         .route("/api/stats", get(get_stats))
         .route("/api/tips", get(get_tips))
@@ -1246,8 +1252,23 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/api/gossip/stats", get(get_gossip_stats))
         .route("/api/tip-consolidator/stats", get(get_tip_consolidator_stats))
         .route("/metrics", get(get_metrics))
-        .layer(cors)
+        .layer(cors.clone())
         .with_state(state);
+
+    let app = if let Some(static_path) = static_dir {
+        if static_path.exists() {
+            let index_path = static_path.join("index.html");
+            let serve_dir = ServeDir::new(&static_path)
+                .not_found_service(ServeFile::new(&index_path));
+            info!("Serving static files from {:?}", static_path);
+            api_routes.fallback_service(serve_dir)
+        } else {
+            info!("Static directory {:?} not found, API-only mode", static_path);
+            api_routes
+        }
+    } else {
+        api_routes
+    };
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("API server listening on {}", addr);
@@ -1255,7 +1276,7 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app.into_make_service()).await.unwrap();
     });
 
     Ok(handle)

@@ -115,10 +115,14 @@ async fn main() -> Result<()> {
     });
     info!("Tip consolidation service started");
 
-    let api_handle = api::start_api_server(state.clone(), config.api_port).await?;
+    let static_dir = config.static_dir.as_ref().map(std::path::PathBuf::from);
+    let api_handle = api::start_api_server(state.clone(), config.api_port, static_dir).await?;
 
     info!("Rinku Node running on port {}", config.api_port);
     info!("API available at http://0.0.0.0:{}/api", config.api_port);
+    if config.static_dir.is_some() {
+        info!("Static files enabled for production mode");
+    }
 
     tokio::select! {
         _ = api_handle => info!("API server stopped"),
