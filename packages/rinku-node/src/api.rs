@@ -7,10 +7,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::{ServeDir, ServeFile};
 use tracing::info;
 
 use crate::state::NodeState;
@@ -1214,7 +1212,7 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let api_routes = Router::new()
+    let app = Router::new()
         .route("/health", get(health))
         .route("/api/stats", get(get_stats))
         .route("/api/tips", get(get_tips))
@@ -1248,21 +1246,8 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
         .route("/api/gossip/stats", get(get_gossip_stats))
         .route("/api/tip-consolidator/stats", get(get_tip_consolidator_stats))
         .route("/metrics", get(get_metrics))
-        .layer(cors.clone())
+        .layer(cors)
         .with_state(state);
-
-    // Check for static files directory (production deployment)
-    let static_dir = PathBuf::from("packages/explorer/dist");
-    let app = if static_dir.exists() {
-        info!("Serving static files from {:?}", static_dir);
-        let index_file = static_dir.join("index.html");
-        let serve_dir = ServeDir::new(&static_dir)
-            .not_found_service(ServeFile::new(&index_file));
-        api_routes.fallback_service(serve_dir)
-    } else {
-        info!("No static files directory found, API-only mode");
-        api_routes
-    };
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("API server listening on {}", addr);
@@ -1270,7 +1255,7 @@ pub async fn start_api_server(state: NodeState, port: u16) -> anyhow::Result<Joi
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service()).await.unwrap();
+        axum::serve(listener, app).await.unwrap();
     });
 
     Ok(handle)
