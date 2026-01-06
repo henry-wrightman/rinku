@@ -6,12 +6,19 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::info;
+
+static FAUCET_RATE_LIMIT: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+const FAUCET_AMOUNT: f64 = 100.0;
+const FAUCET_RATE_LIMIT_MS: u64 = 60_000;
 
 use crate::state::NodeState;
 
@@ -111,6 +118,19 @@ struct SubmitTxResponse {
 struct HealthResponse {
     status: String,
     version: String,
+}
+
+#[derive(Deserialize)]
+struct FaucetRequest {
+    address: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FaucetResponse {
+    success: bool,
+    amount: f64,
+    tx_hash: String,
 }
 
 #[derive(Serialize)]
@@ -242,6 +262,90 @@ async fn health() -> Json<HealthResponse> {
         status: "ok".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     })
+}
+
+async fn handle_faucet_request(
+    State(state): State<NodeState>,
+    Json(req): Json<FaucetRequest>,
+) -> impl IntoResponse {
+    let address = req.address.trim().to_string();
+    
+    if address.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Address required" })),
+        ).into_response();
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    {
+        let mut rate_limit = FAUCET_RATE_LIMIT.lock().unwrap();
+        if let Some(&last_request) = rate_limit.get(&address) {
+            if now - last_request < FAUCET_RATE_LIMIT_MS {
+                let wait_time = (FAUCET_RATE_LIMIT_MS - (now - last_request)) / 1000;
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    Json(serde_json::json!({ 
+                        "error": format!("Rate limited. Try again in {} seconds", wait_time) 
+                    })),
+                ).into_response();
+            }
+        }
+        rate_limit.insert(address.clone(), now);
+    }
+
+    let tips = state.get_tips().await;
+    let tip_urls: Vec<String> = tips
+        .into_iter()
+        .take(2)
+        .map(|hash| format!("rinku://tx/h/{}", hash))
+        .collect();
+
+    let faucet_account = state.get_account("faucet").await;
+    let nonce = faucet_account.map(|a| a.nonce).unwrap_or(0) + 1;
+
+    let inner_tx = rinku_core::types::Transaction {
+        from: "faucet".to_string(),
+        to: address,
+        amount: FAUCET_AMOUNT,
+        nonce,
+        timestamp: now,
+        parents: tip_urls,
+        kind: None,
+        gas_limit: None,
+        gas_price: Some(0.0),
+        data: None,
+        signature: None,
+    };
+
+    let tx = rinku_core::types::SignedTransaction {
+        tx: inner_tx,
+        hash: String::new(),
+        signature: "faucet-signature".to_string(),
+    };
+
+    let tx_json = serde_json::to_string(&tx.tx).unwrap_or_default();
+    let hash = rinku_core::crypto::hash_transaction(&tx_json);
+    let tx = rinku_core::types::SignedTransaction { hash: hash.clone(), ..tx };
+
+    match state.add_transaction(tx).await {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!(FaucetResponse {
+                success: true,
+                amount: FAUCET_AMOUNT,
+                tx_hash: hash,
+            })),
+        ).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ).into_response(),
+    }
 }
 
 async fn get_stats(State(state): State<NodeState>) -> Json<StatsResponse> {
@@ -1223,6 +1327,7 @@ pub async fn start_api_server(
         .route("/api/stats", get(get_stats))
         .route("/api/tips", get(get_tips))
         .route("/api/tipUrls", get(get_tip_urls))
+        .route("/api/request", post(handle_faucet_request))
         .route("/api/account/:address", get(get_account))
         .route("/api/tx", post(submit_legacy_transaction))
         .route("/api/tx/batch", post(submit_batch_transaction))
