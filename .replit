@@ -77,7 +77,7 @@ packages = ["nettools", "rustc", "circom", "openssl", "pkg-config"]
 [deployment]
 deploymentTarget = "autoscale"
 run = ["./rinku-node-bin"]
-build = ["bash", "-c", "cargo build --release --no-default-features -p rinku-node && cp target/release/rinku-node ./rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
+build = ["bash", "-c", "rm -f ./rinku-node-bin && cargo build --release --no-default-features -p rinku-node && cp target/release/rinku-node ./rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
 
 [userenv]
 
