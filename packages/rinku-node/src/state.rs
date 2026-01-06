@@ -59,6 +59,7 @@ pub struct NodeState {
     pub emission: Arc<RwLock<EmissionService>>,
     pub slashing: Arc<RwLock<SlashingService>>,
     pub rewards: Arc<RwLock<RewardsService>>,
+    start_time: std::time::Instant,
 }
 
 impl NodeState {
@@ -189,7 +190,15 @@ impl NodeState {
 
         let emission = EmissionService::new();
         let slashing = SlashingService::new();
-        let rewards = RewardsService::new(crate::rewards::RewardConfig::default());
+        
+        // Load rewards from persistence or create fresh
+        let rewards = if let Some(snapshot) = persistence.load_rewards()? {
+            info!("Restored rewards: {} stakes, {} pending", 
+                snapshot.stakes.len(), snapshot.pending_rewards.len());
+            RewardsService::from_json(snapshot)
+        } else {
+            RewardsService::new(crate::rewards::RewardConfig::default())
+        };
 
         Ok(Self {
             config,
@@ -198,6 +207,7 @@ impl NodeState {
             emission: Arc::new(RwLock::new(emission)),
             slashing: Arc::new(RwLock::new(slashing)),
             rewards: Arc::new(RwLock::new(rewards)),
+            start_time: std::time::Instant::now(),
         })
     }
 
@@ -213,7 +223,18 @@ impl NodeState {
             state.genesis_time,
             &transactions,
         )?;
+        
+        // Also save rewards/staking state
+        let rewards = self.rewards.read().await;
+        let rewards_snapshot = rewards.to_json();
+        drop(rewards);
+        self.persistence.save_rewards(&rewards_snapshot)?;
+        
         Ok(())
+    }
+
+    pub async fn get_uptime_seconds(&self) -> u64 {
+        self.start_time.elapsed().as_secs()
     }
 
     pub async fn get_account(&self, address: &str) -> Option<Account> {

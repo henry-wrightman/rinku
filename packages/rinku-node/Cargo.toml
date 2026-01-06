@@ -57,6 +57,7 @@ blst = { workspace = true }
 flate2 = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
+sysinfo = { workspace = true }
 
 # ZK-SNARKs (optional - heavy dependencies)
 ark-bn254 = { workspace = true, optional = true }

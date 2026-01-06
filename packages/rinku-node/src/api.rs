@@ -1261,12 +1261,34 @@ async fn get_version() -> Json<VersionResponse> {
 }
 
 async fn get_metrics(State(state): State<NodeState>) -> String {
+    use sysinfo::{System, Pid};
+    
     let (dag_nodes, tips, accounts) = state.get_dag_stats().await;
     let checkpoint_height = state.get_checkpoint_height().await;
     let gas_price = state.get_gas_price().await;
     let validators = state.get_validator_count().await;
     let total_stake = state.get_total_stake().await;
     let total_supply = state.get_total_supply().await;
+    let total_transactions = state.get_total_transactions().await;
+    let (finalized, unfinalized) = state.get_finalized_stats().await;
+    
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    
+    let pid = Pid::from_u32(std::process::id());
+    let (process_memory_bytes, process_cpu_percent, process_threads) = 
+        if let Some(process) = sys.process(pid) {
+            (process.memory(), process.cpu_usage(), 0u64)
+        } else {
+            (0, 0.0, 0)
+        };
+    
+    let total_memory = sys.total_memory();
+    let used_memory = sys.used_memory();
+    let cpu_count = sys.cpus().len();
+    let global_cpu_percent: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32;
+    
+    let uptime_seconds = state.get_uptime_seconds().await;
 
     format!(
         r#"# HELP rinku_dag_nodes_total Total number of nodes in the DAG
@@ -1280,6 +1302,18 @@ rinku_dag_tips_total {}
 # HELP rinku_accounts_total Total number of accounts
 # TYPE rinku_accounts_total gauge
 rinku_accounts_total {}
+
+# HELP rinku_transactions_total Total transactions processed
+# TYPE rinku_transactions_total counter
+rinku_transactions_total {}
+
+# HELP rinku_transactions_finalized Total finalized transactions
+# TYPE rinku_transactions_finalized gauge
+rinku_transactions_finalized {}
+
+# HELP rinku_transactions_unfinalized Pending unfinalized transactions
+# TYPE rinku_transactions_unfinalized gauge
+rinku_transactions_unfinalized {}
 
 # HELP rinku_checkpoint_height Current checkpoint height
 # TYPE rinku_checkpoint_height gauge
@@ -1300,15 +1334,58 @@ rinku_stake_total {}
 # HELP rinku_supply_total Total RKU supply
 # TYPE rinku_supply_total gauge
 rinku_supply_total {}
+
+# HELP process_resident_memory_bytes Process memory usage in bytes
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes {}
+
+# HELP process_cpu_percent Process CPU usage percentage
+# TYPE process_cpu_percent gauge
+process_cpu_percent {}
+
+# HELP process_threads_total Number of threads in the process
+# TYPE process_threads_total gauge
+process_threads_total {}
+
+# HELP system_memory_total_bytes Total system memory in bytes
+# TYPE system_memory_total_bytes gauge
+system_memory_total_bytes {}
+
+# HELP system_memory_used_bytes Used system memory in bytes
+# TYPE system_memory_used_bytes gauge
+system_memory_used_bytes {}
+
+# HELP system_cpu_count Number of CPU cores
+# TYPE system_cpu_count gauge
+system_cpu_count {}
+
+# HELP system_cpu_percent_avg Average system CPU usage percentage
+# TYPE system_cpu_percent_avg gauge
+system_cpu_percent_avg {}
+
+# HELP rinku_uptime_seconds Node uptime in seconds
+# TYPE rinku_uptime_seconds counter
+rinku_uptime_seconds {}
 "#,
         dag_nodes,
         tips,
         accounts,
+        total_transactions,
+        finalized,
+        unfinalized,
         checkpoint_height,
         gas_price,
         validators,
         total_stake,
         total_supply,
+        process_memory_bytes,
+        process_cpu_percent,
+        process_threads,
+        total_memory,
+        used_memory,
+        cpu_count,
+        global_cpu_percent,
+        uptime_seconds,
     )
 }
 

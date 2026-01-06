@@ -3,6 +3,7 @@ use rinku_core::types::{Account, Checkpoint, SignedTransaction, Validator};
 use sled::Db;
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
+use crate::rewards::RewardsSnapshot;
 
 pub struct PersistenceService {
     db: Db,
@@ -131,6 +132,31 @@ impl PersistenceService {
     pub fn flush(&self) -> Result<()> {
         self.db.flush()?;
         Ok(())
+    }
+
+    pub fn save_rewards(&self, snapshot: &RewardsSnapshot) -> Result<()> {
+        let data = serde_json::to_vec(snapshot)?;
+        self.db.insert("rewards", data)?;
+        self.db.flush()?;
+        debug!("Saved rewards snapshot: {} stakes", snapshot.stakes.len());
+        Ok(())
+    }
+
+    pub fn load_rewards(&self) -> Result<Option<RewardsSnapshot>> {
+        match self.db.get("rewards")? {
+            Some(data) => {
+                let snapshot: RewardsSnapshot = serde_json::from_slice(&data)?;
+                info!("Loaded rewards snapshot: {} stakes, {} pending rewards",
+                    snapshot.stakes.len(),
+                    snapshot.pending_rewards.len()
+                );
+                Ok(Some(snapshot))
+            }
+            None => {
+                warn!("No rewards snapshot found, starting fresh");
+                Ok(None)
+            }
+        }
     }
 }
 

@@ -124,6 +124,21 @@ async fn main() -> Result<()> {
     });
     info!("Tip consolidation service started");
 
+    // Periodic snapshot saving (every 60 seconds)
+    let snapshot_state = state.clone();
+    let snapshot_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            if let Err(e) = snapshot_state.save_snapshot().await {
+                tracing::error!("Failed to save snapshot: {}", e);
+            } else {
+                tracing::debug!("Snapshot saved successfully");
+            }
+        }
+    });
+    info!("Snapshot persistence started (60s interval)");
+
     let static_dir = config.static_dir.as_ref().map(std::path::PathBuf::from);
     info!("STATIC_DIR config: {:?}", config.static_dir);
     let api_handle = api::start_api_server(state.clone(), config.api_port, static_dir).await?;
@@ -141,6 +156,7 @@ async fn main() -> Result<()> {
         _ = checkpoint_handle => info!("Checkpoint service stopped"),
         _ = fork_handle => info!("Fork remediation stopped"),
         _ = tip_handle => info!("Tip consolidation stopped"),
+        _ = snapshot_handle => info!("Snapshot persistence stopped"),
     }
 
     Ok(())
