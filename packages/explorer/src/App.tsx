@@ -15,11 +15,15 @@ import { formatNumber, formatTps } from "./utils";
 
 // In production, API is on same host but port 3001. In dev, Vite proxies /api to 3001.
 const getApiBaseUrl = () => {
-  // if (import.meta.env.PROD) {
-  //   // Production: construct API URL from current host
-  //   const host = window.location.hostname;
-  //   return `https://${host.replace(/-5000\./, '-3001.')}/api`;
-  // }
+  if (import.meta.env.PROD) {
+    // Production: construct API URL from current host
+    const host = window.location.hostname;
+    console.log(
+      "prod api url",
+      `https://${host.replace(/-5000\./, "-3001.")}/api`,
+    );
+    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+  }
   return "/api"; // Dev: use Vite proxy
 };
 const NODE_URL = getApiBaseUrl();
