@@ -65,6 +65,10 @@ impl CheckpointService {
         hasher.finalize().to_vec()
     }
 
+    fn is_valid_hex_hash(s: &str) -> bool {
+        s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
+    }
+
     async fn create_checkpoint(&self) -> Result<()> {
         let (unfinalized_hashes, tx_merkle_root, height, previous_hash) = {
             let state = self.state.inner.read().await;
@@ -74,6 +78,7 @@ impl CheckpointService {
                 .get_unfinalized_nodes()
                 .iter()
                 .map(|n| n.hash.clone())
+                .filter(|h| Self::is_valid_hex_hash(h))
                 .collect();
 
             if unfinalized.is_empty() {

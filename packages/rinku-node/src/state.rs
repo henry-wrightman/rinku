@@ -71,17 +71,21 @@ impl NodeState {
             persistence.load_snapshot()? 
         {
             let tx_count = txs.len() as u64;
-            info!("Restored from snapshot: {} accounts, {} txs", accounts.len(), tx_count);
+            let checkpoint_count = checkpoints.len() as u64;
+            info!("Restored from snapshot: {} accounts, {} txs, {} checkpoints", accounts.len(), tx_count, checkpoint_count);
             let mut dag = Dag::new(config.max_dag_nodes);
             for tx in txs {
+                // Genesis transaction and txs from before checkpoints should be considered finalized
+                let is_genesis = tx.tx.from == "genesis";
+                let is_finalized = is_genesis || checkpoint_count > 0;
                 let node = rinku_core::types::DagNode {
                     hash: tx.hash.clone(),
                     tx: tx.clone(),
                     parents: tx.tx.parents.clone(),
                     children: Vec::new(),
                     weight: 1.0,
-                    finalized: false,
-                    checkpoint_height: None,
+                    finalized: is_finalized,
+                    checkpoint_height: if is_genesis { Some(0) } else if is_finalized { Some(checkpoint_count) } else { None },
                 };
                 let _ = dag.add_node(node);
             }
@@ -132,7 +136,9 @@ impl NodeState {
             info!("Faucet account initialized with {} RKU", faucet_balance);
 
             let mut dag = Dag::new(config.max_dag_nodes);
-            let genesis_hash = format!("genesis-{}", genesis_time);
+            // Generate a proper 64-character hex hash for genesis
+            let genesis_data = format!("genesis:{}", genesis_time);
+            let genesis_hash = rinku_core::sha256_hex(&genesis_data);
             let genesis_tx = SignedTransaction {
                 tx: rinku_core::types::Transaction {
                     from: "genesis".to_string(),
