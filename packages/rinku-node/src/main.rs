@@ -46,7 +46,7 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    info!("Starting Rinku Node (Rust)...");
+    info!("Starting Rinku Node");
 
     let config = NodeConfig::from_env();
     info!("Node ID: {}", config.node_id);
@@ -77,13 +77,19 @@ async fn main() -> Result<()> {
         config.checkpoint_interval_ms,
         validator_address.clone(),
     );
-    info!("BLS public key: {}...", &checkpoint_service.bls_public_key_base64()[..32]);
+    info!(
+        "BLS public key: {}...",
+        &checkpoint_service.bls_public_key_base64()[..32]
+    );
     let checkpoint_handle = tokio::spawn(async move {
         if let Err(e) = checkpoint_service.start().await {
             tracing::error!("Checkpoint service error: {}", e);
         }
     });
-    info!("Checkpoint service started ({}ms interval)", config.checkpoint_interval_ms);
+    info!(
+        "Checkpoint service started ({}ms interval)",
+        config.checkpoint_interval_ms
+    );
 
     let fork_service = ForkRemediationService::new(state.clone());
     let fork_handle = tokio::spawn(async move {
@@ -104,7 +110,10 @@ async fn main() -> Result<()> {
                 tracing::error!("Gossip service error: {}", e);
             }
         });
-        info!("Gossip service started ({}ms interval)", config.gossip_interval_ms);
+        info!(
+            "Gossip service started ({}ms interval)",
+            config.gossip_interval_ms
+        );
     }
 
     let tip_consolidator = TipConsolidator::new(state.clone(), validator_address);

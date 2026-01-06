@@ -1,0 +1,116 @@
+2026-01-06 08:53:06.54
+7bdec758
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2026-01-06 08:53:06.55
+7bdec758
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2026-01-06 08:53:07.00
+7bdec758
+User
+2026-01-06T13:53:07.000750Z INFO rinku_node: Starting Rinku Node (Rust)...
+2026-01-06 08:53:07.00
+7bdec758
+User
+2026-01-06T13:53:07.002043Z INFO rinku_node: Node ID: a286c10d49df4dae
+2026-01-06 08:53:07.00
+7bdec758
+User
+2026-01-06T13:53:07.002063Z INFO rinku_node: Data dir: .rinku-data
+2026-01-06 08:53:07.12
+7bdec758
+User
+2026-01-06T13:53:07.127806Z INFO rinku_node::state: Faucet account initialized with 1000000 RKU
+2026-01-06 08:53:07.12
+7bdec758
+User
+2026-01-06T13:53:07.127762Z INFO rinku_node::persistence: Opened sled database at .rinku-data/sled-db
+2026-01-06 08:53:07.12
+7bdec758
+User
+2026-01-06T13:53:07.127795Z WARN rinku_node::persistence: No snapshot found, starting fresh
+2026-01-06 08:53:07.12
+7bdec758
+User
+2026-01-06T13:53:07.127825Z INFO rinku_node::state: Genesis transaction created: genesis-17677075
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133754Z INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133439Z INFO rinku_node: Validator key loaded: 8c74006d425f3719...
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133658Z INFO rinku_node: Checkpoint service started (15000ms interval)
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133472Z INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133722Z INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 200, interval: 3000ms)
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133912Z INFO rinku_node::api: API server listening on 0.0.0.0:5000
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133425Z INFO rinku_node::validator: Loaded validator key: 8c74006d425f3719...
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133677Z INFO rinku_node: Tip consolidation service started
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133632Z INFO rinku_node: BLS public key: j24fUMou6cF_JiMKgfFiM6RGztGXllGw...
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133663Z INFO rinku_node: Fork remediation service started
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133470Z INFO rinku_node: Rewards service initialized
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133475Z INFO rinku_node: Slashing service initialized
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133672Z INFO rinku_node: Gossip service started (200ms interval)
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.133466Z INFO rinku_node: Gas service initialized
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.134405Z INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 0)
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.134558Z INFO rinku_node: API available at http://0.0.0.0:5000/api
+2026-01-06 08:53:07.13
+7bdec758
+User
+2026-01-06T13:53:07.134538Z INFO rinku_node: Rinku Node running on port 5000
+2026-01-06 08:55:00.91
+59828fab
+System
+system: received signal terminated
+2026-01-06 08:55:00.91
+59828fab
+System
+command finished with error [./rinku-node-bin]: signal: terminated
+2026-01-06 08:55:00.98
+59828fab
+System
+main done, exiting
