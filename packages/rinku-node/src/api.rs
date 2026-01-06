@@ -812,20 +812,29 @@ async fn get_self_provable_tx(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct StakingResponse {
-    total_staked: f64,
-    validator_count: usize,
-    min_stake: f64,
-    unbonding_period_ms: u64,
-    validators: Vec<ValidatorInfo>,
+struct StakingConfig {
+    tip_reward_rate: f64,
+    stake_reward_rate: f64,
+    witness_reward_rate: f64,
+    min_stake_amount: f64,
+    unstake_cooldown_ms: u64,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ValidatorInfo {
-    address: String,
-    stake: f64,
-    active: bool,
+struct StakingResponse {
+    total_staked: f64,
+    validators: Vec<StakerInfo>,
+    top_stakers: Vec<StakerInfo>,
+    config: StakingConfig,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct StakerInfo {
+    staker: String,
+    amount: f64,
+    staked_at: u64,
 }
 
 async fn get_staking(State(state): State<NodeState>) -> Json<StakingResponse> {
@@ -833,16 +842,27 @@ async fn get_staking(State(state): State<NodeState>) -> Json<StakingResponse> {
     let total_staked = rewards.get_total_staked();
     let active_validators = rewards.get_active_validators();
     
+    let stakers: Vec<StakerInfo> = active_validators.iter().map(|v| StakerInfo {
+        staker: v.staker.clone(),
+        amount: v.amount,
+        staked_at: v.staked_at,
+    }).collect();
+    
+    let mut top_stakers = stakers.clone();
+    top_stakers.sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap_or(std::cmp::Ordering::Equal));
+    top_stakers.truncate(10);
+    
     Json(StakingResponse {
         total_staked,
-        validator_count: active_validators.len(),
-        min_stake: 1000.0,
-        unbonding_period_ms: 7 * 24 * 60 * 60 * 1000,
-        validators: active_validators.into_iter().map(|v| ValidatorInfo {
-            address: v.staker.clone(),
-            stake: v.amount,
-            active: true,
-        }).collect(),
+        validators: stakers,
+        top_stakers,
+        config: StakingConfig {
+            tip_reward_rate: 0.30,
+            stake_reward_rate: 0.50,
+            witness_reward_rate: 0.20,
+            min_stake_amount: 100.0,
+            unstake_cooldown_ms: 7 * 24 * 60 * 60 * 1000,
+        },
     })
 }
 
@@ -904,16 +924,23 @@ async fn get_rewards_config() -> Json<RewardsConfigResponse> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct EmissionScheduleItem {
+    epoch: u32,
+    start_height: u64,
+    reward: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EmissionResponse {
+    current_epoch: u32,
     current_reward: f64,
-    halving_epoch: u32,
-    next_halving_at: u64,
-    total_emitted: f64,
-    remaining_to_emit: f64,
-    circulating_supply: f64,
-    total_burned: f64,
-    validator_fee_percent: f64,
-    burn_percent: f64,
+    halving_interval: u64,
+    total_halvings: u32,
+    min_reward: f64,
+    schedule: Vec<EmissionScheduleItem>,
+    stake_weight_percent: f64,
+    age_weight_percent: f64,
 }
 
 async fn get_tokenomics_emission(State(state): State<NodeState>) -> Json<EmissionResponse> {
@@ -921,24 +948,47 @@ async fn get_tokenomics_emission(State(state): State<NodeState>) -> Json<Emissio
     let emission = state.emission.read().await;
     let stats = emission.get_stats(checkpoint_height);
     
+    let halving_interval: u64 = 3_150_000;
+    let mut schedule = Vec::new();
+    let mut reward = 12.5;
+    for epoch in 0..10 {
+        schedule.push(EmissionScheduleItem {
+            epoch,
+            start_height: epoch as u64 * halving_interval,
+            reward,
+        });
+        reward /= 2.0;
+    }
+    
     Json(EmissionResponse {
+        current_epoch: stats.halving_epoch,
         current_reward: stats.current_reward,
-        halving_epoch: stats.halving_epoch,
-        next_halving_at: stats.next_halving_at,
-        total_emitted: stats.total_emitted,
-        remaining_to_emit: stats.remaining_to_emit,
-        circulating_supply: stats.circulating_supply,
-        total_burned: stats.total_burned,
-        validator_fee_percent: stats.validator_fee_percent,
-        burn_percent: stats.burn_percent,
+        halving_interval,
+        total_halvings: 10,
+        min_reward: 0.01,
+        schedule,
+        stake_weight_percent: 70.0,
+        age_weight_percent: 30.0,
     })
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SlashingConfigResponse {
+    double_sign_percent: f64,
+    invalid_checkpoint_percent: f64,
+    liveness_percent: f64,
+    liveness_repeat_percent: f64,
+    liveness_miss_threshold: u32,
+    unbonding_period_days: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SlashingResponse {
+    config: SlashingConfigResponse,
+    events: Vec<SlashEventResponse>,
     total_slashed: f64,
-    slash_events: Vec<SlashEventResponse>,
     unbonding_queue: Vec<UnbondingEntryResponse>,
 }
 
@@ -994,8 +1044,16 @@ async fn get_tokenomics_slashing(State(state): State<NodeState>) -> Json<Slashin
         .collect();
     
     Json(SlashingResponse {
+        config: SlashingConfigResponse {
+            double_sign_percent: 15.0,
+            invalid_checkpoint_percent: 25.0,
+            liveness_percent: 5.0,
+            liveness_repeat_percent: 10.0,
+            liveness_miss_threshold: 3,
+            unbonding_period_days: 14,
+        },
+        events: slash_events,
         total_slashed: slashing.get_total_slashed(),
-        slash_events,
         unbonding_queue,
     })
 }

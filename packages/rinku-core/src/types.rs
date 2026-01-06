@@ -29,7 +29,7 @@ pub struct Transaction {
     pub gas_price: Option<f64>,
     #[serde(default)]
     pub data: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "txSignature", skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
 }
 
