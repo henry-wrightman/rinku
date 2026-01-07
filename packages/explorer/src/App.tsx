@@ -223,9 +223,14 @@ function App() {
         nodeVersion={versionInfo?.nodeVersion}
       />
 
-      <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
-        {darkMode ? "☀" : "☾"}
-      </button>
+      <div className="header-actions">
+        <a href="/WHITEPAPER.md" target="_blank" rel="noopener noreferrer" className="whitepaper-link">
+          whitepaper
+        </a>
+        <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
+          {darkMode ? "☀" : "☾"}
+        </button>
+      </div>
 
       <div className="stats">
         <div className="stat-item">

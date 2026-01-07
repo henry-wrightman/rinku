@@ -1,6 +1,6 @@
 # Rinku: Self-Provable URLs for Trustless Verification
 
-**Abstract.** We propose a distributed ledger where URLs serve as self-contained cryptographic proofs. This would enable trustless verification without reliance on external infrastructure or services - essentially offline, verifiable transactions. A Rinku URL carries not just transaction data, but its complete verification path; ancestry, signatures, and checkpoint anchors. Ultimately, *the link itself is the proof*. This paper focuses on the URL-native proof system that makes this possible.
+**Abstract.** We propose a distributed ledger in which URLs serve as self-contained cryptographic proofs. This would enable trustless verification without reliance on external infrastructure or services - essentially offline, verifiable transactions. A Rinku URL carries not just transaction data, but its complete verification path; ancestry, signatures, and checkpoint anchors. Ultimately, *the link itself is the proof*. This paper focuses on the URL-native proof system that makes this possible.
 
 ## 1. The Problem with Verification Today
 
@@ -16,7 +16,7 @@ Even with light clients, users ultimately must trust *someone else's infrastruct
 
 ## 2. URLs as Proofs
 
-Rinku challenges and inverts the traditional model. Instead of storing data on-chain and fetching proofs from nodes, we encode proofs *directly in URLs*:
+Rinku challenges and inverts the traditional model. Instead of storing data on-chain and fetching proofs from nodes, we encode proofs directly into URLs:
 
 e.g
 ```
@@ -28,7 +28,7 @@ A Rinku URL contains:
 - Ancestry chain back to a finalized checkpoint
 - Checkpoint anchor (Merkle root, validator attestations)
 
-**The recipient can verify the entire proof offline.** No RPC calls. No "trusted" infrastructure. Just cryptographic verification of the URL's contents.
+**The recipient can verify the entire proof offline.** No RPC call or "trusted" infrastructure. Just cryptographic verification of the URL's contents.
 
 ## 3. How It Works
 
@@ -37,7 +37,7 @@ A Rinku URL contains:
 Transactions are encoded as compressed JSON directly in the URL path:
 
 ```
-Transaction → JSON → DEFLATE → Base64url → URL
+Transaction -> JSON -> DEFLATE -> Base64url -> URL
 ```
 
 A single transaction URL is roughly 600 characters. With 5 levels of ancestry (proving the transaction chains back to a checkpoint), URLs remain under 1,500 characters which could fit within a QR code.
@@ -116,7 +116,7 @@ Once the verifier has the URL, no further dependancy on infrastructure is needed
 
 Different use cases require different security/size tradeoffs:
 
-### Profile A: Receipt (~600-2,300 chars)
+### Profile A: Receipt (~600 - 2,300 characters)
 
 **What it proves:** Transaction is valid and chains to a prior checkpoint  
 **Trust assumption:** Verifier trusts the checkpoint was correctly signed  
@@ -126,9 +126,9 @@ Different use cases require different security/size tradeoffs:
 rinku://tx/{payload}
 ```
 
-### Profile B: Full Finality (~3,000-10,000 chars)
+### Profile B: Full Finality (~3,000 - 10,000 characters)
 
-**What it proves:** Transaction is Merkle-included in a checkpoint signed by ≥67% of validators  
+**What it proves:** Transaction is Merkle-included in a checkpoint signed by ≥ 67% of validators
 **Trust assumption:** Verifier knows the validator set  
 **Use case:** High-value settlements
 
@@ -136,11 +136,11 @@ rinku://tx/{payload}
 rinku://txp/{payload}
 ```
 
-### Profile C: Self-Contained (~1,600-2,800 chars)
+### Profile C: Self-Contained (~1,600 - 2,800 characters)
 
-**What it proves:** Everything in Profile B, plus the validator set commitment itself  
-**Trust assumption:** Trust anchor is minimal and can be pinned once (genesis or pinned checkpoint); thereafter proofs are offline-verifiable  
-**Use case:** Fully offline verification, air-gapped systems, legal evidence  
+**What it proves:** Everything in Profile B, in addition to the validator set commitment itself  
+**Trust assumption:** Trust anchor is minimal and can be pinned once (genesis or pinned checkpoint); subsequent proofs are offline-verifiable 
+**Use case:** Fully offline verification, air-gapped systems, legal evidence
 
 ```
 rinku://sp/{payload}
@@ -189,15 +189,13 @@ This mirrors TLS certificate chains: the proof is self-contained, but root trust
 
 Traditional flow:
 ```
-User → Trust Node → Query Proof → Verify with Node's Help
+User -> Trust Node -> Query Proof -> Verify with Node's Help
 ```
 
 Rinku flow:
 ```
-User → Receive URL → Verify Locally
+User -> Receive URL -> Verify Locally
 ```
-
-No node operators to trust or rely on. No API endpoints to maintain. No infrastructure that can fail.
 
 ### 7.2 Portable Proofs
 
@@ -255,9 +253,9 @@ Rinku achieves light-client-level verification with full-node-level trust assump
 
 ## 11. Conclusion
 
-Rinku demonstrates that distributed ledger proofs can be fully self-contained in URLs. By encoding transaction data, ancestry chains, and checkpoint anchors directly in the URL, we eliminate infrastructure dependencies for verification.
+Rinku demonstrates that distributed ledger proofs can be fully self-contained within URLs. By encoding transaction data, ancestry chains, and checkpoint anchors directly into the URL, we can eliminate infrastructure dependencies for verification.
 
-The core innovation is architectural: treating URLs as the canonical proof object rather than as references to external state. This enables truly trustless, offline verification - a property no existing blockchain achieves.
+The core innovation is architectural: treating URLs as the canonical proof object rather than as references to external state. This enables truly trustless, offline verification - a property no existing blockchain currently supports.
 
 *The link is the proof.*
 
@@ -317,8 +315,7 @@ interface ProofBundle {
 ### A.4 Canonical JSON
 
 Transaction fields are serialized in deterministic order for consistent hashing:
-`from, to, amount, fee, nonce, tipUrls, ts, sig`. 
-Canonical JSON = UTF-8, no whitespace, exact numeric encoding rules.
+`from, to, amount, fee, nonce, tipUrls, ts, sig`. Canonical JSON = UTF-8, no whitespace, exact numeric encoding rules.
 
 ---
 
@@ -370,3 +367,15 @@ async function verifyProofUrl(url) {
 ```
 
 ---
+
+## References
+
+1. D. Boneh, M. Drijvers, and G. Neven. "Compact Multi-Signatures for Smaller Blockchains." ASIACRYPT 2018. https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html
+
+2. D. Boneh, B. Lynn, and H. Shacham. "Short Signatures from the Weil Pairing." Journal of Cryptology, 2004.
+
+3. R. Merkle. "A Digital Signature Based on a Conventional Encryption Function." CRYPTO 1987.
+
+---
+
+*Rinku is Japanese for "link" - reflecting the project's core philosophy that the link itself carries the proof.*

@@ -584,10 +584,30 @@ input[type="text"]::placeholder {
   100% { color: #ff6b6b; }
 }
 
-.theme-toggle {
+.header-actions {
   position: absolute;
   top: 20px;
   right: 20px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.whitepaper-link {
+  color: #888;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 14px;
+  text-decoration: none;
+  border: 1px solid #444;
+  padding: 4px 8px;
+}
+
+.whitepaper-link:hover {
+  color: #ccc;
+  border-color: #888;
+}
+
+.theme-toggle {
   background: none;
   border: 1px solid #444;
   color: #888;
@@ -665,6 +685,16 @@ body.light input[type="text"] {
 
 body.light .hint {
   color: #888;
+}
+
+body.light .whitepaper-link {
+  border-color: #ccc;
+  color: #666;
+}
+
+body.light .whitepaper-link:hover {
+  border-color: #888;
+  color: #333;
 }
 
 body.light .theme-toggle {
