@@ -224,9 +224,9 @@ function App() {
       />
 
       <div className="header-actions">
-        <a href="/WHITEPAPER.md" target="_blank" rel="noopener noreferrer" className="whitepaper-link">
+        {/* <a href="/WHITEPAPER.md" target="_blank" rel="noopener noreferrer" className="whitepaper-link">
           whitepaper
-        </a>
+        </a> */}
         <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
           {darkMode ? "☀" : "☾"}
         </button>

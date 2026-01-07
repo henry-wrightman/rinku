@@ -377,5 +377,3 @@ async function verifyProofUrl(url) {
 3. R. Merkle. "A Digital Signature Based on a Conventional Encryption Function." CRYPTO 1987.
 
 ---
-
-*Rinku is Japanese for "link" - reflecting the project's core philosophy that the link itself carries the proof.*
