@@ -169,38 +169,56 @@ impl CheckpointService {
             .unwrap_or_default()
             .as_millis() as u64;
 
+        // PHASE 1: Quick read to collect timestamps (minimal lock time)
+        let tx_timestamps: Vec<(String, u64)> = {
+            let state = self.state.inner.read().await;
+            unfinalized_hashes.iter()
+                .filter_map(|hash| {
+                    state.dag.get_node(hash).map(|node| {
+                        let ts = node.tx.tx.timestamp;
+                        (hash.clone(), ts)
+                    })
+                })
+                .collect()
+        };
+
+        // PHASE 2: Compute finality times OUTSIDE any lock
+        let finality_times: Vec<u64> = tx_timestamps.iter()
+            .map(|(_, tx_timestamp)| {
+                let tx_time_ms = if *tx_timestamp < 4_000_000_000 {
+                    tx_timestamp * 1000
+                } else {
+                    *tx_timestamp
+                };
+                now_ms.saturating_sub(tx_time_ms)
+            })
+            .collect();
+
+        // PHASE 3: Minimal write lock - just mutations
         let mut state = self.state.inner.write().await;
         state.checkpoints.push(checkpoint.clone());
         state.last_checkpoint_time_ms = now_ms;
 
-        // Record finality times for ALL finalized transactions
-        for hash in &unfinalized_hashes {
-            if let Some(node) = state.dag.get_node(hash) {
-                // Transaction timestamp may be in seconds or milliseconds
-                // If timestamp is small (before year 2100 in seconds), it's in seconds
-                let tx_timestamp = node.tx.tx.timestamp;
-                let tx_time_ms = if tx_timestamp < 4_000_000_000 {
-                    tx_timestamp * 1000 // Convert seconds to milliseconds
-                } else {
-                    tx_timestamp // Already in milliseconds
-                };
-                let finality_time = now_ms.saturating_sub(tx_time_ms);
-                
-                // Track aggregate stats for accurate average
-                state.finality_sum_ms += finality_time;
-                state.finality_count += 1;
-                if finality_time > state.finality_max_ms {
-                    state.finality_max_ms = finality_time;
-                }
-                
-                // Keep rolling window for percentile calculations (larger window)
-                if state.finality_times_ms.len() >= 1000 {
-                    state.finality_times_ms.pop_front();
-                }
-                state.finality_times_ms.push_back(finality_time);
+        // Update finality stats
+        for finality_time in &finality_times {
+            state.finality_sum_ms += finality_time;
+            state.finality_count += 1;
+            if *finality_time > state.finality_max_ms {
+                state.finality_max_ms = *finality_time;
             }
+            if state.finality_times_ms.len() >= 1000 {
+                state.finality_times_ms.pop_front();
+            }
+            state.finality_times_ms.push_back(*finality_time);
+        }
+
+        // Mark all as finalized
+        for hash in &unfinalized_hashes {
             let _ = state.dag.mark_finalized(hash, height);
         }
+        
+        // Release write lock before logging
+        drop(state);
 
         info!(
             "Created checkpoint {} at height {} ({} txs finalized, {:.6} RKU emitted)",

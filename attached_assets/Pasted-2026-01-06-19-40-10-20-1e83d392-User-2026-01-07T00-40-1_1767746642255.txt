@@ -1,0 +1,116 @@
+2026-01-06 19:40:10.20
+1e83d392
+User
+2026-01-07T00:40:10.200147Z INFO rinku_node::checkpoint: Created checkpoint a26594cf5ea53cb7 at height 434 (71 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:40:25.20
+1e83d392
+User
+2026-01-07T00:40:25.203942Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:40:25.20
+1e83d392
+User
+2026-01-07T00:40:25.204025Z INFO rinku_node::checkpoint: Created checkpoint 13bbb44e734b7891 at height 435 (60 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:40:40.24
+1e83d392
+User
+2026-01-07T00:40:40.241673Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:40:40.24
+1e83d392
+User
+2026-01-07T00:40:40.241722Z INFO rinku_node::checkpoint: Created checkpoint 647d7e0e98e07ff6 at height 436 (64 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:40:55.24
+1e83d392
+User
+2026-01-07T00:40:55.243575Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:40:55.24
+1e83d392
+User
+2026-01-07T00:40:55.243656Z INFO rinku_node::checkpoint: Created checkpoint 7b1ad09d50de9129 at height 437 (55 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:41:10.24
+1e83d392
+User
+2026-01-07T00:41:10.246332Z INFO rinku_node::checkpoint: Created checkpoint 69798c83ae69f90a at height 438 (73 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:41:10.24
+1e83d392
+User
+2026-01-07T00:41:10.246223Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:41:25.24
+1e83d392
+User
+2026-01-07T00:41:25.249098Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:41:25.24
+1e83d392
+User
+2026-01-07T00:41:25.249193Z INFO rinku_node::checkpoint: Created checkpoint 2fc3941a92493f22 at height 439 (84 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:41:40.25
+1e83d392
+User
+2026-01-07T00:41:40.251811Z INFO rinku_node::checkpoint: Created checkpoint 256028ca45fb4883 at height 440 (102 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:41:40.25
+1e83d392
+User
+2026-01-07T00:41:40.251713Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:41:55.25
+1e83d392
+User
+2026-01-07T00:41:55.253459Z INFO rinku_node::checkpoint: Created checkpoint 61abaff4e0e9ace3 at height 441 (54 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:41:55.25
+1e83d392
+User
+2026-01-07T00:41:55.253386Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:42:10.25
+1e83d392
+User
+2026-01-07T00:42:10.256175Z INFO rinku_node::checkpoint: Created checkpoint b9d9cf2863fc3feb at height 442 (77 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:42:10.25
+1e83d392
+User
+2026-01-07T00:42:10.256052Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:42:25.25
+1e83d392
+User
+2026-01-07T00:42:25.258809Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:42:25.25
+1e83d392
+User
+2026-01-07T00:42:25.258911Z INFO rinku_node::checkpoint: Created checkpoint 39233aa8d2530353 at height 443 (100 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:42:40.26
+1e83d392
+User
+2026-01-07T00:42:40.260377Z INFO rinku_node::checkpoint: Created checkpoint 424c15ce337e8716 at height 444 (62 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:42:40.26
+1e83d392
+User
+2026-01-07T00:42:40.260289Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:42:55.26
+1e83d392
+User
+2026-01-07T00:42:55.262447Z INFO rinku_node::checkpoint: Created checkpoint e21ca89e0434ca9a at height 445 (62 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:42:55.26
+1e83d392
+User
+2026-01-07T00:42:55.262362Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:43:10.26
+1e83d392
+User
+2026-01-07T00:43:10.265135Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:43:10.26
+1e83d392
+User
+2026-01-07T00:43:10.265218Z INFO rinku_node::checkpoint: Created checkpoint 5106f2266ccc91fa at height 446 (83 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:43:25.26
+1e83d392
+User
+2026-01-07T00:43:25.267393Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
+2026-01-06 19:43:25.26
+1e83d392
+User
+2026-01-07T00:43:25.267476Z INFO rinku_node::checkpoint: Created checkpoint 3eb391e619b16e63 at height 447 (67 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:43:40.27
+1e83d392
+User
+2026-01-07T00:43:40.270139Z INFO rinku_node::checkpoint: Created checkpoint d4d2a66dd9f80fec at height 448 (63 txs finalized, 3.932411 RKU emitted)
+2026-01-06 19:43:40.27
+1e83d392
+User
+2026-01-07T00:43:40.270073Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 4 validators
