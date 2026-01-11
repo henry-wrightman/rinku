@@ -16,13 +16,15 @@ Even with light clients, users ultimately must trust *someone else's infrastruct
 
 ## 2. URLs as Proofs
 
-Instead of storing data on-chain and fetching proofs from nodes, we encode proofs directly into URLs:
+Instead of storing data on-chain and fetching proofs from nodes, we encode proofs directly into URLs. The profile determines what data is included:
 
-e.g
+```
+rinku://tx/{payload}   # Profile A: transaction only
+rinku://txp/{payload}  # Profile B: transaction + ancestry
+rinku://sp/{payload}   # Profile C: self-contained finality
+```
 
-`rinku://tx/{base64url(deflate(transaction + ancestry + checkpoint))}`
-
-A Rinku URL contains:
+A full proof URL (Profile B/C) contains:
 
 - The transaction data (sender, recipient, amount, signature)
 - Ancestry chain back to a finalized checkpoint
@@ -40,24 +42,43 @@ A single transaction URL is roughly 600 characters. With 5 levels of ancestry (p
 
 ### 3.2 Proof Structure
 
-A proof bundle contains:
+A proof bundle's structure varies by profile. The base structure (all profiles):
 
 ```json
 {
   "tx": {
     "from": "a1b2c3...",
     "to": "d4e5f6...",
-    "amount": 1000000,
-    "nonce": 42,
+    "amount": "1000000",
+    "nonce": "42",
     "sig": "..."
   },
   "fromPubKey": "BASE64_ECDSA_P256_PUBLIC_KEY",
-  "hash": "sha256(tx)",
+  "hash": "sha256(tx)"
+}
+```
+
+**Profile B adds** ancestry and checkpoint anchor:
+
+```json
+{
   "parents": [/* recursive proof bundles */],
   "checkpoint": {
     "id": "cp_789",
-    "merkleRoot": "...",
-    "height": 1000,
+    "txMerkleRoot": "...",
+    "height": "1000"
+  }
+}
+```
+
+**Profile C adds** full finality certificate:
+
+```json
+{
+  "checkpoint": {
+    "id": "cp_789",
+    "txMerkleRoot": "...",
+    "height": "1000",
     "blsAggregateSig": "...",
     "signerBitmap": "...",
     "validatorProof": { /* MerkleSumTree multi-proof */ }
@@ -68,7 +89,7 @@ A proof bundle contains:
 **Key elements:**
 
 - `fromPubKey` - The sender's full ECDSA P-256 public key, enabling signature verification. The `from` field is its fingerprint (SHA-256 truncated to 40 hex chars).
-- `checkpoint` - Contains the finality proof: BLS aggregated signature from validators, a bitmap indicating which validators signed, and a Merkle proof for the validator set.
+- `checkpoint` - Profile B includes the checkpoint anchor; Profile C adds the BLS aggregated signature, signer bitmap, and validator set proof.
 
 Each parent is itself a proof bundle, creating a recursive structure that traces back to a known checkpoint.
 
@@ -288,22 +309,39 @@ interface Transaction {
 
 ### A.3 Proof Bundle Schema
 
+*Note: All integer fields are encoded as decimal strings in canonical JSON.*
+
 ```typescript
-interface ProofBundle {
+// Base bundle (Profile A)
+interface ProofBundleA {
   tx: Transaction;
   fromPubKey: string;     // Base64 ECDSA P-256 public key (SPKI format)
   hash: string;           // SHA-256 hex of canonical tx JSON
-  parents: ProofBundle[]; // Recursive ancestry
+}
+
+// Profile B adds ancestry + checkpoint anchor
+interface ProofBundleB extends ProofBundleA {
+  parents: ProofBundleB[];  // Recursive ancestry
   checkpoint: {
     id: string;
-    merkleRoot: string;
-    height: number;
-    blsAggregateSig: string;  // BLS12-381 aggregated signature
-    signerBitmap: string;     // Bitmap of which validators signed
-    validatorProof: {         // MerkleSumTree multi-proof
-      signerLeaves: Array<{ pubKey: string; weight: number }>;
+    txMerkleRoot: string;   // Merkle root of finalized transactions
+    height: uint64;
+  };
+}
+
+// Profile C adds full finality certificate
+interface ProofBundleC extends ProofBundleA {
+  parents: ProofBundleC[];
+  checkpoint: {
+    id: string;
+    txMerkleRoot: string;
+    height: uint64;
+    blsAggregateSig: string;    // BLS12-381 aggregated signature
+    signerBitmap: string;       // Bitmap of which validators signed
+    validatorProof: {           // MerkleSumTree multi-proof
+      signerLeaves: Array<{ pubKey: string; weight: uint64 }>;
       auxiliaryNodes: string[];
-      totalWeight: number;
+      totalWeight: uint64;
     };
   };
 }
@@ -321,20 +359,24 @@ Transaction fields are serialized in deterministic order for consistent hashing:
 A minimal verifier in JavaScript:
 
 ```javascript
+// Entry point: verify a proof URL
 async function verifyProofUrl(url) {
-  // 1. Parse and decode
   const [, profile, payload] = url.match(/rinku:\/\/(\w+)\/(.+)/);
   const json = inflate(base64urlDecode(payload));
   const bundle = JSON.parse(json);
-  
-  // 2. Verify public key matches fingerprint
+  return verifyBundle(bundle);
+}
+
+// Core verification logic (works on decoded bundles)
+async function verifyBundle(bundle) {
+  // 1. Verify public key matches fingerprint
   const pubKeyBytes = base64Decode(bundle.fromPubKey);
   const fingerprint = (await sha256(pubKeyBytes)).slice(0, 40);
   if (fingerprint !== bundle.tx.from) {
     throw new Error('Public key does not match sender fingerprint');
   }
   
-  // 3. Verify transaction signature using bundled public key
+  // 2. Verify transaction signature using bundled public key
   const txBytes = canonicalize(bundle.tx);
   const pubKey = await crypto.subtle.importKey(
     'spki', pubKeyBytes,
@@ -349,17 +391,22 @@ async function verifyProofUrl(url) {
   );
   if (!valid) throw new Error('Invalid signature');
   
-  // 4. Verify hash integrity
+  // 3. Verify hash integrity
   const hash = await sha256Hex(txBytes);
   if (hash !== bundle.hash) throw new Error('Hash mismatch');
   
-  // 5. Verify parents recursively
-  for (const parent of bundle.parents) {
-    await verifyProofUrl(encodeBundle(parent));
+  // 4. Verify parents recursively (if present)
+  if (bundle.parents) {
+    for (const parent of bundle.parents) {
+      await verifyBundle(parent);
+    }
   }
   
-  // 6. Verify checkpoint finality (BLS aggregate signature)
-  return verifyCheckpointSignatures(bundle.checkpoint);
+  // 5. Verify checkpoint finality (BLS aggregate signature)
+  if (bundle.checkpoint) {
+    return verifyCheckpointSignatures(bundle.checkpoint);
+  }
+  return true;
 }
 ```
 

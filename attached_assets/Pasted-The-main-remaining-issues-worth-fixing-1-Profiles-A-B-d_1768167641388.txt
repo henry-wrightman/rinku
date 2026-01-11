@@ -1,0 +1,83 @@
+The main remaining issues (worth fixing)
+1) Profiles A/B descriptions still have one mismatch vs your earlier definitions
+
+You say Profile A contains “Transaction + sender pub key + signature + hash (no ancestry)” — perfect. 
+
+WHITEPAPER (1)
+
+
+But earlier in the paper (section 3.1/3.2) you describe “transaction + ancestry + checkpoint” as a tx URL example. 
+
+WHITEPAPER (1)
+
+
+That’s confusing.
+
+Fix: in section 2/3, change your example URL to rinku://txp/... (or say “a proof URL may include ancestry; profile defines what’s present”).
+
+2) Your ProofBundle schema types still mix “uint64” with number
+
+You corrected Transaction schema to use uint64 and note “encoded as decimal strings in canonical JSON.” Good. 
+
+WHITEPAPER (1)
+
+
+But in ProofBundle.checkpoint.height you use number, and validator weights are number. 
+
+WHITEPAPER (1)
+
+If you want this to be a crisp “portable spec,” do one of:
+
+make them uint32 / uint64 and say “also decimal strings,” or
+
+say “all integer fields MUST be decimal strings in canonical JSON.”
+
+Right now it’s half-and-half.
+
+3) Profile B’s trust assumption is written backwards
+
+Profile B says: “proves Merkle-included in a checkpoint signed by ≥67% validators” and “trust assumption: verifier knows the validator set.” 
+
+WHITEPAPER (1)
+
+
+But your checkpoint object in the bundle schema includes blsAggregateSig, signerBitmap, and validatorProof inside the checkpoint. 
+
+WHITEPAPER (1)
+
+That means you’re almost describing Profile C data in the general proof bundle schema, then separately describing Profile B.
+
+Fix: make the schemas match the profiles:
+
+Profile B checkpoint should include: id, merkleRoot, height + (optional) merkleInclusionPath + maybe signatureCount.
+
+Profile C checkpoint should include: blsAggregateSig, signerBitmap, validatorProof, totalWeight, etc.
+
+Right now the “proof bundle” schema reads like a Profile C object.
+
+4) Merkle root naming is ambiguous
+
+You call it merkleRoot in the checkpoint, but don’t specify whether it’s a tx root, state root, receipts root, etc. 
+
+WHITEPAPER (1)
+
+
+Since your system is about proving inclusion, it helps to say txMerkleRoot specifically (even if you later add stateRoot).
+
+5) The JS reference verifier should not recursively “encodeBundle(parent)” just to re-verify
+
+This is more a “paper polish” thing: in Appendix B you decode a URL, parse JSON, then for parents you do:
+
+await verifyProofUrl(encodeBundle(parent));
+
+
+That implies re-encoding the parent back into URL form, which is unnecessary and makes readers think the verifier depends on URL formatting. 
+
+WHITEPAPER (1)
+
+Fix: split into:
+
+verifyBundle(bundle)
+
+verifyProofUrl(url) { bundle = decode(url); return verifyBundle(bundle); }
+and call verifyBundle(parent) recursively.
