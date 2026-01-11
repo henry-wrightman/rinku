@@ -1,0 +1,115 @@
+1) Profile A still has a leftover trust-assumption sentence
+
+Profile A says:
+
+“Trust assumption: Verifier trusts the checkpoint anchor was correctly signed” 
+
+WHITEPAPER (4)
+
+…but Profile A explicitly has no checkpoint, no ancestry. So this doesn’t apply.
+
+✅ Fix: change Profile A to:
+
+Trust assumption: none beyond the sender pubkey binding (or “no finality/inclusion claim; proves authorization only”).
+
+2) Profile B “what it proves” is stronger than the data it includes
+
+Profile B bundle includes only:
+
+checkpoint {id, txMerkleRoot, height} 
+
+WHITEPAPER (4)
+
+…but Profile B claims:
+
+“Merkle-included in a checkpoint signed by ≥67% of validators” 
+
+WHITEPAPER (4)
+
+There are no signatures (or signature count) in Profile B, so cryptographically you can prove:
+
+tx is validly signed
+
+ancestry structure
+
+inclusion in a claimed checkpoint header (if you also include a Merkle path — which you currently don’t explicitly include in Profile B either)
+
+But you can’t prove “signed by ≥67%” without including some finality evidence (or relying on an external trusted checkpoint feed, which would undermine your “no infra” pitch).
+
+✅ Two clean options:
+
+Option A (recommended): weaken Profile B’s claim
+
+Change Profile B “what it proves” to:
+
+“Merkle-included under a checkpoint header anchor; finality depends on a trusted checkpoint chain or known validator set provided out-of-band.”
+
+Option B: add minimal evidence to Profile B
+
+Add signatureCount or a small quorum certificate reference to Profile B’s checkpoint object. (Keep Profile C as the fully offline/self-contained proof with BLS + validatorProof.)
+
+3) Your verification algorithm needs to be profile-aware
+
+In the pseudocode you always do:
+
+assert verifyCheckpointSignatures(bundle.checkpoint) 
+
+WHITEPAPER (4)
+
+But:
+
+Profile A has no checkpoint.
+
+Profile B checkpoint has no sig material.
+
+Profile C has full cert.
+
+✅ Fix: make it explicit:
+
+If profile == tx: skip checkpoint verification.
+
+If profile == txp: verify inclusion against txMerkleRoot and verify checkpoint authenticity using either (a) a trusted checkpoint chain store, or (b) optional signatureCount/quorum ref if you add it.
+
+If profile == sp: verify BLS aggregate sig + validatorProof (offline).
+
+Same thing in Appendix B’s JS reference: right now it calls verifyCheckpointSignatures if bundle.checkpoint exists, which will incorrectly apply to Profile B. 
+
+WHITEPAPER (4)
+
+4) Profile C schema needs signer indices (or explicit ordering rule)
+
+In your validatorProof you include:
+
+signerLeaves: Array<{ pubKey: string; weight: uint64 }>;
+signerBitmap: string;
+``` :contentReference[oaicite:5]{index=5}
+
+To verify the BLS aggregated signature, you must know which pubkeys correspond to which bits set in the bitmap, or at least how the verifier should interpret ordering. Right now, it’s ambiguous.
+
+✅ Fix (pick one):
+
+- Add `index: uint16` to each signer leaf, **or**
+- state: “signerLeaves are listed in increasing validator index order implied by signerBitmap” (and define validator indexing deterministically).
+
+---
+
+## 5) Minor: “Profile A receipts with shallow ancestry” sentence
+In §3.1 you say:
+
+> “Profile A receipts with shallow ancestry…” :contentReference[oaicite:6]{index=6}
+
+But Profile A has no ancestry. That sentence should refer to Profile B (or to “short ancestry bundles” in general).
+
+✅ Fix: “Profile B receipts with shallow ancestry…”
+
+---
+
+## Overall verdict
+This is a strong concise paper. Fixing **Profile A’s trust line**, **Profile B’s claim**, and **profile-aware checkpoint verification** will make it airtight and prevent people from calling it hand-wavy.
+
+If you want, I can provide exact replacement text for:
+- §3.3 verification algorithm
+- the Profile A/B/C bullet lists
+- Appendix A.3 schemas
+so it’s consistent but stays just as concise.
+::contentReference[oaicite:7]{index=7}
