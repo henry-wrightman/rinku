@@ -38,7 +38,7 @@ Transactions are encoded as compressed JSON directly in the URL path:
 
 `Transaction -> JSON -> DEFLATE -> Base64url -> URL`
 
-A single transaction URL (Profile A) is roughly 600 characters. Profile A receipts with shallow ancestry (5 levels) remain under 1,500 characters, fitting within a QR code. Full Profile B/C proofs with finality certificates are larger (see §5 Size Analysis).
+A single transaction URL (Profile A) is roughly 600 characters. Profile B proofs with shallow ancestry (5 levels) remain under 1,500 characters, fitting within a QR code. Full Profile C proofs with finality certificates are larger (see §5 Size Analysis).
 
 ### 3.2 Proof Structure
 
@@ -97,7 +97,7 @@ Each parent is itself a proof bundle, creating a recursive structure that traces
 
 ```
 function verify(proofUrl):
-  bundle = decode(proofUrl)
+  bundle, profile = decode(proofUrl)
   
   // 1. Verify public key matches fingerprint
   assert fingerprint(bundle.fromPubKey) == bundle.tx.from
@@ -108,13 +108,22 @@ function verify(proofUrl):
   // 3. Verify hash integrity
   assert sha256(bundle.tx) == bundle.hash
   
-  // 4. Verify all parents
+  // 4. Profile-specific verification
+  if profile == "tx":
+    return true  // Profile A: authorization only
+  
+  // 5. Verify ancestry (Profile B, C)
   for parent in bundle.parents:
     assert verify(parent)
   
-  // 5. Verify checkpoint finality
-  assert verifyCheckpointSignatures(bundle.checkpoint)
+  if profile == "txp":
+    // Profile B: verify checkpoint anchor is trusted
+    assert checkpointIsTrusted(bundle.checkpoint.id)
+    return true
   
+  // 6. Profile C: verify full finality certificate
+  assert verifyBLSAggregate(bundle.checkpoint)
+  assert verifyValidatorProof(bundle.checkpoint.validatorProof)
   return true
 ```
 
@@ -134,9 +143,9 @@ Different use cases require different security/size tradeoffs. Profiles are defi
 
 ### Profile A: Receipt (`tx`) - ~600 - 2,300 characters
 
-**Contains:** Transaction + sender public key + signature + hash (no ancestry)
+**Contains:** Transaction + sender public key + signature + hash (no ancestry, no checkpoint)
 **What it proves:** Transaction is validly signed by the sender
-**Trust assumption:** Verifier trusts the checkpoint anchor was correctly signed
+**Trust assumption:** None beyond trusting the sender's key binding (fingerprint → pubkey)
 **Use case:** POS receipts, payment confirmations
 
 ```
@@ -145,9 +154,9 @@ rinku://tx/{payload}
 
 ### Profile B: Full Ancestry (`txp`) - ~3,000 - 10,000 characters
 
-**Contains:** Transaction + recursive parent proofs + checkpoint anchor
-**What it proves:** Transaction is Merkle-included in a checkpoint signed by ≥67% of validators
-**Trust assumption:** Verifier knows the validator set
+**Contains:** Transaction + recursive parent proofs + checkpoint anchor (id, txMerkleRoot, height)
+**What it proves:** Transaction is Merkle-included in a checkpoint; finality depends on trusted checkpoint chain
+**Trust assumption:** Verifier trusts the checkpoint anchor (via bootstrapped trust or known validator set)
 **Use case:** High-value settlements, audit trails
 
 ```
@@ -339,6 +348,7 @@ interface ProofBundleC extends ProofBundleA {
     blsAggregateSig: string;    // BLS12-381 aggregated signature
     signerBitmap: string;       // Bitmap of which validators signed
     validatorProof: {           // MerkleSumTree multi-proof
+      // signerLeaves ordered by increasing index from signerBitmap popcount walk
       signerLeaves: Array<{ pubKey: string; weight: uint64 }>;
       auxiliaryNodes: string[];
       totalWeight: uint64;
@@ -364,11 +374,11 @@ async function verifyProofUrl(url) {
   const [, profile, payload] = url.match(/rinku:\/\/(\w+)\/(.+)/);
   const json = inflate(base64urlDecode(payload));
   const bundle = JSON.parse(json);
-  return verifyBundle(bundle);
+  return verifyBundle(bundle, profile);
 }
 
 // Core verification logic (works on decoded bundles)
-async function verifyBundle(bundle) {
+async function verifyBundle(bundle, profile) {
   // 1. Verify public key matches fingerprint
   const pubKeyBytes = base64Decode(bundle.fromPubKey);
   const fingerprint = (await sha256(pubKeyBytes)).slice(0, 40);
@@ -395,18 +405,24 @@ async function verifyBundle(bundle) {
   const hash = await sha256Hex(txBytes);
   if (hash !== bundle.hash) throw new Error('Hash mismatch');
   
-  // 4. Verify parents recursively (if present)
+  // 4. Profile A: authorization only (no ancestry/checkpoint)
+  if (profile === 'tx') return true;
+  
+  // 5. Verify ancestry (Profile B, C)
   if (bundle.parents) {
     for (const parent of bundle.parents) {
-      await verifyBundle(parent);
+      await verifyBundle(parent, profile);
     }
   }
   
-  // 5. Verify checkpoint finality (BLS aggregate signature)
-  if (bundle.checkpoint) {
-    return verifyCheckpointSignatures(bundle.checkpoint);
+  // 6. Profile B: verify checkpoint anchor is trusted
+  if (profile === 'txp') {
+    return checkpointIsTrusted(bundle.checkpoint.id);
   }
-  return true;
+  
+  // 7. Profile C: verify full finality certificate (BLS + validator proof)
+  return verifyBLSAggregate(bundle.checkpoint) &&
+         verifyValidatorProof(bundle.checkpoint.validatorProof);
 }
 ```
 

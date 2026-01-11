@@ -1,0 +1,120 @@
+What’s excellent
+
+Profiles A/B/C are now crystal clear and map cleanly to payload structure. 
+
+WHITEPAPER (3)
+
+The verification vs discovery explanation is perfect and makes the “redundancy layer” framing believable. 
+
+WHITEPAPER (3)
+
+The verifier safety limits section is exactly what makes this implementable in browsers and POS. 
+
+WHITEPAPER (3)
+
+You corrected the crypto tooling reality: ECDSA can use WebCrypto, BLS needs WASM. 
+
+WHITEPAPER (3)
+
+The schema separation in Appendix A.3 is well done; implementers won’t confuse Profile B vs C anymore. 
+
+WHITEPAPER (3)
+
+The reference implementation now correctly recurses on decoded bundles (not re-encoding into URLs). 
+
+WHITEPAPER (3)
+
+The one contradiction to fix
+
+In Profile A you say:
+
+“Trust assumption: Verifier trusts the checkpoint anchor was correctly signed” 
+
+WHITEPAPER (3)
+
+But Profile A contains no checkpoint anchor by definition (tx-only). That sentence is left over from earlier.
+
+✅ Fix: change it to one of these:
+
+“Trust assumption: None beyond trusting the sender’s key binding (fingerprint → pubkey).”
+
+or “Trust assumption: The receipt proves authorization, not inclusion/finality.”
+
+A few “make it bulletproof” tweaks (small)
+1) Verification step 5 should be profile-gated
+
+Your pseudocode says “assert verifyCheckpointSignatures(bundle.checkpoint)” for all. 
+
+WHITEPAPER (3)
+
+
+But Profile B’s checkpoint doesn’t include BLS sig/bitmap/proof — only id, txMerkleRoot, height. 
+
+WHITEPAPER (3)
+
+ 
+
+WHITEPAPER (3)
+
+✅ Fix: in §3.3 and Appendix B, make it explicit:
+
+If profile == sp → verify BLS aggregate signature + validatorProof.
+
+If profile == txp → verify inclusion root and that checkpoint is trusted via bootstrapped validator set OR signatureCount model (however you define it; right now you say “verifier knows validator set” in Profile B, but you haven’t defined what signature material is present for B). 
+
+WHITEPAPER (3)
+
+If profile == tx → skip checkpoint verification.
+
+2) Profile B’s “what it proves” is stronger than what you include
+
+You say Profile B proves:
+
+“Merkle-included in a checkpoint signed by ≥67% validators” 
+
+WHITEPAPER (3)
+
+But your Profile B checkpoint schema includes no signatures, no bitmap, no validator proofs. 
+
+WHITEPAPER (3)
+
+Right now, Profile B can prove:
+
+tx signature + hash integrity + ancestry structure
+
+anchored to a checkpoint header (id, txMerkleRoot, height)
+…but not cryptographic finality unless you also include some finality evidence (even a “signatureCount” style attestation, which you removed in this version).
+
+✅ Two options:
+
+Option A: weaken the claim: “Merkle-included in checkpoint header; finality depends on trusted checkpoint chain / known validator set.”
+
+Option B: add a minimal finality cert to Profile B (e.g., signatureCount + validatorSetRoot or “quorum certificate hash”), and keep Profile C as the fully self-contained one.
+
+3) ValidatorProof schema should include indices (or you must define leaf order)
+
+Right now Profile C’s signerLeaves is [{ pubKey, weight }] only. 
+
+WHITEPAPER (3)
+
+
+But to recompute aggregate pubkey and to reconstruct the MerkleSumTree root, you usually need which leaf index each signer corresponds to, or a deterministic derivation from bitmap order (which you haven’t stated here).
+
+✅ Fix: either:
+
+add index: uint16 to signerLeaves, or
+
+explicitly say signerLeaves are in increasing index order implied by signerBitmap popcount walk.
+
+4) The “1500 chars fits QR” line vs your own size table
+
+Early you say “Profile A receipts with shallow ancestry (5 levels) under 1,500 chars.” 
+
+WHITEPAPER (3)
+
+
+But Profile A has no ancestry, and your size table later says 5-depth ancestry is ~1,400 chars (which is fine) 
+
+WHITEPAPER (3)
+
+ — just rename that sentence to “Profile B shallow ancestry…” to match your profile definitions.
