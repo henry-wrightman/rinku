@@ -1,6 +1,6 @@
 # Rinku: Self-Provable URLs for Trustless Verification
 
-**Abstract.** We propose a distributed ledger in which URLs serve as self-contained cryptographic proofs. This would enable trustless verification without reliance on external infrastructure or services - essentially offline, verifiable transactions. A Rinku URL carries not just transaction data, but its complete verification path; ancestry, signatures, and checkpoint anchors. Ultimately, *the link itself is the proof*. This paper focuses on the URL-native proof system that makes this possible.
+**Abstract.** We propose a distributed ledger in which URLs serve as self-contained cryptographic proofs. This would enable trustless verification without reliance on external infrastructure or services. A Rinku URL carries not just transaction data, but its complete verification path - ancestry, signatures, and checkpoint anchors. Ultimately, *the link itself is the proof*. This paper focuses on the URL-native proof system that a distributed network could incorperate.
 
 ## 1. The Problem with Verification Today
 
@@ -8,7 +8,7 @@ Traditional blockchain networks require infrastructure or extraneous software fo
 
 1. **Node dependency** - Users must trust a node operator or run their own
 2. **State opacity** - Verification requires querying external systems
-3. **Proof complexity** - Light clients need specialized tooling and trusted endpoints
+3. **Proof complexity** - Light clients need specific tooling and trusted endpoints
 
 Even with light clients, users ultimately must trust *someone else's infrastructure* to provide proofs. The verification is outsourced, not self-contained.
 
@@ -16,19 +16,17 @@ Even with light clients, users ultimately must trust *someone else's infrastruct
 
 ## 2. URLs as Proofs
 
-Rinku challenges and inverts the traditional model. Instead of storing data on-chain and fetching proofs from nodes, we encode proofs directly into URLs:
+Instead of storing data on-chain and fetching proofs from nodes, we encode proofs directly into URLs:
 
 e.g
-```
-rinku://tx/{base64url(deflate(transaction + ancestry + checkpoint))}
-```
+
+`rinku://tx/{base64url(deflate(transaction + ancestry + checkpoint))}`
 
 A Rinku URL contains:
+
 - The transaction data (sender, recipient, amount, signature)
 - Ancestry chain back to a finalized checkpoint
 - Checkpoint anchor (Merkle root, validator attestations)
-
-**The recipient can verify the entire proof offline.** No RPC call or "trusted" infrastructure. Just cryptographic verification of the URL's contents.
 
 ## 3. How It Works
 
@@ -36,9 +34,7 @@ A Rinku URL contains:
 
 Transactions are encoded as compressed JSON directly in the URL path:
 
-```
-Transaction -> JSON -> DEFLATE -> Base64url -> URL
-```
+`Transaction -> JSON -> DEFLATE -> Base64url -> URL`
 
 A single transaction URL is roughly 600 characters. With 5 levels of ancestry (proving the transaction chains back to a checkpoint), URLs remain under 1,500 characters which could fit within a QR code.
 
@@ -70,6 +66,7 @@ A proof bundle contains:
 ```
 
 **Key elements:**
+
 - `fromPubKey` - The sender's full ECDSA P-256 public key, enabling signature verification. The `from` field is its fingerprint (SHA-256 truncated to 40 hex chars).
 - `checkpoint` - Contains the finality proof: BLS aggregated signature from validators, a bitmap indicating which validators signed, and a Merkle proof for the validator set.
 
@@ -84,13 +81,13 @@ function verify(proofUrl):
   // 1. Verify public key matches fingerprint
   assert fingerprint(bundle.fromPubKey) == bundle.tx.from
   
-  // 2. Verify transaction signature using the public key
+  // 2. Verify transaction signature via the public key
   assert ecdsaVerify(bundle.fromPubKey, bundle.tx, bundle.tx.sig)
   
   // 3. Verify hash integrity
   assert sha256(bundle.tx) == bundle.hash
   
-  // 4. Recursively verify parents
+  // 4. Verify all parents
   for parent in bundle.parents:
     assert verify(parent)
   
@@ -99,8 +96,6 @@ function verify(proofUrl):
   
   return true
 ```
-
-The verification is entirely self-contained within the URL.
 
 ### 3.4 Data Availability
 
@@ -114,39 +109,42 @@ Once the verifier has the URL, no further dependancy on infrastructure is needed
 
 ## 4. Proof Profiles
 
-Different use cases require different security/size tradeoffs:
+Different use cases require different security/size tradeoffs. Profiles are defined by what data is included:
 
-### Profile A: Receipt (~600 - 2,300 characters)
+### Profile A: Receipt (`tx`) - ~600 - 2,300 characters
 
-**What it proves:** Transaction is valid and chains to a prior checkpoint  
-**Trust assumption:** Verifier trusts the checkpoint was correctly signed  
-**Use case:** PoS receipts, payment confirmations
+**Contains:** Transaction + sender public key + signature + hash (no ancestry)
+**What it proves:** Transaction is validly signed by the sender
+**Trust assumption:** Verifier trusts the checkpoint anchor was correctly signed
+**Use case:** POS receipts, payment confirmations
 
 ```
 rinku://tx/{payload}
 ```
 
-### Profile B: Full Finality (~3,000 - 10,000 characters)
+### Profile B: Full Ancestry (`txp`) - ~3,000 - 10,000 characters
 
-**What it proves:** Transaction is Merkle-included in a checkpoint signed by ≥ 67% of validators
-**Trust assumption:** Verifier knows the validator set  
-**Use case:** High-value settlements
+**Contains:** Transaction + recursive parent proofs + checkpoint anchor
+**What it proves:** Transaction is Merkle-included in a checkpoint signed by ≥67% of validators
+**Trust assumption:** Verifier knows the validator set
+**Use case:** High-value settlements, audit trails
 
 ```
 rinku://txp/{payload}
 ```
 
-### Profile C: Self-Contained (~1,600 - 2,800 characters)
+### Profile C: Self-Contained (`sp`) - ~1,600 - 2,800 characters
 
-**What it proves:** Everything in Profile B, in addition to the validator set commitment itself  
-**Trust assumption:** Trust anchor is minimal and can be pinned once (genesis or pinned checkpoint); subsequent proofs are offline-verifiable 
+**Contains:** Everything in Profile B + full finality certificate (BLS aggregate sig + signer bitmap + validator proof)
+**What it proves:** Complete finality with validator set commitment
+**Trust assumption:** Requires pinned chain identity + initial trust anchor (genesis or pinned checkpoint); after bootstrapping, proofs verify offline
 **Use case:** Fully offline verification, air-gapped systems, legal evidence
 
 ```
 rinku://sp/{payload}
 ```
 
-Profile C is the most powerful - it proves finality without any external trust anchors beyond knowing which network you are verifying against.
+Profile C is the most powerful - once bootstrapped with a trust anchor, all subsequent proofs verify completely offline.
 
 ## 5. Size Analysis
 
@@ -158,8 +156,6 @@ Real-world measurements using high-entropy data (e.g signatures):
 | 2-depth ancestry | 3 | ~940 chars |
 | 5-depth ancestry | 6 | ~1,400 chars |
 | 10-depth ancestry | 11 | ~2,200 chars |
-
-DEFLATE compression achieves 40-55% reduction against the transaction JSON, primarily via repeated field names ("from", "to", "amount") even when values are high-entropy.
 
 ### Platform Compatibility
 
@@ -188,11 +184,13 @@ This mirrors TLS certificate chains: the proof is self-contained, but root trust
 ### 7.1 Infrastructure Independence
 
 Traditional flow:
+
 ```
 User -> Trust Node -> Query Proof -> Verify with Node's Help
 ```
 
 Rinku flow:
+
 ```
 User -> Receive URL -> Verify Locally
 ```
@@ -200,6 +198,7 @@ User -> Receive URL -> Verify Locally
 ### 7.2 Portable Proofs
 
 A Rinku URL can be:
+
 - Printed as a QR code on a receipt
 - Sent via SMS, email, or any messaging app
 - Embedded in a PDF or document
@@ -210,7 +209,8 @@ The proof remains valid as long as the respective cryptography holds.
 ### 7.3 Offline-First
 
 Verification works completely offline. This enables:
-- PoS in areas with poor connectivity
+
+- POS terminals in areas with poor connectivity
 - Air-gapped security systems
 - Archival verification that withstands over large periods of time
 - Cross-border payments without infrastructure
@@ -229,19 +229,7 @@ The proof system uses standard, well-audited cryptography:
 
 ECDSA verification can use the Web Crypto API; BLS verification can use a WASM library (e.g blst)
 
-## 9. Comparison to Existing Approaches
-
-| Approach | Verification | Trust | Offline |
-|----------|--------------|-------|---------|
-| Full node | Self-verify | None | ✗ |
-| Light client | Query proofs | Node operator | ✗ |
-| SPV | Merkle proofs | Header source | ✗ |
-| Block explorer | API response | Service provider | ✗ |
-| **Rinku URL** | **Self-contained** | **Checkpoint anchor** | **✓** |
-
-Rinku achieves light-client-level verification with full-node-level trust assumptions, all packaged into a portable URL.
-
-## 10. Limitations
+## 9. Limitations
 
 **Size constraints:** Complex proofs (30+ transactions) exceed QR capacity and require standard URL sharing.
 
@@ -251,7 +239,13 @@ Rinku achieves light-client-level verification with full-node-level trust assump
 
 **Compression variability:** Actual compression ratios depend on transaction content; high-entropy data compresses less.
 
-## 11. Conclusion
+**Verifier safety limits:** Implementations should enforce DoS protection:
+- Maximum recursion depth: 32 levels
+- Maximum decoded payload: 1MB
+- Maximum parents per transaction: 2
+- Maximum total proof bundle size: 64KB
+
+## 10. Conclusion
 
 Rinku demonstrates that distributed ledger proofs can be fully self-contained within URLs. By encoding transaction data, ancestry chains, and checkpoint anchors directly into the URL, we can eliminate infrastructure dependencies for verification.
 
@@ -270,8 +264,9 @@ rinku://{profile}/{base64url(deflate(json))}
 ```
 
 Profiles:
+
 - `tx` - Transaction receipt (Profile A)
-- `txp` - Transaction with full ancestry (Profile A+)
+- `txp` - Transaction with full ancestry (Profile B)
 - `sp` - Self-contained finality proof (Profile C)
 
 ### A.2 Transaction Schema
@@ -280,14 +275,16 @@ Profiles:
 interface Transaction {
   from: string;      // 40-char hex fingerprint
   to: string;        // 40-char hex fingerprint
-  amount: number;    // Smallest units (8 decimals)
-  fee: number;       // Gas fee
-  nonce: number;     // Sender sequence number
+  amount: uint64;    // Smallest units (8 decimals)
+  fee: uint64;       // Gas fee
+  nonce: uint64;     // Sender sequence number
   tipUrls: string[]; // 0-2 parent references
-  ts: number;        // Unix timestamp (ms)
+  ts: uint64;        // Unix timestamp (ms)
   sig: string;       // ECDSA P-256 signature
 }
 ```
+
+*Note: Integer fields are encoded as decimal strings in canonical JSON to ensure cross-language consistency.*
 
 ### A.3 Proof Bundle Schema
 
@@ -371,9 +368,8 @@ async function verifyProofUrl(url) {
 ## References
 
 1. D. Boneh, M. Drijvers, and G. Neven. "Compact Multi-Signatures for Smaller Blockchains." ASIACRYPT 2018. https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html
-
 2. D. Boneh, B. Lynn, and H. Shacham. "Short Signatures from the Weil Pairing." Journal of Cryptology, 2004.
-
 3. R. Merkle. "A Digital Signature Based on a Conventional Encryption Function." CRYPTO 1987.
 
 ---
+
