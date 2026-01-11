@@ -170,8 +170,8 @@ rinku://tx/{payload}
 
 **Contains:** Transaction + recursive parent proofs + checkpoint anchor (id, txMerkleRoot, height) + Merkle inclusion path
 **What it proves:** Transaction is Merkle-included in a checkpoint; finality depends on trusted checkpoint chain
-**Trust assumption:** Verifier trusts the checkpoint anchor (via bootstrapped trust or known validator set)
-**Use case:** High-value settlements, audit trails
+**Trust assumption:** Verifier trusts the checkpoint anchor (via genesis keys, pinned checkpoint, or signed checkpoint chain - see §6)
+**Use case:** High-value settlements, audit trails, POS settlement receipts
 
 ```
 rinku://txp/{payload}
@@ -227,7 +227,7 @@ Real-world measurements using high-entropy data (random hex hashes, ECDSA signat
 
 Profile A/B receipts with shallow ancestry fit in QR codes. Profile C with small committees (≤16 validators) fits QR-L; larger committees require URL sharing.
 
-*Note: QR capacity depends on encoding mode; base64url requires byte mode. For maximum density, consider QR-optimized encoding (e.g., base45) for compact receipts.*
+*Note: URL lengths are measured in characters; QR capacity is in bytes (byte-mode encoding). Base64url requires byte mode. For maximum density, consider QR-optimized encoding (e.g., base45) for compact receipts.*
 
 ## 6. Trust Bootstrapping
 
@@ -410,6 +410,39 @@ Transaction fields are serialized in deterministic order for consistent hashing:
 
 *Note: `hash` is computed over the `tx` object only (the Transaction fields), not including bundle-level fields like `fromPubKey` or `parents`.*
 
+### A.5 Merkle Path Verification
+
+Transaction inclusion proofs use a standard binary Merkle tree. At each depth, the `index` LSB determines left/right ordering:
+
+```
+function merkleRoot(hash, path, index):
+  current = hash
+  for sibling in path:
+    if (index % 2 == 0):
+      current = SHA256(current || sibling)  // hash is left child
+    else:
+      current = SHA256(sibling || current)  // hash is right child
+    index = floor(index / 2)
+  return current
+```
+
+### A.6 MerkleSumTree Hash Computation
+
+The validator sum tree uses domain-separated hashing to distinguish leaf and internal nodes:
+
+```
+// Leaf hash (level 0)
+leafHash = SHA256("leaf:" || index || ":" || address || ":" || blsPublicKey || ":" || weight)
+
+// Internal node hash
+nodeHash = SHA256("node:" || left.hash || ":" || left.sumWeight || ":" || right.hash || ":" || right.sumWeight)
+
+// Empty node for non-power-of-two padding
+EMPTY_NODE = { hash: SHA256("rinku:empty_node:v1"), sumWeight: 0 }
+```
+
+Sum weights propagate up: `parent.sumWeight = left.sumWeight + right.sumWeight`. The root's `totalWeight` equals the sum of all leaf weights, enabling verifiers to derive quorum thresholds.
+
 ---
 
 ## Appendix B: Reference Implementation
@@ -480,12 +513,12 @@ async function verifyBundle(bundle, profile) {
     throw new Error('Merkle inclusion verification failed');
   }
   
-  // 8. Verify BLS signature + validator proof + quorum
+  // 8. Verify BLS signature + validator proof + quorum (use BigInt for >2^53 safety)
   const blsValid = await verifyBLSAggregate(bundle.checkpoint);
   const validatorResult = verifyValidatorProof(bundle.checkpoint.validatorProof);
-  const signerWeight = validatorResult.signerWeight;
-  const totalWeight = validatorResult.totalWeight;
-  const requiredWeight = Math.floor(totalWeight * 2 / 3);  // Derived from sum tree
+  const signerWeight = BigInt(validatorResult.signerWeight);
+  const totalWeight = BigInt(validatorResult.totalWeight);
+  const requiredWeight = (totalWeight * 2n) / 3n;  // Derived from sum tree, floor division
   
   return blsValid && validatorResult.valid && signerWeight >= requiredWeight;
 }

@@ -1,0 +1,79 @@
+The remaining issues (small, but worth fixing)
+1) Numeric type mismatch: totalWeight can exceed JS safe integer
+
+You compute:
+
+requiredWeight = Math.floor(totalWeight * 2 / 3)
+
+
+in JS. 
+
+WHITEPAPER (8)
+
+But totalWeight is defined as uint64 and encoded as a decimal string in JSON. 
+
+WHITEPAPER (8)
+
+
+In JavaScript, if weights can exceed ~9e15, you’ll lose precision.
+
+✅ Fix: in the reference verifier, parse weights as BigInt and compute:
+
+required = (totalWeight * 2n) / 3n
+(and specify rounding rule: floor is fine).
+
+Even if your weights won’t exceed safe integer in v1, future-proofing the verifier matters for credibility.
+
+2) Merkle root algorithm needs “left/right” ordering spec
+
+You call merkleRoot(hash, path, index) but don’t specify:
+
+whether index LSB determines left/right at each depth,
+
+how to handle odd node duplication (Bitcoin style) vs your tree semantics.
+
+Since this paper is about proofs, adding 4–6 lines describing the exact Merkle path convention would remove another “implementation ambiguity” vector.
+
+✅ Minimal text:
+
+“At each depth, if (index % 2 == 0) hash = H(hash || sibling) else hash = H(sibling || hash); index = floor(index/2).”
+
+3) ValidatorProof still needs a canonical “rootHash computation” reference
+
+You specify rootHash and include auxiliary nodes with (level,index), which is enough, but you don’t define the exact MerkleSumTree hash preimages in this condensed paper (leaf/internal domain separators, sumWeight encoding). You reference Merkle’s paper but not your specific scheme. 
+
+WHITEPAPER (8)
+
+✅ Fix: add 6–10 lines in Appendix A.3:
+
+leafHash = SHA256( 0x00 || index || address || pk || weight )
+
+nodeHash = SHA256( 0x01 || left.hash || left.sum || right.hash || right.sum )
+
+EMPTY_NODE definition for padding
+
+You had this in earlier drafts; reintroducing it here makes the “self-provable offline” claim bulletproof.
+
+4) Profile B trust model: “checkpointIsTrusted” needs one sentence definition
+
+You’ve intentionally kept the network out of scope (good), but readers will ask: how do I populate trusted checkpoints?
+
+✅ Add 1–2 lines:
+
+“Trusted checkpoints can be bootstrapped via genesis keys, pinned checkpoint, or a signed checkpoint chain.”
+
+You already mention this in §6; just link it in the Profile B verification section.
+
+5) Minor: size claims
+
+Profile B says “~800–2,300 characters,” Profile C “~2,500–5,000+.” Those are plausible. 
+
+WHITEPAPER (8)
+
+
+But your QR-L 2,953 bytes table and “chars” table can confuse readers (bytes vs chars). You already added a QR mode footnote (nice). 
+
+WHITEPAPER (8)
+
+
+Still, you might add a one-liner: “URL length is in characters; QR capacity is bytes (byte-mode).”
