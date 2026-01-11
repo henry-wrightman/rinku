@@ -119,15 +119,25 @@ function verify(proofUrl):
     assert verify(parent)
   
   if profile == "txp":
-    // Profile B: verify checkpoint anchor is trusted
+    // Profile B: verify Merkle inclusion, then checkpoint trust
+    computedRoot = merkleRoot(bundle.hash, bundle.checkpoint.txMerklePath, bundle.checkpoint.txMerkleIndex)
+    assert computedRoot == bundle.checkpoint.txMerkleRoot
     assert checkpointIsTrusted(bundle.checkpoint.id)
     return true
   
-  // 6. Profile C: verify full finality certificate
+  // 6. Profile C: verify Merkle inclusion first
+  computedRoot = merkleRoot(bundle.hash, bundle.checkpoint.txMerklePath, bundle.checkpoint.txMerkleIndex)
+  assert computedRoot == bundle.checkpoint.txMerkleRoot
+  
+  // 7. Verify BLS aggregate signature
   assert verifyBLSAggregate(bundle.checkpoint)
+  
+  // 8. Verify validator proof and derive quorum from totalWeight (not from prover)
   assert verifyValidatorProof(bundle.checkpoint.validatorProof)
   signerWeight = sum(signerLeaves.map(l => l.weight))
-  assert signerWeight >= bundle.checkpoint.validatorProof.quorumThreshold
+  totalWeight = bundle.checkpoint.validatorProof.totalWeight
+  requiredWeight = floor(totalWeight * 2 / 3)  // Derived, not trusted from prover
+  assert signerWeight >= requiredWeight
   return true
 ```
 
@@ -145,12 +155,12 @@ Once the verifier has the URL, no further dependency on infrastructure is needed
 
 Different use cases require different security/size tradeoffs. Profiles are defined by what data is included:
 
-### Profile A: Receipt (`tx`) - ~600 characters
+### Profile A: Authorization (`tx`) - ~600 characters
 
 **Contains:** Transaction + sender public key + signature + hash (no ancestry, no checkpoint)
 **What it proves:** Transaction is validly signed by the sender
 **Trust assumption:** None beyond trusting the sender's key binding (fingerprint → pubkey)
-**Use case:** POS receipts, payment confirmations
+**Use case:** Payment authorizations, intent receipts (note: does not prove finalization)
 
 ```
 rinku://tx/{payload}
@@ -373,11 +383,21 @@ interface ProofBundleC extends ProofBundleA {
     signerBitmap: string;       // Bitmap of which validators signed
     validatorProof: {           // MerkleSumTree multi-proof
       // signerLeaves ordered by increasing index from signerBitmap popcount walk
-      signerLeaves: Array<{ pubKey: string; weight: uint64 }>;
-      // auxiliaryNodes in level-order, left-to-right, for sparse tree reconstruction
-      auxiliaryNodes: Array<{ hash: string; sumWeight: uint64 }>;
-      totalWeight: uint64;
-      quorumThreshold: uint64;  // Minimum weight required (typically 2/3 * totalWeight)
+      signerLeaves: Array<{
+        index: uint16;        // Position in validator set (0-based)
+        address: string;      // Validator address (40-char hex)
+        blsPublicKey: string; // Base64url-encoded BLS12-381 public key
+        weight: uint64;       // Stake weight
+      }>;
+      // auxiliaryNodes with explicit (level, index) for deterministic reconstruction
+      auxiliaryNodes: Array<{
+        level: uint8;         // Tree level (0 = leaf layer)
+        index: uint16;        // Position within level
+        hash: string;         // Node hash (64-char hex)
+        sumWeight: uint64;    // Accumulated weight in subtree
+      }>;
+      totalWeight: uint64;    // Derived from sum tree root (verifier computes quorum)
+      rootHash: string;       // Validator sum tree root hash for verification
     };
   };
 }
@@ -409,7 +429,9 @@ async function verifyProofUrl(url) {
 async function verifyBundle(bundle, profile) {
   // 1. Verify public key matches fingerprint
   const pubKeyBytes = base64Decode(bundle.fromPubKey);
-  const fingerprint = (await sha256(pubKeyBytes)).slice(0, 40);
+  const hashBytes = await sha256(pubKeyBytes);  // Returns Uint8Array
+  const hashHex = bytesToHex(hashBytes);        // Convert to 64-char hex string
+  const fingerprint = hashHex.slice(0, 40);     // First 20 bytes = 40 hex chars
   if (fingerprint !== bundle.tx.from) {
     throw new Error('Public key does not match sender fingerprint');
   }
@@ -443,14 +465,29 @@ async function verifyBundle(bundle, profile) {
     }
   }
   
-  // 6. Profile B: verify checkpoint anchor is trusted
+  // 6. Profile B: verify Merkle inclusion + checkpoint trust
   if (profile === 'txp') {
+    const computedRoot = merkleRoot(bundle.hash, bundle.checkpoint.txMerklePath, bundle.checkpoint.txMerkleIndex);
+    if (computedRoot !== bundle.checkpoint.txMerkleRoot) {
+      throw new Error('Merkle inclusion verification failed');
+    }
     return checkpointIsTrusted(bundle.checkpoint.id);
   }
   
-  // 7. Profile C: verify full finality certificate (BLS + validator proof)
-  return verifyBLSAggregate(bundle.checkpoint) &&
-         verifyValidatorProof(bundle.checkpoint.validatorProof);
+  // 7. Profile C: verify Merkle inclusion + full finality certificate
+  const computedRoot = merkleRoot(bundle.hash, bundle.checkpoint.txMerklePath, bundle.checkpoint.txMerkleIndex);
+  if (computedRoot !== bundle.checkpoint.txMerkleRoot) {
+    throw new Error('Merkle inclusion verification failed');
+  }
+  
+  // 8. Verify BLS signature + validator proof + quorum
+  const blsValid = await verifyBLSAggregate(bundle.checkpoint);
+  const validatorResult = verifyValidatorProof(bundle.checkpoint.validatorProof);
+  const signerWeight = validatorResult.signerWeight;
+  const totalWeight = validatorResult.totalWeight;
+  const requiredWeight = Math.floor(totalWeight * 2 / 3);  // Derived from sum tree
+  
+  return blsValid && validatorResult.valid && signerWeight >= requiredWeight;
 }
 ```
 
