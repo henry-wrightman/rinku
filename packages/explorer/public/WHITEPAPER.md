@@ -156,7 +156,7 @@ Different use cases require different security/size tradeoffs. Profiles are defi
 rinku://tx/{payload}
 ```
 
-### Profile B: Full Ancestry (`txp`) - ~900 - 2,300 characters
+### Profile B: Full Ancestry (`txp`) - ~800 - 2,300 characters
 
 **Contains:** Transaction + recursive parent proofs + checkpoint anchor (id, txMerkleRoot, height) + Merkle inclusion path
 **What it proves:** Transaction is Merkle-included in a checkpoint; finality depends on trusted checkpoint chain
@@ -167,9 +167,9 @@ rinku://tx/{payload}
 rinku://txp/{payload}
 ```
 
-### Profile C: Self-Contained (`sp`) - ~1,600 - 2,800 characters
+### Profile C: Self-Contained (`sp`) - ~2,500 - 5,000+ characters
 
-**Contains:** Everything in Profile B + full finality certificate (BLS aggregate sig + signer bitmap + validator proof)
+**Contains:** Everything in Profile B + full finality certificate (BLS aggregate sig + signer bitmap + validator multi-proof)
 **What it proves:** Complete finality with validator set commitment
 **Trust assumption:** Requires pinned chain identity + initial trust anchor (genesis or pinned checkpoint); after bootstrapping, proofs verify offline
 **Use case:** Fully offline verification, air-gapped systems, legal evidence
@@ -178,30 +178,46 @@ rinku://txp/{payload}
 rinku://sp/{payload}
 ```
 
+Profile C size scales with validator committee size. With packed binary encoding + DEFLATE:
+- N=16 validators, 11 signers: ~2,500 bytes (fits QR-L)
+- N=21 validators, 14 signers: ~3,400 bytes (URL sharing)
+- N=32 validators, 22 signers: ~5,100 bytes (URL sharing)
+
 Profile C is the most powerful - once bootstrapped with a trust anchor, all subsequent proofs verify completely offline.
 
 ## 5. Size Analysis
 
-Real-world measurements using high-entropy data (e.g signatures):
+Real-world measurements using high-entropy data (random hex hashes, ECDSA signatures):
+
+### Profile A/B (without finality certificate)
 
 | Proof Type | Transactions | URL Length |
 |------------|--------------|------------|
-| Single tx | 1 | ~600 chars |
+| Single tx (Profile A) | 1 | ~600 chars |
 | 2-depth ancestry | 3 | ~940 chars |
-| 5-depth ancestry | 6 | ~1,400 chars |
-| 10-depth ancestry | 11 | ~2,200 chars |
+| 5-depth ancestry | 6 | ~1,420 chars |
+| 10-depth ancestry | 11 | ~2,230 chars |
+
+### Profile C (with finality certificate, packed binary + DEFLATE)
+
+| Committee | Signers | Compressed Size | QR-L Compatible |
+|-----------|---------|-----------------|-----------------|
+| N=16 | k=11 | ~2,500 bytes | ✓ |
+| N=21 | k=14 | ~3,400 bytes | ✗ (URL sharing) |
+| N=32 | k=22 | ~5,100 bytes | ✗ (URL sharing) |
+| N=64 | k=43 | ~10,700 bytes | ✗ (URL sharing) |
 
 ### Platform Compatibility
 
-| Platform | Limit | Single tx | 5-depth |
-|----------|-------|-----------|---------|
-| QR Code (L) | 2,953 bytes | ✓ | ✓ |
-| QR Code (H) | 1,273 bytes | ✓ | ✗ |
-| Browser URL | 65KB+ | ✓ | ✓ |
+| Platform | Limit | Profile A | Profile B (5-depth) | Profile C (N=16) |
+|----------|-------|-----------|---------------------|------------------|
+| QR Code (L) | 2,953 bytes | ✓ | ✓ | ✓ |
+| QR Code (H) | 1,273 bytes | ✓ | ✗ | ✗ |
+| Browser URL | 65KB+ | ✓ | ✓ | ✓ |
 
-Single transactions and short ancestry chains fit in QR codes. Complex proofs use typical URL sharing.
+Profile A/B receipts with shallow ancestry fit in QR codes. Profile C with small committees (≤16 validators) fits QR-L; larger committees require URL sharing.
 
-*note* QR capacity depends on QR encoding mode; base64url typically uses byte mode; for maximum density we recommend a QR-optimized encoding (e.g base45) for tx/sp receipts.
+*Note: QR capacity depends on encoding mode; base64url requires byte mode. For maximum density, consider QR-optimized encoding (e.g., base45) for compact receipts.*
 
 ## 6. Trust Bootstrapping
 

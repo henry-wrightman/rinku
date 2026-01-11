@@ -1,0 +1,73 @@
+1) Profile B currently can’t prove “Merkle-included” from the URL alone
+
+You claim Profile B proves “Transaction is Merkle-included in a checkpoint,” but the Profile B bundle only includes txMerkleRoot — no inclusion path (txMerkleIndex + txMerklePath). 
+
+WHITEPAPER (6)
+
+
+Right now, txp is really “tx + ancestry + checkpoint header anchor,” and the verifier only checks checkpointIsTrusted(id) (which is fine for the “redundancy layer” framing), but it’s not Merkle inclusion.
+
+Fix (minimal, keeps it concise): add to Profile B checkpoint:
+
+txMerkleIndex: uint16
+
+txMerklePath: string[] (array of sibling hashes)
+
+…and update the txp verification step to recompute the root and compare to txMerkleRoot.
+
+2) Profile C’s validatorProof is still underspecified
+
+You say “MerkleSumTree multi-proof,” but the schema lists:
+
+auxiliaryNodes: string[] with no positions/structure. 
+
+WHITEPAPER (6)
+
+A multiproof is only verifiable if the verifier knows where each auxiliary node belongs (or you define a deterministic “flags/queue” format). Right now, an implementer can’t write verifyValidatorProof() from this schema without guessing.
+
+Fix options:
+
+Easiest to understand: auxiliaryNodes: Array<{ level: uint8; index: uint16; hash: string; sumWeight: uint64 }>
+
+More compact: define a packed multiproof encoding (“flags + proofNodes”) and reflect that in the schema (“auxiliaryNodesPacked: base64url”).
+
+You already mention canonical JSON and DoS bounds — this is the last missing “unambiguous encoding” piece. 
+
+WHITEPAPER (6)
+
+3) Size numbers are internally inconsistent
+
+§3.1 says “Profile B shallow ancestry (5 levels) under 1,500 chars” 
+
+WHITEPAPER (6)
+
+§4 says Profile B is “~3,000–10,000 chars” 
+
+WHITEPAPER (6)
+
+§5 table says 5-depth is ~1,400 chars 
+
+WHITEPAPER (6)
+
+So either the Profile B range is outdated, or the table is measuring something different.
+
+Fix: pick one consistent story. If you intend txp to be QR-ish for shallow ancestry (like your table), then Profile B should be closer to “~900–2,500 chars typical,” and “3,000–10,000” should be reserved for deeper proofs or for Profile C when you include finality cert payload.
+
+Also: Profile A says “~600–2,300 chars,” but Profile A is tx-only; it should just be “~600 chars typical.” 
+
+WHITEPAPER (6)
+
+4) The verifier pseudocode/JS needs one profile-aware tweak
+
+Right now txp just calls checkpointIsTrusted(bundle.checkpoint.id). 
+
+WHITEPAPER (6)
+
+
+Once you add a Merkle path, the verifier should do:
+
+verify Merkle inclusion against txMerkleRoot
+
+then apply your trust model (trusted checkpoint chain / pinned checkpoint) for the checkpoint anchor
+
+That keeps your “redundancy feature” framing intact while making the claim true.
