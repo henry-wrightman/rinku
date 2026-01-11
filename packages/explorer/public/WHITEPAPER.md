@@ -58,7 +58,7 @@ A proof bundle's structure varies by profile. The base structure (all profiles):
 }
 ```
 
-**Profile B adds** ancestry and checkpoint anchor:
+**Profile B adds** ancestry, checkpoint anchor, and Merkle inclusion path:
 
 ```json
 {
@@ -66,7 +66,9 @@ A proof bundle's structure varies by profile. The base structure (all profiles):
   "checkpoint": {
     "id": "cp_789",
     "txMerkleRoot": "...",
-    "height": "1000"
+    "height": "1000",
+    "txMerklePath": ["sibling_hash_1", "sibling_hash_2", ...],
+    "txMerkleIndex": 42
   }
 }
 ```
@@ -124,6 +126,8 @@ function verify(proofUrl):
   // 6. Profile C: verify full finality certificate
   assert verifyBLSAggregate(bundle.checkpoint)
   assert verifyValidatorProof(bundle.checkpoint.validatorProof)
+  signerWeight = sum(signerLeaves.map(l => l.weight))
+  assert signerWeight >= bundle.checkpoint.validatorProof.quorumThreshold
   return true
 ```
 
@@ -141,7 +145,7 @@ Once the verifier has the URL, no further dependency on infrastructure is needed
 
 Different use cases require different security/size tradeoffs. Profiles are defined by what data is included:
 
-### Profile A: Receipt (`tx`) - ~600 - 2,300 characters
+### Profile A: Receipt (`tx`) - ~600 characters
 
 **Contains:** Transaction + sender public key + signature + hash (no ancestry, no checkpoint)
 **What it proves:** Transaction is validly signed by the sender
@@ -152,9 +156,9 @@ Different use cases require different security/size tradeoffs. Profiles are defi
 rinku://tx/{payload}
 ```
 
-### Profile B: Full Ancestry (`txp`) - ~3,000 - 10,000 characters
+### Profile B: Full Ancestry (`txp`) - ~900 - 2,300 characters
 
-**Contains:** Transaction + recursive parent proofs + checkpoint anchor (id, txMerkleRoot, height)
+**Contains:** Transaction + recursive parent proofs + checkpoint anchor (id, txMerkleRoot, height) + Merkle inclusion path
 **What it proves:** Transaction is Merkle-included in a checkpoint; finality depends on trusted checkpoint chain
 **Trust assumption:** Verifier trusts the checkpoint anchor (via bootstrapped trust or known validator set)
 **Use case:** High-value settlements, audit trails
@@ -328,13 +332,15 @@ interface ProofBundleA {
   hash: string;           // SHA-256 hex of canonical tx JSON
 }
 
-// Profile B adds ancestry + checkpoint anchor
+// Profile B adds ancestry + checkpoint anchor + inclusion proof
 interface ProofBundleB extends ProofBundleA {
   parents: ProofBundleB[];  // Recursive ancestry
   checkpoint: {
     id: string;
     txMerkleRoot: string;   // Merkle root of finalized transactions
     height: uint64;
+    txMerklePath: string[]; // Sibling hashes for inclusion proof
+    txMerkleIndex: uint16;  // Leaf position in tree
   };
 }
 
@@ -345,13 +351,17 @@ interface ProofBundleC extends ProofBundleA {
     id: string;
     txMerkleRoot: string;
     height: uint64;
+    txMerklePath: string[];
+    txMerkleIndex: uint16;
     blsAggregateSig: string;    // BLS12-381 aggregated signature
     signerBitmap: string;       // Bitmap of which validators signed
     validatorProof: {           // MerkleSumTree multi-proof
       // signerLeaves ordered by increasing index from signerBitmap popcount walk
       signerLeaves: Array<{ pubKey: string; weight: uint64 }>;
-      auxiliaryNodes: string[];
+      // auxiliaryNodes in level-order, left-to-right, for sparse tree reconstruction
+      auxiliaryNodes: Array<{ hash: string; sumWeight: uint64 }>;
       totalWeight: uint64;
+      quorumThreshold: uint64;  // Minimum weight required (typically 2/3 * totalWeight)
     };
   };
 }
@@ -361,6 +371,8 @@ interface ProofBundleC extends ProofBundleA {
 
 Transaction fields are serialized in deterministic order for consistent hashing:
 `from, to, amount, fee, nonce, tipUrls, ts, sig`. Canonical JSON = UTF-8, no whitespace, exact numeric encoding rules.
+
+*Note: `hash` is computed over the `tx` object only (the Transaction fields), not including bundle-level fields like `fromPubKey` or `parents`.*
 
 ---
 
