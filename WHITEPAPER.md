@@ -1,6 +1,6 @@
 # Rinku: Self-Provable URLs for Trustless Verification
 
-**Abstract.** We propose a distributed ledger in which URLs serve as self-contained cryptographic proofs. This would enable trustless verification without reliance on external infrastructure or services. A Rinku URL carries not just transaction data, but its complete verification path - ancestry, signatures, and checkpoint anchors. Ultimately, *the link itself is the proof*. This paper focuses on the URL-native proof system that a distributed network could incorperate.
+**Abstract.** We propose a distributed ledger in which URLs serve as self-contained cryptographic proofs. This would enable trustless verification without reliance on external infrastructure or services. A Rinku URL carries not just transaction data, but its complete verification path - ancestry, signatures, and checkpoint anchors. Ultimately, *the link itself is the proof*. This paper focuses on the URL-native proof system that a distributed network could incorporate.
 
 ## 1. The Problem with Verification Today
 
@@ -38,7 +38,7 @@ Transactions are encoded as compressed JSON directly in the URL path:
 
 `Transaction -> JSON -> DEFLATE -> Base64url -> URL`
 
-A single transaction URL is roughly 600 characters. With 5 levels of ancestry (proving the transaction chains back to a checkpoint), URLs remain under 1,500 characters which could fit within a QR code.
+A single transaction URL (Profile A) is roughly 600 characters. Profile A receipts with shallow ancestry (5 levels) remain under 1,500 characters, fitting within a QR code. Full Profile B/C proofs with finality certificates are larger (see §5 Size Analysis).
 
 ### 3.2 Proof Structure
 
@@ -126,7 +126,7 @@ function verify(proofUrl):
 - URLs are stored in application databases
 - Crawlers can follow parent references to reconstruct comprehensive history
 
-Once the verifier has the URL, no further dependancy on infrastructure is needed. The proof is descrete. This is analogous to a signed document: the signature proves authenticity, but the document must still be delivered.
+Once the verifier has the URL, no further dependency on infrastructure is needed. The proof is discrete. This is analogous to a signed document: the signature proves authenticity, but the document must still be delivered.
 
 ## 4. Proof Profiles
 

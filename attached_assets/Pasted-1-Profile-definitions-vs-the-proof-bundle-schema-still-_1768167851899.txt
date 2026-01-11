@@ -1,0 +1,67 @@
+1) Profile definitions vs the “proof bundle” schema still conflict
+
+In the main body, you define:
+
+Profile A (tx) = tx + pubkey + sig + hash (no ancestry) 
+
+WHITEPAPER (2)
+
+Profile B (txp) = tx + recursive parents + checkpoint anchor 
+
+WHITEPAPER (2)
+
+Profile C (sp) = Profile B + full finality cert (BLS sig + bitmap + validator proof) 
+
+WHITEPAPER (2)
+
+But your Appendix A.3 ProofBundle schema always includes:
+
+parents: ProofBundle[]
+
+checkpoint fields including blsAggregateSig, signerBitmap, and a validatorProof 
+
+WHITEPAPER (2)
+
+That schema is basically Profile C always.
+
+✅ Fix (simple): Make the schema reflect profiles with optional fields:
+
+For Profile A: omit parents and checkpoint entirely (or allow them but say MUST be empty/null).
+
+For Profile B: include parents + checkpoint with only id/merkleRoot/height (and maybe signatureCount).
+
+For Profile C: include the full finality certificate fields.
+
+This prevents implementers from assuming tx includes finality/cert material.
+
+2) Your verifier implementation recurses by re-encoding parents into URLs
+
+In Appendix B you do:
+
+for (const parent of bundle.parents) {
+  await verifyProofUrl(encodeBundle(parent));
+}
+``` :contentReference[oaicite:5]{index=5}
+
+That implies URL formatting is part of verification, and `encodeBundle` isn’t defined. It also adds unnecessary variability.
+
+✅ **Fix:** Split into `verifyBundle(bundle)` and have `verifyProofUrl(url)` only parse/decode once. Then recurse with `verifyBundle(parent)`.
+
+---
+
+## 3) Numeric determinism isn’t fully applied in the ProofBundle schema
+You correctly state integer fields are decimal strings in canonical JSON. :contentReference[oaicite:6]{index=6}  
+But `height: number` and validator `weight: number` still appear in A.3. :contentReference[oaicite:7]{index=7}
+
+✅ **Fix:** Make them `uint64` (or `uint32`) and explicitly “encoded as decimal strings.” Otherwise JS implementations may serialize floats/ints differently.
+
+---
+
+## Minor polish (optional, but makes it “cleaner”)
+- In §3.1 you say “tx URL roughly 600 chars; 5 ancestry under 1,500 chars fits QR.” :contentReference[oaicite:8]{index=8}  
+  That directly conflicts with your own “Profile B 3,000–10,000 chars” claim. :contentReference[oaicite:9]{index=9}  
+  I think the 1,500-char estimate is for shallow bundles without full finality certs. Either:
+  - move that estimate under Profile A/C QR discussion, or
+  - clarify it’s “typical tx-only + shallow ancestry,” not full Profile B.
+
+- Fix typos: “incorperate”, “dependancy”, “descrete.” (Not critical, but worth doing.)
