@@ -133,10 +133,11 @@ function verify(proofUrl):
   assert verifyBLSAggregate(bundle.checkpoint)
   
   // 8. Verify validator proof and derive quorum from totalWeight (not from prover)
+  // Note: weights are string-encoded per §A.3; use arbitrary-precision arithmetic
   assert verifyValidatorProof(bundle.checkpoint.validatorProof)
-  signerWeight = sum(signerLeaves.map(l => l.weight))
-  totalWeight = bundle.checkpoint.validatorProof.totalWeight
-  requiredWeight = floor(totalWeight * 2 / 3)  // Derived, not trusted from prover
+  signerWeight = sum(signerLeaves.map(l => BigInt(l.weight)))
+  totalWeight = BigInt(bundle.checkpoint.validatorProof.totalWeight)
+  requiredWeight = (totalWeight * 2) / 3  // Integer division (floor)
   assert signerWeight >= requiredWeight
   return true
 ```
@@ -150,6 +151,24 @@ function verify(proofUrl):
 - Crawlers can follow parent references to reconstruct comprehensive history
 
 Once the verifier has the URL, no further dependency on infrastructure is needed. The proof is discrete. This is analogous to a signed document: the signature proves authenticity, but the document must still be delivered.
+
+### 3.5 The Rinku Network
+
+Rinku is a DAG-based distributed ledger that produces the proofs described above. Rather than a single chain of blocks, Rinku maintains a directed acyclic graph where:
+
+* **Account micro-chains** - Each account maintains its own chain of transactions, with each new transaction referencing the account's previous transaction.
+* **DAG linking** - Transactions also reference 1-2 recent "tip" transactions from other accounts, weaving individual chains into a shared DAG structure.
+* **Weight-based ordering** - Conflicts are resolved by cumulative weight, providing Sybil resistance without proof-of-work.
+
+**Finality via checkpoints:**
+
+Validators periodically create checkpoints that finalize batches of transactions. A checkpoint includes:
+
+* A Merkle root committing to all finalized transactions
+* A BLS-aggregated signature from ≥67% of the validator set
+* A commitment to the next validator set
+
+Once a transaction is included in a checkpoint, a self-provable URL can be generated. The checkpoint's aggregated signature becomes the trust anchor embedded in the proof.
 
 ## 4. Proof Profiles
 
@@ -514,7 +533,9 @@ async function verifyBundle(bundle, profile) {
   }
   
   // 8. Verify BLS signature + validator proof + quorum (use BigInt for >2^53 safety)
+  // Note: per §A.3, weight fields are string-encoded in JSON; convert to BigInt
   const blsValid = await verifyBLSAggregate(bundle.checkpoint);
+  // verifyValidatorProof returns { valid: boolean, signerWeight: string, totalWeight: string }
   const validatorResult = verifyValidatorProof(bundle.checkpoint.validatorProof);
   const signerWeight = BigInt(validatorResult.signerWeight);
   const totalWeight = BigInt(validatorResult.totalWeight);
