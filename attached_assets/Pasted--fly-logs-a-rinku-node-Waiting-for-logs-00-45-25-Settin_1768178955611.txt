@@ -1,0 +1,202 @@
+$ fly logs -a rinku-node 
+Waiting for logs...
+00:45:25
+Setting up volume 'rinku_data'
+00:45:25
+Opening encrypted volume
+00:45:26
+Configuring firecracker
+00:45:26
+ INFO Sending signal SIGINT to main child process w/ PID 650
+00:45:26
+ INFO Main child exited with signal (with signal 'SIGINT', core dumped? false)
+00:45:26
+ INFO Starting clean up.
+00:45:26
+ INFO Umounting /dev/vdc from /data
+00:45:26
+[   45.043883] reboot: Restarting system
+00:45:27
+2026-01-12T00:45:27.775584974 [01KEQTMC3V1S5RHDENPZX1E499:main] Running Firecracker v1.12.1
+00:45:27
+2026-01-12T00:45:27.775778618 [01KEQTMC3V1S5RHDENPZX1E499:main] Listening on API socket ("/fc.sock").
+00:45:28
+ INFO Starting init (commit: 6f59af0a)...
+00:45:28
+ INFO Checking filesystem on /data
+00:45:28
+/dev/vdc: clean, 17/64512 files, 8918/258048 blocks
+00:45:28
+ INFO Mounting /dev/vdc at /data w/ uid: 0, gid: 0 and chmod 0755
+00:45:28
+ INFO Resized /data to 1056964608 bytes
+00:45:28
+ INFO Preparing to run: `/app/rinku-node` as root
+00:45:28
+ INFO [fly api proxy] listening at /.fly/api
+00:45:28
+2026-01-12T00:45:28.898331Z  INFO rinku_node: Starting Rinku Node
+00:45:28
+2026-01-12T00:45:28.899560Z  INFO rinku_node: Node ID: fly-node-1
+00:45:28
+2026-01-12T00:45:28.899571Z  INFO rinku_node: Data dir: /data
+00:45:28
+Machine created and started in 3.852s
+00:45:28
+2026-01-12T00:45:28.989088Z  INFO rinku_node::persistence: Opened sled database at /data/sled-db
+00:45:28
+2026-01-12T00:45:28.989319Z  INFO rinku_node::persistence: Loaded snapshot: 1 accounts, 0 validators, 0 checkpoints, 1 txs
+00:45:28
+2026-01-12T00:45:28.989353Z  INFO rinku_node::state: Restored from snapshot: 1 accounts, 1 txs, 0 checkpoints
+00:45:28
+2026-01-12T00:45:28.989518Z  INFO rinku_node::persistence: Loaded rewards snapshot: 0 stakes, 0 pending rewards
+00:45:28
+2026-01-12T00:45:28.989548Z  INFO rinku_node::state: Restored rewards: 0 stakes, 0 pending
+00:45:28
+2026-01-12T00:45:28.990417Z  INFO rinku_node::validator: Loaded validator key: f0ccf61325cd54cd...
+00:45:28
+2026-01-12T00:45:28.992362Z  INFO rinku_node: Validator key loaded: f0ccf61325cd54cd...
+00:45:28
+2026-01-12T00:45:28.992423Z  INFO rinku_node: Gas service initialized
+00:45:28
+2026-01-12T00:45:28.992521Z  INFO rinku_node: Rewards service initialized
+00:45:28
+2026-01-12T00:45:28.992552Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+00:45:28
+2026-01-12T00:45:28.992621Z  INFO rinku_node: Slashing service initialized
+00:45:28
+2026-01-12T00:45:28.993046Z  INFO rinku_node: BLS public key: rDatE9NS_Tm7Hz9EJPsNrag0oO09j_P3...
+00:45:28
+2026-01-12T00:45:28.993273Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+00:45:28
+2026-01-12T00:45:28.993302Z  INFO rinku_node: Fork remediation service started
+00:45:28
+2026-01-12T00:45:28.993329Z  INFO rinku_node: Gossip service started (5000ms interval)
+00:45:28
+2026-01-12T00:45:28.993352Z  INFO rinku_node: Tip consolidation service started
+00:45:28
+2026-01-12T00:45:28.993373Z  INFO rinku_node: Snapshot persistence started (60s interval)
+00:45:28
+2026-01-12T00:45:28.993393Z  INFO rinku_node: STATIC_DIR config: None
+00:45:28
+2026-01-12T00:45:28.993965Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+00:45:28
+2026-01-12T00:45:28.994100Z  INFO rinku_node: Rinku Node running on port 8080
+00:45:28
+2026-01-12T00:45:28.994179Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+00:45:28
+2026-01-12T00:45:28.994245Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+00:45:28
+2026-01-12T00:45:28.994707Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+00:45:28
+2026-01-12T00:45:28.994751Z  INFO rinku_node::gossip: Gossip service started (interval: 5000ms, peers: 1)
+00:45:28
+2026-01-12T00:45:28.994835Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 200, interval: 3000ms)
+00:45:29
+2026/01/12 00:45:29 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:167:34bf:80ab:2]:22
+00:45:57
+Pulling container image registry.fly.io/rinku-node@sha256:bc033afe311c143002780c0816ddfd736e734122e2f2e8df419e81cd486489fd
+00:45:57
+Container image registry.fly.io/rinku-node@sha256:bc033afe311c143002780c0816ddfd736e734122e2f2e8df419e81cd486489fd already prepared
+00:45:57
+Setting up volume 'rinku_data'
+00:45:57
+Opening encrypted volume
+00:45:58
+Configuring firecracker
+00:45:58
+ INFO Sending signal SIGINT to main child process w/ PID 650
+00:45:58
+ INFO Main child exited with signal (with signal 'SIGINT', core dumped? false)
+00:45:58
+ INFO Starting clean up.
+00:45:58
+ INFO Umounting /dev/vdc from /data
+00:45:58
+[   31.029661] reboot: Restarting system
+00:45:59
+2026-01-12T00:45:59.790268228 [01KEQTNBNMABJAYY1AWZZAY0BJ:main] Running Firecracker v1.12.1
+00:45:59
+2026-01-12T00:45:59.790462032 [01KEQTNBNMABJAYY1AWZZAY0BJ:main] Listening on API socket ("/fc.sock").
+00:46:00
+ INFO Starting init (commit: 6f59af0a)...
+00:46:00
+ INFO Checking filesystem on /data
+00:46:00
+/dev/vdc: clean, 17/64512 files, 8918/258048 blocks
+00:46:00
+ INFO Mounting /dev/vdc at /data w/ uid: 0, gid: 0 and chmod 0755
+00:46:00
+ INFO Resized /data to 1056964608 bytes
+00:46:00
+ INFO Preparing to run: `/app/rinku-node` as root
+00:46:00
+ INFO [fly api proxy] listening at /.fly/api
+00:46:00
+2026-01-12T00:46:00.903235Z  INFO rinku_node: Starting Rinku Node
+00:46:00
+2026-01-12T00:46:00.904530Z  INFO rinku_node: Node ID: fly-node-1
+00:46:00
+2026-01-12T00:46:00.904579Z  INFO rinku_node: Data dir: /data
+00:46:00
+Machine created and started in 3.5s
+00:46:00
+2026-01-12T00:46:00.994321Z  INFO rinku_node::persistence: Opened sled database at /data/sled-db
+00:46:00
+2026-01-12T00:46:00.994535Z  INFO rinku_node::persistence: Loaded snapshot: 1 accounts, 0 validators, 0 checkpoints, 1 txs
+00:46:00
+2026-01-12T00:46:00.994568Z  INFO rinku_node::state: Restored from snapshot: 1 accounts, 1 txs, 0 checkpoints
+00:46:00
+2026-01-12T00:46:00.994683Z  INFO rinku_node::persistence: Loaded rewards snapshot: 0 stakes, 0 pending rewards
+00:46:00
+2026-01-12T00:46:00.994709Z  INFO rinku_node::state: Restored rewards: 0 stakes, 0 pending
+00:46:00
+2026-01-12T00:46:00.995549Z  INFO rinku_node::validator: Loaded validator key: f0ccf61325cd54cd...
+00:46:00
+2026-01-12T00:46:00.997796Z  INFO rinku_node: Validator key loaded: f0ccf61325cd54cd...
+00:46:00
+2026-01-12T00:46:00.997835Z  INFO rinku_node: Gas service initialized
+00:46:00
+2026-01-12T00:46:00.997861Z  INFO rinku_node: Rewards service initialized
+00:46:00
+2026-01-12T00:46:00.997922Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+00:46:00
+2026-01-12T00:46:00.997945Z  INFO rinku_node: Slashing service initialized
+00:46:00
+2026-01-12T00:46:00.998223Z  INFO rinku_node: BLS public key: h9I8ddZLKiDgC8od3DLf-UsBIzzEqXJl...
+00:46:00
+2026-01-12T00:46:00.998262Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+00:46:00
+2026-01-12T00:46:00.998342Z  INFO rinku_node: Fork remediation service started
+00:46:00
+2026-01-12T00:46:00.998485Z  INFO rinku_node: Gossip service started (5000ms interval)
+00:46:00
+2026-01-12T00:46:00.998550Z  INFO rinku_node: Tip consolidation service started
+00:46:00
+2026-01-12T00:46:00.998616Z  INFO rinku_node: Snapshot persistence started (60s interval)
+00:46:00
+2026-01-12T00:46:00.998676Z  INFO rinku_node: STATIC_DIR config: None
+00:46:00
+2026-01-12T00:46:00.998442Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+00:46:00
+2026-01-12T00:46:00.998828Z  INFO rinku_node::gossip: Gossip service started (interval: 5000ms, peers: 1)
+00:46:00
+2026-01-12T00:46:00.998839Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 200, interval: 3000ms)
+00:46:00
+2026-01-12T00:46:00.999475Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+00:46:00
+2026-01-12T00:46:00.999584Z  INFO rinku_node: Rinku Node running on port 8080
+00:46:00
+2026-01-12T00:46:00.999667Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+00:46:00
+2026-01-12T00:46:00.999810Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+00:46:01
+Health check 'metrics' on port 8080 has failed. Your app is not responding properly.
+00:46:01
+Health check 'health' on port 8080 has failed. Your app is not responding properly.
+00:46:01
+2026/01/12 00:46:01 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:167:34bf:80ab:2]:22
+00:46:01
+Health check 'metrics' on port 8080 is now passing.
+00:46:01
+Health check 'health' on port 8080 is now passing.
