@@ -19,11 +19,16 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Reward and Staking System:** Supports Tip, Stake, and Witness Rewards, with a staking mechanism for validators including slashing penalties and an unbonding queue.
 - **Dynamic Gas Fee Model (EIP-1559 Style):** Utilization-based pricing adjusts based on transaction volume, with an adaptive fee split (70%+ to validators, up to 30% burned).
 - **Tokenomics System:** Hard-capped supply (30M RKU), genesis allocation, checkpoint-based emission with 18-month halving epochs, and WPoS reward distribution.
-- **Multi-Node Networking:** Gossip protocol for peer discovery and a peer sync protocol for state synchronization.
+- **Multi-Node Networking:** Gossip protocol for peer discovery and snapshot-based sync protocol.
   - `POST /api/gossip`: Receives gossip messages (transactions, tips, sync requests) from peers
   - `GET /api/sync/status`: Returns node sync state (checkpoint height, DAG size, tips, merkle root)
-  - `POST /api/sync/bootstrap`: Initial sync for new nodes with pagination support (up to 500 txs per page)
+  - `GET /api/sync/snapshot`: Snapshot-based sync - returns complete derived state (accounts, validators, checkpoints, recent DAG)
   - `GET /api/sync/transactions?hashes=a,b,c`: Batch fetch transactions by hash
+- **Snapshot-Based Sync Architecture:** New nodes sync via state snapshots instead of full transaction history.
+  - Transfers ~10KB (accounts + validators + checkpoints) instead of potentially GBs of transaction history
+  - Self-contained URL proofs mean historical transactions aren't needed for verification
+  - Snapshot includes: accounts, validators, checkpoints, gas_price, total_supply, genesis_time, recent DAG transactions
+  - Fresh nodes rebuild DAG with synthetic genesis node, orphaned parents point to genesis
 - **Performance Optimizations:** Includes in-memory DAG pruning, snapshot optimizations, checkpoint-bounded self-crawlable URLs, per-transaction finality, self-contained Merkle proofs, batched operations, parallel signature verification, and batch transaction API.
 - **Protocol-Level Tip Consolidation:** Automatic DAG tip reduction via validator-created zero-fee consolidation transactions.
 - **BLS Signature Aggregation:** Uses BLS12-381 for compact checkpoint validator signatures.

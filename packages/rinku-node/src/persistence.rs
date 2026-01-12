@@ -134,22 +134,6 @@ impl PersistenceService {
         Ok(())
     }
 
-    pub fn get_all_transactions(&self) -> Result<Vec<SignedTransaction>> {
-        let mut txs = Vec::new();
-        for item in self.db.scan_prefix("tx:") {
-            let (_, value) = item?;
-            if let Ok(tx) = serde_json::from_slice::<SignedTransaction>(&value) {
-                txs.push(tx);
-            }
-        }
-        info!("Loaded {} transactions from persistence", txs.len());
-        Ok(txs)
-    }
-
-    pub fn get_transaction_count(&self) -> usize {
-        self.db.scan_prefix("tx:").count()
-    }
-
     pub fn save_rewards(&self, snapshot: &RewardsSnapshot) -> Result<()> {
         let data = serde_json::to_vec(snapshot)?;
         self.db.insert("rewards", data)?;

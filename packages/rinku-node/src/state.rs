@@ -3,6 +3,7 @@ use rinku_core::{
     dag::Dag,
     types::{Account, Checkpoint, SignedTransaction, Validator},
 };
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -13,6 +14,21 @@ use crate::emission::EmissionService;
 use crate::persistence::PersistenceService;
 use crate::rewards::RewardsService;
 use crate::slashing::SlashingService;
+
+/// Snapshot of node state for efficient sync
+/// Contains derived state (accounts) + checkpoint metadata + recent DAG
+/// This is much smaller than full transaction history
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncSnapshot {
+    pub accounts: HashMap<String, Account>,
+    pub validators: HashMap<String, Validator>,
+    pub checkpoints: Vec<Checkpoint>,
+    pub gas_price: f64,
+    pub total_supply: f64,
+    pub genesis_time: u64,
+    pub dag_transactions: Vec<SignedTransaction>,
+    pub total_transactions: u64,
+}
 
 pub struct DagNodeInfo {
     pub hash: String,
@@ -461,10 +477,6 @@ impl NodeState {
             state.period_start_ms = now_ms;
         }
 
-        // Persist transaction for sync (after releasing lock)
-        drop(state);
-        let _ = self.persistence.save_transaction(&tx);
-
         Ok(())
     }
 
@@ -545,16 +557,6 @@ impl NodeState {
             state.period_start_ms = now_ms;
         }
 
-        // Persist successful transactions for sync (after releasing lock)
-        let successful_txs: Vec<_> = results.iter().zip(txs.iter())
-            .filter(|(r, _)| r.is_ok())
-            .map(|(_, tx)| tx.clone())
-            .collect();
-        drop(state);
-        for tx in successful_txs {
-            let _ = self.persistence.save_transaction(&tx);
-        }
-
         results
     }
 
@@ -633,36 +635,239 @@ impl NodeState {
 
     pub async fn get_txs_since_checkpoint(
         &self,
-        _from_checkpoint: u64,
+        from_checkpoint: u64,
         missing_hashes: &[String],
     ) -> Vec<SignedTransaction> {
-        // If requesting specific hashes, look them up individually
-        if !missing_hashes.is_empty() {
-            let state = self.inner.read().await;
-            return state
-                .dag
-                .get_all_nodes()
-                .into_iter()
-                .filter(|n| missing_hashes.contains(&n.hash))
-                .map(|n| n.tx.clone())
-                .collect();
+        let state = self.inner.read().await;
+
+        // Return only current DAG transactions (not full history)
+        state
+            .dag
+            .get_all_nodes()
+            .into_iter()
+            .filter(|n| {
+                if !missing_hashes.is_empty() {
+                    missing_hashes.contains(&n.hash)
+                } else {
+                    // Include unfinalized transactions OR from checkpoints after from_checkpoint
+                    n.checkpoint_height.map(|h| h > from_checkpoint).unwrap_or(true)
+                }
+            })
+            .map(|n| n.tx.clone())
+            .collect()
+    }
+
+    /// Get a state snapshot for sync (accounts, checkpoints, recent DAG)
+    /// This is the efficient way to sync - transfer state, not full tx history
+    pub async fn get_sync_snapshot(&self) -> SyncSnapshot {
+        let state = self.inner.read().await;
+        
+        // Get recent DAG transactions (only unfinalized ones for sync)
+        let dag_txs: Vec<SignedTransaction> = state
+            .dag
+            .get_all_nodes()
+            .into_iter()
+            .filter(|n| !n.finalized)
+            .map(|n| n.tx.clone())
+            .collect();
+
+        SyncSnapshot {
+            accounts: state.accounts.clone(),
+            validators: state.validators.clone(),
+            checkpoints: state.checkpoints.clone(),
+            gas_price: state.current_gas_price,
+            total_supply: state.total_supply,
+            genesis_time: state.genesis_time,
+            dag_transactions: dag_txs,
+            total_transactions: state.total_transactions,
+        }
+    }
+
+    /// Apply a snapshot from a peer during sync
+    /// This replaces local state with the peer's state (used for initial sync)
+    pub async fn apply_sync_snapshot(&self, snapshot: SyncSnapshot) -> Result<usize> {
+        let mut state = self.inner.write().await;
+        
+        // Only apply if peer has more checkpoints (more finalized history)
+        let local_checkpoint_count = state.checkpoints.len();
+        let peer_checkpoint_count = snapshot.checkpoints.len();
+        
+        if peer_checkpoint_count <= local_checkpoint_count && local_checkpoint_count > 0 {
+            info!(
+                "Skipping snapshot apply: local has {} checkpoints, peer has {}",
+                local_checkpoint_count, peer_checkpoint_count
+            );
+            return Ok(0);
         }
 
-        // For full sync, get ALL transactions from persistence (includes finalized)
-        match self.persistence.get_all_transactions() {
-            Ok(txs) => txs,
-            Err(e) => {
-                tracing::warn!("Failed to load transactions from persistence: {}", e);
-                // Fallback to DAG only
-                let state = self.inner.read().await;
-                state
-                    .dag
-                    .get_all_nodes()
-                    .into_iter()
-                    .map(|n| n.tx.clone())
-                    .collect()
+        info!(
+            "Applying sync snapshot: {} accounts, {} checkpoints, {} dag txs",
+            snapshot.accounts.len(),
+            snapshot.checkpoints.len(),
+            snapshot.dag_transactions.len()
+        );
+
+        // Apply derived state from peer
+        state.accounts = snapshot.accounts;
+        state.validators = snapshot.validators;
+        state.checkpoints = snapshot.checkpoints.clone();
+        state.current_gas_price = snapshot.gas_price;
+        state.total_supply = snapshot.total_supply;
+        state.genesis_time = snapshot.genesis_time;
+        state.total_transactions = snapshot.total_transactions;
+
+        // Update checkpoint timestamp from latest checkpoint
+        // Note: checkpoint.timestamp is in seconds, convert to milliseconds
+        if let Some(latest_cp) = snapshot.checkpoints.last() {
+            state.last_checkpoint_time_ms = latest_cp.timestamp * 1000;
+        }
+
+        // Reset DAG and rebuild with genesis + unfinalized transactions
+        // Fresh DAG starts with genesis node as root (max 10000 nodes for synced state)
+        state.dag = rinku_core::Dag::new(10000);
+        
+        // Create a synthetic genesis node that DAG transactions can reference
+        let genesis_hash = "genesis".to_string();
+        let genesis_tx = SignedTransaction {
+            tx: rinku_core::types::Transaction {
+                from: "genesis".to_string(),
+                to: "genesis".to_string(),
+                amount: 0.0,
+                nonce: 0,
+                timestamp: snapshot.genesis_time,
+                parents: vec![],
+                kind: None,
+                gas_price: None,
+                gas_limit: None,
+                data: None,
+                signature: None,
+            },
+            hash: genesis_hash.clone(),
+            signature: "genesis".to_string(),
+        };
+        
+        let genesis_node = rinku_core::types::DagNode {
+            hash: genesis_hash.clone(),
+            tx: genesis_tx,
+            parents: vec![],
+            children: Vec::new(),
+            weight: 1.0,
+            finalized: true,
+            checkpoint_height: Some(0),
+        };
+        let _ = state.dag.add_node(genesis_node);
+
+        // Build a lookup of all transaction hashes in the snapshot
+        // This allows us to preserve parent links even if insertion order differs
+        let snapshot_hashes: std::collections::HashSet<String> = snapshot
+            .dag_transactions
+            .iter()
+            .map(|tx| tx.hash.clone())
+            .collect();
+
+        // Normalize parent references for all transactions
+        let normalize_parent = |p: &str| -> String {
+            if p.starts_with("rinku://tx/h/") {
+                p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+            } else if p.starts_with("rinku://tx/") {
+                p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+            } else {
+                p.to_string()
+            }
+        };
+
+        // Build normalized parent map for topological sorting
+        let tx_parents: HashMap<String, Vec<String>> = snapshot
+            .dag_transactions
+            .iter()
+            .map(|tx| {
+                let parents: Vec<String> = tx.tx.parents.iter()
+                    .map(|p| normalize_parent(p))
+                    .map(|p| {
+                        if snapshot_hashes.contains(&p) {
+                            p
+                        } else {
+                            genesis_hash.clone()
+                        }
+                    })
+                    .collect();
+                (tx.hash.clone(), parents)
+            })
+            .collect();
+
+        // Topologically sort transactions (parents before children)
+        // Uses Kahn's algorithm
+        let mut in_degree: HashMap<String, usize> = HashMap::new();
+        let mut children_map: HashMap<String, Vec<String>> = HashMap::new();
+        
+        for tx in &snapshot.dag_transactions {
+            in_degree.entry(tx.hash.clone()).or_insert(0);
+            for parent in tx_parents.get(&tx.hash).unwrap_or(&vec![]) {
+                if snapshot_hashes.contains(parent) {
+                    *in_degree.entry(tx.hash.clone()).or_insert(0) += 1;
+                    children_map.entry(parent.clone()).or_default().push(tx.hash.clone());
+                }
             }
         }
+
+        // Start with nodes that have no parents in the snapshot (roots)
+        let mut queue: Vec<String> = in_degree
+            .iter()
+            .filter(|(_, &deg)| deg == 0)
+            .map(|(hash, _)| hash.clone())
+            .collect();
+        
+        let mut sorted_hashes: Vec<String> = Vec::new();
+        while let Some(hash) = queue.pop() {
+            sorted_hashes.push(hash.clone());
+            if let Some(children) = children_map.get(&hash) {
+                for child in children {
+                    if let Some(deg) = in_degree.get_mut(child) {
+                        *deg -= 1;
+                        if *deg == 0 {
+                            queue.push(child.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Build hash-to-tx lookup for quick access
+        let tx_lookup: HashMap<String, SignedTransaction> = snapshot
+            .dag_transactions
+            .into_iter()
+            .map(|tx| (tx.hash.clone(), tx))
+            .collect();
+
+        // Add unfinalized DAG transactions in topological order
+        // This ensures parents are inserted before children
+        let mut added = 0;
+        for hash in sorted_hashes {
+            let tx = match tx_lookup.get(&hash) {
+                Some(tx) => tx,
+                None => continue,
+            };
+            
+            let normalized_parents = tx_parents.get(&hash).cloned().unwrap_or_default();
+
+            let node = rinku_core::types::DagNode {
+                hash: tx.hash.clone(),
+                tx: tx.clone(),
+                parents: normalized_parents,
+                children: Vec::new(),
+                weight: 1.0,
+                finalized: false,
+                checkpoint_height: None,
+            };
+
+            if state.dag.add_node(node).is_ok() {
+                added += 1;
+            }
+        }
+
+        info!("Snapshot applied: {} DAG transactions, {} validators, {} checkpoints", 
+            added, state.validators.len(), state.checkpoints.len());
+        Ok(added)
     }
 
     pub async fn calculate_cumulative_weight(&self, hash: &str) -> f64 {

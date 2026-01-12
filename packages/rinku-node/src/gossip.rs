@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rinku_core::types::SignedTransaction;
+use rinku_core::types::{Account, Checkpoint, SignedTransaction};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, warn};
 
-use crate::state::NodeState;
+use crate::state::{NodeState, SyncSnapshot};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +29,20 @@ struct BootstrapResponse {
     #[allow(dead_code)]
     total_available: usize,
     has_more: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotSyncResponse {
+    accounts: HashMap<String, Account>,
+    validators: HashMap<String, rinku_core::types::Validator>,
+    checkpoints: Vec<Checkpoint>,
+    gas_price: f64,
+    total_supply: f64,
+    genesis_time: u64,
+    dag_transactions: Vec<SignedTransaction>,
+    total_transactions: u64,
+    checkpoint_height: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,73 +245,54 @@ impl GossipService {
         Ok(status)
     }
 
-    async fn bootstrap_from_peer(&self, peer: &str, from_checkpoint: u64) -> Result<()> {
+    async fn bootstrap_from_peer(&self, peer: &str, _from_checkpoint: u64) -> Result<()> {
         let client = reqwest::Client::new();
-        let url = format!("{}/api/sync/bootstrap", peer);
-        let mut current_checkpoint = from_checkpoint;
-        let mut total_synced = 0;
-        let mut page = 0;
-        const MAX_PAGES: usize = 100;
-
-        loop {
-            page += 1;
-            if page > MAX_PAGES {
-                info!("Bootstrap: reached max pages limit ({}), stopping", MAX_PAGES);
-                break;
-            }
-
-            let response = client
-                .post(&url)
-                .json(&serde_json::json!({
-                    "from_checkpoint": current_checkpoint,
-                    "limit": 500
-                }))
-                .timeout(Duration::from_secs(30))
-                .send()
-                .await?;
-            
-            if !response.status().is_success() {
-                anyhow::bail!("Bootstrap request failed with status {}", response.status());
-            }
-            
-            let bootstrap: BootstrapResponse = response.json().await?;
-            info!(
-                "Bootstrap page {}: received {} txs (checkpoint: {}, has_more: {})",
-                page, bootstrap.transactions.len(), bootstrap.checkpoint_height, bootstrap.has_more
-            );
-
-            if bootstrap.transactions.is_empty() {
-                break;
-            }
-
-            let mut synced = 0;
-            for tx in &bootstrap.transactions {
-                let hash = tx.hash.clone();
-                let mut inner = self.inner.write().await;
-                if !inner.known_txs.contains(&hash) {
-                    inner.known_txs.insert(hash.clone());
-                    drop(inner);
-                    
-                    if let Err(e) = self.state.add_transaction(tx.clone()).await {
-                        debug!("Failed to add synced tx {}: {}", &hash[..16.min(hash.len())], e);
-                    } else {
-                        synced += 1;
-                    }
-                }
-            }
-
-            total_synced += synced;
-            current_checkpoint = bootstrap.checkpoint_height;
-
-            if !bootstrap.has_more {
-                break;
-            }
+        
+        // Use snapshot-based sync: get complete state snapshot from peer
+        // This is efficient because it transfers derived state (accounts) 
+        // instead of full transaction history
+        let url = format!("{}/api/sync/snapshot", peer);
+        
+        info!("Requesting snapshot sync from peer: {}", peer);
+        
+        let response = client
+            .get(&url)
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+        
+        if !response.status().is_success() {
+            anyhow::bail!("Snapshot sync request failed with status {}", response.status());
         }
+        
+        let snapshot_response: SnapshotSyncResponse = response.json().await?;
+        
+        info!(
+            "Received snapshot: {} accounts, {} checkpoints, {} dag txs, checkpoint height {}",
+            snapshot_response.accounts.len(),
+            snapshot_response.checkpoints.len(),
+            snapshot_response.dag_transactions.len(),
+            snapshot_response.checkpoint_height
+        );
 
-        info!("Bootstrap sync complete: added {} new transactions in {} pages", total_synced, page);
+        // Convert response to SyncSnapshot and apply
+        let snapshot = SyncSnapshot {
+            accounts: snapshot_response.accounts,
+            validators: snapshot_response.validators,
+            checkpoints: snapshot_response.checkpoints,
+            gas_price: snapshot_response.gas_price,
+            total_supply: snapshot_response.total_supply,
+            genesis_time: snapshot_response.genesis_time,
+            dag_transactions: snapshot_response.dag_transactions,
+            total_transactions: snapshot_response.total_transactions,
+        };
+
+        let added = self.state.apply_sync_snapshot(snapshot).await?;
+        
+        info!("Snapshot sync complete: applied {} DAG transactions", added);
 
         let mut inner = self.inner.write().await;
-        inner.stats.sync_requests += page as u64;
+        inner.stats.sync_requests += 1;
         
         Ok(())
     }

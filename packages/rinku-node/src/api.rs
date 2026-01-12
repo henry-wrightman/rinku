@@ -305,6 +305,20 @@ struct BatchTxResponse {
     missing: Vec<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotSyncResponse {
+    accounts: std::collections::HashMap<String, rinku_core::types::Account>,
+    validators: std::collections::HashMap<String, rinku_core::types::Validator>,
+    checkpoints: Vec<rinku_core::types::Checkpoint>,
+    gas_price: f64,
+    total_supply: f64,
+    genesis_time: u64,
+    dag_transactions: Vec<rinku_core::types::SignedTransaction>,
+    total_transactions: u64,
+    checkpoint_height: u64,
+}
+
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
@@ -419,6 +433,33 @@ async fn post_bootstrap(
         checkpoint_height,
         total_available,
         has_more,
+    })
+}
+
+async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncResponse> {
+    info!("Snapshot sync request received");
+    
+    let snapshot = state.get_sync_snapshot().await;
+    let checkpoint_height = state.get_checkpoint_height().await;
+    
+    info!(
+        "Snapshot sync response: {} accounts, {} validators, {} checkpoints, {} dag txs",
+        snapshot.accounts.len(),
+        snapshot.validators.len(),
+        snapshot.checkpoints.len(),
+        snapshot.dag_transactions.len()
+    );
+
+    Json(SnapshotSyncResponse {
+        accounts: snapshot.accounts,
+        validators: snapshot.validators,
+        checkpoints: snapshot.checkpoints,
+        gas_price: snapshot.gas_price,
+        total_supply: snapshot.total_supply,
+        genesis_time: snapshot.genesis_time,
+        dag_transactions: snapshot.dag_transactions,
+        total_transactions: snapshot.total_transactions,
+        checkpoint_height,
     })
 }
 
@@ -1721,6 +1762,7 @@ pub async fn start_api_server(
         .route("/api/gossip/stats", get(get_gossip_stats))
         .route("/api/sync/status", get(get_sync_status))
         .route("/api/sync/bootstrap", post(post_bootstrap))
+        .route("/api/sync/snapshot", get(get_snapshot_sync))
         .route("/api/sync/transactions", get(get_batch_transactions))
         .route("/api/tip-consolidator/stats", get(get_tip_consolidator_stats))
         .route("/metrics", get(get_metrics))
