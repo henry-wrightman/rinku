@@ -20,6 +20,10 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Dynamic Gas Fee Model (EIP-1559 Style):** Utilization-based pricing adjusts based on transaction volume, with an adaptive fee split (70%+ to validators, up to 30% burned).
 - **Tokenomics System:** Hard-capped supply (30M RKU), genesis allocation, checkpoint-based emission with 18-month halving epochs, and WPoS reward distribution.
 - **Multi-Node Networking:** Gossip protocol for peer discovery and a peer sync protocol for state synchronization.
+  - `POST /api/gossip`: Receives gossip messages (transactions, tips, sync requests) from peers
+  - `GET /api/sync/status`: Returns node sync state (checkpoint height, DAG size, tips, merkle root)
+  - `POST /api/sync/bootstrap`: Initial sync for new nodes with pagination support (up to 500 txs per page)
+  - `GET /api/sync/transactions?hashes=a,b,c`: Batch fetch transactions by hash
 - **Performance Optimizations:** Includes in-memory DAG pruning, snapshot optimizations, checkpoint-bounded self-crawlable URLs, per-transaction finality, self-contained Merkle proofs, batched operations, parallel signature verification, and batch transaction API.
 - **Protocol-Level Tip Consolidation:** Automatic DAG tip reduction via validator-created zero-fee consolidation transactions.
 - **BLS Signature Aggregation:** Uses BLS12-381 for compact checkpoint validator signatures.

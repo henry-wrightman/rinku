@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -13,7 +13,9 @@ use std::sync::Mutex;
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::info;
+use tracing::{info, warn};
+
+use crate::gossip::GossipMessage;
 
 static FAUCET_RATE_LIMIT: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -257,10 +259,200 @@ struct CheckpointProofData {
     validator_count: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncStatusResponse {
+    node_id: String,
+    checkpoint_height: u64,
+    dag_size: usize,
+    tip_count: usize,
+    tips: Vec<String>,
+    merkle_root: Option<String>,
+    total_transactions: u64,
+    validators: usize,
+    total_stake: f64,
+    uptime_seconds: u64,
+    is_syncing: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BootstrapRequest {
+    from_checkpoint: Option<u64>,
+    limit: Option<usize>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BootstrapResponse {
+    transactions: Vec<rinku_core::types::SignedTransaction>,
+    checkpoint_height: u64,
+    total_available: usize,
+    has_more: bool,
+}
+
+#[derive(Deserialize)]
+struct BatchTxQuery {
+    #[serde(default)]
+    hashes: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchTxResponse {
+    transactions: Vec<rinku_core::types::SignedTransaction>,
+    found: usize,
+    missing: Vec<String>,
+}
+
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusResponse> {
+    let tips = state.get_tips().await;
+    let (dag_size, _, _) = state.get_dag_stats().await;
+    let checkpoint_height = state.get_checkpoint_height().await;
+    let total_transactions = state.get_total_transactions().await;
+    let validators = state.get_validator_count().await;
+    let total_stake = state.get_total_stake().await;
+    let uptime_seconds = state.get_uptime_seconds().await;
+    let merkle_root = state.get_dag_merkle_root().await;
+    let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| "unknown".to_string());
+
+    Json(SyncStatusResponse {
+        node_id,
+        checkpoint_height,
+        dag_size,
+        tip_count: tips.len(),
+        tips,
+        merkle_root,
+        total_transactions,
+        validators,
+        total_stake,
+        uptime_seconds,
+        is_syncing: false,
+    })
+}
+
+async fn post_gossip(
+    State(state): State<NodeState>,
+    Json(message): Json<GossipMessage>,
+) -> impl IntoResponse {
+    info!("Received gossip message: {:?}", std::mem::discriminant(&message));
+    
+    match &message {
+        GossipMessage::Transaction { hash, tx } => {
+            info!("Gossip: received tx {} from peer", &hash[..16.min(hash.len())]);
+            if let Err(e) = state.add_transaction(tx.clone()).await {
+                warn!("Failed to add gossiped transaction: {}", e);
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                ).into_response();
+            }
+        }
+        GossipMessage::TipAnnouncement { dag_size, tips, .. } => {
+            info!("Gossip: peer announced {} tips, dag_size={}", tips.len(), dag_size);
+        }
+        GossipMessage::SyncRequest { from_checkpoint, missing_hashes } => {
+            info!("Gossip: sync request from checkpoint {} for {} hashes", 
+                from_checkpoint, missing_hashes.len());
+            let txs = state.get_txs_since_checkpoint(*from_checkpoint, missing_hashes).await;
+            let checkpoint_height = state.get_checkpoint_height().await;
+            info!("Gossip: responding with {} transactions", txs.len());
+            return Json(serde_json::json!({
+                "type": "sync_response",
+                "transactions": txs,
+                "checkpoint_height": checkpoint_height
+            })).into_response();
+        }
+        GossipMessage::SyncResponse { transactions, checkpoint_height } => {
+            info!("Gossip: received sync response with {} txs at height {}", 
+                transactions.len(), checkpoint_height);
+            for tx in transactions {
+                if let Err(e) = state.add_transaction(tx.clone()).await {
+                    warn!("Failed to add synced tx {}: {}", &tx.hash[..16.min(tx.hash.len())], e);
+                }
+            }
+        }
+        GossipMessage::PeerDiscovery { peers, node_id } => {
+            info!("Gossip: peer {} announced {} peers", node_id, peers.len());
+        }
+        GossipMessage::ConflictResolution { winner_hash, .. } => {
+            info!("Gossip: conflict resolution, winner: {}", &winner_hash[..16.min(winner_hash.len())]);
+        }
+        GossipMessage::CheckpointSignature { checkpoint_id, validator_address, .. } => {
+            info!("Gossip: checkpoint sig for {} from validator {}", 
+                &checkpoint_id[..16.min(checkpoint_id.len())], 
+                &validator_address[..16.min(validator_address.len())]);
+        }
+    }
+
+    Json(serde_json::json!({ "status": "ok" })).into_response()
+}
+
+async fn post_bootstrap(
+    State(state): State<NodeState>,
+    Json(req): Json<BootstrapRequest>,
+) -> Json<BootstrapResponse> {
+    let from_checkpoint = req.from_checkpoint.unwrap_or(0);
+    let limit = req.limit.unwrap_or(500).min(1000);
+    
+    info!("Bootstrap request: from_checkpoint={}, limit={}", from_checkpoint, limit);
+
+    let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
+    let total_available = all_txs.len();
+    let checkpoint_height = state.get_checkpoint_height().await;
+    
+    let transactions: Vec<_> = all_txs.into_iter().take(limit).collect();
+    let has_more = total_available > limit;
+    
+    info!("Bootstrap response: {} txs (total={}, has_more={})", 
+        transactions.len(), total_available, has_more);
+
+    Json(BootstrapResponse {
+        transactions,
+        checkpoint_height,
+        total_available,
+        has_more,
+    })
+}
+
+async fn get_batch_transactions(
+    State(state): State<NodeState>,
+    Query(query): Query<BatchTxQuery>,
+) -> Json<BatchTxResponse> {
+    let hashes: Vec<String> = query
+        .hashes
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    
+    info!("Batch transaction request for {} hashes", hashes.len());
+    
+    let mut transactions = Vec::new();
+    let mut missing = Vec::new();
+    
+    for hash in &hashes {
+        if let Some(tx) = state.get_transaction(hash).await {
+            transactions.push(tx);
+        } else {
+            missing.push(hash.clone());
+        }
+    }
+    
+    let found = transactions.len();
+    info!("Batch response: found={}, missing={}", found, missing.len());
+    
+    Json(BatchTxResponse {
+        transactions,
+        found,
+        missing,
     })
 }
 
@@ -1525,7 +1717,11 @@ pub async fn start_api_server(
         .route("/api/checkpoints", get(get_checkpoints))
         .route("/api/checkpoints/latest", get(get_checkpoints_latest))
         .route("/api/fork/stats", get(get_fork_stats))
+        .route("/api/gossip", post(post_gossip))
         .route("/api/gossip/stats", get(get_gossip_stats))
+        .route("/api/sync/status", get(get_sync_status))
+        .route("/api/sync/bootstrap", post(post_bootstrap))
+        .route("/api/sync/transactions", get(get_batch_transactions))
         .route("/api/tip-consolidator/stats", get(get_tip_consolidator_stats))
         .route("/metrics", get(get_metrics))
         .layer(cors.clone())

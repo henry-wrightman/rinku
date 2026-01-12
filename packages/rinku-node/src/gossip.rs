@@ -9,6 +9,28 @@ use tracing::{debug, info, warn};
 
 use crate::state::NodeState;
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PeerSyncStatus {
+    checkpoint_height: u64,
+    dag_size: usize,
+    tip_count: usize,
+    #[allow(dead_code)]
+    tips: Vec<String>,
+    #[allow(dead_code)]
+    merkle_root: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BootstrapResponse {
+    transactions: Vec<SignedTransaction>,
+    checkpoint_height: u64,
+    #[allow(dead_code)]
+    total_available: usize,
+    has_more: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GossipMessage {
@@ -125,11 +147,16 @@ impl GossipService {
     }
 
     pub async fn start(self) -> Result<()> {
+        let peer_count = self.inner.read().await.peers.len();
         info!(
             "Gossip service started (interval: {}ms, peers: {})",
             self.interval_ms,
-            self.inner.read().await.peers.len()
+            peer_count
         );
+
+        if peer_count > 0 {
+            self.initial_sync().await;
+        }
 
         let mut tick = interval(Duration::from_millis(self.interval_ms));
 
@@ -137,6 +164,142 @@ impl GossipService {
             tick.tick().await;
             self.gossip_round().await;
         }
+    }
+
+    async fn initial_sync(&self) {
+        info!("Starting initial sync with peers...");
+        
+        let peers: Vec<String> = {
+            let inner = self.inner.read().await;
+            inner.peers.keys().cloned().collect()
+        };
+
+        for peer in &peers {
+            info!("Fetching sync status from peer: {}", peer);
+            
+            match self.fetch_peer_status(peer).await {
+                Ok(status) => {
+                    info!(
+                        "Peer {} status: checkpoint_height={}, dag_size={}, tips={}",
+                        peer, status.checkpoint_height, status.dag_size, status.tip_count
+                    );
+
+                    let mut inner = self.inner.write().await;
+                    if let Some(peer_info) = inner.peers.get_mut(peer) {
+                        peer_info.checkpoint_height = status.checkpoint_height;
+                        peer_info.dag_size = status.dag_size;
+                        peer_info.is_healthy = true;
+                    }
+                    drop(inner);
+
+                    let local_height = self.state.get_checkpoint_height().await;
+                    if status.checkpoint_height > local_height || status.dag_size > 1 {
+                        info!("Peer has more data, requesting bootstrap sync...");
+                        if let Err(e) = self.bootstrap_from_peer(peer, local_height).await {
+                            warn!("Bootstrap sync from {} failed: {}", peer, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to get status from peer {}: {}", peer, e);
+                    let mut inner = self.inner.write().await;
+                    if let Some(peer_info) = inner.peers.get_mut(peer) {
+                        peer_info.is_healthy = false;
+                    }
+                }
+            }
+        }
+        
+        info!("Initial sync complete");
+    }
+
+    async fn fetch_peer_status(&self, peer: &str) -> Result<PeerSyncStatus> {
+        let client = reqwest::Client::new();
+        let url = format!("{}/api/sync/status", peer);
+        
+        let response = client
+            .get(&url)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await?;
+        
+        if !response.status().is_success() {
+            anyhow::bail!("Peer returned status {}", response.status());
+        }
+        
+        let status: PeerSyncStatus = response.json().await?;
+        Ok(status)
+    }
+
+    async fn bootstrap_from_peer(&self, peer: &str, from_checkpoint: u64) -> Result<()> {
+        let client = reqwest::Client::new();
+        let url = format!("{}/api/sync/bootstrap", peer);
+        let mut current_checkpoint = from_checkpoint;
+        let mut total_synced = 0;
+        let mut page = 0;
+        const MAX_PAGES: usize = 100;
+
+        loop {
+            page += 1;
+            if page > MAX_PAGES {
+                info!("Bootstrap: reached max pages limit ({}), stopping", MAX_PAGES);
+                break;
+            }
+
+            let response = client
+                .post(&url)
+                .json(&serde_json::json!({
+                    "from_checkpoint": current_checkpoint,
+                    "limit": 500
+                }))
+                .timeout(Duration::from_secs(30))
+                .send()
+                .await?;
+            
+            if !response.status().is_success() {
+                anyhow::bail!("Bootstrap request failed with status {}", response.status());
+            }
+            
+            let bootstrap: BootstrapResponse = response.json().await?;
+            info!(
+                "Bootstrap page {}: received {} txs (checkpoint: {}, has_more: {})",
+                page, bootstrap.transactions.len(), bootstrap.checkpoint_height, bootstrap.has_more
+            );
+
+            if bootstrap.transactions.is_empty() {
+                break;
+            }
+
+            let mut synced = 0;
+            for tx in &bootstrap.transactions {
+                let hash = tx.hash.clone();
+                let mut inner = self.inner.write().await;
+                if !inner.known_txs.contains(&hash) {
+                    inner.known_txs.insert(hash.clone());
+                    drop(inner);
+                    
+                    if let Err(e) = self.state.add_transaction(tx.clone()).await {
+                        debug!("Failed to add synced tx {}: {}", &hash[..16.min(hash.len())], e);
+                    } else {
+                        synced += 1;
+                    }
+                }
+            }
+
+            total_synced += synced;
+            current_checkpoint = bootstrap.checkpoint_height;
+
+            if !bootstrap.has_more {
+                break;
+            }
+        }
+
+        info!("Bootstrap sync complete: added {} new transactions in {} pages", total_synced, page);
+
+        let mut inner = self.inner.write().await;
+        inner.stats.sync_requests += page as u64;
+        
+        Ok(())
     }
 
     async fn gossip_round(&self) {
@@ -167,15 +330,31 @@ impl GossipService {
             merkle_root,
         };
 
+        let mut success_count = 0;
+        let mut fail_count = 0;
+        
         for peer in &peers {
-            if let Err(e) = self.send_to_peer(peer, &message).await {
-                debug!("Failed to gossip tips to {}: {}", peer, e);
-                let mut inner = self.inner.write().await;
-                inner.stats.failed_sends += 1;
-                if let Some(peer_info) = inner.peers.get_mut(peer) {
-                    peer_info.is_healthy = false;
+            match self.send_to_peer(peer, &message).await {
+                Ok(_) => {
+                    success_count += 1;
+                }
+                Err(e) => {
+                    fail_count += 1;
+                    info!("Gossip to {} failed: {}", peer, e);
+                    let mut inner = self.inner.write().await;
+                    inner.stats.failed_sends += 1;
+                    if let Some(peer_info) = inner.peers.get_mut(peer) {
+                        peer_info.is_healthy = false;
+                    }
                 }
             }
+        }
+
+        if success_count > 0 || fail_count > 0 {
+            debug!(
+                "Gossip round: {} tips announced to {} peers ({} failed), dag_size={}",
+                tips.len(), success_count, fail_count, dag_size
+            );
         }
 
         self.propagate_pending_txs().await;

@@ -51,6 +51,14 @@ primary_region = "sjc"
     timeout = "10s"
     grace_period = "30s"
 
+  [checks.sync]
+    type = "http"
+    method = "GET"
+    path = "/api/sync/status"
+    port = 8080
+    interval = "60s"
+    timeout = "10s"
+
   [checks.metrics]
     type = "http"
     method = "GET"
