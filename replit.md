@@ -40,6 +40,18 @@ I want to work iteratively. Please ask before making major changes. I prefer det
   - `local-testnet.sh`: Multi-node orchestration script
   - `TESTNET_SETUP.md`: 3-node testnet setup documentation
 
+### Fly.io Deployment
+The Rust node can be deployed to Fly.io for production use:
+- `fly.toml`: Fly.io app configuration (auto-scaling, health checks, persistent storage)
+- `Dockerfile.fly`: Multi-stage Rust build for minimal image size (~80MB)
+- `.dockerignore`: Excludes TypeScript packages for faster builds
+
+Deploy with:
+```bash
+fly launch --dockerfile Dockerfile.fly  # First time
+fly deploy                              # Subsequent deploys
+```
+
 ## External Dependencies
 - **Cargo workspaces:** Rust monorepo management.
 - **npm workspaces:** TypeScript monorepo management.

@@ -1,0 +1,31 @@
+# Ignore everything except what's needed for Rust build
+*
+
+# Include Cargo files
+!Cargo.toml
+!Cargo.lock
+
+# Include Rust packages
+!packages/rinku-core
+!packages/rinku-node
+
+# Exclude build artifacts
+packages/rinku-core/target
+packages/rinku-node/target
+target
+
+# Exclude node_modules and TS packages
+packages/core
+packages/explorer
+packages/faucet
+packages/node
+
+# Exclude other files
+.git
+.gitignore
+*.md
+scripts
+docs
+attached_assets
+node_modules
+.local
