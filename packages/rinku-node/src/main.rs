@@ -46,12 +46,36 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    info!("Starting Rinku Node");
+    info!("Starting Rinku Node v0.1.0");
+    info!("Process PID: {}", std::process::id());
 
     let config = NodeConfig::from_env();
     info!("Node ID: {}", config.node_id);
     info!("Data dir: {}", config.data_dir);
-
+    
+    // Check if data directory exists and log contents
+    let data_path = std::path::Path::new(&config.data_dir);
+    if data_path.exists() {
+        info!("Data directory exists, checking for stale locks...");
+        let sled_path = data_path.join("sled-db");
+        if sled_path.exists() {
+            // Try to remove any stale lock files
+            let lock_path = sled_path.join("lock");
+            if lock_path.exists() {
+                info!("Found lock file, attempting to remove stale lock...");
+                if let Err(e) = std::fs::remove_file(&lock_path) {
+                    info!("Could not remove lock file (may be in use): {}", e);
+                } else {
+                    info!("Removed stale lock file");
+                }
+            }
+        }
+    } else {
+        info!("Data directory does not exist, will create");
+        std::fs::create_dir_all(&config.data_dir)?;
+    }
+    
+    info!("Initializing node state...");
     let state = state::NodeState::new(config.clone()).await?;
 
     let mut validator_manager = ValidatorKeyManager::new(&config.data_dir);
@@ -150,6 +174,26 @@ async fn main() -> Result<()> {
     } else {
         info!("No STATIC_DIR set, API-only mode");
     }
+
+    // Setup signal handler for graceful shutdown
+    let shutdown_state = state.clone();
+    tokio::spawn(async move {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {
+                info!("Received shutdown signal, saving state...");
+                if let Err(e) = shutdown_state.save_snapshot().await {
+                    tracing::error!("Failed to save final snapshot: {}", e);
+                } else {
+                    info!("Final snapshot saved successfully");
+                }
+                info!("Shutting down gracefully");
+                std::process::exit(0);
+            }
+            Err(e) => {
+                tracing::error!("Error waiting for shutdown signal: {}", e);
+            }
+        }
+    });
 
     tokio::select! {
         _ = api_handle => info!("API server stopped"),
