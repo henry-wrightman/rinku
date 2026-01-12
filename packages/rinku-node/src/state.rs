@@ -624,7 +624,7 @@ impl NodeState {
     ) -> Vec<SignedTransaction> {
         let state = self.inner.read().await;
 
-        let mut txs: Vec<SignedTransaction> = state
+        let txs: Vec<SignedTransaction> = state
             .dag
             .get_all_nodes()
             .into_iter()
@@ -632,13 +632,13 @@ impl NodeState {
                 if !missing_hashes.is_empty() {
                     missing_hashes.contains(&n.hash)
                 } else {
+                    // Include transactions that are not yet checkpointed OR are from checkpoints after from_checkpoint
                     n.checkpoint_height.map(|h| h > from_checkpoint).unwrap_or(true)
                 }
             })
             .map(|n| n.tx.clone())
             .collect();
 
-        txs.truncate(100);
         txs
     }
 
