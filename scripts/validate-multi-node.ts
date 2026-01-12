@@ -325,6 +325,7 @@ async function validateAccountBalances(nodeStatuses: NodeStatus[]) {
     }
     
     for (const addr of allAddresses) {
+      if (!addr) continue;
       const balances = nodeNames.map(n => balanceMaps.get(n)?.get(addr) || 0);
       const unique = [...new Set(balances)];
       

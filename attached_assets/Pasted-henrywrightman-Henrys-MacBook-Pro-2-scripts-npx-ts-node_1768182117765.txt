@@ -1,0 +1,54 @@
+henrywrightman@Henrys-MacBook-Pro-2 scripts % npx ts-node validate-multi-node.ts https://rinkuchan.com https://rinku-node.fly.dev 
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 2
+    Node 1: https://rinkuchan.com
+    Node 2: https://rinku-node.fly.dev
+  Started: 2026-01-12T01:41:10.084Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinkuchan.com (215ms)
+  ✓ Node 2 reachable: https://rinku-node.fly.dev (256ms)
+  ✓ Minimum nodes online: 2/2 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS
+======================================================================
+  ✓ Checkpoint height consensus: No checkpoints on any node
+
+======================================================================
+  3. DAG STATE COMPARISON
+======================================================================
+
+  DAG Sizes:
+    Node 1: 248 transactions
+    Node 2: 492 transactions
+  ✗ DAG size variance: Variance: 49.6% (248 - 492 txs)
+  ✗ DAG merkle root consensus: DIVERGENCE: 2 different roots (may be due to sync lag)
+
+  Tip Counts:
+    Node 1: 0 tips
+    Node 2: 0 tips
+
+======================================================================
+  4. TRANSACTION SYNCHRONIZATION
+======================================================================
+  Node 1: 0 transactions
+  Node 2: 0 transactions
+  ✓ Transaction set consistency: All nodes have identical transaction sets
+
+======================================================================
+  5. ACCOUNT BALANCE CONSISTENCY
+======================================================================
+  Node 1: 8 accounts
+  Node 2: 17 accounts
+
+  FATAL ERROR: Cannot read properties of undefined (reading 'slice')
+
+henrywrightman@Henrys-MacBook-Pro-2 scripts % 
