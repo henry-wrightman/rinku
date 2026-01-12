@@ -1,0 +1,82 @@
+01:50:04
+2026-01-12T01:50:04.033060Z  INFO rinku_node: Starting Rinku Node v0.1.0
+01:50:04
+2026-01-12T01:50:04.033328Z  INFO rinku_node: Process PID: 649
+01:50:04
+2026-01-12T01:50:04.033732Z  INFO rinku_node: Node ID: fly-node-1
+01:50:04
+2026-01-12T01:50:04.033738Z  INFO rinku_node: Data dir: /data
+01:50:04
+2026-01-12T01:50:04.033748Z  INFO rinku_node: Data directory exists, checking for stale locks...
+01:50:04
+2026-01-12T01:50:04.034123Z  INFO rinku_node: Initializing node state...
+01:50:04
+2026-01-12T01:50:04.120321Z  INFO rinku_node::persistence: Opened sled database at /data/sled-db
+01:50:04
+2026-01-12T01:50:04.120431Z  WARN rinku_node::persistence: No snapshot found, starting fresh
+01:50:04
+2026-01-12T01:50:04.120552Z  INFO rinku_node::state: Faucet account initialized with 1000000 RKU
+01:50:04
+2026-01-12T01:50:04.120769Z  INFO rinku_node::state: Genesis transaction created: 87cfa702f1626917
+01:50:04
+2026-01-12T01:50:04.120979Z  WARN rinku_node::persistence: No rewards snapshot found, starting fresh
+01:50:04
+2026-01-12T01:50:04.140302Z  INFO rinku_node::validator: Loaded validator key: f0ccf61325cd54cd...
+01:50:04
+2026-01-12T01:50:04.140329Z  INFO rinku_node: Validator key loaded: f0ccf61325cd54cd...
+01:50:04
+2026-01-12T01:50:04.140332Z  INFO rinku_node: Gas service initialized
+01:50:04
+2026-01-12T01:50:04.140336Z  INFO rinku_node: Rewards service initialized
+01:50:04
+2026-01-12T01:50:04.140338Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+01:50:04
+2026-01-12T01:50:04.140341Z  INFO rinku_node: Slashing service initialized
+01:50:04
+2026-01-12T01:50:04.140566Z  INFO rinku_node: BLS public key: hRRb4pwuLLWhoEvZRi__u2VQJSoFUWle...
+01:50:04
+2026-01-12T01:50:04.142478Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+01:50:04
+2026-01-12T01:50:04.142499Z  INFO rinku_node: Fork remediation service started
+01:50:04
+2026-01-12T01:50:04.142519Z  INFO rinku_node: Gossip service started (5000ms interval)
+01:50:04
+2026-01-12T01:50:04.142532Z  INFO rinku_node: Tip consolidation service started
+01:50:04
+2026-01-12T01:50:04.142537Z  INFO rinku_node: Snapshot persistence started (60s interval)
+01:50:04
+2026-01-12T01:50:04.142540Z  INFO rinku_node: STATIC_DIR config: None
+01:50:04
+2026-01-12T01:50:04.143280Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+01:50:04
+2026-01-12T01:50:04.143324Z  INFO rinku_node: Rinku Node running on port 8080
+01:50:04
+2026-01-12T01:50:04.143328Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+01:50:04
+2026-01-12T01:50:04.143330Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+01:50:04
+2026-01-12T01:50:04.145121Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+01:50:04
+2026-01-12T01:50:04.145134Z  INFO rinku_node::gossip: Gossip service started (interval: 5000ms, peers: 1)
+01:50:04
+2026-01-12T01:50:04.145147Z  INFO rinku_node::gossip: Starting initial sync with peers...
+01:50:04
+2026-01-12T01:50:04.145152Z  INFO rinku_node::gossip: Fetching sync status from peer: https://rinkuchan.com
+01:50:04
+Machine started in 1.583s
+01:50:04
+2026-01-12T01:50:04.352285Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 200, interval: 3000ms)
+01:50:04
+2026/01/12 01:50:04 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:167:34bf:80ab:2]:22
+01:50:04
+2026-01-12T01:50:04.505507Z  INFO rinku_node::gossip: Peer https://rinkuchan.com status: checkpoint_height=59, dag_size=271, tips=7
+01:50:04
+2026-01-12T01:50:04.505604Z  INFO rinku_node::gossip: Peer has more data, requesting bootstrap sync...
+01:50:04
+2026-01-12T01:50:04.709813Z  INFO rinku_node::gossip: Bootstrap page 1: received 271 txs (checkpoint: 59, has_more: false)
+01:50:04
+2026-01-12T01:50:04.711075Z  INFO rinku_node::gossip: Bootstrap sync complete: added 271 new transactions in 1 pages
+01:50:04
+2026-01-12T01:50:04.711194Z  INFO rinku_node::gossip: Initial sync complete
+01:50:34
+2026-01-12T01:50:34.149366Z  INFO rinku_node::checkpoint: Created checkpoint 4f4916ec6442350e at height 1 (271 txs finalized, 3.932411 RKU emitted)

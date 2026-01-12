@@ -461,6 +461,10 @@ impl NodeState {
             state.period_start_ms = now_ms;
         }
 
+        // Persist transaction for sync (after releasing lock)
+        drop(state);
+        let _ = self.persistence.save_transaction(&tx);
+
         Ok(())
     }
 
@@ -541,6 +545,16 @@ impl NodeState {
             state.period_start_ms = now_ms;
         }
 
+        // Persist successful transactions for sync (after releasing lock)
+        let successful_txs: Vec<_> = results.iter().zip(txs.iter())
+            .filter(|(r, _)| r.is_ok())
+            .map(|(_, tx)| tx.clone())
+            .collect();
+        drop(state);
+        for tx in successful_txs {
+            let _ = self.persistence.save_transaction(&tx);
+        }
+
         results
     }
 
@@ -619,27 +633,36 @@ impl NodeState {
 
     pub async fn get_txs_since_checkpoint(
         &self,
-        from_checkpoint: u64,
+        _from_checkpoint: u64,
         missing_hashes: &[String],
     ) -> Vec<SignedTransaction> {
-        let state = self.inner.read().await;
+        // If requesting specific hashes, look them up individually
+        if !missing_hashes.is_empty() {
+            let state = self.inner.read().await;
+            return state
+                .dag
+                .get_all_nodes()
+                .into_iter()
+                .filter(|n| missing_hashes.contains(&n.hash))
+                .map(|n| n.tx.clone())
+                .collect();
+        }
 
-        let txs: Vec<SignedTransaction> = state
-            .dag
-            .get_all_nodes()
-            .into_iter()
-            .filter(|n| {
-                if !missing_hashes.is_empty() {
-                    missing_hashes.contains(&n.hash)
-                } else {
-                    // Include transactions that are not yet checkpointed OR are from checkpoints after from_checkpoint
-                    n.checkpoint_height.map(|h| h > from_checkpoint).unwrap_or(true)
-                }
-            })
-            .map(|n| n.tx.clone())
-            .collect();
-
-        txs
+        // For full sync, get ALL transactions from persistence (includes finalized)
+        match self.persistence.get_all_transactions() {
+            Ok(txs) => txs,
+            Err(e) => {
+                tracing::warn!("Failed to load transactions from persistence: {}", e);
+                // Fallback to DAG only
+                let state = self.inner.read().await;
+                state
+                    .dag
+                    .get_all_nodes()
+                    .into_iter()
+                    .map(|n| n.tx.clone())
+                    .collect()
+            }
+        }
     }
 
     pub async fn calculate_cumulative_weight(&self, hash: &str) -> f64 {
