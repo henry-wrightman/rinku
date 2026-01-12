@@ -1,0 +1,100 @@
+$ fly logs -a rinku-node 
+Waiting for logs...
+00:34:36
+Pulling container image registry.fly.io/rinku-node@sha256:bc033afe311c143002780c0816ddfd736e734122e2f2e8df419e81cd486489fd
+00:34:38
+Successfully prepared image registry.fly.io/rinku-node@sha256:bc033afe311c143002780c0816ddfd736e734122e2f2e8df419e81cd486489fd (1.817450829s)
+00:34:38
+Setting up volume 'rinku_data'
+00:34:38
+Uninitialized volume 'rinku_data', initializing...
+00:34:38
+Encrypting volume
+00:34:38
+Opening encrypted volume
+00:34:39
+Formatting volume
+00:34:40
+Configuring firecracker
+00:34:40
+2026-01-12T00:34:40.571529913 [01KEQT0JJGQ7JJ5BD3GP5DBCQ1:main] Running Firecracker v1.12.1
+00:34:40
+2026-01-12T00:34:40.571690446 [01KEQT0JJGQ7JJ5BD3GP5DBCQ1:main] Listening on API socket ("/fc.sock").
+00:34:41
+ INFO Starting init (commit: 6f59af0a)...
+00:34:41
+ INFO Checking filesystem on /data
+00:34:41
+/dev/vdc: clean, 11/64512 files, 8785/258048 blocks
+00:34:41
+ INFO Mounting /dev/vdc at /data w/ uid: 0, gid: 0 and chmod 0755
+00:34:41
+ INFO Resized /data to 1056964608 bytes
+00:34:41
+ INFO Preparing to run: `/app/rinku-node` as root
+00:34:41
+ INFO [fly api proxy] listening at /.fly/api
+00:34:41
+2026-01-12T00:34:41.691638Z  INFO rinku_node: Starting Rinku Node
+00:34:41
+2026-01-12T00:34:41.692855Z  INFO rinku_node: Node ID: fly-node-1
+00:34:41
+2026-01-12T00:34:41.692874Z  INFO rinku_node: Data dir: /data
+00:34:41
+Machine created and started in 5.296s
+00:34:41
+2026-01-12T00:34:41.773199Z  INFO rinku_node::persistence: Opened sled database at /data/sled-db
+00:34:41
+2026-01-12T00:34:41.773232Z  WARN rinku_node::persistence: No snapshot found, starting fresh
+00:34:41
+2026-01-12T00:34:41.773249Z  INFO rinku_node::state: Faucet account initialized with 1000000 RKU
+00:34:41
+2026-01-12T00:34:41.773307Z  INFO rinku_node::state: Genesis transaction created: bd7887dd6681365f
+00:34:41
+2026-01-12T00:34:41.773327Z  WARN rinku_node::persistence: No rewards snapshot found, starting fresh
+00:34:41
+2026-01-12T00:34:41.773857Z  INFO rinku_node::validator: Generated new validator key: f0ccf61325cd54cd...
+00:34:41
+2026-01-12T00:34:41.773955Z  INFO rinku_node: Validator key loaded: f0ccf61325cd54cd...
+00:34:41
+2026-01-12T00:34:41.773959Z  INFO rinku_node: Gas service initialized
+00:34:41
+2026-01-12T00:34:41.773965Z  INFO rinku_node: Rewards service initialized
+00:34:41
+2026-01-12T00:34:41.773968Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+00:34:41
+2026-01-12T00:34:41.773971Z  INFO rinku_node: Slashing service initialized
+00:34:41
+2026-01-12T00:34:41.774124Z  INFO rinku_node: BLS public key: jhVpt0pZ-3ayIGo3NR2xn7tlLZ7EZa2Z...
+00:34:41
+2026-01-12T00:34:41.774796Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+00:34:41
+2026-01-12T00:34:41.774814Z  INFO rinku_node: Fork remediation service started
+00:34:41
+2026-01-12T00:34:41.774827Z  INFO rinku_node: Gossip service started (5000ms interval)
+00:34:41
+2026-01-12T00:34:41.774831Z  INFO rinku_node: Tip consolidation service started
+00:34:41
+2026-01-12T00:34:41.774835Z  INFO rinku_node: Snapshot persistence started (60s interval)
+00:34:41
+2026-01-12T00:34:41.774837Z  INFO rinku_node: STATIC_DIR config: None
+00:34:41
+2026-01-12T00:34:41.776223Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+00:34:41
+2026-01-12T00:34:41.776401Z  INFO rinku_node: Rinku Node running on port 8080
+00:34:41
+2026-01-12T00:34:41.776320Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+00:34:41
+2026-01-12T00:34:41.776528Z  INFO rinku_node::gossip: Gossip service started (interval: 5000ms, peers: 0)
+00:34:41
+2026-01-12T00:34:41.776621Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 200, interval: 3000ms)
+00:34:41
+2026-01-12T00:34:41.776696Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+00:34:41
+2026-01-12T00:34:41.776853Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+00:34:41
+2026/01/12 00:34:41 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:167:34bf:80ab:2]:22
+00:34:42
+Health check 'metrics' on port 8080 is now passing.
+00:34:42
+Health check 'health' on port 8080 has failed. Your app is not responding properly.
