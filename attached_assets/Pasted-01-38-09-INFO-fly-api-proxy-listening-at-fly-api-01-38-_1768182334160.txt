@@ -1,0 +1,94 @@
+01:38:09
+ INFO [fly api proxy] listening at /.fly/api
+01:38:09
+2026-01-12T01:38:09.462475Z  INFO rinku_node: Starting Rinku Node v0.1.0
+01:38:09
+2026-01-12T01:38:09.462710Z  INFO rinku_node: Process PID: 650
+01:38:09
+2026-01-12T01:38:09.463126Z  INFO rinku_node: Node ID: fly-node-1
+01:38:09
+2026-01-12T01:38:09.463134Z  INFO rinku_node: Data dir: /data
+01:38:09
+2026-01-12T01:38:09.463143Z  INFO rinku_node: Data directory exists, checking for stale locks...
+01:38:09
+2026-01-12T01:38:09.463762Z  INFO rinku_node: Initializing node state...
+01:38:09
+2026-01-12T01:38:09.561266Z  INFO rinku_node::persistence: Opened sled database at /data/sled-db
+01:38:09
+2026-01-12T01:38:09.566224Z  INFO rinku_node::persistence: Loaded snapshot: 13 accounts, 0 validators, 2 checkpoints, 201 txs
+01:38:09
+2026-01-12T01:38:09.566435Z  INFO rinku_node::state: Restored from snapshot: 13 accounts, 201 txs, 2 checkpoints
+01:38:09
+2026-01-12T01:38:09.567006Z  INFO rinku_node::persistence: Loaded rewards snapshot: 0 stakes, 0 pending rewards
+01:38:09
+2026-01-12T01:38:09.567013Z  INFO rinku_node::state: Restored rewards: 0 stakes, 0 pending
+01:38:09
+2026-01-12T01:38:09.569619Z  INFO rinku_node::validator: Loaded validator key: f0ccf61325cd54cd...
+01:38:09
+2026-01-12T01:38:09.569634Z  INFO rinku_node: Validator key loaded: f0ccf61325cd54cd...
+01:38:09
+2026-01-12T01:38:09.569637Z  INFO rinku_node: Gas service initialized
+01:38:09
+2026-01-12T01:38:09.569644Z  INFO rinku_node: Rewards service initialized
+01:38:09
+2026-01-12T01:38:09.569647Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+01:38:09
+2026-01-12T01:38:09.569649Z  INFO rinku_node: Slashing service initialized
+01:38:09
+2026-01-12T01:38:09.569880Z  INFO rinku_node: BLS public key: kWRychaX4ZzYzfxj43NtqlfVnWQyjydY...
+01:38:09
+2026-01-12T01:38:09.570022Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+01:38:09
+2026-01-12T01:38:09.570052Z  INFO rinku_node: Fork remediation service started
+01:38:09
+2026-01-12T01:38:09.570110Z  INFO rinku_node: Gossip service started (5000ms interval)
+01:38:09
+2026-01-12T01:38:09.570138Z  INFO rinku_node: Tip consolidation service started
+01:38:09
+2026-01-12T01:38:09.570160Z  INFO rinku_node: Snapshot persistence started (60s interval)
+01:38:09
+2026-01-12T01:38:09.570180Z  INFO rinku_node: STATIC_DIR config: None
+01:38:09
+2026-01-12T01:38:09.570774Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+01:38:09
+2026-01-12T01:38:09.570794Z  INFO rinku_node::gossip: Gossip service started (interval: 5000ms, peers: 1)
+01:38:09
+2026-01-12T01:38:09.570810Z  INFO rinku_node::gossip: Starting initial sync with peers...
+01:38:09
+2026-01-12T01:38:09.570814Z  INFO rinku_node::gossip: Fetching sync status from peer: https://rinkuchan.com
+01:38:09
+2026-01-12T01:38:09.571258Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+01:38:09
+2026-01-12T01:38:09.571331Z  INFO rinku_node: Rinku Node running on port 8080
+01:38:09
+2026-01-12T01:38:09.571354Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+01:38:09
+2026-01-12T01:38:09.571392Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+01:38:09
+2026-01-12T01:38:09.756294Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 200, interval: 3000ms)
+01:38:09
+2026-01-12T01:38:09.765666Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Above upper threshold (201), starting consolidation
+01:38:09
+2026/01/12 01:38:09 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:167:34bf:80ab:2]:22
+01:38:09
+2026-01-12T01:38:09.880263Z  INFO rinku_node::gossip: Peer https://rinkuchan.com status: checkpoint_height=12, dag_size=289, tips=2
+01:38:09
+2026-01-12T01:38:09.880293Z  INFO rinku_node::gossip: Peer has more data, requesting bootstrap sync...
+01:38:09
+Machine started in 1.865s
+01:38:09
+machine started in 1.999120314s
+01:38:09
+machine became reachable in 8.253573ms
+01:38:10
+2026-01-12T01:38:10.100309Z  INFO rinku_node::gossip: Bootstrap page 1: received 291 txs (checkpoint: 12, has_more: false)
+01:38:10
+2026-01-12T01:38:10.116730Z  INFO rinku_node::gossip: Bootstrap sync complete: added 291 new transactions in 1 pages
+01:38:10
+2026-01-12T01:38:10.117073Z  INFO rinku_node::gossip: Initial sync complete
+01:38:39
+2026-01-12T01:38:39.574403Z  INFO rinku_node::checkpoint: Created checkpoint fe131ce91e5e0526 at height 3 (291 txs finalized, 3.932411 RKU emitted)
+01:41:10
+2026-01-12T01:41:10.704512Z  INFO rinku_node::api: Batch transaction request for 0 hashes
+01:41:10
+2026-01-12T01:41:10.704556Z  INFO rinku_node::api: Batch response: found=0, missing=0
