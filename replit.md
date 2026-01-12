@@ -33,6 +33,12 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Fork Remediation Service:** Nonce-based double-spend detection, weight-based conflict resolution, and branch pruning.
 - **API Rate Limiting:** Tiered rate limiting for TX, contract, and general endpoints.
 - **Prometheus Metrics:** `/metrics` endpoint for network monitoring.
+- **Testnet Tooling (scripts/):**
+  - `generate-proofs.ts`: Proof generation and verification pipeline using core functions (ECDSA via `verify`, Merkle via `verifyMerkleProof`, BLS via `verifySelfContainedProof`)
+  - `proof-size-benchmark.ts`: Measures actual node-generated proof URL sizes for QR code compatibility
+  - `validate-multi-node.ts`: Cross-node consensus validation (Merkle roots, checkpoints, transaction sets)
+  - `local-testnet.sh`: Multi-node orchestration script
+  - `TESTNET_SETUP.md`: 3-node testnet setup documentation
 
 ## External Dependencies
 - **Cargo workspaces:** Rust monorepo management.
