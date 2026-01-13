@@ -72,7 +72,7 @@ externalPort = 80
 
 [nix]
 channel = "stable-25_05"
-packages = ["nettools", "rustc", "circom", "openssl", "pkg-config"]
+packages = ["nettools", "rustc", "circom", "openssl", "pkg-config", "pandoc"]
 
 [deployment]
 deploymentTarget = "autoscale"

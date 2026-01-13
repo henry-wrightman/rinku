@@ -62,9 +62,9 @@ pub struct StateInner {
     pub config: NodeConfig,
     pub last_checkpoint_time_ms: u64,
     pub finality_times_ms: VecDeque<u64>, // Rolling window for percentile calculations
-    pub finality_sum_ms: u64,   // Sum of all finality times for accurate average
-    pub finality_count: u64,    // Count of all finalized transactions
-    pub finality_max_ms: u64,   // Track maximum finality time
+    pub finality_sum_ms: u64,             // Sum of all finality times for accurate average
+    pub finality_count: u64,              // Count of all finalized transactions
+    pub finality_max_ms: u64,             // Track maximum finality time
 }
 
 #[derive(Clone)]
@@ -83,140 +83,161 @@ impl NodeState {
         let persistence = PersistenceService::new(&config.data_dir)?;
         let persistence = Arc::new(persistence);
 
-        let inner = if let Some((accounts, validators, checkpoints, gas_price, supply, genesis, txs)) = 
-            persistence.load_snapshot()? 
-        {
-            let tx_count = txs.len() as u64;
-            let checkpoint_count = checkpoints.len() as u64;
-            info!("Restored from snapshot: {} accounts, {} txs, {} checkpoints", accounts.len(), tx_count, checkpoint_count);
-            let mut dag = Dag::new(config.max_dag_nodes);
-            for tx in txs {
-                // Genesis transaction and txs from before checkpoints should be considered finalized
-                let is_genesis = tx.tx.from == "genesis";
-                let is_finalized = is_genesis || checkpoint_count > 0;
-                let node = rinku_core::types::DagNode {
-                    hash: tx.hash.clone(),
-                    tx: tx.clone(),
-                    parents: tx.tx.parents.clone(),
-                    children: Vec::new(),
-                    weight: 1.0,
-                    finalized: is_finalized,
-                    checkpoint_height: if is_genesis { Some(0) } else if is_finalized { Some(checkpoint_count) } else { None },
+        let inner =
+            if let Some((accounts, validators, checkpoints, gas_price, supply, genesis, txs)) =
+                persistence.load_snapshot()?
+            {
+                let tx_count = txs.len() as u64;
+                let checkpoint_count = checkpoints.len() as u64;
+                info!(
+                    "Restored from snapshot: {} accounts, {} txs, {} checkpoints",
+                    accounts.len(),
+                    tx_count,
+                    checkpoint_count
+                );
+                let mut dag = Dag::new(config.max_dag_nodes);
+                for tx in txs {
+                    // Genesis transaction and txs from before checkpoints should be considered finalized
+                    let is_genesis = tx.tx.from == "genesis";
+                    let is_finalized = is_genesis || checkpoint_count > 0;
+                    let node = rinku_core::types::DagNode {
+                        hash: tx.hash.clone(),
+                        tx: tx.clone(),
+                        parents: tx.tx.parents.clone(),
+                        children: Vec::new(),
+                        weight: 1.0,
+                        finalized: is_finalized,
+                        checkpoint_height: if is_genesis {
+                            Some(0)
+                        } else if is_finalized {
+                            Some(checkpoint_count)
+                        } else {
+                            None
+                        },
+                    };
+                    let _ = dag.add_node(node);
+                }
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let last_checkpoint_time = checkpoints
+                    .last()
+                    .map(|c| c.timestamp * 1000)
+                    .unwrap_or(now_ms);
+                StateInner {
+                    dag,
+                    accounts,
+                    validators,
+                    checkpoints,
+                    current_gas_price: gas_price,
+                    total_supply: supply,
+                    genesis_time: genesis,
+                    total_burned: 0.0,
+                    total_to_validators: 0.0,
+                    txs_this_period: 0,
+                    period_start_ms: now_ms,
+                    total_transactions: tx_count,
+                    config: config.clone(),
+                    last_checkpoint_time_ms: last_checkpoint_time,
+                    finality_times_ms: VecDeque::with_capacity(1000),
+                    finality_sum_ms: 0,
+                    finality_count: 0,
+                    finality_max_ms: 0,
+                }
+            } else {
+                let genesis_time = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_secs();
+
+                let mut accounts = HashMap::new();
+                let faucet_balance = 1_000_000.0;
+                accounts.insert(
+                    "faucet".to_string(),
+                    Account {
+                        address: "faucet".to_string(),
+                        balance: faucet_balance,
+                        nonce: 0,
+                        first_seen: genesis_time,
+                        staked: 0.0,
+                        unbonding: 0.0,
+                        unbonding_release: None,
+                    },
+                );
+                info!("Faucet account initialized with {} RKU", faucet_balance);
+
+                let mut dag = Dag::new(config.max_dag_nodes);
+                // Generate a proper 64-character hex hash for genesis
+                let genesis_data = format!("genesis:{}", genesis_time);
+                let genesis_hash = rinku_core::sha256_hex(&genesis_data);
+                let genesis_tx = SignedTransaction {
+                    tx: rinku_core::types::Transaction {
+                        from: "genesis".to_string(),
+                        to: "faucet".to_string(),
+                        amount: faucet_balance,
+                        nonce: 0,
+                        timestamp: genesis_time * 1000,
+                        parents: vec![],
+                        kind: None,
+                        gas_limit: None,
+                        gas_price: Some(0.0),
+                        data: None,
+                        signature: Some("genesis-signature".to_string()),
+                    },
+                    hash: genesis_hash.clone(),
+                    signature: "genesis-signature".to_string(),
                 };
-                let _ = dag.add_node(node);
-            }
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-            let last_checkpoint_time = checkpoints.last().map(|c| c.timestamp * 1000).unwrap_or(now_ms);
-            StateInner {
-                dag,
-                accounts,
-                validators,
-                checkpoints,
-                current_gas_price: gas_price,
-                total_supply: supply,
-                genesis_time: genesis,
-                total_burned: 0.0,
-                total_to_validators: 0.0,
-                txs_this_period: 0,
-                period_start_ms: now_ms,
-                total_transactions: tx_count,
-                config: config.clone(),
-                last_checkpoint_time_ms: last_checkpoint_time,
-                finality_times_ms: VecDeque::with_capacity(1000),
-                finality_sum_ms: 0,
-                finality_count: 0,
-                finality_max_ms: 0,
-            }
-        } else {
-            let genesis_time = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_secs();
-
-            let mut accounts = HashMap::new();
-            let faucet_balance = 1_000_000.0;
-            accounts.insert(
-                "faucet".to_string(),
-                Account {
-                    address: "faucet".to_string(),
-                    balance: faucet_balance,
-                    nonce: 0,
-                    first_seen: genesis_time,
-                    staked: 0.0,
-                    unbonding: 0.0,
-                    unbonding_release: None,
-                },
-            );
-            info!("Faucet account initialized with {} RKU", faucet_balance);
-
-            let mut dag = Dag::new(config.max_dag_nodes);
-            // Generate a proper 64-character hex hash for genesis
-            let genesis_data = format!("genesis:{}", genesis_time);
-            let genesis_hash = rinku_core::sha256_hex(&genesis_data);
-            let genesis_tx = SignedTransaction {
-                tx: rinku_core::types::Transaction {
-                    from: "genesis".to_string(),
-                    to: "faucet".to_string(),
-                    amount: faucet_balance,
-                    nonce: 0,
-                    timestamp: genesis_time,
+                let genesis_node = rinku_core::types::DagNode {
+                    hash: genesis_hash.clone(),
+                    tx: genesis_tx,
                     parents: vec![],
-                    kind: None,
-                    gas_limit: None,
-                    gas_price: Some(0.0),
-                    data: None,
-                    signature: Some("genesis-signature".to_string()),
-                },
-                hash: genesis_hash.clone(),
-                signature: "genesis-signature".to_string(),
-            };
-            let genesis_node = rinku_core::types::DagNode {
-                hash: genesis_hash.clone(),
-                tx: genesis_tx,
-                parents: vec![],
-                children: vec![],
-                weight: 1.0,
-                finalized: true,
-                checkpoint_height: Some(0),
-            };
-            let _ = dag.add_node(genesis_node);
-            info!("Genesis transaction created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
+                    children: vec![],
+                    weight: 1.0,
+                    finalized: true,
+                    checkpoint_height: Some(0),
+                };
+                let _ = dag.add_node(genesis_node);
+                info!(
+                    "Genesis transaction created: {}",
+                    &genesis_hash[..16.min(genesis_hash.len())]
+                );
 
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-            StateInner {
-                dag,
-                accounts,
-                validators: HashMap::new(),
-                checkpoints: Vec::new(),
-                current_gas_price: config.gas.min_gas_price,
-                total_supply: config.tokenomics.genesis_allocation,
-                genesis_time,
-                total_burned: 0.0,
-                total_to_validators: 0.0,
-                txs_this_period: 0,
-                period_start_ms: now_ms,
-                total_transactions: 1,
-                config: config.clone(),
-                last_checkpoint_time_ms: now_ms,
-                finality_times_ms: VecDeque::with_capacity(1000),
-                finality_sum_ms: 0,
-                finality_count: 0,
-                finality_max_ms: 0,
-            }
-        };
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                StateInner {
+                    dag,
+                    accounts,
+                    validators: HashMap::new(),
+                    checkpoints: Vec::new(),
+                    current_gas_price: config.gas.min_gas_price,
+                    total_supply: config.tokenomics.genesis_allocation,
+                    genesis_time,
+                    total_burned: 0.0,
+                    total_to_validators: 0.0,
+                    txs_this_period: 0,
+                    period_start_ms: now_ms,
+                    total_transactions: 1,
+                    config: config.clone(),
+                    last_checkpoint_time_ms: now_ms,
+                    finality_times_ms: VecDeque::with_capacity(1000),
+                    finality_sum_ms: 0,
+                    finality_count: 0,
+                    finality_max_ms: 0,
+                }
+            };
 
         let emission = EmissionService::new();
         let slashing = SlashingService::new();
-        
+
         // Load rewards from persistence or create fresh
         let rewards = if let Some(snapshot) = persistence.load_rewards()? {
-            info!("Restored rewards: {} stakes, {} pending", 
-                snapshot.stakes.len(), snapshot.pending_rewards.len());
+            info!(
+                "Restored rewards: {} stakes, {} pending",
+                snapshot.stakes.len(),
+                snapshot.pending_rewards.len()
+            );
             RewardsService::from_json(snapshot)
         } else {
             RewardsService::new(crate::rewards::RewardConfig::default())
@@ -245,13 +266,13 @@ impl NodeState {
             state.genesis_time,
             &transactions,
         )?;
-        
+
         // Also save rewards/staking state
         let rewards = self.rewards.read().await;
         let rewards_snapshot = rewards.to_json();
         drop(rewards);
         self.persistence.save_rewards(&rewards_snapshot)?;
-        
+
         Ok(())
     }
 
@@ -308,9 +329,9 @@ impl NodeState {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        
+
         let last_checkpoint_age = now_ms.saturating_sub(state.last_checkpoint_time_ms);
-        
+
         // Calculate checkpoints per minute based on genesis time
         let elapsed_minutes = (now_ms / 1000).saturating_sub(state.genesis_time) as f64 / 60.0;
         let checkpoints_per_minute = if elapsed_minutes > 0.0 {
@@ -318,27 +339,36 @@ impl NodeState {
         } else {
             0.0
         };
-        
+
         // Use aggregate stats for accurate average (not biased by rolling window)
         let avg = if state.finality_count > 0 {
             state.finality_sum_ms as f64 / state.finality_count as f64
         } else {
             0.0
         };
-        
+
         if state.finality_times_ms.is_empty() {
             return (avg, avg, avg, last_checkpoint_age, checkpoints_per_minute);
         }
-        
+
         // Use rolling window for percentile calculations
         let mut times: Vec<u64> = state.finality_times_ms.iter().copied().collect();
         times.sort();
-        
+
         let median = times[times.len() / 2] as f64;
         let p95_idx = (times.len() as f64 * 0.95) as usize;
-        let p95 = times.get(p95_idx).copied().unwrap_or(times[times.len() - 1]) as f64;
-        
-        (avg, median, p95, last_checkpoint_age, checkpoints_per_minute)
+        let p95 = times
+            .get(p95_idx)
+            .copied()
+            .unwrap_or(times[times.len() - 1]) as f64;
+
+        (
+            avg,
+            median,
+            p95,
+            last_checkpoint_age,
+            checkpoints_per_minute,
+        )
     }
 
     pub async fn get_checkpoint_height(&self) -> u64 {
@@ -353,7 +383,12 @@ impl NodeState {
 
     pub async fn get_gas_stats(&self) -> (f64, f64, f64, f64) {
         let state = self.inner.read().await;
-        (state.current_gas_price, state.total_burned, state.total_to_validators, state.current_gas_price)
+        (
+            state.current_gas_price,
+            state.total_burned,
+            state.total_to_validators,
+            state.current_gas_price,
+        )
     }
 
     pub async fn get_total_supply(&self) -> f64 {
@@ -409,7 +444,10 @@ impl NodeState {
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<()> {
         // PHASE 1: Pre-compute everything outside the lock
         // Normalize parent URLs to just hashes
-        let normalized_parents: Vec<String> = tx.tx.parents.iter()
+        let normalized_parents: Vec<String> = tx
+            .tx
+            .parents
+            .iter()
             .map(|p| {
                 if p.starts_with("rinku://tx/h/") {
                     p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
@@ -465,14 +503,16 @@ impl NodeState {
         const TARGET_TPS: f64 = 1000.0;
         const MAX_CHANGE_PERCENT: f64 = 0.125;
         const ELASTICITY: f64 = 2.0;
-        
+
         if now_ms - state.period_start_ms >= PERIOD_MS {
             let target_txs = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
             let utilization = state.txs_this_period as f64 / target_txs;
             let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
             let change_factor = 1.0 + change_ratio * MAX_CHANGE_PERCENT;
-            state.current_gas_price = (state.current_gas_price * change_factor)
-                .clamp(state.config.gas.min_gas_price, state.config.gas.max_gas_price);
+            state.current_gas_price = (state.current_gas_price * change_factor).clamp(
+                state.config.gas.min_gas_price,
+                state.config.gas.max_gas_price,
+            );
             state.txs_this_period = 0;
             state.period_start_ms = now_ms;
         }
@@ -488,39 +528,48 @@ impl NodeState {
             .unwrap_or_default()
             .as_millis() as u64;
 
-        let prepared: Vec<_> = txs.iter().map(|tx| {
-            let normalized_parents: Vec<String> = tx.tx.parents.iter()
-                .map(|p| {
-                    if p.starts_with("rinku://tx/h/") {
-                        p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
-                    } else if p.starts_with("rinku://tx/") {
-                        p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
-                    } else {
-                        p.clone()
-                    }
-                })
-                .collect();
+        let prepared: Vec<_> = txs
+            .iter()
+            .map(|tx| {
+                let normalized_parents: Vec<String> = tx
+                    .tx
+                    .parents
+                    .iter()
+                    .map(|p| {
+                        if p.starts_with("rinku://tx/h/") {
+                            p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+                        } else if p.starts_with("rinku://tx/") {
+                            p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+                        } else {
+                            p.clone()
+                        }
+                    })
+                    .collect();
 
-            rinku_core::types::DagNode {
-                hash: tx.hash.clone(),
-                tx: tx.clone(),
-                parents: normalized_parents,
-                children: Vec::new(),
-                weight: 1.0,
-                finalized: false,
-                checkpoint_height: None,
-            }
-        }).collect();
+                rinku_core::types::DagNode {
+                    hash: tx.hash.clone(),
+                    tx: tx.clone(),
+                    parents: normalized_parents,
+                    children: Vec::new(),
+                    weight: 1.0,
+                    finalized: false,
+                    checkpoint_height: None,
+                }
+            })
+            .collect();
 
         // PHASE 2: Single write lock for entire batch
         let mut state = self.inner.write().await;
         let mut results = Vec::with_capacity(txs.len());
 
         for (node, tx) in prepared.into_iter().zip(txs.iter()) {
-            let result = state.dag.add_node(node).map_err(|e| anyhow::anyhow!("{}", e));
+            let result = state
+                .dag
+                .add_node(node)
+                .map_err(|e| anyhow::anyhow!("{}", e));
             if result.is_ok() {
                 let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
-                
+
                 if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
                     from_account.balance -= tx.tx.amount + gas_fee;
                     from_account.nonce = tx.tx.nonce + 1;
@@ -545,14 +594,16 @@ impl NodeState {
         const TARGET_TPS: f64 = 1000.0;
         const MAX_CHANGE_PERCENT: f64 = 0.125;
         const ELASTICITY: f64 = 2.0;
-        
+
         if now_ms - state.period_start_ms >= PERIOD_MS {
             let target_txs = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
             let utilization = state.txs_this_period as f64 / target_txs;
             let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
             let change_factor = 1.0 + change_ratio * MAX_CHANGE_PERCENT;
-            state.current_gas_price = (state.current_gas_price * change_factor)
-                .clamp(state.config.gas.min_gas_price, state.config.gas.max_gas_price);
+            state.current_gas_price = (state.current_gas_price * change_factor).clamp(
+                state.config.gas.min_gas_price,
+                state.config.gas.max_gas_price,
+            );
             state.txs_this_period = 0;
             state.period_start_ms = now_ms;
         }
@@ -567,7 +618,11 @@ impl NodeState {
 
     pub async fn is_finalized(&self, hash: &str) -> bool {
         let state = self.inner.read().await;
-        state.dag.get_node(hash).map(|n| n.finalized).unwrap_or(false)
+        state
+            .dag
+            .get_node(hash)
+            .map(|n| n.finalized)
+            .unwrap_or(false)
     }
 
     pub async fn get_validators(&self) -> Vec<Validator> {
@@ -650,7 +705,9 @@ impl NodeState {
                     missing_hashes.contains(&n.hash)
                 } else {
                     // Include unfinalized transactions OR from checkpoints after from_checkpoint
-                    n.checkpoint_height.map(|h| h > from_checkpoint).unwrap_or(true)
+                    n.checkpoint_height
+                        .map(|h| h > from_checkpoint)
+                        .unwrap_or(true)
                 }
             })
             .map(|n| n.tx.clone())
@@ -661,7 +718,7 @@ impl NodeState {
     /// This is the efficient way to sync - transfer state, not full tx history
     pub async fn get_sync_snapshot(&self) -> SyncSnapshot {
         let state = self.inner.read().await;
-        
+
         // Get recent DAG transactions (only unfinalized ones for sync)
         let dag_txs: Vec<SignedTransaction> = state
             .dag
@@ -687,11 +744,11 @@ impl NodeState {
     /// This replaces local state with the peer's state (used for initial sync)
     pub async fn apply_sync_snapshot(&self, snapshot: SyncSnapshot) -> Result<usize> {
         let mut state = self.inner.write().await;
-        
+
         // Only apply if peer has more checkpoints (more finalized history)
         let local_checkpoint_count = state.checkpoints.len();
         let peer_checkpoint_count = snapshot.checkpoints.len();
-        
+
         if peer_checkpoint_count <= local_checkpoint_count && local_checkpoint_count > 0 {
             info!(
                 "Skipping snapshot apply: local has {} checkpoints, peer has {}",
@@ -725,7 +782,7 @@ impl NodeState {
         // Reset DAG and rebuild with genesis + unfinalized transactions
         // Fresh DAG starts with genesis node as root (max 10000 nodes for synced state)
         state.dag = rinku_core::Dag::new(10000);
-        
+
         // Create a synthetic genesis node that DAG transactions can reference
         let genesis_hash = "genesis".to_string();
         let genesis_tx = SignedTransaction {
@@ -745,7 +802,7 @@ impl NodeState {
             hash: genesis_hash.clone(),
             signature: "genesis".to_string(),
         };
-        
+
         let genesis_node = rinku_core::types::DagNode {
             hash: genesis_hash.clone(),
             tx: genesis_tx,
@@ -781,7 +838,10 @@ impl NodeState {
             .dag_transactions
             .iter()
             .map(|tx| {
-                let parents: Vec<String> = tx.tx.parents.iter()
+                let parents: Vec<String> = tx
+                    .tx
+                    .parents
+                    .iter()
                     .map(|p| normalize_parent(p))
                     .map(|p| {
                         if snapshot_hashes.contains(&p) {
@@ -799,13 +859,16 @@ impl NodeState {
         // Uses Kahn's algorithm
         let mut in_degree: HashMap<String, usize> = HashMap::new();
         let mut children_map: HashMap<String, Vec<String>> = HashMap::new();
-        
+
         for tx in &snapshot.dag_transactions {
             in_degree.entry(tx.hash.clone()).or_insert(0);
             for parent in tx_parents.get(&tx.hash).unwrap_or(&vec![]) {
                 if snapshot_hashes.contains(parent) {
                     *in_degree.entry(tx.hash.clone()).or_insert(0) += 1;
-                    children_map.entry(parent.clone()).or_default().push(tx.hash.clone());
+                    children_map
+                        .entry(parent.clone())
+                        .or_default()
+                        .push(tx.hash.clone());
                 }
             }
         }
@@ -816,7 +879,7 @@ impl NodeState {
             .filter(|(_, &deg)| deg == 0)
             .map(|(hash, _)| hash.clone())
             .collect();
-        
+
         let mut sorted_hashes: Vec<String> = Vec::new();
         while let Some(hash) = queue.pop() {
             sorted_hashes.push(hash.clone());
@@ -847,7 +910,7 @@ impl NodeState {
                 Some(tx) => tx,
                 None => continue,
             };
-            
+
             let normalized_parents = tx_parents.get(&hash).cloned().unwrap_or_default();
 
             let node = rinku_core::types::DagNode {
@@ -865,8 +928,12 @@ impl NodeState {
             }
         }
 
-        info!("Snapshot applied: {} DAG transactions, {} validators, {} checkpoints", 
-            added, state.validators.len(), state.checkpoints.len());
+        info!(
+            "Snapshot applied: {} DAG transactions, {} validators, {} checkpoints",
+            added,
+            state.validators.len(),
+            state.checkpoints.len()
+        );
         Ok(added)
     }
 
@@ -922,7 +989,11 @@ impl NodeState {
         Ok(pruned_count)
     }
 
-    pub async fn resolve_fork(&self, tip_a: &str, tip_b: &str) -> Option<(String, String, f64, f64)> {
+    pub async fn resolve_fork(
+        &self,
+        tip_a: &str,
+        tip_b: &str,
+    ) -> Option<(String, String, f64, f64)> {
         let state = self.inner.read().await;
 
         let weight_a = state.dag.calculate_cumulative_weight(tip_a);
