@@ -24,6 +24,8 @@ I want to work iteratively. Please ask before making major changes. I prefer det
   - `GET /api/sync/status`: Returns node sync state (checkpoint height, DAG size, tips, merkle root)
   - `GET /api/sync/snapshot`: Snapshot-based sync - returns complete derived state (accounts, validators, checkpoints, recent DAG)
   - `GET /api/sync/transactions?hashes=a,b,c`: Batch fetch transactions by hash
+  - `GET /api/sync/delta?from_checkpoint=N`: Fetch transactions since checkpoint N (used for continuous sync)
+- **Periodic Peer Sync:** Nodes poll peer status every ~10 seconds and request missing transactions via delta sync endpoint
 - **Snapshot-Based Sync Architecture:** New nodes sync via state snapshots instead of full transaction history.
   - Transfers ~10KB (accounts + validators + checkpoints) instead of potentially GBs of transaction history
   - Self-contained URL proofs mean historical transactions aren't needed for verification

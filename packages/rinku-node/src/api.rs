@@ -297,6 +297,12 @@ struct BatchTxQuery {
     hashes: String,
 }
 
+#[derive(Deserialize)]
+struct SyncTxQuery {
+    #[serde(default)]
+    from_checkpoint: Option<u64>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BatchTxResponse {
@@ -495,6 +501,22 @@ async fn get_batch_transactions(
         found,
         missing,
     })
+}
+
+async fn get_sync_transactions(
+    State(state): State<NodeState>,
+    Query(query): Query<SyncTxQuery>,
+) -> Json<Vec<rinku_core::types::SignedTransaction>> {
+    let from_checkpoint = query.from_checkpoint.unwrap_or(0);
+    
+    info!("Sync transactions request from checkpoint {}", from_checkpoint);
+    
+    // Get all transactions since the given checkpoint
+    let txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
+    
+    info!("Returning {} transactions since checkpoint {}", txs.len(), from_checkpoint);
+    
+    Json(txs)
 }
 
 async fn handle_faucet_request(
@@ -1764,6 +1786,7 @@ pub async fn start_api_server(
         .route("/api/sync/bootstrap", post(post_bootstrap))
         .route("/api/sync/snapshot", get(get_snapshot_sync))
         .route("/api/sync/transactions", get(get_batch_transactions))
+        .route("/api/sync/delta", get(get_sync_transactions))
         .route("/api/tip-consolidator/stats", get(get_tip_consolidator_stats))
         .route("/metrics", get(get_metrics))
         .layer(cors.clone())

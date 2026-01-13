@@ -105,6 +105,8 @@ pub struct GossipServiceInner {
     pub pending_txs: Vec<SignedTransaction>,
     pub seen_conflicts: HashSet<String>,
     pub stats: GossipStats,
+    pub round_counter: u64,
+    pub last_peer_refresh: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -154,6 +156,8 @@ impl GossipService {
                 pending_txs: Vec::new(),
                 seen_conflicts: HashSet::new(),
                 stats: GossipStats::default(),
+                round_counter: 0,
+                last_peer_refresh: now,
             })),
             node_id,
             interval_ms,
@@ -311,6 +315,18 @@ impl GossipService {
         let (dag_size, _, _) = self.state.get_dag_stats().await;
         let checkpoint_height = self.state.get_checkpoint_height().await;
 
+        // Increment round counter and check if we should refresh peer status
+        // Refresh every 50 rounds (~10 seconds at 200ms interval)
+        let should_refresh = {
+            let mut inner = self.inner.write().await;
+            inner.round_counter += 1;
+            inner.round_counter % 50 == 0
+        };
+
+        if should_refresh {
+            self.refresh_peer_status_and_sync().await;
+        }
+
         let tip_urls: Vec<String> = tips
             .iter()
             .map(|h| format!("rinku://tx/h/{}", h))
@@ -335,7 +351,7 @@ impl GossipService {
                 }
                 Err(e) => {
                     fail_count += 1;
-                    info!("Gossip to {} failed: {}", peer, e);
+                    debug!("Gossip to {} failed: {}", peer, e);
                     let mut inner = self.inner.write().await;
                     inner.stats.failed_sends += 1;
                     if let Some(peer_info) = inner.peers.get_mut(peer) {
@@ -406,6 +422,113 @@ impl GossipService {
                 inner.stats.sync_requests += 1;
             }
         }
+    }
+
+    async fn refresh_peer_status_and_sync(&self) {
+        let peers: Vec<String> = {
+            let inner = self.inner.read().await;
+            inner.peers.keys().cloned().collect()
+        };
+
+        for peer in &peers {
+            // Re-check local state before each peer to avoid redundant syncs
+            let local_checkpoint = self.state.get_checkpoint_height().await;
+            let (local_dag_size, _, _) = self.state.get_dag_stats().await;
+
+            match self.fetch_peer_status(peer).await {
+                Ok(status) => {
+                    // Update peer info with fresh data
+                    {
+                        let mut inner = self.inner.write().await;
+                        if let Some(peer_info) = inner.peers.get_mut(peer) {
+                            peer_info.checkpoint_height = status.checkpoint_height;
+                            peer_info.dag_size = status.dag_size;
+                            peer_info.is_healthy = true;
+                            peer_info.last_seen = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs();
+                        }
+                    }
+
+                    // Check if peer has more data than us
+                    let needs_sync = status.checkpoint_height > local_checkpoint 
+                        || status.dag_size > local_dag_size;
+
+                    if needs_sync {
+                        info!(
+                            "Peer {} has more data (cp: {} vs {}, dag: {} vs {}), requesting sync...",
+                            peer, status.checkpoint_height, local_checkpoint, 
+                            status.dag_size, local_dag_size
+                        );
+                        
+                        // Request missing transactions via delta sync
+                        if let Err(e) = self.sync_from_peer(peer, local_checkpoint).await {
+                            warn!("Sync from {} failed: {}", peer, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("Failed to refresh status from {}: {}", peer, e);
+                    let mut inner = self.inner.write().await;
+                    if let Some(peer_info) = inner.peers.get_mut(peer) {
+                        peer_info.is_healthy = false;
+                    }
+                }
+            }
+        }
+    }
+
+    async fn sync_from_peer(&self, peer: &str, local_checkpoint: u64) -> Result<()> {
+        let client = reqwest::Client::new();
+        
+        // Fetch transactions since our last checkpoint using delta sync endpoint
+        let url = format!("{}/api/sync/delta?from_checkpoint={}", peer, local_checkpoint);
+        
+        let response = client
+            .get(&url)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await?;
+        
+        if !response.status().is_success() {
+            // Fall back to fetching specific missing txs via gossip
+            anyhow::bail!("Sync request failed with status {}", response.status());
+        }
+        
+        let txs: Vec<SignedTransaction> = response.json().await?;
+        
+        if txs.is_empty() {
+            return Ok(());
+        }
+        
+        info!("Received {} transactions from peer {}", txs.len(), peer);
+        
+        let mut added = 0;
+        for tx in txs {
+            // Check if we already have this tx
+            let is_known = {
+                let inner = self.inner.read().await;
+                inner.known_txs.contains(&tx.hash)
+            };
+            
+            if !is_known {
+                if let Err(e) = self.state.add_transaction(tx.clone()).await {
+                    debug!("Failed to add synced tx {}: {}", tx.hash, e);
+                } else {
+                    let mut inner = self.inner.write().await;
+                    inner.known_txs.insert(tx.hash.clone());
+                    inner.stats.txs_received += 1;
+                    added += 1;
+                }
+            }
+        }
+        
+        if added > 0 {
+            info!("Added {} new transactions from peer sync", added);
+        }
+        
+        Ok(())
     }
 
     async fn send_to_peer(&self, peer: &str, message: &GossipMessage) -> Result<()> {

@@ -143,6 +143,7 @@ Different use cases require different security/size tradeoffs:
 rinku://tx/{payload}
 ```
 
+
 ### Profile B: Full Finality (~3,000 - 10,000 characters)
 
 **What it proves:** Transaction is Merkle-included in a checkpoint signed by ≥ 67% of validators
@@ -152,6 +153,7 @@ rinku://tx/{payload}
 ```
 rinku://txp/{payload}
 ```
+
 
 ### Profile C: Self-Contained (~1,600 - 2,800 characters)
 
@@ -163,7 +165,9 @@ rinku://txp/{payload}
 rinku://sp/{payload}
 ```
 
+
 Profile C is the most powerful - it proves finality without any external trust anchors beyond knowing which network you are verifying against.
+
 
 ## 5. Size Analysis
 
