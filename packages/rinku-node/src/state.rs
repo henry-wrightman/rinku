@@ -791,7 +791,7 @@ impl NodeState {
                 to: "genesis".to_string(),
                 amount: 0.0,
                 nonce: 0,
-                timestamp: snapshot.genesis_time,
+                timestamp: snapshot.genesis_time * 1000,
                 parents: vec![],
                 kind: None,
                 gas_price: None,
