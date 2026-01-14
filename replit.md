@@ -70,6 +70,14 @@ With snapshot-based sync and DAG pruning, nodes maintain consensus differently t
 
 **Validation Script:** Run `npx ts-node scripts/validate-multi-node.ts NODE1_URL NODE2_URL [NODE3_URL...]` to verify consensus. Critical failures (checkpoint root mismatch, balance mismatch) indicate a fork. Minor failures (sync lag) are normal during operation.
 
+**Fork Prevention:** Before creating a checkpoint at height N, nodes query peers for existing checkpoints at that height via `GET /api/checkpoints/{height}`. If a peer has a checkpoint, the node validates it before adoption:
+1. **Chain linkage**: Peer's `previous_hash` must match local last checkpoint
+2. **Transaction set**: Peer's `tx_merkle_root` must match local pending transactions
+3. **Checkpoint hash**: Peer's hash must match locally recomputed hash from checkpoint fields
+4. **Signature validity**: At least one BLS signature must be parseable and well-formed (96 bytes)
+
+If validation fails, the node attempts a delta sync to fetch missing transactions, recomputes the merkle root, and retries adoption. Only if all adoption attempts fail does the node create its own checkpoint. This prevents divergence when multiple nodes try to create checkpoints simultaneously.
+
 ### Fly.io Deployment
 The Rust node can be deployed to Fly.io for production use:
 - `fly.toml`: Fly.io app configuration (auto-scaling, health checks, persistent storage)

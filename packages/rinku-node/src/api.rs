@@ -1473,20 +1473,14 @@ async fn get_checkpoints_latest(State(state): State<NodeState>) -> Json<Checkpoi
 async fn get_checkpoint_by_height(
     State(state): State<NodeState>,
     Path(height): Path<u64>,
-) -> Result<Json<rinku_core::types::Checkpoint>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<rinku_core::types::Checkpoint>, ApiError> {
     let inner = state.inner.read().await;
     
     // Find checkpoint at the requested height
     if let Some(cp) = inner.checkpoints.iter().find(|c| c.height == height) {
         Ok(Json(cp.clone()))
     } else {
-        Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Checkpoint at height {} not found", height),
-                code: 404,
-            }),
-        ))
+        Err(ApiError::not_found(format!("Checkpoint at height {} not found", height)))
     }
 }
 
