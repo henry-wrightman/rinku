@@ -589,6 +589,40 @@ impl NodeState {
             state.txs_this_period = 0;
             state.period_start_ms = now_ms;
         }
+        
+        // Save transaction kind for stake processing after lock release
+        let tx_kind = tx.tx.kind.clone();
+        let from_addr = tx.tx.from.clone();
+        let stake_amount = tx.tx.amount;
+        
+        drop(state);
+        
+        // Process stake/unstake transactions (separate lock for rewards)
+        if let Some(kind) = tx_kind {
+            use rinku_core::types::TransactionKind;
+            match kind {
+                TransactionKind::Stake => {
+                    let mut rewards = self.rewards.write().await;
+                    if let Err(e) = rewards.stake(&from_addr, stake_amount) {
+                        tracing::warn!("Failed to process stake tx: {}", e);
+                    } else {
+                        tracing::debug!("Processed stake: {} staked {} RKU", &from_addr[..16.min(from_addr.len())], stake_amount);
+                    }
+                }
+                TransactionKind::Unstake => {
+                    let mut rewards = self.rewards.write().await;
+                    match rewards.unstake(&from_addr) {
+                        Ok(amount) => {
+                            tracing::debug!("Processed unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to process unstake tx: {}", e);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
 
         Ok(())
     }
@@ -634,6 +668,7 @@ impl NodeState {
         // PHASE 2: Single write lock for entire batch
         let mut state = self.inner.write().await;
         let mut results = Vec::with_capacity(txs.len());
+        let mut stake_txs: Vec<(rinku_core::types::TransactionKind, String, f64)> = Vec::new();
 
         for (node, tx) in prepared.into_iter().zip(txs.iter()) {
             let result = state
@@ -658,6 +693,11 @@ impl NodeState {
                 state.total_to_validators += gas_fee * 0.5;
                 state.txs_this_period += 1;
                 state.total_transactions += 1;
+                
+                // Track stake/unstake transactions for processing after lock release
+                if let Some(kind) = &tx.tx.kind {
+                    stake_txs.push((kind.clone(), tx.tx.from.clone(), tx.tx.amount));
+                }
             }
             results.push(result);
         }
@@ -679,6 +719,36 @@ impl NodeState {
             );
             state.txs_this_period = 0;
             state.period_start_ms = now_ms;
+        }
+        
+        drop(state);
+        
+        // Process stake/unstake transactions (separate lock for rewards)
+        if !stake_txs.is_empty() {
+            use rinku_core::types::TransactionKind;
+            let mut rewards = self.rewards.write().await;
+            for (kind, from_addr, amount) in stake_txs {
+                match kind {
+                    TransactionKind::Stake => {
+                        if let Err(e) = rewards.stake(&from_addr, amount) {
+                            tracing::warn!("Failed to process batch stake tx: {}", e);
+                        } else {
+                            tracing::debug!("Batch stake: {} staked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
+                        }
+                    }
+                    TransactionKind::Unstake => {
+                        match rewards.unstake(&from_addr) {
+                            Ok(unstaked) => {
+                                tracing::debug!("Batch unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], unstaked);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to process batch unstake tx: {}", e);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
 
         results
