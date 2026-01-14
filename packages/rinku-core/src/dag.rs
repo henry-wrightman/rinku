@@ -237,6 +237,14 @@ impl Dag {
         }
     }
 
+    /// Unfinalize a transaction (used during checkpoint chain recovery)
+    pub fn unfinalize(&mut self, hash: &str) {
+        if let Some(node) = self.get_node_mut(hash) {
+            node.finalized = false;
+            node.checkpoint_height = None;
+        }
+    }
+
     fn prune_oldest(&mut self) -> Result<(), DagError> {
         let target_size = self.max_nodes * 3 / 4;
 
