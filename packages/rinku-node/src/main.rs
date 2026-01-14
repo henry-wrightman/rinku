@@ -21,6 +21,7 @@ mod slashing;
 mod state;
 mod state_trie;
 mod tip_consolidator;
+mod trust;
 mod validator;
 mod versioning;
 #[cfg(feature = "zk")]
@@ -52,6 +53,23 @@ async fn main() -> Result<()> {
     let config = NodeConfig::from_env();
     info!("Node ID: {}", config.node_id);
     info!("Data dir: {}", config.data_dir);
+    
+    // Log trust configuration
+    if !config.trust.genesis_validators.is_empty() {
+        info!(
+            "Trust config: {} genesis validator(s), quorum threshold: {:.0}%",
+            config.trust.genesis_validators.len(),
+            config.trust.checkpoint_quorum_threshold * 100.0
+        );
+        for gv in &config.trust.genesis_validators {
+            info!("  Genesis validator: {}...", &gv.address[..16.min(gv.address.len())]);
+        }
+    } else {
+        info!("Trust config: TESTNET MODE (no genesis validators, signatures not verified)");
+    }
+    if let Some(ref trusted_hash) = config.trust.trust_checkpoint_hash {
+        info!("Weak subjectivity checkpoint: {}...", &trusted_hash[..16.min(trusted_hash.len())]);
+    }
     
     // Check if data directory exists and log contents
     let data_path = std::path::Path::new(&config.data_dir);
@@ -101,6 +119,7 @@ async fn main() -> Result<()> {
         config.checkpoint_interval_ms,
         validator_address.clone(),
         config.peers.clone(),
+        config.trust.clone(),
     );
     info!(
         "BLS public key: {}...",
@@ -129,6 +148,7 @@ async fn main() -> Result<()> {
             state.clone(),
             config.peers.clone(),
             config.gossip_interval_ms,
+            config.trust.clone(),
         );
         tokio::spawn(async move {
             if let Err(e) = gossip_service.start().await {

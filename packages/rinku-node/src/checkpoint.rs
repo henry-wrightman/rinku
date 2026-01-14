@@ -5,12 +5,15 @@ use rinku_core::{
     types::{Checkpoint, ValidatorSignature},
 };
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use tracing::{info, warn, debug};
 
 use crate::bls::{
     aggregate_signatures, bls_sign, create_signer_bitmap, generate_bls_keypair,
 };
+use crate::config::TrustConfig;
 use crate::state::NodeState;
+use crate::trust::TrustVerifier;
 
 pub struct CheckpointService {
     state: NodeState,
@@ -20,12 +23,19 @@ pub struct CheckpointService {
     validator_address: String,
     peers: Vec<String>,
     consecutive_fork_failures: std::sync::atomic::AtomicU32,
+    trust_verifier: Arc<TrustVerifier>,
 }
 
-const FORK_RECOVERY_THRESHOLD: u32 = 3; // Trigger recovery after 3 consecutive previous_hash mismatches
+const FORK_RECOVERY_THRESHOLD: u32 = 3;
 
 impl CheckpointService {
-    pub fn new(state: NodeState, interval_ms: u64, validator_address: Option<String>, peers: Vec<String>) -> Self {
+    pub fn new(
+        state: NodeState, 
+        interval_ms: u64, 
+        validator_address: Option<String>, 
+        peers: Vec<String>,
+        trust_config: TrustConfig,
+    ) -> Self {
         let keypair = generate_bls_keypair();
         let addr = validator_address.unwrap_or_else(|| keypair.fingerprint.clone());
         Self {
@@ -36,6 +46,7 @@ impl CheckpointService {
             validator_address: addr,
             peers,
             consecutive_fork_failures: std::sync::atomic::AtomicU32::new(0),
+            trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
         }
     }
 
@@ -395,27 +406,27 @@ impl CheckpointService {
                     
                     match resp.json::<SnapshotResponse>().await {
                         Ok(snapshot) => {
-                            // Validate checkpoint chain integrity before applying
-                            let mut valid_chain = true;
-                            let mut verified_signatures = 0;
-                            
-                            for i in 0..snapshot.checkpoints.len() {
-                                let checkpoint = &snapshot.checkpoints[i];
-                                
-                                // Check previous_hash linkage (skip for first checkpoint)
-                                if i > 0 {
-                                    let expected_prev = &snapshot.checkpoints[i - 1].hash;
-                                    if checkpoint.previous_hash.as_deref() != Some(expected_prev) {
-                                        warn!(
-                                            "[ForkRecovery] Peer snapshot has invalid checkpoint chain at height {}",
-                                            checkpoint.height
-                                        );
-                                        valid_chain = false;
-                                        break;
-                                    }
+                            // Verify checkpoint chain linkage first
+                            let mut linkage_valid = true;
+                            for i in 1..snapshot.checkpoints.len() {
+                                let expected_prev = &snapshot.checkpoints[i - 1].hash;
+                                if snapshot.checkpoints[i].previous_hash.as_deref() != Some(expected_prev) {
+                                    warn!(
+                                        "[ForkRecovery] Peer snapshot has invalid checkpoint chain at height {}",
+                                        snapshot.checkpoints[i].height
+                                    );
+                                    linkage_valid = false;
+                                    break;
                                 }
-                                
-                                // Verify checkpoint hash is correctly computed
+                            }
+                            
+                            if !linkage_valid {
+                                continue;  // Try next peer
+                            }
+
+                            // Verify checkpoint hashes are correctly computed
+                            let mut hash_valid = true;
+                            for checkpoint in &snapshot.checkpoints {
                                 let expected_hash = Self::compute_checkpoint_hash(
                                     checkpoint.height,
                                     &checkpoint.tx_merkle_root,
@@ -431,44 +442,59 @@ impl CheckpointService {
                                         "[ForkRecovery] Peer checkpoint hash mismatch at height {}",
                                         checkpoint.height
                                     );
-                                    valid_chain = false;
-                                    break;
-                                }
-                                
-                                // Verify at least one BLS signature per checkpoint
-                                // NOTE: Full verification requires matching public keys from validator registry
-                                // For testnet, we verify signature format is valid BLS
-                                let mut has_valid_sig = checkpoint.validator_signatures.is_empty(); // Allow empty for genesis
-                                for sig in &checkpoint.validator_signatures {
-                                    if let Ok(sig_bytes) = URL_SAFE_NO_PAD.decode(&sig.signature) {
-                                        if sig_bytes.len() >= 96 {
-                                            if blst::min_pk::Signature::from_bytes(&sig_bytes).is_ok() {
-                                                has_valid_sig = true;
-                                                verified_signatures += 1;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                if !has_valid_sig && !checkpoint.validator_signatures.is_empty() {
-                                    warn!(
-                                        "[ForkRecovery] Peer checkpoint at height {} has no valid BLS signature format",
-                                        checkpoint.height
-                                    );
-                                    valid_chain = false;
+                                    hash_valid = false;
                                     break;
                                 }
                             }
 
-                            if !valid_chain {
+                            if !hash_valid {
                                 continue;
                             }
-                            
-                            info!(
-                                "[ForkRecovery] Validated {} checkpoints with {} verified signatures",
-                                snapshot.checkpoints.len(), verified_signatures
-                            );
+
+                            // Use stake-weighted BLS signature verification
+                            // The trust verifier validates against genesis validators and on-chain validator registry
+                            if self.trust_verifier.has_genesis_validators() {
+                                if let Err(e) = self.trust_verifier.verify_checkpoint_chain(
+                                    &snapshot.checkpoints,
+                                    &snapshot.validators,
+                                ) {
+                                    warn!("[ForkRecovery] Stake-weighted verification failed: {}", e);
+                                    continue;
+                                }
+                                info!(
+                                    "[ForkRecovery] Verified {} checkpoints with stake-weighted BLS signatures",
+                                    snapshot.checkpoints.len()
+                                );
+                            } else {
+                                // No genesis validators configured - use format validation only (testnet mode)
+                                let mut format_valid = true;
+                                for checkpoint in &snapshot.checkpoints {
+                                    if checkpoint.validator_signatures.is_empty() && checkpoint.height > 1 {
+                                        continue; // Allow unsigned early checkpoints
+                                    }
+                                    for sig in &checkpoint.validator_signatures {
+                                        if let Ok(sig_bytes) = URL_SAFE_NO_PAD.decode(&sig.signature) {
+                                            if sig_bytes.len() < 96 || blst::min_pk::Signature::from_bytes(&sig_bytes).is_err() {
+                                                warn!(
+                                                    "[ForkRecovery] Invalid BLS signature format at height {}",
+                                                    checkpoint.height
+                                                );
+                                                format_valid = false;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if !format_valid {
+                                        break;
+                                    }
+                                }
+                                if !format_valid {
+                                    continue;
+                                }
+                                warn!(
+                                    "[ForkRecovery] No genesis validators configured - using format validation only (TESTNET MODE)"
+                                );
+                            }
 
                             let checkpoint_count = snapshot.checkpoints.len();
                             let account_count = snapshot.accounts.len();

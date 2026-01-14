@@ -79,6 +79,28 @@ With snapshot-based sync and DAG pruning, nodes maintain consensus differently t
 
 If validation fails, the node attempts a delta sync to fetch missing transactions, recomputes the merkle root, and retries adoption. Only if all adoption attempts fail does the node create its own checkpoint. This prevents divergence when multiple nodes try to create checkpoints simultaneously.
 
+**Fork Recovery:** After 3 consecutive `previous_hash` mismatches with peers, automatic fork recovery triggers:
+1. Requests full snapshot from trusted peer
+2. Validates checkpoint chain integrity (hash linkage, hash recomputation)
+3. Verifies BLS signatures with stake-weighted verification (if genesis validators configured)
+4. Atomically replaces state (accounts, validators, checkpoints, DAG)
+
+### Trust Bootstrap System
+Production nodes use a hybrid trust model combining genesis validators and stake-weighted verification:
+
+**Environment Variables:**
+- `GENESIS_VALIDATORS`: Semicolon-separated list of trusted genesis validators. Format: `address1:bls_pubkey_hex;address2:bls_pubkey_hex`
+- `CHECKPOINT_QUORUM_THRESHOLD`: Fraction of stake required for quorum (default: 0.67 = 67%)
+- `TRUST_CHECKPOINT_HASH`: Weak subjectivity checkpoint hash for fast bootstrap
+
+**Trust Model:**
+1. **Genesis validators** are hardcoded trusted roots with 1000 stake each
+2. **On-chain validators** contribute stake from their registered stake amount (requires `bls_public_key` set)
+3. **Checkpoint verification** requires BLS signatures from validators representing >67% of total stake
+4. **Weak subjectivity** allows specifying a known-good checkpoint hash to skip full verification
+
+**Testnet Mode:** If no genesis validators are configured, nodes run in testnet mode with BLS format validation only (signatures not cryptographically verified).
+
 ### Fly.io Deployment
 The Rust node can be deployed to Fly.io for production use:
 - `fly.toml`: Fly.io app configuration (auto-scaling, health checks, persistent storage)

@@ -2,6 +2,29 @@ use rinku_core::types::{GasConfig, TokenomicsConfig};
 use std::env;
 
 #[derive(Debug, Clone)]
+pub struct GenesisValidator {
+    pub address: String,
+    pub bls_public_key: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrustConfig {
+    pub genesis_validators: Vec<GenesisValidator>,
+    pub checkpoint_quorum_threshold: f64,
+    pub trust_checkpoint_hash: Option<String>,
+}
+
+impl Default for TrustConfig {
+    fn default() -> Self {
+        Self {
+            genesis_validators: Vec::new(),
+            checkpoint_quorum_threshold: 0.67,
+            trust_checkpoint_hash: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct NodeConfig {
     pub node_id: String,
     pub data_dir: String,
@@ -20,6 +43,7 @@ pub struct NodeConfig {
     pub rate_limit_contract_max: u32,
     pub rate_limit_general_max: u32,
     pub static_dir: Option<String>,
+    pub trust: TrustConfig,
 }
 
 impl NodeConfig {
@@ -81,6 +105,40 @@ impl NodeConfig {
                 .and_then(|n| n.parse().ok())
                 .unwrap_or(100),
             static_dir: env::var("STATIC_DIR").ok(),
+            trust: TrustConfig::from_env(),
+        }
+    }
+}
+
+impl TrustConfig {
+    pub fn from_env() -> Self {
+        let mut genesis_validators = Vec::new();
+        
+        if let Ok(genesis_data) = env::var("GENESIS_VALIDATORS") {
+            for entry in genesis_data.split(';') {
+                let parts: Vec<&str> = entry.split(':').collect();
+                if parts.len() == 2 {
+                    if let Ok(pubkey_bytes) = hex::decode(parts[1]) {
+                        genesis_validators.push(GenesisValidator {
+                            address: parts[0].to_string(),
+                            bls_public_key: pubkey_bytes,
+                        });
+                    }
+                }
+            }
+        }
+        
+        let checkpoint_quorum_threshold = env::var("CHECKPOINT_QUORUM_THRESHOLD")
+            .ok()
+            .and_then(|t| t.parse().ok())
+            .unwrap_or(0.67);
+        
+        let trust_checkpoint_hash = env::var("TRUST_CHECKPOINT_HASH").ok();
+        
+        Self {
+            genesis_validators,
+            checkpoint_quorum_threshold,
+            trust_checkpoint_hash,
         }
     }
 }

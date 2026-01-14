@@ -7,7 +7,9 @@ use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, warn};
 
+use crate::config::TrustConfig;
 use crate::state::{NodeState, SyncSnapshot};
+use crate::trust::TrustVerifier;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -124,10 +126,11 @@ pub struct GossipService {
     inner: Arc<RwLock<GossipServiceInner>>,
     node_id: String,
     interval_ms: u64,
+    trust_verifier: Arc<TrustVerifier>,
 }
 
 impl GossipService {
-    pub fn new(state: NodeState, initial_peers: Vec<String>, interval_ms: u64) -> Self {
+    pub fn new(state: NodeState, initial_peers: Vec<String>, interval_ms: u64, trust_config: TrustConfig) -> Self {
         let node_id = format!("{:016x}", rand::random::<u64>());
         
         let mut peers = HashMap::new();
@@ -161,6 +164,7 @@ impl GossipService {
             })),
             node_id,
             interval_ms,
+            trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
         }
     }
 
@@ -278,6 +282,40 @@ impl GossipService {
             snapshot_response.dag_transactions.len(),
             snapshot_response.checkpoint_height
         );
+
+        // Weak subjectivity: if a trust checkpoint hash is configured, verify it exists anywhere in the chain
+        let mut found_trusted_checkpoint = false;
+        for checkpoint in &snapshot_response.checkpoints {
+            if self.trust_verifier.is_trusted_checkpoint(&checkpoint.hash) {
+                info!(
+                    "Weak subjectivity: verified trusted checkpoint hash at height {}",
+                    checkpoint.height
+                );
+                found_trusted_checkpoint = true;
+                break;
+            }
+        }
+        
+        if !found_trusted_checkpoint {
+            if self.trust_verifier.has_genesis_validators() {
+                // Verify checkpoint chain with stake-weighted BLS signatures
+                if let Err(e) = self.trust_verifier.verify_checkpoint_chain(
+                    &snapshot_response.checkpoints,
+                    &snapshot_response.validators,
+                ) {
+                    anyhow::bail!("Checkpoint verification failed: {}", e);
+                }
+                info!(
+                    "Verified {} checkpoints with stake-weighted BLS signatures",
+                    snapshot_response.checkpoints.len()
+                );
+            } else {
+                // No trust configuration - log warning for testnet mode
+                warn!(
+                    "No trust configuration set - accepting snapshot without verification (TESTNET MODE)"
+                );
+            }
+        }
 
         // Convert response to SyncSnapshot and apply
         let snapshot = SyncSnapshot {
