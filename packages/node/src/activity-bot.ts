@@ -16,9 +16,15 @@ const CONTRACT_INTERVAL_MS = parseInt(
 );
 const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "180000");
 const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "300000");
-const CONSOLIDATION_INTERVAL_MS = parseInt(process.env.CONSOLIDATION_INTERVAL || "10000");
-const TIP_CONSOLIDATION_THRESHOLD = parseInt(process.env.TIP_CONSOLIDATION_THRESHOLD || "10");
-const CONSOLIDATION_TIP_COUNT = parseInt(process.env.CONSOLIDATION_TIP_COUNT || "12");
+const CONSOLIDATION_INTERVAL_MS = parseInt(
+  process.env.CONSOLIDATION_INTERVAL || "10000",
+);
+const TIP_CONSOLIDATION_THRESHOLD = parseInt(
+  process.env.TIP_CONSOLIDATION_THRESHOLD || "10",
+);
+const CONSOLIDATION_TIP_COUNT = parseInt(
+  process.env.CONSOLIDATION_TIP_COUNT || "12",
+);
 
 // Gas-aware throttling - pause when gas gets too high
 const GAS_THROTTLE_THRESHOLD = parseFloat(
@@ -797,14 +803,19 @@ async function doConsolidation(): Promise<void> {
       return;
     }
 
-    log(`Tip consolidation triggered: ${tips.length} tips (threshold: ${TIP_CONSOLIDATION_THRESHOLD})`);
+    log(
+      `Tip consolidation triggered: ${tips.length} tips (threshold: ${TIP_CONSOLIDATION_THRESHOLD})`,
+    );
 
     const availableWallets = wallets.filter(
       (w) => !globalLockedSenders.has(w.fingerprint),
     );
     if (availableWallets.length < 2) return;
 
-    const consolidationCount = Math.min(3, Math.ceil(tips.length / CONSOLIDATION_TIP_COUNT));
+    const consolidationCount = Math.min(
+      3,
+      Math.ceil(tips.length / CONSOLIDATION_TIP_COUNT),
+    );
     const gasPrice = await fetchGasPrice();
 
     for (let i = 0; i < consolidationCount; i++) {

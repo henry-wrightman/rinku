@@ -31,8 +31,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "NODE_PEERS=\"https://rinkuchan.com\" RUST_LOG=\"rinku_node=info,rinku_node::gossip=info\" cargo run -p rinku-node"
-waitForPort = 3001
+args = "RUST_LOG=\"rinku_node=info,rinku_node::gossip=info\" cargo run -p rinku-node"
 
 [[workflows.workflow]]
 name = "Rinku Explorer"
