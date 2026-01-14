@@ -164,6 +164,8 @@ struct DagNodeResponse {
     nonce: u64,
     ts: u64,
     parents: Vec<String>,
+    #[serde(rename = "parentCount")]
+    parent_count: usize,
     finalized: bool,
     weight: f64,
     url: String,
@@ -895,6 +897,7 @@ async fn get_dag(
                 fee: n.fee,
                 nonce: n.nonce,
                 ts: n.ts,
+                parent_count: parents.len(),
                 parents,
                 finalized: n.finalized,
                 weight: n.weight,
