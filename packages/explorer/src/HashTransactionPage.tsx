@@ -13,11 +13,21 @@ interface TransactionNode {
   sig: string;
   url: string;
   weight: number;
+  finalized?: boolean;
   finality?: {
     checkpointId: string;
     checkpointHeight: number;
     finalizedAt: number;
   };
+}
+
+interface ProofResponse {
+  txHash: string;
+  finalized: boolean;
+  proofUrl?: string;
+  proofSizeBytes?: number;
+  qrViable?: boolean;
+  error?: string;
 }
 
 interface PrunedInfo {
@@ -34,6 +44,9 @@ function HashTransactionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [proofLoading, setProofLoading] = useState(false);
+  const [proofData, setProofData] = useState<ProofResponse | null>(null);
+  const [proofCopied, setProofCopied] = useState(false);
 
   useEffect(() => {
     if (!hash) {
@@ -67,12 +80,39 @@ function HashTransactionPage() {
           sig: txData.sig,
           url: data.url || `/tx/h/${txData.hash}`,
           weight: data.weight ?? txData.weight ?? 0,
+          finalized: data.finalized ?? !!txData.finality,
           finality: data.finality || txData.finality,
         });
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [hash]);
+
+  const fetchProof = async () => {
+    if (!hash) return;
+    setProofLoading(true);
+    try {
+      const res = await fetch(`/api/tx/${hash}/proof`);
+      const data = await res.json();
+      setProofData(data);
+    } catch (e) {
+      setProofData({
+        txHash: hash,
+        finalized: false,
+        error: "Failed to fetch proof",
+      });
+    } finally {
+      setProofLoading(false);
+    }
+  };
+
+  const copyProof = () => {
+    if (proofData?.proofUrl) {
+      navigator.clipboard.writeText(proofData.proofUrl);
+      setProofCopied(true);
+      setTimeout(() => setProofCopied(false), 2000);
+    }
+  };
 
   const formatTime = (ts: number) => {
     return new Date(ts).toLocaleString();
@@ -314,6 +354,86 @@ function HashTransactionPage() {
             </>
           )}
         </div>
+
+        {(tx.finalized || tx.finality) && (
+          <div className="tx-proof" style={{ marginTop: 16 }}>
+            <h3>self-contained proof</h3>
+            <p style={{ opacity: 0.7, fontSize: "0.85rem", marginBottom: 12 }}>
+              Generate a cryptographic proof URL that can verify this transaction offline, 
+              without needing the network.
+            </p>
+            
+            {!proofData && (
+              <button 
+                className="btn-small" 
+                onClick={fetchProof}
+                disabled={proofLoading}
+                style={{ marginBottom: 12 }}
+              >
+                {proofLoading ? "generating..." : "generate proof"}
+              </button>
+            )}
+
+            {proofData && proofData.proofUrl && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ 
+                  display: "flex", 
+                  gap: 8, 
+                  alignItems: "center",
+                  marginBottom: 8 
+                }}>
+                  <span style={{ color: "#a3be8c" }}>proof ready</span>
+                  <button className="btn-small" onClick={copyProof}>
+                    {proofCopied ? "copied!" : "copy proof url"}
+                  </button>
+                  <Link 
+                    to={{ pathname: "/", search: "?tab=verify" }}
+                    className="btn-small"
+                    style={{ textDecoration: "none" }}
+                  >
+                    verify
+                  </Link>
+                </div>
+                <div style={{ 
+                  fontSize: "0.75rem", 
+                  opacity: 0.6, 
+                  marginBottom: 8 
+                }}>
+                  size: {proofData.proofSizeBytes?.toLocaleString()} bytes 
+                  {proofData.qrViable ? " (QR compatible)" : " (too large for QR)"}
+                </div>
+                <textarea
+                  readOnly
+                  value={proofData.proofUrl}
+                  rows={4}
+                  style={{
+                    width: "100%",
+                    padding: "8px",
+                    fontSize: "0.75rem",
+                    fontFamily: "monospace",
+                    backgroundColor: "var(--bg-secondary)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    color: "var(--text-primary)",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+            )}
+
+            {proofData && proofData.error && (
+              <div style={{ color: "#bf616a", marginTop: 8 }}>
+                {proofData.error}
+              </div>
+            )}
+
+            {proofData && !proofData.proofUrl && !proofData.error && (
+              <div style={{ opacity: 0.7, marginTop: 8 }}>
+                Proof not available yet. Transaction may still be processing.
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="tx-parents">
           <h3>parent transactions ({tx.tipUrls?.length || 0})</h3>

@@ -267,6 +267,18 @@ struct SelfProvableTransactionResponse {
     merkle_index: Option<usize>,
     checkpoint: Option<CheckpointProofData>,
     proof_url: Option<String>,
+    self_contained_proof_url: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TransactionProofResponse {
+    tx_hash: String,
+    finalized: bool,
+    proof_url: Option<String>,
+    proof_size_bytes: Option<usize>,
+    qr_viable: Option<bool>,
+    error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -1183,6 +1195,12 @@ async fn get_self_provable_tx(
         (None, None, None, None)
     };
 
+    let self_contained_proof_url = if finalized && proof_url.is_some() {
+        Some(format!("/api/tx/{}/proof", tx.hash))
+    } else {
+        None
+    };
+
     Ok(Json(SelfProvableTransactionResponse {
         tx_hash: tx.hash.clone(),
         from: tx.tx.from.clone(),
@@ -1198,6 +1216,7 @@ async fn get_self_provable_tx(
         merkle_index,
         checkpoint: checkpoint_data,
         proof_url,
+        self_contained_proof_url,
     }))
 }
 
@@ -1644,6 +1663,139 @@ async fn verify_proof_endpoint(
     }
 }
 
+async fn generate_transaction_proof(
+    State(state): State<NodeState>,
+    Path(hash): Path<String>,
+) -> Result<Json<TransactionProofResponse>, ApiError> {
+    use crate::proofs::{
+        create_self_proof_url, build_merkle_sum_tree, get_merkle_sum_proof,
+        MerkleSumLeaf, SelfContainedProof,
+    };
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
+    let tx = state
+        .get_transaction(&hash)
+        .await
+        .ok_or_else(|| ApiError::not_found(format!("Transaction {} not found", hash)))?;
+
+    let (finalized, checkpoint_height) = state.get_finalization_info(&hash).await;
+
+    if !finalized {
+        return Ok(Json(TransactionProofResponse {
+            tx_hash: hash,
+            finalized: false,
+            proof_url: None,
+            proof_size_bytes: None,
+            qr_viable: None,
+            error: Some("Transaction not yet finalized".to_string()),
+        }));
+    }
+
+    let cp_height = match checkpoint_height {
+        Some(h) => h,
+        None => {
+            return Ok(Json(TransactionProofResponse {
+                tx_hash: hash,
+                finalized: true,
+                proof_url: None,
+                proof_size_bytes: None,
+                qr_viable: None,
+                error: Some("Checkpoint height not found".to_string()),
+            }));
+        }
+    };
+
+    let (merkle_proof, merkle_index, checkpoint) = match state.get_merkle_proof(&hash, cp_height).await {
+        Some(data) => data,
+        None => {
+            return Ok(Json(TransactionProofResponse {
+                tx_hash: hash,
+                finalized: true,
+                proof_url: None,
+                proof_size_bytes: None,
+                qr_viable: None,
+                error: Some("Could not generate merkle proof (transaction may have been pruned)".to_string()),
+            }));
+        }
+    };
+
+    let validators = state.get_validators().await;
+    let validator_leaves: Vec<MerkleSumLeaf> = validators
+        .iter()
+        .filter(|v| v.bls_public_key.is_some())
+        .enumerate()
+        .map(|(i, v)| MerkleSumLeaf {
+            index: i,
+            address: v.address.clone(),
+            bls_public_key: v.bls_public_key.clone().unwrap_or_default(),
+            weight: v.stake,
+        })
+        .collect();
+
+    let validator_tree = build_merkle_sum_tree(&validator_leaves);
+
+    let membership_proofs: Vec<_> = checkpoint
+        .validator_signatures
+        .iter()
+        .filter_map(|sig| {
+            validator_leaves.iter()
+                .position(|l| l.address == sig.validator)
+                .and_then(|pos| get_merkle_sum_proof(&validator_leaves, pos))
+        })
+        .collect();
+
+    let self_proof = SelfContainedProof {
+        version: 4,
+        tx_hash: tx.hash.clone(),
+        tx_signature: tx.signature.clone(),
+        tx_from: tx.tx.from.clone(),
+        tx_to: tx.tx.to.clone(),
+        tx_amount: tx.tx.amount,
+        tx_nonce: tx.tx.nonce,
+        tx_timestamp: tx.tx.timestamp,
+        checkpoint_height: checkpoint.height,
+        checkpoint_id: checkpoint.hash.clone(),
+        tx_merkle_root: checkpoint.tx_merkle_root.clone(),
+        state_root: checkpoint.state_root.clone(),
+        receipt_root: checkpoint.receipt_root.clone(),
+        tip_count: checkpoint.tip_count,
+        merkle_proof,
+        merkle_index,
+        bls_aggregated_sig: checkpoint.aggregated_signature.clone().unwrap_or_default(),
+        bls_signer_bitmap: checkpoint.signer_bitmap
+            .as_ref()
+            .map(|b| URL_SAFE_NO_PAD.encode(b))
+            .unwrap_or_default(),
+        bls_signer_count: checkpoint.validator_signatures.len(),
+        signer_membership_proofs: membership_proofs,
+        validator_sum_tree_root: validator_tree.root,
+    };
+
+    match create_self_proof_url(&self_proof) {
+        Ok(url) => {
+            let size = url.len();
+            let qr_viable = size <= 2953;
+
+            Ok(Json(TransactionProofResponse {
+                tx_hash: hash,
+                finalized: true,
+                proof_url: Some(url),
+                proof_size_bytes: Some(size),
+                qr_viable: Some(qr_viable),
+                error: None,
+            }))
+        }
+        Err(e) => Ok(Json(TransactionProofResponse {
+            tx_hash: hash,
+            finalized: true,
+            proof_url: None,
+            proof_size_bytes: None,
+            qr_viable: None,
+            error: Some(format!("Failed to encode proof: {}", e)),
+        })),
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RewardsAddressResponse {
@@ -1971,6 +2123,7 @@ pub async fn start_api_server(
         .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/txp/:hash", get(get_self_provable_tx))
+        .route("/api/tx/:hash/proof", get(generate_transaction_proof))
         .route("/api/dag", get(get_dag))
         .route("/api/dag/summary", get(get_dag_summary))
         .route("/api/accounts", get(get_accounts))
