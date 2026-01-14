@@ -300,6 +300,22 @@ struct SyncStatusResponse {
     is_syncing: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NodeStatusResponse {
+    node_id: String,
+    validator_address: Option<String>,
+    bls_public_key: Option<String>,
+    checkpoint_height: u64,
+    dag_size: usize,
+    tip_count: usize,
+    total_transactions: u64,
+    validators: usize,
+    total_stake: f64,
+    uptime_seconds: u64,
+    version: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BootstrapRequest {
@@ -402,6 +418,32 @@ async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusRespo
         total_stake,
         uptime_seconds,
         is_syncing: false,
+    })
+}
+
+async fn get_node_status(State(state): State<NodeState>) -> Json<NodeStatusResponse> {
+    let tips = state.get_tips().await;
+    let (dag_size, _, _) = state.get_dag_stats().await;
+    let checkpoint_height = state.get_checkpoint_height().await;
+    let total_transactions = state.get_total_transactions().await;
+    let validators = state.get_validator_count().await;
+    let total_stake = state.get_total_stake().await;
+    let uptime_seconds = state.get_uptime_seconds().await;
+    let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| "unknown".to_string());
+    let (validator_address, bls_public_key) = state.get_validator_info().await;
+
+    Json(NodeStatusResponse {
+        node_id,
+        validator_address,
+        bls_public_key,
+        checkpoint_height,
+        dag_size,
+        tip_count: tips.len(),
+        total_transactions,
+        validators,
+        total_stake,
+        uptime_seconds,
+        version: env!("CARGO_PKG_VERSION").to_string(),
     })
 }
 
@@ -1919,6 +1961,7 @@ pub async fn start_api_server(
 
     let api_routes = Router::new()
         .route("/health", get(health))
+        .route("/api/status", get(get_node_status))
         .route("/api/stats", get(get_stats))
         .route("/api/tips", get(get_tips))
         .route("/api/tipUrls", get(get_tip_urls))

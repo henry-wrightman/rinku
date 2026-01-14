@@ -81,6 +81,8 @@ pub struct StateInner {
     pub finality_sum_ms: u64,             // Sum of all finality times for accurate average
     pub finality_count: u64,              // Count of all finalized transactions
     pub finality_max_ms: u64,             // Track maximum finality time
+    pub node_validator_address: Option<String>,
+    pub node_bls_public_key: Option<String>,
 }
 
 #[derive(Clone)]
@@ -160,6 +162,8 @@ impl NodeState {
                     finality_sum_ms: 0,
                     finality_count: 0,
                     finality_max_ms: 0,
+                    node_validator_address: None,
+                    node_bls_public_key: None,
                 }
             } else {
                 let genesis_time = std::time::SystemTime::now()
@@ -241,6 +245,8 @@ impl NodeState {
                     finality_sum_ms: 0,
                     finality_count: 0,
                     finality_max_ms: 0,
+                    node_validator_address: None,
+                    node_bls_public_key: None,
                 }
             };
 
@@ -294,6 +300,17 @@ impl NodeState {
 
     pub async fn get_uptime_seconds(&self) -> u64 {
         self.start_time.elapsed().as_secs()
+    }
+
+    pub async fn set_validator_info(&self, address: Option<String>, bls_public_key: Option<String>) {
+        let mut state = self.inner.write().await;
+        state.node_validator_address = address;
+        state.node_bls_public_key = bls_public_key;
+    }
+
+    pub async fn get_validator_info(&self) -> (Option<String>, Option<String>) {
+        let state = self.inner.read().await;
+        (state.node_validator_address.clone(), state.node_bls_public_key.clone())
     }
 
     pub async fn get_account(&self, address: &str) -> Option<Account> {

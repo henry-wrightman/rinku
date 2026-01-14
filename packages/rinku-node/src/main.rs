@@ -127,10 +127,12 @@ async fn main() -> Result<()> {
         config.peers.clone(),
         config.trust.clone(),
     );
+    let bls_public_key = checkpoint_service.bls_public_key_base64();
     info!(
         "BLS public key: {}...",
-        &checkpoint_service.bls_public_key_base64()
+        &bls_public_key[..32]
     );
+    state.set_validator_info(validator_address.clone(), Some(bls_public_key)).await;
     let checkpoint_handle = tokio::spawn(async move {
         if let Err(e) = checkpoint_service.start().await {
             tracing::error!("Checkpoint service error: {}", e);
