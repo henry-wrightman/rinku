@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
     let config = NodeConfig::from_env();
     info!("Node ID: {}", config.node_id);
     info!("Data dir: {}", config.data_dir);
-    
+
     // Log trust configuration
     if !config.trust.genesis_validators.is_empty() {
         info!(
@@ -62,15 +62,21 @@ async fn main() -> Result<()> {
             config.trust.checkpoint_quorum_threshold * 100.0
         );
         for gv in &config.trust.genesis_validators {
-            info!("  Genesis validator: {}...", &gv.address[..16.min(gv.address.len())]);
+            info!(
+                "  Genesis validator: {}...",
+                &gv.address[..16.min(gv.address.len())]
+            );
         }
     } else {
         info!("Trust config: TESTNET MODE (no genesis validators, signatures not verified)");
     }
     if let Some(ref trusted_hash) = config.trust.trust_checkpoint_hash {
-        info!("Weak subjectivity checkpoint: {}...", &trusted_hash[..16.min(trusted_hash.len())]);
+        info!(
+            "Weak subjectivity checkpoint: {}...",
+            &trusted_hash[..16.min(trusted_hash.len())]
+        );
     }
-    
+
     // Check if data directory exists and log contents
     let data_path = std::path::Path::new(&config.data_dir);
     if data_path.exists() {
@@ -92,7 +98,7 @@ async fn main() -> Result<()> {
         info!("Data directory does not exist, will create");
         std::fs::create_dir_all(&config.data_dir)?;
     }
-    
+
     info!("Initializing node state...");
     let state = state::NodeState::new(config.clone()).await?;
 
@@ -123,7 +129,7 @@ async fn main() -> Result<()> {
     );
     info!(
         "BLS public key: {}...",
-        &checkpoint_service.bls_public_key_base64()[..32]
+        &checkpoint_service.bls_public_key_base64()
     );
     let checkpoint_handle = tokio::spawn(async move {
         if let Err(e) = checkpoint_service.start().await {

@@ -34,7 +34,7 @@ impl ValidatorKeyManager {
             KeyPair::generate().map_err(|e| ValidatorError::EncryptionFailed(e.to_string()))?;
         let address = keypair.address();
         self.keypair = Some(keypair);
-        info!("Generated new validator key: {}...", &address[..16]);
+        info!("Generated new validator key: {}...", &address);
         Ok(address)
     }
 
