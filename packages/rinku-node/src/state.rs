@@ -43,6 +43,22 @@ pub struct DagNodeInfo {
     pub weight: f64,
 }
 
+/// Combined stats for dashboard - fetched with a single lock acquisition
+#[derive(Clone, Debug)]
+pub struct DashboardStats {
+    pub dag_nodes: usize,
+    pub tip_count: usize,
+    pub account_count: usize,
+    pub checkpoint_height: u64,
+    pub finalized_count: usize,
+    pub unfinalized_count: usize,
+    pub total_transactions: u64,
+    pub tips: Vec<String>,
+    pub gas_price: f64,
+    pub total_burned: f64,
+    pub avg_gas: f64,
+}
+
 use std::collections::VecDeque;
 
 #[derive(Debug)]
@@ -439,6 +455,63 @@ impl NodeState {
                 weight: n.weight,
             })
             .collect()
+    }
+
+    /// Get paginated DAG nodes - sorted by timestamp desc, with limit
+    /// Much more efficient than fetching all nodes for large DAGs
+    pub async fn get_dag_nodes_paginated(&self, page: usize, limit: usize) -> (Vec<DagNodeInfo>, usize, bool) {
+        let state = self.inner.read().await;
+        let all_nodes = state.dag.get_all_nodes();
+        let total = all_nodes.len();
+        
+        // Sort by timestamp descending and paginate
+        let mut sorted: Vec<_> = all_nodes.into_iter().collect();
+        sorted.sort_by(|a, b| b.tx.tx.timestamp.cmp(&a.tx.tx.timestamp));
+        
+        let start = page * limit;
+        let has_more = start + limit < total;
+        
+        let nodes: Vec<DagNodeInfo> = sorted
+            .into_iter()
+            .skip(start)
+            .take(limit)
+            .map(|n| DagNodeInfo {
+                hash: n.hash.clone(),
+                from: n.tx.tx.from.clone(),
+                to: n.tx.tx.to.clone(),
+                amount: n.tx.tx.amount,
+                fee: n.tx.tx.gas_price.unwrap_or(0.001),
+                nonce: n.tx.tx.nonce,
+                ts: n.tx.tx.timestamp,
+                parents: n.parents.clone(),
+                finalized: n.finalized,
+                weight: n.weight,
+            })
+            .collect();
+        
+        (nodes, total, has_more)
+    }
+
+    /// Combined dashboard stats - single lock acquisition for all Explorer stats
+    pub async fn get_dashboard_stats(&self) -> DashboardStats {
+        let state = self.inner.read().await;
+        let all_nodes = state.dag.get_all_nodes();
+        let finalized_count = all_nodes.iter().filter(|n| n.finalized).count();
+        let unfinalized_count = all_nodes.len() - finalized_count;
+        
+        DashboardStats {
+            dag_nodes: all_nodes.len(),
+            tip_count: state.dag.tip_count(),
+            account_count: state.accounts.len(),
+            checkpoint_height: state.checkpoints.len() as u64,
+            finalized_count,
+            unfinalized_count,
+            total_transactions: state.total_transactions,
+            tips: state.dag.tips(),
+            gas_price: state.current_gas_price,
+            total_burned: state.total_burned,
+            avg_gas: state.current_gas_price, // Could compute from history if needed
+        }
     }
 
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<()> {

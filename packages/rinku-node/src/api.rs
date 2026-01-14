@@ -298,6 +298,14 @@ struct BatchTxQuery {
 }
 
 #[derive(Deserialize)]
+struct DagPageQuery {
+    #[serde(default)]
+    page: Option<usize>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
 struct SyncTxQuery {
     #[serde(default)]
     from_checkpoint: Option<u64>,
@@ -836,25 +844,29 @@ async fn submit_batch_transaction(
 }
 
 async fn get_dag_summary(State(state): State<NodeState>) -> Json<DagSummaryResponse> {
-    let (total_nodes, tip_count, account_count) = state.get_dag_stats().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
-    let tips = state.get_tips().await;
-    let (finalized_count, _) = state.get_finalized_stats().await;
+    // Use combined stats query - single lock acquisition
+    let stats = state.get_dashboard_stats().await;
     Json(DagSummaryResponse {
-        total_nodes,
-        tip_count,
-        checkpoint_height,
-        finalized_count,
-        tips,
+        total_nodes: stats.dag_nodes,
+        tip_count: stats.tip_count,
+        checkpoint_height: stats.checkpoint_height,
+        finalized_count: stats.finalized_count,
+        tips: stats.tips,
         merkle_root: "".to_string(),
-        account_count,
+        account_count: stats.account_count,
     })
 }
 
-async fn get_dag(State(state): State<NodeState>) -> Json<DagResponse> {
-    let mut nodes_data = state.get_all_dag_nodes().await;
-    // Sort by timestamp descending (newest first)
-    nodes_data.sort_by(|a, b| b.ts.cmp(&a.ts));
+async fn get_dag(
+    State(state): State<NodeState>,
+    Query(query): Query<DagPageQuery>,
+) -> Json<DagResponse> {
+    let page = query.page.unwrap_or(0);
+    let limit = query.limit.unwrap_or(50).min(200); // Default 50, max 200 per page
+    
+    // Use paginated method - much more efficient for large DAGs
+    let (nodes_data, _total, has_more) = state.get_dag_nodes_paginated(page, limit).await;
+    
     let nodes: Vec<DagNodeResponse> = nodes_data
         .into_iter()
         .map(|n| {
@@ -891,7 +903,7 @@ async fn get_dag(State(state): State<NodeState>) -> Json<DagResponse> {
         })
         .collect();
     Json(DagResponse {
-        has_more: false,
+        has_more,
         nodes,
     })
 }
@@ -912,33 +924,34 @@ async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> 
 }
 
 async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsResponse> {
-    let (dag_nodes, _, _) = state.get_dag_stats().await;
-    let total_transactions = state.get_total_transactions().await as usize;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    // Use combined stats query - single lock acquisition for main state
+    let stats = state.get_dashboard_stats().await;
+    
+    // Get rewards info with separate lock (could be combined later)
     let rewards = state.rewards.read().await;
     let total_stake = rewards.get_total_staked();
     let validators = rewards.get_active_validators().len();
     drop(rewards);
-    let (finalized_count, unfinalized_count) = state.get_finalized_stats().await;
-    let finality_ratio = if dag_nodes > 0 {
-        finalized_count as f64 / dag_nodes as f64
+    
+    let finality_ratio = if stats.dag_nodes > 0 {
+        stats.finalized_count as f64 / stats.dag_nodes as f64
     } else {
         0.0
     };
     let elapsed_secs = state.get_elapsed_seconds();
-    let tps = if elapsed_secs > 0.0 && total_transactions > 0 {
-        (total_transactions as f64) / elapsed_secs
+    let tps = if elapsed_secs > 0.0 && stats.total_transactions > 0 {
+        (stats.total_transactions as f64) / elapsed_secs
     } else {
         0.0
     };
     Json(NetworkStatsResponse {
         tps,
-        total_transactions_processed: total_transactions,
-        finalized_count,
-        unfinalized_count,
+        total_transactions_processed: stats.total_transactions as usize,
+        finalized_count: stats.finalized_count,
+        unfinalized_count: stats.unfinalized_count,
         finality_ratio,
-        checkpoint_count: checkpoint_height,
-        latest_checkpoint_height: checkpoint_height,
+        checkpoint_count: stats.checkpoint_height,
+        latest_checkpoint_height: stats.checkpoint_height,
         latest_checkpoint_id: None,
         total_staked: total_stake,
         validator_count: validators,
