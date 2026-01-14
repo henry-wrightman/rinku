@@ -908,3 +908,141 @@ impl GossipService {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bounded_hash_set_basic_operations() {
+        let mut set = BoundedHashSet::new(10);
+        
+        assert!(set.insert("a".to_string()));
+        assert!(set.insert("b".to_string()));
+        assert!(set.insert("c".to_string()));
+        
+        assert!(set.contains("a"));
+        assert!(set.contains("b"));
+        assert!(set.contains("c"));
+        assert!(!set.contains("d"));
+        
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn test_bounded_hash_set_duplicate_rejected() {
+        let mut set = BoundedHashSet::new(10);
+        
+        assert!(set.insert("a".to_string()));
+        assert!(!set.insert("a".to_string()));
+        
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn test_bounded_hash_set_fifo_eviction() {
+        let mut set = BoundedHashSet::new(3);
+        
+        set.insert("a".to_string());
+        set.insert("b".to_string());
+        set.insert("c".to_string());
+        
+        assert_eq!(set.len(), 3);
+        assert!(set.contains("a"));
+        assert!(set.contains("b"));
+        assert!(set.contains("c"));
+        
+        set.insert("d".to_string());
+        
+        assert_eq!(set.len(), 3);
+        assert!(!set.contains("a"));
+        assert!(set.contains("b"));
+        assert!(set.contains("c"));
+        assert!(set.contains("d"));
+    }
+
+    #[test]
+    fn test_bounded_hash_set_eviction_order() {
+        let mut set = BoundedHashSet::new(2);
+        
+        set.insert("first".to_string());
+        set.insert("second".to_string());
+        set.insert("third".to_string());
+        
+        assert!(!set.contains("first"));
+        assert!(set.contains("second"));
+        assert!(set.contains("third"));
+        
+        set.insert("fourth".to_string());
+        
+        assert!(!set.contains("second"));
+        assert!(set.contains("third"));
+        assert!(set.contains("fourth"));
+    }
+
+    #[test]
+    fn test_bounded_hash_set_clear() {
+        let mut set = BoundedHashSet::new(10);
+        
+        set.insert("a".to_string());
+        set.insert("b".to_string());
+        set.insert("c".to_string());
+        
+        assert_eq!(set.len(), 3);
+        
+        set.clear();
+        
+        assert_eq!(set.len(), 0);
+        assert!(!set.contains("a"));
+        assert!(!set.contains("b"));
+        assert!(!set.contains("c"));
+    }
+
+    #[test]
+    fn test_bounded_hash_set_capacity_one() {
+        let mut set = BoundedHashSet::new(1);
+        
+        set.insert("a".to_string());
+        assert!(set.contains("a"));
+        assert_eq!(set.len(), 1);
+        
+        set.insert("b".to_string());
+        assert!(!set.contains("a"));
+        assert!(set.contains("b"));
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn test_bounded_hash_set_large_capacity() {
+        let mut set = BoundedHashSet::new(1000);
+        
+        for i in 0..1000 {
+            set.insert(format!("item_{}", i));
+        }
+        
+        assert_eq!(set.len(), 1000);
+        
+        set.insert("overflow".to_string());
+        
+        assert_eq!(set.len(), 1000);
+        assert!(!set.contains("item_0"));
+        assert!(set.contains("overflow"));
+    }
+
+    #[test]
+    fn test_bounded_hash_set_re_insert_after_eviction() {
+        let mut set = BoundedHashSet::new(2);
+        
+        set.insert("a".to_string());
+        set.insert("b".to_string());
+        set.insert("c".to_string());
+        
+        assert!(!set.contains("a"));
+        
+        assert!(set.insert("a".to_string()));
+        
+        assert!(set.contains("a"));
+        assert!(!set.contains("b"));
+        assert!(set.contains("c"));
+    }
+}

@@ -876,3 +876,145 @@ impl CheckpointService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_checkpoint_hash_deterministic() {
+        let hash1 = CheckpointService::compute_checkpoint_hash(
+            100,
+            "merkle_root_abc",
+            "state_root_def",
+            "receipt_root_ghi",
+            50,
+            1700000000,
+        );
+        
+        let hash2 = CheckpointService::compute_checkpoint_hash(
+            100,
+            "merkle_root_abc",
+            "state_root_def",
+            "receipt_root_ghi",
+            50,
+            1700000000,
+        );
+        
+        assert_eq!(hash1, hash2);
+        assert_eq!(hash1.len(), 32);
+    }
+
+    #[test]
+    fn test_compute_checkpoint_hash_different_heights() {
+        let hash1 = CheckpointService::compute_checkpoint_hash(
+            100,
+            "merkle_root",
+            "state_root",
+            "receipt_root",
+            50,
+            1700000000,
+        );
+        
+        let hash2 = CheckpointService::compute_checkpoint_hash(
+            101,
+            "merkle_root",
+            "state_root",
+            "receipt_root",
+            50,
+            1700000000,
+        );
+        
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_compute_checkpoint_hash_different_merkle_roots() {
+        let hash1 = CheckpointService::compute_checkpoint_hash(
+            100,
+            "merkle_root_a",
+            "state_root",
+            "receipt_root",
+            50,
+            1700000000,
+        );
+        
+        let hash2 = CheckpointService::compute_checkpoint_hash(
+            100,
+            "merkle_root_b",
+            "state_root",
+            "receipt_root",
+            50,
+            1700000000,
+        );
+        
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_compute_checkpoint_hash_different_timestamps() {
+        let hash1 = CheckpointService::compute_checkpoint_hash(
+            100,
+            "merkle_root",
+            "state_root",
+            "receipt_root",
+            50,
+            1700000000,
+        );
+        
+        let hash2 = CheckpointService::compute_checkpoint_hash(
+            100,
+            "merkle_root",
+            "state_root",
+            "receipt_root",
+            50,
+            1700000001,
+        );
+        
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_compute_checkpoint_hash_different_tip_counts() {
+        let hash1 = CheckpointService::compute_checkpoint_hash(
+            100,
+            "merkle_root",
+            "state_root",
+            "receipt_root",
+            50,
+            1700000000,
+        );
+        
+        let hash2 = CheckpointService::compute_checkpoint_hash(
+            100,
+            "merkle_root",
+            "state_root",
+            "receipt_root",
+            51,
+            1700000000,
+        );
+        
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_compute_checkpoint_hash_hex_encoding() {
+        let hash = CheckpointService::compute_checkpoint_hash(
+            1,
+            "test_merkle",
+            "test_state",
+            "test_receipt",
+            10,
+            1000000,
+        );
+        
+        let hex_hash = hex::encode(&hash);
+        assert_eq!(hex_hash.len(), 64);
+        assert!(hex_hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_fork_recovery_threshold_constant() {
+        assert_eq!(FORK_RECOVERY_THRESHOLD, 3);
+    }
+}
