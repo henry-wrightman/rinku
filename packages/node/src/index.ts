@@ -697,7 +697,7 @@ async function main() {
   );
 
   if (peers.length > 0) {
-    peerSync.start(5000);
+    peerSync.start(500000);
   }
 
   const telemetry = new TelemetryService(DATA_DIR);
