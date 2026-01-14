@@ -25,7 +25,11 @@ I want to work iteratively. Please ask before making major changes. I prefer det
   - `GET /api/sync/snapshot`: Snapshot-based sync - returns complete derived state (accounts, validators, checkpoints, recent DAG)
   - `GET /api/sync/transactions?hashes=a,b,c`: Batch fetch transactions by hash
   - `GET /api/sync/delta?from_checkpoint=N`: Fetch transactions since checkpoint N (used for continuous sync)
+    - Supports pagination: `?from_checkpoint=N&limit=500&offset=0` returns structured response with `transactions`, `total`, `offset`, `limit`, `hasMore`
+    - Without pagination params: returns legacy array format for backward compatibility
 - **Periodic Peer Sync:** Nodes poll peer status every ~10 seconds and request missing transactions via delta sync endpoint
+  - Paginated sync: fetches in batches of 500 transactions, iterates until caught up
+  - Graceful degradation: tolerates both legacy array and paginated envelope responses for mixed-version interoperability
 - **Snapshot-Based Sync Architecture:** New nodes sync via state snapshots instead of full transaction history.
   - Transfers ~10KB (accounts + validators + checkpoints) instead of potentially GBs of transaction history
   - Self-contained URL proofs mean historical transactions aren't needed for verification

@@ -481,51 +481,99 @@ impl GossipService {
 
     async fn sync_from_peer(&self, peer: &str, local_checkpoint: u64) -> Result<()> {
         let client = reqwest::Client::new();
+        let mut offset = 0usize;
+        let limit = 500usize;
+        let mut total_added = 0usize;
         
-        // Fetch transactions since our last checkpoint using delta sync endpoint
-        let url = format!("{}/api/sync/delta?from_checkpoint={}", peer, local_checkpoint);
-        
-        let response = client
-            .get(&url)
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await?;
-        
-        if !response.status().is_success() {
-            // Fall back to fetching specific missing txs via gossip
-            anyhow::bail!("Sync request failed with status {}", response.status());
-        }
-        
-        let txs: Vec<SignedTransaction> = response.json().await?;
-        
-        if txs.is_empty() {
-            return Ok(());
-        }
-        
-        info!("Received {} transactions from peer {}", txs.len(), peer);
-        
-        let mut added = 0;
-        for tx in txs {
-            // Check if we already have this tx
-            let is_known = {
-                let inner = self.inner.read().await;
-                inner.known_txs.contains(&tx.hash)
-            };
+        loop {
+            // Fetch transactions with pagination
+            let url = format!(
+                "{}/api/sync/delta?from_checkpoint={}&offset={}&limit={}", 
+                peer, local_checkpoint, offset, limit
+            );
             
-            if !is_known {
-                if let Err(e) = self.state.add_transaction(tx.clone()).await {
-                    debug!("Failed to add synced tx {}: {}", tx.hash, e);
+            let response = client
+                .get(&url)
+                .timeout(Duration::from_secs(30))
+                .send()
+                .await?;
+            
+            if !response.status().is_success() {
+                anyhow::bail!("Sync request failed with status {}", response.status());
+            }
+            
+            // Response struct for paginated mode
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct DeltaResponse {
+                transactions: Vec<SignedTransaction>,
+                #[serde(default)]
+                total: usize,
+                #[serde(default)]
+                offset: usize,
+                #[serde(default)]
+                has_more: bool,
+            }
+            
+            // Try parsing as paginated response first, fall back to legacy array
+            let response_text = response.text().await?;
+            let (transactions, has_more): (Vec<SignedTransaction>, bool) = 
+                if let Ok(delta) = serde_json::from_str::<DeltaResponse>(&response_text) {
+                    // Paginated response
+                    info!(
+                        "Sync page: received {}/{} transactions (offset={}, has_more={})", 
+                        delta.transactions.len(), delta.total, delta.offset, delta.has_more
+                    );
+                    (delta.transactions, delta.has_more)
+                } else if let Ok(txs) = serde_json::from_str::<Vec<SignedTransaction>>(&response_text) {
+                    // Legacy array response (old peers)
+                    info!("Sync legacy: received {} transactions from peer", txs.len());
+                    (txs, false)
                 } else {
-                    let mut inner = self.inner.write().await;
-                    inner.known_txs.insert(tx.hash.clone());
-                    inner.stats.txs_received += 1;
-                    added += 1;
+                    anyhow::bail!("Failed to parse sync response");
+                };
+            
+            if transactions.is_empty() {
+                break;
+            }
+            
+            let mut added = 0;
+            for tx in transactions {
+                // Check if we already have this tx
+                let is_known = {
+                    let inner = self.inner.read().await;
+                    inner.known_txs.contains(&tx.hash)
+                };
+                
+                if !is_known {
+                    if let Err(e) = self.state.add_transaction(tx.clone()).await {
+                        debug!("Failed to add synced tx {}: {}", tx.hash, e);
+                    } else {
+                        let mut inner = self.inner.write().await;
+                        inner.known_txs.insert(tx.hash.clone());
+                        inner.stats.txs_received += 1;
+                        added += 1;
+                    }
                 }
+            }
+            
+            total_added += added;
+            
+            if !has_more {
+                break;
+            }
+            
+            offset += limit;
+            
+            // Safety limit to prevent infinite loops
+            if offset > 100_000 {
+                warn!("Sync pagination exceeded safety limit");
+                break;
             }
         }
         
-        if added > 0 {
-            info!("Added {} new transactions from peer sync", added);
+        if total_added > 0 {
+            info!("Added {} new transactions from peer sync", total_added);
         }
         
         Ok(())

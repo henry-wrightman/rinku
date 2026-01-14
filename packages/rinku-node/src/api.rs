@@ -301,6 +301,20 @@ struct BatchTxQuery {
 struct SyncTxQuery {
     #[serde(default)]
     from_checkpoint: Option<u64>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    offset: Option<usize>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncDeltaResponse {
+    transactions: Vec<rinku_core::types::SignedTransaction>,
+    total: usize,
+    offset: usize,
+    limit: usize,
+    has_more: bool,
 }
 
 #[derive(Serialize)]
@@ -503,20 +517,55 @@ async fn get_batch_transactions(
     })
 }
 
+const DEFAULT_SYNC_LIMIT: usize = 500;
+const MAX_SYNC_LIMIT: usize = 2000;
+
 async fn get_sync_transactions(
     State(state): State<NodeState>,
     Query(query): Query<SyncTxQuery>,
-) -> Json<Vec<rinku_core::types::SignedTransaction>> {
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    
     let from_checkpoint = query.from_checkpoint.unwrap_or(0);
     
-    info!("Sync transactions request from checkpoint {}", from_checkpoint);
-    
     // Get all transactions since the given checkpoint
-    let txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
+    let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
     
-    info!("Returning {} transactions since checkpoint {}", txs.len(), from_checkpoint);
+    // If no pagination params, return legacy array format for backward compatibility
+    if query.limit.is_none() && query.offset.is_none() {
+        info!("Sync delta request (legacy): checkpoint={}, returning {} txs", 
+              from_checkpoint, all_txs.len());
+        return Json(all_txs).into_response();
+    }
     
-    Json(txs)
+    // Paginated mode
+    let offset = query.offset.unwrap_or(0);
+    let limit = query.limit.unwrap_or(DEFAULT_SYNC_LIMIT).min(MAX_SYNC_LIMIT);
+    let total = all_txs.len();
+    
+    info!("Sync delta request (paginated): checkpoint={}, offset={}, limit={}", 
+          from_checkpoint, offset, limit);
+    
+    // Apply pagination
+    let transactions: Vec<_> = all_txs
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect();
+    
+    let returned = transactions.len();
+    let has_more = offset + returned < total;
+    
+    info!("Returning {} of {} transactions (offset={}, has_more={})", 
+          returned, total, offset, has_more);
+    
+    Json(SyncDeltaResponse {
+        transactions,
+        total,
+        offset,
+        limit,
+        has_more,
+    }).into_response()
 }
 
 async fn handle_faucet_request(
