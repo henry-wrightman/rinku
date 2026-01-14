@@ -1,11 +1,59 @@
 use anyhow::Result;
 use rinku_core::types::{Account, Checkpoint, SignedTransaction};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, warn};
+
+const KNOWN_TXS_MAX_SIZE: usize = 50_000;
+const SEEN_CONFLICTS_MAX_SIZE: usize = 10_000;
+
+pub(crate) struct BoundedHashSet {
+    set: HashSet<String>,
+    order: VecDeque<String>,
+    max_size: usize,
+}
+
+impl BoundedHashSet {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            set: HashSet::with_capacity(max_size),
+            order: VecDeque::with_capacity(max_size),
+            max_size,
+        }
+    }
+
+    pub fn insert(&mut self, value: String) -> bool {
+        if self.set.contains(&value) {
+            return false;
+        }
+        
+        while self.set.len() >= self.max_size {
+            if let Some(oldest) = self.order.pop_front() {
+                self.set.remove(&oldest);
+            }
+        }
+        
+        self.set.insert(value.clone());
+        self.order.push_back(value);
+        true
+    }
+
+    pub fn contains(&self, value: &str) -> bool {
+        self.set.contains(value)
+    }
+
+    pub fn clear(&mut self) {
+        self.set.clear();
+        self.order.clear();
+    }
+
+    pub fn len(&self) -> usize {
+        self.set.len()
+    }
+}
 
 use crate::config::TrustConfig;
 use crate::state::{NodeState, SyncSnapshot};
@@ -103,9 +151,9 @@ pub struct PeerInfo {
 
 pub struct GossipServiceInner {
     pub peers: HashMap<String, PeerInfo>,
-    pub known_txs: HashSet<String>,
+    pub known_txs: BoundedHashSet,
     pub pending_txs: Vec<SignedTransaction>,
-    pub seen_conflicts: HashSet<String>,
+    pub seen_conflicts: BoundedHashSet,
     pub stats: GossipStats,
     pub round_counter: u64,
     pub last_peer_refresh: u64,
@@ -155,9 +203,9 @@ impl GossipService {
             state,
             inner: Arc::new(RwLock::new(GossipServiceInner {
                 peers,
-                known_txs: HashSet::new(),
+                known_txs: BoundedHashSet::new(KNOWN_TXS_MAX_SIZE),
                 pending_txs: Vec::new(),
-                seen_conflicts: HashSet::new(),
+                seen_conflicts: BoundedHashSet::new(SEEN_CONFLICTS_MAX_SIZE),
                 stats: GossipStats::default(),
                 round_counter: 0,
                 last_peer_refresh: now,

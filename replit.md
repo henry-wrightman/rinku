@@ -36,6 +36,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
   - Snapshot includes: accounts, validators, checkpoints, gas_price, total_supply, genesis_time, recent DAG transactions
   - Fresh nodes rebuild DAG with synthetic genesis node, orphaned parents point to genesis
 - **Performance Optimizations:** Includes in-memory DAG pruning, snapshot optimizations, checkpoint-bounded self-crawlable URLs, per-transaction finality, self-contained Merkle proofs, batched operations, parallel signature verification, and batch transaction API.
+- **Memory Management:** Bounded hash sets for transaction tracking (50k max known_txs, 10k max seen_conflicts) with FIFO eviction to prevent memory leaks during continuous operation.
 - **Protocol-Level Tip Consolidation:** Automatic DAG tip reduction via validator-created zero-fee consolidation transactions.
 - **BLS Signature Aggregation:** Uses BLS12-381 for compact checkpoint validator signatures.
 - **Compact Proof Format (Profile B Compact):** Self-contained finality proofs designed to fit in QR codes, utilizing DEFLATE compression and base64url encoding.
