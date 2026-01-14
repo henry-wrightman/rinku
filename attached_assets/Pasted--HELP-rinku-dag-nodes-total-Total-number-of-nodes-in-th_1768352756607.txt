@@ -1,0 +1,75 @@
+# HELP rinku_dag_nodes_total Total number of nodes in the DAG
+# TYPE rinku_dag_nodes_total gauge
+rinku_dag_nodes_total 448
+
+# HELP rinku_dag_tips_total Current number of tips in the DAG
+# TYPE rinku_dag_tips_total gauge
+rinku_dag_tips_total 51
+
+# HELP rinku_accounts_total Total number of accounts
+# TYPE rinku_accounts_total gauge
+rinku_accounts_total 14
+
+# HELP rinku_transactions_total Total transactions processed
+# TYPE rinku_transactions_total counter
+rinku_transactions_total 8225
+
+# HELP rinku_transactions_finalized Total finalized transactions
+# TYPE rinku_transactions_finalized gauge
+rinku_transactions_finalized 448
+
+# HELP rinku_transactions_unfinalized Pending unfinalized transactions
+# TYPE rinku_transactions_unfinalized gauge
+rinku_transactions_unfinalized 0
+
+# HELP rinku_checkpoint_height Current checkpoint height
+# TYPE rinku_checkpoint_height gauge
+rinku_checkpoint_height 61
+
+# HELP rinku_gas_price_current Current gas price in RKU
+# TYPE rinku_gas_price_current gauge
+rinku_gas_price_current 0.001
+
+# HELP rinku_validators_active Number of active validators
+# TYPE rinku_validators_active gauge
+rinku_validators_active 0
+
+# HELP rinku_stake_total Total staked RKU
+# TYPE rinku_stake_total gauge
+rinku_stake_total -0
+
+# HELP rinku_supply_total Total RKU supply
+# TYPE rinku_supply_total gauge
+rinku_supply_total 6000000
+
+# HELP process_resident_memory_bytes Process memory usage in bytes
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 40443904
+
+# HELP process_cpu_percent Process CPU usage percentage
+# TYPE process_cpu_percent gauge
+process_cpu_percent 0.0027655633
+
+# HELP process_threads_total Number of threads in the process
+# TYPE process_threads_total gauge
+process_threads_total 0
+
+# HELP system_memory_total_bytes Total system memory in bytes
+# TYPE system_memory_total_bytes gauge
+system_memory_total_bytes 481267712
+
+# HELP system_memory_used_bytes Used system memory in bytes
+# TYPE system_memory_used_bytes gauge
+system_memory_used_bytes 104734720
+
+# HELP system_cpu_count Number of CPU cores
+# TYPE system_cpu_count gauge
+system_cpu_count 1
+
+# HELP system_cpu_percent_avg Average system CPU usage percentage
+# TYPE system_cpu_percent_avg gauge
+system_cpu_percent_avg 0
+
+# HELP rinku_uptime_seconds Node uptime in seconds
+# TYPE rinku_uptime_seconds counter
+rinku_uptime_seconds 361

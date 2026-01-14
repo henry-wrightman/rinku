@@ -315,15 +315,25 @@ impl GossipService {
         let (dag_size, _, _) = self.state.get_dag_stats().await;
         let checkpoint_height = self.state.get_checkpoint_height().await;
 
-        // Increment round counter and check if we should refresh peer status
-        // Refresh every 50 rounds (~10 seconds at 200ms interval)
+        // Check if we should refresh peer status (every 10 seconds, time-based)
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let should_refresh = {
             let mut inner = self.inner.write().await;
             inner.round_counter += 1;
-            inner.round_counter % 50 == 0
+            let elapsed = now_secs.saturating_sub(inner.last_peer_refresh);
+            if elapsed >= 10 {
+                inner.last_peer_refresh = now_secs;
+                true
+            } else {
+                false
+            }
         };
 
         if should_refresh {
+            debug!("Periodic sync: checking peer status (every 10s)");
             self.refresh_peer_status_and_sync().await;
         }
 

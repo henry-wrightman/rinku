@@ -1,0 +1,88 @@
+00:59:50
+2026-01-14T00:59:50.032535Z  INFO rinku_node: Starting Rinku Node v0.1.0
+00:59:50
+2026-01-14T00:59:50.032762Z  INFO rinku_node: Process PID: 649
+00:59:50
+2026-01-14T00:59:50.033134Z  INFO rinku_node: Node ID: fly-node-1
+00:59:50
+2026-01-14T00:59:50.033149Z  INFO rinku_node: Data dir: /data
+00:59:50
+2026-01-14T00:59:50.033156Z  INFO rinku_node: Data directory exists, checking for stale locks...
+00:59:50
+2026-01-14T00:59:50.033748Z  INFO rinku_node: Initializing node state...
+00:59:50
+2026-01-14T00:59:50.128865Z  INFO rinku_node::persistence: Opened sled database at /data/sled-db
+00:59:50
+2026-01-14T00:59:50.131725Z  INFO rinku_node::persistence: Loaded snapshot: 11 accounts, 0 validators, 58 checkpoints, 61 txs
+00:59:50
+2026-01-14T00:59:50.131739Z  INFO rinku_node::state: Restored from snapshot: 11 accounts, 61 txs, 58 checkpoints
+00:59:50
+2026-01-14T00:59:50.132047Z  INFO rinku_node::persistence: Loaded rewards snapshot: 0 stakes, 0 pending rewards
+00:59:50
+2026-01-14T00:59:50.132054Z  INFO rinku_node::state: Restored rewards: 0 stakes, 0 pending
+00:59:50
+2026-01-14T00:59:50.132785Z  INFO rinku_node::validator: Loaded validator key: 24fc55515e66c107...
+00:59:50
+2026-01-14T00:59:50.133437Z  INFO rinku_node: Validator key loaded: 24fc55515e66c107...
+00:59:50
+2026-01-14T00:59:50.133472Z  INFO rinku_node: Gas service initialized
+00:59:50
+2026-01-14T00:59:50.133562Z  INFO rinku_node: Rewards service initialized
+00:59:50
+2026-01-14T00:59:50.133629Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+00:59:50
+2026-01-14T00:59:50.133656Z  INFO rinku_node: Slashing service initialized
+00:59:50
+2026-01-14T00:59:50.133956Z  INFO rinku_node: BLS public key: huLd8LzGGoSA9qdXL2cObmZi-Wiyniqp...
+00:59:50
+2026-01-14T00:59:50.135326Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+00:59:50
+2026-01-14T00:59:50.135338Z  INFO rinku_node: Fork remediation service started
+00:59:50
+2026-01-14T00:59:50.135356Z  INFO rinku_node: Gossip service started (5000ms interval)
+00:59:50
+2026-01-14T00:59:50.135361Z  INFO rinku_node: Tip consolidation service started
+00:59:50
+2026-01-14T00:59:50.135364Z  INFO rinku_node: Snapshot persistence started (60s interval)
+00:59:50
+2026-01-14T00:59:50.135367Z  INFO rinku_node: STATIC_DIR config: None
+00:59:50
+2026-01-14T00:59:50.136372Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+00:59:50
+2026-01-14T00:59:50.136419Z  INFO rinku_node: Rinku Node running on port 8080
+00:59:50
+2026-01-14T00:59:50.136422Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+00:59:50
+2026-01-14T00:59:50.136425Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+00:59:50
+2026-01-14T00:59:50.136678Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+00:59:50
+2026-01-14T00:59:50.136696Z  INFO rinku_node::gossip: Gossip service started (interval: 5000ms, peers: 1)
+00:59:50
+2026-01-14T00:59:50.136699Z  INFO rinku_node::gossip: Starting initial sync with peers...
+00:59:50
+2026-01-14T00:59:50.136703Z  INFO rinku_node::gossip: Fetching sync status from peer: https://rinkuchan.com
+00:59:50
+Machine created and started in 3.769s
+00:59:50
+2026-01-14T00:59:50.282280Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 200, interval: 3000ms)
+00:59:50
+2026/01/14 00:59:50 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:4f1:83cb:cb7d:2]:22
+00:59:50
+2026-01-14T00:59:50.459902Z  INFO rinku_node::gossip: Peer https://rinkuchan.com status: checkpoint_height=59, dag_size=278, tips=5
+00:59:50
+2026-01-14T00:59:50.460000Z  INFO rinku_node::gossip: Peer has more data, requesting bootstrap sync...
+00:59:50
+2026-01-14T00:59:50.513883Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinkuchan.com
+00:59:50
+2026-01-14T00:59:50.604698Z  INFO rinku_node::gossip: Received snapshot: 11 accounts, 59 checkpoints, 180 dag txs, checkpoint height 59
+00:59:50
+2026-01-14T00:59:50.604802Z  INFO rinku_node::state: Applying sync snapshot: 11 accounts, 59 checkpoints, 180 dag txs
+00:59:50
+2026-01-14T00:59:50.606366Z  INFO rinku_node::state: Snapshot applied: 180 DAG transactions, 0 validators, 59 checkpoints
+00:59:50
+2026-01-14T00:59:50.606681Z  INFO rinku_node::gossip: Snapshot sync complete: applied 180 DAG transactions
+00:59:50
+2026-01-14T00:59:50.606726Z  INFO rinku_node::gossip: Initial sync complete
+01:00:20
+2026-01-14T01:00:20.138954Z  INFO rinku_node::checkpoint: Created checkpoint b80ea562982517fb at height 60 (180 txs finalized, 3.932411 RKU emitted)
