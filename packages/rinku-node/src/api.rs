@@ -25,6 +25,29 @@ const FAUCET_RATE_LIMIT_MS: u64 = 60_000;
 use crate::state::NodeState;
 
 #[derive(Serialize)]
+struct ApiError {
+    error: String,
+    code: u16,
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> axum::response::Response {
+        let status = StatusCode::from_u16(self.code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        (status, Json(self)).into_response()
+    }
+}
+
+impl ApiError {
+    fn not_found(message: impl Into<String>) -> Self {
+        Self { error: message.into(), code: 404 }
+    }
+    
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self { error: message.into(), code: 400 }
+    }
+}
+
+#[derive(Serialize)]
 struct StatsResponse {
     dag_nodes: usize,
     tips: usize,
@@ -713,7 +736,7 @@ async fn get_account(
             }),
         )
             .into_response(),
-        None => (StatusCode::NOT_FOUND, "Account not found").into_response(),
+        None => ApiError::not_found("Account not found").into_response(),
     }
 }
 
@@ -1036,7 +1059,7 @@ struct TransactionResponse {
 async fn get_transaction(
     State(state): State<NodeState>,
     Path(hash): Path<String>,
-) -> Result<Json<TransactionResponse>, (StatusCode, String)> {
+) -> Result<Json<TransactionResponse>, ApiError> {
     if let Some(tx) = state.get_transaction(&hash).await {
         let finalized = state.is_finalized(&hash).await;
         // Normalize parents to /tx/h/{hash} format for explorer navigation
@@ -1068,18 +1091,18 @@ async fn get_transaction(
             url: format!("/tx/h/{}", tx.hash),
         }))
     } else {
-        Err((StatusCode::NOT_FOUND, format!("Transaction {} not found", hash)))
+        Err(ApiError::not_found(format!("Transaction {} not found (may have been pruned after finalization)", hash)))
     }
 }
 
 async fn get_self_provable_tx(
     State(state): State<NodeState>,
     Path(hash): Path<String>,
-) -> Result<Json<SelfProvableTransactionResponse>, (StatusCode, String)> {
+) -> Result<Json<SelfProvableTransactionResponse>, ApiError> {
     let tx = state
         .get_transaction(&hash)
         .await
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Transaction {} not found", hash)))?;
+        .ok_or_else(|| ApiError::not_found(format!("Transaction {} not found (may have been pruned)", hash)))?;
 
     let (finalized, checkpoint_height) = state.get_finalization_info(&hash).await;
 
