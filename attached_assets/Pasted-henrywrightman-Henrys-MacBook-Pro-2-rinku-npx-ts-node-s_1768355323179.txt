@@ -1,0 +1,83 @@
+henrywrightman@Henrys-MacBook-Pro-2 rinku % npx ts-node scripts/validate-multi-node.ts https://rinkuchan.com https://rinku-node.fly.dev https://cbc49283-c821-4cbc-98e9-2bd08a452c5b-00-2uf7sj4p2o99k.kirk.replit.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 3
+    Node 1: https://rinkuchan.com
+    Node 2: https://rinku-node.fly.dev
+    Node 3: https://cbc49283-c821-4cbc-98e9-2bd08a452c5b-00-2uf7sj4p2o99k.kirk.replit.dev
+  Started: 2026-01-14T01:48:24.897Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinkuchan.com (915ms)
+  ✓ Node 2 reachable: https://rinku-node.fly.dev (1075ms)
+  ✓ Node 3 reachable: https://cbc49283-c821-4cbc-98e9-2bd08a452c5b-00-2uf7sj4p2o99k.kirk.replit.dev (1210ms)
+  ✓ Minimum nodes online: 3/3 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS
+======================================================================
+  ✓ Checkpoint height consensus: No checkpoints on any node
+
+======================================================================
+  3. DAG STATE COMPARISON
+======================================================================
+
+  DAG Sizes:
+    Node 1: 7666 transactions
+    Node 2: 47 transactions
+    Node 3: 1409 transactions
+  ✗ DAG size variance: Variance: 99.4% (47 - 7666 txs)
+  ✗ DAG merkle root consensus: DIVERGENCE: 3 different roots (may be due to sync lag)
+
+  Tip Counts:
+    Node 1: 0 tips
+    Node 2: 0 tips
+    Node 3: 0 tips
+
+======================================================================
+  4. TRANSACTION SYNCHRONIZATION
+======================================================================
+  Node 1: 0 transactions
+  Node 2: 0 transactions
+  Node 3: 0 transactions
+  ✓ Transaction set consistency: All nodes have identical transaction sets
+
+======================================================================
+  5. ACCOUNT BALANCE CONSISTENCY
+======================================================================
+  Node 1: 40 accounts
+  Node 2: 40 accounts
+  Node 3: 40 accounts
+  ✓ Account balance consistency: All 1 accounts match across nodes
+
+======================================================================
+  6. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+  Node 3: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 9
+  Passed: 7
+  Failed: 2
+  Success Rate: 77.8%
+
+  Failed Checks:
+    - DAG size variance: Variance: 99.4% (47 - 7666 txs)
+    - DAG merkle root consensus: DIVERGENCE: 3 different roots (may be due to sync lag)
+
+======================================================================
+  MINOR ISSUES DETECTED - LIKELY SYNC LAG
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % 

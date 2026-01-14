@@ -96,18 +96,26 @@ async function getNodeStatus(url: string, index: number): Promise<NodeStatus> {
     
     try {
       const { data: cpData } = await fetchWithTimeout(`${url}/api/checkpoints`);
-      const chain = cpData.chain || [];
+      const chain = cpData.checkpoints || cpData.chain || [];
       if (chain.length > 0) {
-        const latest = chain[chain.length - 1];
-        checkpointHeight = latest.checkpointHeight;
-        checkpointId = latest.checkpointId;
-        txMerkleRoot = latest.txMerkleRoot;
+        const latest = chain[0]; // First is latest (sorted descending)
+        checkpointHeight = latest.height || latest.checkpointHeight;
+        checkpointId = latest.hash || latest.checkpointId;
+        txMerkleRoot = latest.merkleRoot || latest.txMerkleRoot;
       }
     } catch {}
     
-    const tipCount = typeof status.tips === 'string'
-      ? status.tips.split(',').filter((t: string) => t.length > 0).length
-      : (typeof status.tips === 'number' ? status.tips : 0);
+    // Tips can be: array of hashes, comma-separated string, or tipCount field
+    let tipCount = 0;
+    if (typeof status.tipCount === 'number') {
+      tipCount = status.tipCount;
+    } else if (Array.isArray(status.tips)) {
+      tipCount = status.tips.length;
+    } else if (typeof status.tips === 'string') {
+      tipCount = status.tips.split(',').filter((t: string) => t.length > 0).length;
+    } else if (typeof status.tips === 'number') {
+      tipCount = status.tips;
+    }
     
     return {
       url,
@@ -116,7 +124,8 @@ async function getNodeStatus(url: string, index: number): Promise<NodeStatus> {
       merkleRoot: status.merkleRoot,
       dagSize: status.dagSize,
       tips: tipCount,
-      checkpointHeight,
+      // Use checkpoint height from sync/status if available, fallback to checkpoints endpoint
+      checkpointHeight: status.checkpointHeight ?? checkpointHeight,
       checkpointId,
       txMerkleRoot,
       latency,
@@ -241,14 +250,31 @@ async function validateTransactionSync(nodeStatuses: NodeStatus[]) {
   
   for (const node of reachable) {
     try {
-      const { data } = await fetchWithTimeout(`${node.url}/api/sync/transactions`);
-      const transactions = data.transactions || [];
-      txCounts.set(node.name, transactions.length);
+      // Use /api/dag endpoint which returns all DAG transactions
+      // Fetch with pagination to get all transactions
+      let allTxs: any[] = [];
+      let page = 1;
+      let hasMore = true;
       
-      const hashes = new Set<string>(transactions.map((t: any) => t.tx?.hash || t.hash));
+      while (hasMore && page <= 100) { // Safety limit
+        const { data } = await fetchWithTimeout(`${node.url}/api/dag?page=${page}&limit=200`, 30000);
+        const transactions = data.transactions || data.nodes || data || [];
+        
+        if (Array.isArray(transactions) && transactions.length > 0) {
+          allTxs.push(...transactions);
+          page++;
+          hasMore = transactions.length === 200; // If we got full page, there might be more
+        } else {
+          hasMore = false;
+        }
+      }
+      
+      txCounts.set(node.name, allTxs.length);
+      
+      const hashes = new Set<string>(allTxs.map((t: any) => t.hash || t.tx?.hash));
       txSets.set(node.name, hashes);
       
-      console.log(`  ${node.name}: ${transactions.length} transactions`);
+      console.log(`  ${node.name}: ${allTxs.length} transactions (${page - 1} pages)`);
     } catch (e: any) {
       console.log(`  ${node.name}: Failed to fetch - ${e.message}`);
     }
