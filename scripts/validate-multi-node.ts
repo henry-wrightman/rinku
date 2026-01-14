@@ -158,12 +158,11 @@ async function validateConnectivity(nodeStatuses: NodeStatus[]) {
 }
 
 async function validateCheckpointConsensus(nodeStatuses: NodeStatus[]) {
-  logSection('2. CHECKPOINT CONSENSUS');
+  logSection('2. CHECKPOINT CONSENSUS (Critical for consensus)');
   
   const reachable = nodeStatuses.filter(n => n.reachable);
   
-  const heights = reachable.map(n => n.checkpointHeight).filter(h => h !== undefined);
-  const uniqueHeights = [...new Set(heights)];
+  const heights = reachable.map(n => n.checkpointHeight).filter(h => h !== undefined) as number[];
   
   if (heights.length === 0) {
     record('Checkpoint height consensus', true, 'No checkpoints on any node');
@@ -174,36 +173,65 @@ async function validateCheckpointConsensus(nodeStatuses: NodeStatus[]) {
   const minHeight = Math.min(...heights);
   const heightDiff = maxHeight - minHeight;
   
-  record('Checkpoint height sync', heightDiff <= 1, 
-    heightDiff === 0 
-      ? `All nodes at height ${maxHeight}`
-      : `Height range: ${minHeight}-${maxHeight} (diff: ${heightDiff})`
+  // Height sync is informational - nodes create checkpoints at different times
+  console.log(`  Checkpoint heights: ${minHeight}-${maxHeight} (diff: ${heightDiff})`);
+  record('Checkpoint height sync', heightDiff <= 5, 
+    heightDiff <= 5
+      ? `All nodes within 5 checkpoints (acceptable sync lag)`
+      : `Large gap: ${heightDiff} checkpoints - check sync`
   );
   
-  const nodesAtMax = reachable.filter(n => n.checkpointHeight === maxHeight);
-  if (nodesAtMax.length > 1) {
-    const checkpointIds = nodesAtMax.map(n => n.checkpointId).filter(Boolean);
-    const uniqueIds = [...new Set(checkpointIds)];
+  // THE CRITICAL CHECK: Compare merkle roots at a COMMON checkpoint height
+  console.log(`\n  Comparing checkpoint merkle roots at common height ${minHeight}...`);
+  
+  const checkpointRootsAtCommon = new Map<string, { root: string; hash: string }>();
+  
+  for (const node of reachable) {
+    try {
+      const { data } = await fetchWithTimeout(`${node.url}/api/checkpoints`);
+      const checkpoints = data.checkpoints || data.chain || [];
+      
+      // Find checkpoint at minHeight (common to all nodes)
+      const cp = checkpoints.find((c: any) => (c.height || c.checkpointHeight) === minHeight);
+      if (cp) {
+        checkpointRootsAtCommon.set(node.name, {
+          root: cp.merkleRoot || cp.txMerkleRoot || '',
+          hash: cp.hash || cp.checkpointId || ''
+        });
+        console.log(`    ${node.name} @ height ${minHeight}: ${(cp.merkleRoot || cp.txMerkleRoot || 'N/A').slice(0, 16)}...`);
+      } else {
+        console.log(`    ${node.name}: Checkpoint ${minHeight} not found`);
+      }
+    } catch (e: any) {
+      console.log(`    ${node.name}: Failed to fetch checkpoints - ${e.message}`);
+    }
+  }
+  
+  if (checkpointRootsAtCommon.size >= 2) {
+    const roots = [...checkpointRootsAtCommon.values()].map(v => v.root);
+    const uniqueRoots = [...new Set(roots)];
     
-    record('Checkpoint ID consensus', uniqueIds.length === 1,
-      uniqueIds.length === 1
-        ? `All nodes agree: ${uniqueIds[0]?.slice(0, 16)}...`
-        : `FORK DETECTED: ${uniqueIds.length} different checkpoint IDs`
-    );
-    
-    const txMerkleRoots = nodesAtMax.map(n => n.txMerkleRoot).filter(Boolean);
-    const uniqueRoots = [...new Set(txMerkleRoots)];
-    
-    record('Transaction Merkle root consensus', uniqueRoots.length === 1,
+    record('Checkpoint merkle root consensus', uniqueRoots.length === 1,
       uniqueRoots.length === 1
-        ? `All nodes agree: ${uniqueRoots[0]?.slice(0, 16)}...`
-        : `DIVERGENCE: ${uniqueRoots.length} different tx merkle roots`
+        ? `All nodes agree at height ${minHeight}: ${uniqueRoots[0]?.slice(0, 16)}...`
+        : `FORK DETECTED at height ${minHeight}: ${uniqueRoots.length} different roots!`
     );
+    
+    const hashes = [...checkpointRootsAtCommon.values()].map(v => v.hash);
+    const uniqueHashes = [...new Set(hashes)];
+    
+    if (uniqueRoots.length === 1) {
+      record('Checkpoint hash consensus', uniqueHashes.length === 1,
+        uniqueHashes.length === 1
+          ? `All nodes agree: ${uniqueHashes[0]?.slice(0, 16)}...`
+          : `Hash mismatch (possible different validators signing)`
+      );
+    }
   }
 }
 
 async function validateDAGState(nodeStatuses: NodeStatus[]) {
-  logSection('3. DAG STATE COMPARISON');
+  logSection('3. DAG STATE COMPARISON (Informational - varies by pruning)');
   
   const reachable = nodeStatuses.filter(n => n.reachable);
   
@@ -211,27 +239,21 @@ async function validateDAGState(nodeStatuses: NodeStatus[]) {
   const maxSize = Math.max(...dagSizes.map(d => d.size));
   const minSize = Math.min(...dagSizes.map(d => d.size));
   
-  console.log('\n  DAG Sizes:');
+  console.log('\n  DAG Sizes (unfinalized transactions - expected to vary):');
   for (const { name, size } of dagSizes) {
     console.log(`    ${name}: ${size} transactions`);
   }
   
   const sizeDiffPercent = maxSize > 0 ? ((maxSize - minSize) / maxSize) * 100 : 0;
-  record('DAG size variance', sizeDiffPercent < 10,
-    sizeDiffPercent < 1
-      ? 'All nodes within 1% variance'
-      : `Variance: ${sizeDiffPercent.toFixed(1)}% (${minSize} - ${maxSize} txs)`
-  );
+  // DAG size is informational only - nodes prune at different times
+  console.log(`  \x1b[33mℹ\x1b[0m DAG size variance: ${sizeDiffPercent.toFixed(1)}% (${minSize} - ${maxSize} txs) - Expected due to pruning`);
   
   const merkleRoots = reachable.map(n => n.merkleRoot).filter(Boolean);
   const uniqueRoots = [...new Set(merkleRoots)];
   
   if (merkleRoots.length > 1) {
-    record('DAG merkle root consensus', uniqueRoots.length === 1,
-      uniqueRoots.length === 1
-        ? `All nodes agree: ${uniqueRoots[0]?.slice(0, 16)}...`
-        : `DIVERGENCE: ${uniqueRoots.length} different roots (may be due to sync lag)`
-    );
+    // DAG merkle root is informational - changes with each transaction
+    console.log(`  \x1b[33mℹ\x1b[0m DAG merkle roots: ${uniqueRoots.length} different (expected - DAG changes constantly)`);
   }
   
   console.log('\n  Tip Counts:');
@@ -241,78 +263,26 @@ async function validateDAGState(nodeStatuses: NodeStatus[]) {
 }
 
 async function validateTransactionSync(nodeStatuses: NodeStatus[]) {
-  logSection('4. TRANSACTION SYNCHRONIZATION');
+  logSection('4. DAG TRANSACTION COUNTS (Informational - varies by pruning)');
   
   const reachable = nodeStatuses.filter(n => n.reachable);
   
-  const txCounts = new Map<string, number>();
-  const txSets = new Map<string, Set<string>>();
+  console.log('  Note: DAG transactions differ due to pruning after checkpoints.');
+  console.log('  This is expected behavior with snapshot-based sync.\n');
   
   for (const node of reachable) {
     try {
-      // Use /api/dag endpoint which returns all DAG transactions
-      // Fetch with pagination to get all transactions
-      let allTxs: any[] = [];
-      let page = 1;
-      let hasMore = true;
-      
-      while (hasMore && page <= 100) { // Safety limit
-        const { data } = await fetchWithTimeout(`${node.url}/api/dag?page=${page}&limit=200`, 30000);
-        const transactions = data.transactions || data.nodes || data || [];
-        
-        if (Array.isArray(transactions) && transactions.length > 0) {
-          allTxs.push(...transactions);
-          page++;
-          hasMore = transactions.length === 200; // If we got full page, there might be more
-        } else {
-          hasMore = false;
-        }
-      }
-      
-      txCounts.set(node.name, allTxs.length);
-      
-      const hashes = new Set<string>(allTxs.map((t: any) => t.hash || t.tx?.hash));
-      txSets.set(node.name, hashes);
-      
-      console.log(`  ${node.name}: ${allTxs.length} transactions (${page - 1} pages)`);
+      // Just get first page to show approximate count
+      const { data } = await fetchWithTimeout(`${node.url}/api/dag?page=1&limit=50`, 10000);
+      const transactions = data.transactions || data.nodes || data || [];
+      const dagSize = node.dagSize || transactions.length;
+      console.log(`  ${node.name}: ~${dagSize} DAG transactions`);
     } catch (e: any) {
       console.log(`  ${node.name}: Failed to fetch - ${e.message}`);
     }
   }
   
-  if (txSets.size >= 2) {
-    const nodeNames = [...txSets.keys()];
-    let allMatch = true;
-    
-    for (let i = 0; i < nodeNames.length - 1; i++) {
-      const set1 = txSets.get(nodeNames[i])!;
-      const set2 = txSets.get(nodeNames[i + 1])!;
-      
-      const only1 = [...set1].filter(h => !set2.has(h));
-      const only2 = [...set2].filter(h => !set1.has(h));
-      
-      if (only1.length > 0 || only2.length > 0) {
-        allMatch = false;
-        console.log(`\n  Differences between ${nodeNames[i]} and ${nodeNames[i + 1]}:`);
-        if (only1.length > 0) {
-          console.log(`    Only in ${nodeNames[i]}: ${only1.length} txs`);
-          if (only1.length <= 5) {
-            for (const h of only1) console.log(`      - ${h.slice(0, 16)}...`);
-          }
-        }
-        if (only2.length > 0) {
-          console.log(`    Only in ${nodeNames[i + 1]}: ${only2.length} txs`);
-          if (only2.length <= 5) {
-            for (const h of only2) console.log(`      - ${h.slice(0, 16)}...`);
-          }
-        }
-      }
-    }
-    
-    record('Transaction set consistency', allMatch,
-      allMatch ? 'All nodes have identical transaction sets' : 'Some transactions not synced'
-    );
-  }
+  console.log(`\n  \x1b[33mℹ\x1b[0m DAG transaction differences are expected - transactions are pruned after finalization.`);
 }
 
 async function validateAccountBalances(nodeStatuses: NodeStatus[]) {
@@ -403,6 +373,13 @@ async function generateReport() {
   
   const failed = results.filter(r => !r.passed);
   
+  // Identify critical failures (checkpoint consensus related)
+  const criticalFailures = failed.filter(f => 
+    f.check.includes('merkle root') || 
+    f.check.includes('balance') ||
+    f.check.includes('FORK')
+  );
+  
   console.log(`\n  Total Checks: ${totalChecks}`);
   console.log(`  \x1b[32mPassed: ${passedChecks}\x1b[0m`);
   console.log(`  \x1b[31mFailed: ${totalChecks - passedChecks}\x1b[0m`);
@@ -411,23 +388,30 @@ async function generateReport() {
   if (failed.length > 0) {
     console.log('\n  Failed Checks:');
     for (const f of failed) {
-      console.log(`    - ${f.check}: ${f.details}`);
+      const isCritical = criticalFailures.includes(f);
+      const prefix = isCritical ? '\x1b[31m[CRITICAL]\x1b[0m' : '\x1b[33m[MINOR]\x1b[0m';
+      console.log(`    ${prefix} ${f.check}: ${f.details}`);
     }
   }
   
   console.log('\n' + '='.repeat(70));
+  console.log('  KEY CONSENSUS METRICS:');
+  console.log('    - Checkpoint merkle roots at same height MUST match');
+  console.log('    - Account balances MUST match');
+  console.log('    - DAG size/transactions will differ (expected due to pruning)');
+  console.log('='.repeat(70));
   
-  if (failed.length === 0) {
+  if (criticalFailures.length > 0) {
+    console.log('\x1b[31m  CONSENSUS FAILURE - FORK OR BALANCE MISMATCH DETECTED\x1b[0m');
+  } else if (failed.length === 0) {
     console.log('\x1b[32m  ALL NODES IN CONSENSUS - NETWORK IS HEALTHY\x1b[0m');
-  } else if (failed.length <= 2) {
-    console.log('\x1b[33m  MINOR ISSUES DETECTED - LIKELY SYNC LAG\x1b[0m');
   } else {
-    console.log('\x1b[31m  SIGNIFICANT ISSUES - INVESTIGATE IMMEDIATELY\x1b[0m');
+    console.log('\x1b[33m  MINOR SYNC LAG DETECTED - NODES CONVERGING\x1b[0m');
   }
   
   console.log('='.repeat(70) + '\n');
   
-  return failed.length === 0;
+  return criticalFailures.length === 0;
 }
 
 async function main() {

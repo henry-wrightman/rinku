@@ -51,9 +51,24 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Testnet Tooling (scripts/):**
   - `generate-proofs.ts`: Proof generation and verification pipeline using core functions (ECDSA via `verify`, Merkle via `verifyMerkleProof`, BLS via `verifySelfContainedProof`)
   - `proof-size-benchmark.ts`: Measures actual node-generated proof URL sizes for QR code compatibility
-  - `validate-multi-node.ts`: Cross-node consensus validation (Merkle roots, checkpoints, transaction sets)
+  - `validate-multi-node.ts`: Cross-node consensus validation - compares checkpoint merkle roots at common height, account balances
   - `local-testnet.sh`: Multi-node orchestration script
   - `TESTNET_SETUP.md`: 3-node testnet setup documentation
+
+### Multi-Node Consensus Model
+With snapshot-based sync and DAG pruning, nodes maintain consensus differently than traditional blockchains:
+
+**Critical Consensus Metrics (MUST match):**
+- Checkpoint merkle roots at the same height - proves identical transaction sets were finalized
+- Account balances - derived state from all finalized transactions
+- Total supply, validators, staking state
+
+**Expected Differences (NOT consensus failures):**
+- DAG transaction count - varies due to pruning timing and node age
+- Tip count - changes constantly as transactions arrive
+- DAG merkle root - changes with every transaction
+
+**Validation Script:** Run `npx ts-node scripts/validate-multi-node.ts NODE1_URL NODE2_URL [NODE3_URL...]` to verify consensus. Critical failures (checkpoint root mismatch, balance mismatch) indicate a fork. Minor failures (sync lag) are normal during operation.
 
 ### Fly.io Deployment
 The Rust node can be deployed to Fly.io for production use:
