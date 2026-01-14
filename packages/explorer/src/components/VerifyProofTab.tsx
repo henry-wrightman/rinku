@@ -46,8 +46,23 @@ export function VerifyProofTab() {
   const [loading, setLoading] = useState(false);
 
   const verifyProof = async () => {
-    if (!proofUrl.trim()) {
+    const trimmed = proofUrl.trim();
+    if (!trimmed) {
       setError("Please enter a proof URL");
+      return;
+    }
+
+    // Check if user pasted just a hash or reference URL instead of a proof
+    if (/^[a-f0-9]{64}$/i.test(trimmed)) {
+      setError(
+        "This looks like a transaction hash, not a proof URL. Self-contained proofs start with 'rinku://sp/' and contain compressed cryptographic data."
+      );
+      return;
+    }
+    if (trimmed.startsWith("/tx/") || trimmed.startsWith("rinku://tx")) {
+      setError(
+        "This is a transaction reference URL. To verify offline, you need a self-contained proof URL that starts with 'rinku://sp/' and contains all cryptographic data."
+      );
       return;
     }
 
@@ -90,9 +105,14 @@ export function VerifyProofTab() {
       <div className="section">
         <h3>verify proof URL</h3>
         <p style={{ opacity: 0.7, marginBottom: "1rem", fontSize: "0.9rem" }}>
-          Paste a self-contained proof URL to verify a transaction even if it
-          was pruned from the node. The proof contains all cryptographic data
-          needed for offline verification.
+          Paste a self-contained proof URL (<code>rinku://sp/...</code>) to
+          verify a transaction. These proofs bundle all cryptographic data
+          (merkle proof, BLS signatures, validator set) needed for verification.
+        </p>
+        <p style={{ opacity: 0.5, marginBottom: "1rem", fontSize: "0.8rem" }}>
+          Note: A transaction hash or explorer link is not a proof URL. Proof
+          URLs are generated when transactions are finalized and should be saved
+          for future verification.
         </p>
 
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>

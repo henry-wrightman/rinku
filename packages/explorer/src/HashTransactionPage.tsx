@@ -153,6 +153,14 @@ function HashTransactionPage() {
                 checkpoint contains a Merkle root that cryptographically proves
                 this transaction existed.
               </p>
+              <p style={{ marginTop: 12 }}>
+                If you have a self-contained proof URL for this transaction, you
+                can verify it offline using the{" "}
+                <Link to={{ pathname: "/", search: "?tab=verify" }} style={{ color: "#88c0d0" }}>
+                  verify tab
+                </Link>
+                .
+              </p>
             </div>
           </div>
           <Link
@@ -177,7 +185,17 @@ function HashTransactionPage() {
           <p>url-native distributed ledger</p>
         </header>
         <div className="section">
-          <div className="error">{error || "Transaction not found"}</div>
+          <div className="error">
+            {error || "Transaction not found (may have been pruned after finalization)"}
+          </div>
+          <p style={{ marginTop: 12, color: "#888", fontSize: "0.9em" }}>
+            If this transaction was pruned, you can still verify it using a
+            self-contained proof URL in the{" "}
+            <Link to={{ pathname: "/", search: "?tab=verify" }} style={{ color: "#88c0d0" }}>
+              verify tab
+            </Link>
+            .
+          </p>
           <Link
             to="/"
             className="link"

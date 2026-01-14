@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { State, DAGNode } from "./types";
 import {
   Header,
@@ -73,17 +74,34 @@ interface VersionInfo {
   features: { id: string; name: string; status: string }[];
 }
 
+type TabType = "dag" | "accounts" | "faucet" | "contracts" | "rewards" | "tokenomics" | "zk" | "verify";
+
+const validTabs: TabType[] = ["dag", "accounts", "faucet", "contracts", "rewards", "tokenomics", "zk", "verify"];
+
 function App() {
-  const [tab, setTab] = useState<
-    | "dag"
-    | "accounts"
-    | "faucet"
-    | "contracts"
-    | "rewards"
-    | "tokenomics"
-    | "zk"
-    | "verify"
-  >("dag");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const initialTab = tabParam && validTabs.includes(tabParam as TabType) ? tabParam as TabType : "dag";
+  const [tab, setTabState] = useState<TabType>(initialTab);
+
+  const setTab = useCallback((newTab: TabType) => {
+    setTabState(newTab);
+    if (newTab === "dag") {
+      setSearchParams({});
+    } else {
+      setSearchParams({ tab: newTab });
+    }
+  }, [setSearchParams]);
+
+  // Sync tab state when URL changes (e.g., back/forward navigation)
+  useEffect(() => {
+    const urlTab = searchParams.get("tab");
+    const newTab = urlTab && validTabs.includes(urlTab as TabType) ? urlTab as TabType : "dag";
+    if (newTab !== tab) {
+      setTabState(newTab);
+    }
+  }, [searchParams, tab]);
+
   const [nodes, setNodes] = useState<DAGNode[]>([]);
   const [accounts, setAccounts] = useState<State["accounts"]>([]);
   const [summary, setSummary] = useState<{
