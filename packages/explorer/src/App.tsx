@@ -10,6 +10,7 @@ import {
   TokenomicsTab,
   SearchBar,
   ZKTab,
+  VerifyProofTab,
 } from "./components";
 import { formatNumber, formatTps } from "./utils";
 
@@ -81,6 +82,7 @@ function App() {
     | "rewards"
     | "tokenomics"
     | "zk"
+    | "verify"
   >("dag");
   const [nodes, setNodes] = useState<DAGNode[]>([]);
   const [accounts, setAccounts] = useState<State["accounts"]>([]);
@@ -390,6 +392,12 @@ function App() {
         >
           tokenomics
         </span>
+        <span
+          className={tab === "verify" ? "active" : ""}
+          onClick={() => setTab("verify")}
+        >
+          verify
+        </span>
       </div>
 
       {tab === "dag" && (
@@ -415,6 +423,7 @@ function App() {
       {tab === "rewards" && <RewardsTab />}
       {tab === "tokenomics" && <TokenomicsTab />}
       {tab === "zk" && <ZKTab />}
+      {tab === "verify" && <VerifyProofTab />}
     </div>
   );
 }

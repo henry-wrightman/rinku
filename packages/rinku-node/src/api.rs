@@ -1536,6 +1536,72 @@ async fn get_tip_consolidator_stats() -> Json<TipConsolidatorStatsResponse> {
     })
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VerifyProofRequest {
+    proof_url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VerifyProofResponse {
+    valid: bool,
+    errors: Vec<String>,
+    tx_hash: String,
+    tx_from: String,
+    tx_to: String,
+    tx_amount: f64,
+    tx_nonce: u64,
+    tx_timestamp: u64,
+    checkpoint_height: u64,
+    checkpoint_id: String,
+    merkle_verified: bool,
+    bls_verified: bool,
+    validator_set_verified: bool,
+    signer_weight: f64,
+    total_weight: f64,
+    signer_count: usize,
+}
+
+async fn verify_proof_endpoint(
+    Json(req): Json<VerifyProofRequest>,
+) -> impl IntoResponse {
+    use crate::proofs::{decode_self_contained_proof, verify_self_contained_proof};
+    
+    let proof_url = req.proof_url.trim();
+    
+    match decode_self_contained_proof(proof_url) {
+        Ok(proof) => {
+            let result = verify_self_contained_proof(&proof);
+            
+            (StatusCode::OK, Json(VerifyProofResponse {
+                valid: result.valid,
+                errors: result.errors,
+                tx_hash: result.tx_hash,
+                tx_from: proof.tx_from,
+                tx_to: proof.tx_to,
+                tx_amount: proof.tx_amount,
+                tx_nonce: proof.tx_nonce,
+                tx_timestamp: proof.tx_timestamp,
+                checkpoint_height: result.checkpoint_height,
+                checkpoint_id: proof.checkpoint_id,
+                merkle_verified: result.merkle_verified,
+                bls_verified: result.bls_verified,
+                validator_set_verified: result.validator_set_verified,
+                signer_weight: result.computed_signer_weight,
+                total_weight: result.total_weight,
+                signer_count: result.signer_count,
+            })).into_response()
+        }
+        Err(e) => {
+            (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "valid": false,
+                "error": format!("Failed to decode proof: {}", e)
+            }))).into_response()
+        }
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RewardsAddressResponse {
@@ -1891,6 +1957,7 @@ pub async fn start_api_server(
         .route("/api/sync/snapshot", get(get_snapshot_sync))
         .route("/api/sync/transactions", get(get_batch_transactions))
         .route("/api/sync/delta", get(get_sync_transactions))
+        .route("/api/verify-proof", post(verify_proof_endpoint))
         .route("/api/tip-consolidator/stats", get(get_tip_consolidator_stats))
         .route("/metrics", get(get_metrics))
         .layer(cors.clone())
