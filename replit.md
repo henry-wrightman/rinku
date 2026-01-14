@@ -48,6 +48,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Fork Remediation Service:** Nonce-based double-spend detection, weight-based conflict resolution, and branch pruning.
 - **API Rate Limiting:** Tiered rate limiting for TX, contract, and general endpoints.
 - **Prometheus Metrics:** `/metrics` endpoint for network monitoring.
+- **Proof Verification API:** `POST /api/verify-proof` endpoint decodes and verifies self-contained proof URLs, enabling offline verification of pruned transactions. Explorer includes a "Verify" tab for user-friendly proof validation.
 - **Testnet Tooling (scripts/):**
   - `generate-proofs.ts`: Proof generation and verification pipeline using core functions (ECDSA via `verify`, Merkle via `verifyMerkleProof`, BLS via `verifySelfContainedProof`)
   - `proof-size-benchmark.ts`: Measures actual node-generated proof URL sizes for QR code compatibility
