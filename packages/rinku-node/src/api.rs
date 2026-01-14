@@ -1469,6 +1469,27 @@ async fn get_checkpoints_latest(State(state): State<NodeState>) -> Json<Checkpoi
     }
 }
 
+/// Get checkpoint by height - used for peer checkpoint verification
+async fn get_checkpoint_by_height(
+    State(state): State<NodeState>,
+    Path(height): Path<u64>,
+) -> Result<Json<rinku_core::types::Checkpoint>, (StatusCode, Json<ErrorResponse>)> {
+    let inner = state.inner.read().await;
+    
+    // Find checkpoint at the requested height
+    if let Some(cp) = inner.checkpoints.iter().find(|c| c.height == height) {
+        Ok(Json(cp.clone()))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Checkpoint at height {} not found", height),
+                code: 404,
+            }),
+        ))
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ForkStatsResponse {
@@ -1867,6 +1888,7 @@ pub async fn start_api_server(
         .route("/api/rewards/:address", get(get_rewards_address))
         .route("/api/checkpoints", get(get_checkpoints))
         .route("/api/checkpoints/latest", get(get_checkpoints_latest))
+        .route("/api/checkpoints/:height", get(get_checkpoint_by_height))
         .route("/api/fork/stats", get(get_fork_stats))
         .route("/api/gossip", post(post_gossip))
         .route("/api/gossip/stats", get(get_gossip_stats))

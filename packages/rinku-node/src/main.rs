@@ -100,6 +100,7 @@ async fn main() -> Result<()> {
         state.clone(),
         config.checkpoint_interval_ms,
         validator_address.clone(),
+        config.peers.clone(),
     );
     info!(
         "BLS public key: {}...",

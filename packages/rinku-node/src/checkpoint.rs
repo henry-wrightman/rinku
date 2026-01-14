@@ -5,7 +5,7 @@ use rinku_core::{
     types::{Checkpoint, ValidatorSignature},
 };
 use sha2::{Digest, Sha256};
-use tracing::info;
+use tracing::{info, warn, debug};
 
 use crate::bls::{
     aggregate_signatures, bls_sign, create_signer_bitmap, generate_bls_keypair,
@@ -18,10 +18,11 @@ pub struct CheckpointService {
     bls_private_key: Vec<u8>,
     bls_public_key: Vec<u8>,
     validator_address: String,
+    peers: Vec<String>,
 }
 
 impl CheckpointService {
-    pub fn new(state: NodeState, interval_ms: u64, validator_address: Option<String>) -> Self {
+    pub fn new(state: NodeState, interval_ms: u64, validator_address: Option<String>, peers: Vec<String>) -> Self {
         let keypair = generate_bls_keypair();
         let addr = validator_address.unwrap_or_else(|| keypair.fingerprint.clone());
         Self {
@@ -30,6 +31,7 @@ impl CheckpointService {
             bls_private_key: keypair.private_key,
             bls_public_key: keypair.public_key,
             validator_address: addr,
+            peers,
         }
     }
 
@@ -46,6 +48,104 @@ impl CheckpointService {
                 tracing::warn!("Checkpoint creation failed: {}", e);
             }
         }
+    }
+
+    /// Check if any peer has a checkpoint at the given height
+    /// If found, returns the peer's checkpoint to adopt instead of creating our own
+    async fn fetch_peer_checkpoint(&self, height: u64) -> Option<Checkpoint> {
+        if self.peers.is_empty() {
+            return None;
+        }
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .ok()?;
+
+        for peer in &self.peers {
+            let url = format!("{}/api/checkpoints/{}", peer.trim_end_matches('/'), height);
+            
+            match client.get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.json::<Checkpoint>().await {
+                        Ok(checkpoint) => {
+                            info!(
+                                "Found peer checkpoint at height {} from {}: {}",
+                                height, peer, &checkpoint.hash[..16.min(checkpoint.hash.len())]
+                            );
+                            return Some(checkpoint);
+                        }
+                        Err(e) => {
+                            debug!("Failed to parse checkpoint from {}: {}", peer, e);
+                        }
+                    }
+                }
+                Ok(resp) => {
+                    debug!("Peer {} has no checkpoint at height {} (status: {})", peer, height, resp.status());
+                }
+                Err(e) => {
+                    debug!("Failed to reach peer {} for checkpoint {}: {}", peer, height, e);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Adopt a peer's checkpoint instead of creating our own
+    /// This prevents forks by deferring to the canonical chain
+    async fn adopt_peer_checkpoint(&self, checkpoint: Checkpoint, unfinalized_hashes: &[String]) -> Result<()> {
+        let height = checkpoint.height;
+        let checkpoint_hash = checkpoint.hash.clone();
+
+        // Process emissions for this adopted checkpoint
+        let checkpoint_reward = {
+            let mut emission = self.state.emission.write().await;
+            let reward = emission.get_checkpoint_reward(height);
+            emission.record_emission(reward);
+            reward
+        };
+
+        // Distribute checkpoint rewards
+        let distributions = {
+            let mut rewards = self.state.rewards.write().await;
+            rewards.distribute_checkpoint_rewards(checkpoint_reward)
+        };
+
+        if !distributions.is_empty() {
+            debug!(
+                "Distributed {:.6} RKU to {} validators (adopted checkpoint)",
+                checkpoint_reward,
+                distributions.len()
+            );
+        }
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        // Update state with adopted checkpoint
+        let mut state = self.state.inner.write().await;
+        state.checkpoints.push(checkpoint);
+        state.last_checkpoint_time_ms = now_ms;
+
+        // Mark transactions as finalized
+        for hash in unfinalized_hashes {
+            let _ = state.dag.mark_finalized(hash, height);
+        }
+
+        drop(state);
+
+        info!(
+            "Adopted peer checkpoint {} at height {} ({} txs finalized, {:.6} RKU emitted)",
+            &checkpoint_hash[..16.min(checkpoint_hash.len())],
+            height,
+            unfinalized_hashes.len(),
+            checkpoint_reward
+        );
+
+        Ok(())
     }
 
     fn compute_checkpoint_hash(
@@ -97,6 +197,24 @@ impl CheckpointService {
 
             (unfinalized, tx_merkle_root, height, previous_hash)
         };
+
+        // FORK PREVENTION: Check if any peer already has a checkpoint at this height
+        // If so, adopt their checkpoint instead of creating our own
+        if let Some(peer_checkpoint) = self.fetch_peer_checkpoint(height).await {
+            // Verify the peer checkpoint has valid structure before adopting
+            if peer_checkpoint.height == height && !peer_checkpoint.hash.is_empty() {
+                info!(
+                    "Peer has checkpoint at height {}, adopting instead of creating",
+                    height
+                );
+                return self.adopt_peer_checkpoint(peer_checkpoint, &unfinalized_hashes).await;
+            } else {
+                warn!(
+                    "Peer checkpoint at height {} has invalid structure, creating our own",
+                    height
+                );
+            }
+        }
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
