@@ -102,6 +102,25 @@ Production nodes use a hybrid trust model combining genesis validators and stake
 
 **Testnet Mode:** If no genesis validators are configured, nodes run in testnet mode with BLS format validation only (signatures not cryptographically verified).
 
+### Test Coverage
+The Rust node includes comprehensive test coverage (99 tests total):
+
+**Unit Tests (79 tests in rinku-node/src/):**
+- `gossip.rs`: BoundedHashSet tests (8) - FIFO eviction, capacity limits, duplicate handling
+- `trust.rs`: TrustVerifier tests (11) - genesis/on-chain validator lookup, checkpoint chain verification, signature requirements
+- `checkpoint.rs`: Checkpoint hash computation tests (7) - determinism, field sensitivity, hex encoding
+- `persistence.rs`, `slashing.rs`, `state_trie.rs`, `versioning.rs`, `validator.rs`: Component-specific tests
+
+**Multi-Node Integration Tests (20 tests in rinku-node/tests/multi_node.rs):**
+- `fork_detection_tests`: Identical nodes no-fork, different transactions fork detection, previous_hash mismatch detection, fork recovery threshold triggering
+- `snapshot_sync_tests`: Account preservation, balance restoration, sync without full history, checkpoint chain preservation
+- `checkpoint_adoption_tests`: Matching transaction adoption, different transaction rejection, chain linkage validation, hash recomputation
+- `fork_resolution_tests`: DAG structure/tips, conflicting nonce detection, weight comparison logic
+- `delta_sync_tests`: Missing transaction fetching, paginated sync
+- `network_partition_tests`: Divergent chain creation, partition heal fork resolution
+
+Run all tests: `cd packages/rinku-node && cargo test`
+
 ### Fly.io Deployment
 The Rust node can be deployed to Fly.io for production use:
 - `fly.toml`: Fly.io app configuration (auto-scaling, health checks, persistent storage)
