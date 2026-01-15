@@ -659,7 +659,7 @@ impl CheckpointService {
         let (unfinalized_hashes, tx_merkle_root, height, previous_hash) = {
             let state = self.state.inner.read().await;
 
-            let unfinalized: Vec<String> = state
+            let mut unfinalized: Vec<String> = state
                 .dag
                 .get_unfinalized_nodes()
                 .iter()
@@ -670,6 +670,10 @@ impl CheckpointService {
             if unfinalized.is_empty() {
                 return Ok(());
             }
+
+            // CRITICAL: Sort hashes for deterministic merkle root computation
+            // This ensures proof generation uses the same order as checkpoint creation
+            unfinalized.sort();
 
             let tx_merkle_root = if unfinalized.is_empty() {
                 "0".repeat(64)
@@ -742,13 +746,16 @@ impl CheckpointService {
                 // After sync, recompute our state and try adoption again
                 let (new_unfinalized, new_merkle_root) = {
                     let state = self.state.inner.read().await;
-                    let unfinalized: Vec<String> = state
+                    let mut unfinalized: Vec<String> = state
                         .dag
                         .get_unfinalized_nodes()
                         .iter()
                         .map(|n| n.hash.clone())
                         .filter(|h| Self::is_valid_hex_hash(h))
                         .collect();
+                    
+                    // CRITICAL: Sort for deterministic merkle root
+                    unfinalized.sort();
                     
                     let merkle_root = if unfinalized.is_empty() {
                         "0".repeat(64)

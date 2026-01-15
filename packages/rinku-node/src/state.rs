@@ -845,7 +845,7 @@ impl NodeState {
             .find(|c| c.height == checkpoint_height)?
             .clone();
 
-        let finalized_hashes: Vec<String> = state
+        let mut finalized_hashes: Vec<String> = state
             .dag
             .get_all_nodes()
             .into_iter()
@@ -856,6 +856,10 @@ impl NodeState {
         if finalized_hashes.is_empty() {
             return None;
         }
+
+        // CRITICAL: Sort hashes for deterministic merkle tree computation
+        // This MUST match the order used in checkpoint creation
+        finalized_hashes.sort();
 
         let index = finalized_hashes.iter().position(|h| h == tx_hash)?;
 
