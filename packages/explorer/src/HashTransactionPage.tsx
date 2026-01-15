@@ -334,17 +334,19 @@ function HashTransactionPage() {
             <span className="value">{(tx.weight ?? 0).toFixed(2)}</span>
           </div>
           <div className="meta-row">
+            <span className="label">status</span>
+            <span className="value" style={{ color: tx.finalized ? "#a3be8c" : "#ebcb8b" }}>
+              {tx.finalized ? "finalized" : "pending"}
+            </span>
+          </div>
+          <div className="meta-row">
             <span className="label">signature</span>
-            <span className="value mono">{truncate(tx.sig, 24)}</span>
+            <span className="value mono" style={{ opacity: tx.sig ? 1 : 0.5 }}>
+              {tx.sig ? truncate(tx.sig, 24) : "(system tx)"}
+            </span>
           </div>
           {tx.finality && (
             <>
-              <div className="meta-row">
-                <span className="label">status</span>
-                <span className="value" style={{ color: "#a3be8c" }}>
-                  finalized
-                </span>
-              </div>
               <div className="meta-row">
                 <span className="label">checkpoint</span>
                 <span className="value mono">

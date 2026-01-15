@@ -4,8 +4,12 @@ import type { DAGNode } from "../types";
 import { truncate, timeAgo } from "../utils";
 import { Pagination } from "./Pagination";
 
+interface ExtendedDAGNode extends DAGNode {
+  finalized?: boolean;
+}
+
 interface DAGTabProps {
-  nodes: DAGNode[];
+  nodes: ExtendedDAGNode[];
   merkleRoot: string;
   page: number;
   totalNodes: number;
@@ -68,7 +72,10 @@ export function DAGTab({
           <div className="meta">
             {node.from === "genesis" ? "genesis" : truncate(node.from, 6)} →{" "}
             {truncate(node.to, 6)} · {timeAgo(node.ts)} · refs{" "}
-            {node.parentCount} parent(s)
+            {node.parentCount} parent(s) ·{" "}
+            <span style={{ color: node.finalized ? "#a3be8c" : "#ebcb8b" }}>
+              {node.finalized ? "finalized" : "pending"}
+            </span>
           </div>
           <div className="actions">
             <span
