@@ -1762,6 +1762,7 @@ async fn generate_transaction_proof(
         tx_timestamp: tx.tx.timestamp,
         checkpoint_height: checkpoint.height,
         checkpoint_id: checkpoint.hash.clone(),
+        checkpoint_timestamp: checkpoint.timestamp,
         tx_merkle_root: checkpoint.tx_merkle_root.clone(),
         state_root: checkpoint.state_root.clone(),
         receipt_root: checkpoint.receipt_root.clone(),

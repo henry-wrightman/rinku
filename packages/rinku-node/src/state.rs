@@ -229,14 +229,28 @@ impl NodeState {
                 
                 // Create genesis checkpoint (height 0) so genesis tx can have proofs generated
                 // Note: This is a placeholder checkpoint - real BLS signatures added when checkpoint service starts
+                // IMPORTANT: Hash must be computed using same format as compute_checkpoint_hash
+                // Format: "{}:{}:{}:{}:{}:{}" with height, tx_merkle_root, state_root, receipt_root, tip_count, timestamp
+                let genesis_state_root = "0".repeat(64);
+                let genesis_receipt_root = "0".repeat(64);
+                let genesis_tip_count = 1u32;
+                let genesis_checkpoint_hash = rinku_core::sha256_hex(&format!(
+                    "{}:{}:{}:{}:{}:{}",
+                    0, // height
+                    genesis_hash,
+                    genesis_state_root,
+                    genesis_receipt_root,
+                    genesis_tip_count,
+                    genesis_time // timestamp
+                ));
                 let genesis_checkpoint = rinku_core::types::Checkpoint {
                     height: 0,
-                    hash: rinku_core::sha256_hex(&format!("genesis-checkpoint:{}", genesis_time)),
+                    hash: genesis_checkpoint_hash,
                     previous_hash: None,
                     tx_merkle_root: genesis_hash.clone(),
-                    state_root: "0".repeat(64),
-                    receipt_root: "0".repeat(64),
-                    tip_count: 1,
+                    state_root: genesis_state_root,
+                    receipt_root: genesis_receipt_root,
+                    tip_count: genesis_tip_count,
                     timestamp: genesis_time,
                     validator_signatures: vec![], // Will be updated when checkpoint service starts
                     aggregated_signature: None,

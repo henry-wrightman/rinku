@@ -262,6 +262,7 @@ pub struct SelfContainedProof {
     pub tx_timestamp: u64,
     pub checkpoint_height: u64,
     pub checkpoint_id: String,
+    pub checkpoint_timestamp: u64,
     pub tx_merkle_root: String,
     pub state_root: String,
     pub receipt_root: String,
@@ -292,24 +293,22 @@ pub struct ProofVerificationResult {
 const SELF_PROOF_VERSION: u32 = 4;
 
 pub fn compute_checkpoint_signing_hash(
-    checkpoint_id: &str,
     height: u64,
     tx_merkle_root: &str,
     state_root: &str,
     receipt_root: &str,
-    validator_sum_tree_root: &MerkleSumRoot,
     tip_count: u32,
+    timestamp: u64,
 ) -> Vec<u8> {
+    // This MUST match the format used in checkpoint.rs compute_checkpoint_hash
     let signing_data = format!(
-        "{}:{}:{}:{}:{}:{}:{}:{}",
-        checkpoint_id,
+        "{}:{}:{}:{}:{}:{}",
         height,
         tx_merkle_root,
         state_root,
         receipt_root,
-        validator_sum_tree_root.hash,
-        validator_sum_tree_root.total_weight,
-        tip_count
+        tip_count,
+        timestamp
     );
     let mut hasher = Sha256::new();
     hasher.update(signing_data.as_bytes());
@@ -322,24 +321,37 @@ pub fn verify_tx_merkle_proof(
     index: usize,
     expected_root: &str,
 ) -> bool {
-    let mut current = tx_hash.to_string();
+    // Decode tx_hash from hex to raw bytes
+    let mut current_bytes = match hex::decode(tx_hash) {
+        Ok(bytes) if bytes.len() == 32 => bytes,
+        _ => return false,
+    };
     let mut idx = index;
 
     for sibling in proof {
-        let (left, right) = if idx % 2 == 0 {
-            (&current, sibling)
-        } else {
-            (sibling, &current)
+        // Decode sibling from hex to raw bytes
+        let sibling_bytes = match hex::decode(sibling) {
+            Ok(bytes) if bytes.len() == 32 => bytes,
+            _ => return false,
         };
 
-        let combined = format!("{}{}", left, right);
+        // Combine as raw bytes (not hex strings) - matches MerkleTree::compute_next_layer
+        let mut combined = Vec::with_capacity(64);
+        if idx % 2 == 0 {
+            combined.extend_from_slice(&current_bytes);
+            combined.extend_from_slice(&sibling_bytes);
+        } else {
+            combined.extend_from_slice(&sibling_bytes);
+            combined.extend_from_slice(&current_bytes);
+        }
+
         let mut hasher = Sha256::new();
-        hasher.update(combined.as_bytes());
-        current = hex::encode(hasher.finalize());
+        hasher.update(&combined);
+        current_bytes = hasher.finalize().to_vec();
         idx /= 2;
     }
 
-    current == expected_root
+    hex::encode(&current_bytes) == expected_root
 }
 
 pub fn verify_self_contained_proof(proof: &SelfContainedProof) -> ProofVerificationResult {
@@ -384,13 +396,12 @@ pub fn verify_self_contained_proof(proof: &SelfContainedProof) -> ProofVerificat
     }
 
     let checkpoint_hash = compute_checkpoint_signing_hash(
-        &proof.checkpoint_id,
         proof.checkpoint_height,
         &proof.tx_merkle_root,
         &proof.state_root,
         &proof.receipt_root,
-        &proof.validator_sum_tree_root,
         proof.tip_count,
+        proof.checkpoint_timestamp,
     );
 
     let signer_pub_keys: Vec<Vec<u8>> = proof
