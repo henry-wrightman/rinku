@@ -2,6 +2,7 @@ use anyhow::Result;
 use rinku_core::{
     dag::Dag,
     types::{Account, Checkpoint, SignedTransaction, Validator},
+    weight::calculate_account_weight,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -114,16 +115,26 @@ impl NodeState {
                     checkpoint_count
                 );
                 let mut dag = Dag::new(config.max_dag_nodes);
+                let now_secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
                 for tx in txs {
                     // Genesis transaction and txs from before checkpoints should be considered finalized
                     let is_genesis = tx.tx.from == "genesis";
                     let is_finalized = is_genesis || checkpoint_count > 0;
+                    // Calculate weight from sender account
+                    let tx_weight = if let Some(account) = accounts.get(&tx.tx.from) {
+                        calculate_account_weight(account, now_secs)
+                    } else {
+                        1.0
+                    };
                     let node = rinku_core::types::DagNode {
                         hash: tx.hash.clone(),
                         tx: tx.clone(),
                         parents: tx.tx.parents.clone(),
                         children: Vec::new(),
-                        weight: 1.0,
+                        weight: tx_weight,
                         finalized: is_finalized,
                         checkpoint_height: if is_genesis {
                             Some(0)
@@ -580,12 +591,27 @@ impl NodeState {
             })
             .collect();
 
+        // Calculate transaction weight based on sender's account
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        let tx_weight = {
+            let state = self.inner.read().await;
+            if let Some(account) = state.accounts.get(&tx.tx.from) {
+                calculate_account_weight(account, now_secs)
+            } else {
+                1.0 // New account, minimum weight
+            }
+        };
+
         let node = rinku_core::types::DagNode {
             hash: tx.hash.clone(),
             tx: tx.clone(),
             parents: normalized_parents,
             children: Vec::new(),
-            weight: 1.0,
+            weight: tx_weight,
             finalized: false,
             checkpoint_height: None,
         };
@@ -682,6 +708,22 @@ impl NodeState {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
+        let now_secs = now_ms / 1000;
+
+        // Get account weights with read lock first
+        let account_weights: std::collections::HashMap<String, f64> = {
+            let state = self.inner.read().await;
+            txs.iter()
+                .map(|tx| {
+                    let weight = if let Some(account) = state.accounts.get(&tx.tx.from) {
+                        calculate_account_weight(account, now_secs)
+                    } else {
+                        1.0
+                    };
+                    (tx.tx.from.clone(), weight)
+                })
+                .collect()
+        };
 
         let prepared: Vec<_> = txs
             .iter()
@@ -701,12 +743,14 @@ impl NodeState {
                     })
                     .collect();
 
+                let tx_weight = account_weights.get(&tx.tx.from).copied().unwrap_or(1.0);
+
                 rinku_core::types::DagNode {
                     hash: tx.hash.clone(),
                     tx: tx.clone(),
                     parents: normalized_parents,
                     children: Vec::new(),
-                    weight: 1.0,
+                    weight: tx_weight,
                     finalized: false,
                     checkpoint_height: None,
                 }
@@ -1099,6 +1143,10 @@ impl NodeState {
 
         // Add unfinalized DAG transactions in topological order
         // This ensures parents are inserted before children
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let mut added = 0;
         for hash in sorted_hashes {
             let tx = match tx_lookup.get(&hash) {
@@ -1107,13 +1155,20 @@ impl NodeState {
             };
 
             let normalized_parents = tx_parents.get(&hash).cloned().unwrap_or_default();
+            
+            // Calculate weight from sender account
+            let tx_weight = if let Some(account) = state.accounts.get(&tx.tx.from) {
+                calculate_account_weight(account, now_secs)
+            } else {
+                1.0
+            };
 
             let node = rinku_core::types::DagNode {
                 hash: tx.hash.clone(),
                 tx: tx.clone(),
                 parents: normalized_parents,
                 children: Vec::new(),
-                weight: 1.0,
+                weight: tx_weight,
                 finalized: false,
                 checkpoint_height: None,
             };
