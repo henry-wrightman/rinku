@@ -95,6 +95,8 @@ pub struct ValidatorSignature {
     pub validator: String,
     pub signature: String,
     pub weight: f64,
+    #[serde(default)]
+    pub bls_public_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

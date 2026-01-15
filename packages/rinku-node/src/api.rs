@@ -1719,29 +1719,36 @@ async fn generate_transaction_proof(
         }
     };
 
-    let validators = state.get_validators().await;
-    let validator_leaves: Vec<MerkleSumLeaf> = validators
+    // Build validator leaves from checkpoint's validator signatures (not global state)
+    let validator_leaves: Vec<MerkleSumLeaf> = checkpoint
+        .validator_signatures
         .iter()
-        .filter(|v| v.bls_public_key.is_some())
+        .filter(|sig| sig.bls_public_key.is_some())
         .enumerate()
-        .map(|(i, v)| MerkleSumLeaf {
+        .map(|(i, sig)| MerkleSumLeaf {
             index: i,
-            address: v.address.clone(),
-            bls_public_key: v.bls_public_key.clone().unwrap_or_default(),
-            weight: v.stake,
+            address: sig.validator.clone(),
+            bls_public_key: sig.bls_public_key.clone().unwrap_or_default(),
+            weight: sig.weight,
         })
         .collect();
 
+    if validator_leaves.is_empty() {
+        return Ok(Json(TransactionProofResponse {
+            tx_hash: hash,
+            finalized: true,
+            proof_url: None,
+            proof_size_bytes: None,
+            qr_viable: None,
+            error: Some("Checkpoint has no validators with BLS public keys".to_string()),
+        }));
+    }
+
     let validator_tree = build_merkle_sum_tree(&validator_leaves);
 
-    let membership_proofs: Vec<_> = checkpoint
-        .validator_signatures
-        .iter()
-        .filter_map(|sig| {
-            validator_leaves.iter()
-                .position(|l| l.address == sig.validator)
-                .and_then(|pos| get_merkle_sum_proof(&validator_leaves, pos))
-        })
+    // Generate membership proofs for all signers
+    let membership_proofs: Vec<_> = (0..validator_leaves.len())
+        .filter_map(|idx| get_merkle_sum_proof(&validator_leaves, idx))
         .collect();
 
     let self_proof = SelfContainedProof {

@@ -766,6 +766,7 @@ impl CheckpointService {
             validator: self.validator_address.clone(),
             signature: URL_SAFE_NO_PAD.encode(&signature),
             weight: 1.0,
+            bls_public_key: Some(self.bls_public_key_base64()),
         };
 
         let aggregated_sig = aggregate_signatures(&[signature.clone()])
