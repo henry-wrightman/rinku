@@ -55,12 +55,64 @@ impl CheckpointService {
     }
 
     pub async fn start(self) -> Result<()> {
+        // Sign the genesis checkpoint if it exists and has no signatures
+        self.sign_genesis_checkpoint().await;
+        
         let interval = tokio::time::Duration::from_millis(self.interval_ms);
 
         loop {
             tokio::time::sleep(interval).await;
             if let Err(e) = self.create_checkpoint().await {
                 tracing::warn!("Checkpoint creation failed: {}", e);
+            }
+        }
+    }
+    
+    /// Sign the genesis checkpoint (height 0) if it exists but has no BLS signatures
+    /// Note: We keep the original hash to ensure all nodes have the same genesis checkpoint hash
+    async fn sign_genesis_checkpoint(&self) {
+        let mut state = self.state.inner.write().await;
+        
+        // Find genesis checkpoint (height 0)
+        if let Some(genesis_cp) = state.checkpoints.iter_mut().find(|cp| cp.height == 0) {
+            // Check if it already has valid signatures with BLS keys
+            let has_bls_keys = genesis_cp.validator_signatures.iter().any(|s| s.bls_public_key.is_some());
+            
+            if !has_bls_keys {
+                info!("Signing genesis checkpoint with node's BLS key");
+                
+                // Use the existing hash as the message to sign (keeps hash deterministic across nodes)
+                let hash_bytes = hex::decode(&genesis_cp.hash).unwrap_or_else(|_| {
+                    // Fallback: compute hash if current hash is not valid hex
+                    Self::compute_checkpoint_hash(
+                        genesis_cp.height,
+                        &genesis_cp.tx_merkle_root,
+                        &genesis_cp.state_root,
+                        &genesis_cp.receipt_root,
+                        genesis_cp.tip_count,
+                        genesis_cp.timestamp,
+                    )
+                });
+                
+                // Sign with our BLS key
+                if let Ok(signature) = bls_sign(&hash_bytes, &self.bls_private_key) {
+                    let validator_sig = ValidatorSignature {
+                        validator: self.validator_address.clone(),
+                        signature: URL_SAFE_NO_PAD.encode(&signature),
+                        weight: 1.0,
+                        bls_public_key: Some(self.bls_public_key_base64()),
+                    };
+                    
+                    // Don't change the hash - keep it deterministic across all nodes
+                    genesis_cp.validator_signatures = vec![validator_sig];
+                    
+                    if let Ok(agg_sig) = aggregate_signatures(&[signature]) {
+                        genesis_cp.aggregated_signature = Some(URL_SAFE_NO_PAD.encode(&agg_sig));
+                        genesis_cp.signer_bitmap = Some(create_signer_bitmap(&[0], 1));
+                    }
+                    
+                    info!("Genesis checkpoint signed: {}", &genesis_cp.hash[..16.min(genesis_cp.hash.len())]);
+                }
             }
         }
     }

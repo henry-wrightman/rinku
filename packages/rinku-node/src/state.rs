@@ -226,11 +226,28 @@ impl NodeState {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64;
+                
+                // Create genesis checkpoint (height 0) so genesis tx can have proofs generated
+                // Note: This is a placeholder checkpoint - real BLS signatures added when checkpoint service starts
+                let genesis_checkpoint = rinku_core::types::Checkpoint {
+                    height: 0,
+                    hash: rinku_core::sha256_hex(&format!("genesis-checkpoint:{}", genesis_time)),
+                    previous_hash: None,
+                    tx_merkle_root: genesis_hash.clone(),
+                    state_root: "0".repeat(64),
+                    receipt_root: "0".repeat(64),
+                    tip_count: 1,
+                    timestamp: genesis_time,
+                    validator_signatures: vec![], // Will be updated when checkpoint service starts
+                    aggregated_signature: None,
+                    signer_bitmap: None,
+                };
+                
                 StateInner {
                     dag,
                     accounts,
                     validators: HashMap::new(),
-                    checkpoints: Vec::new(),
+                    checkpoints: vec![genesis_checkpoint],
                     current_gas_price: config.gas.min_gas_price,
                     total_supply: config.tokenomics.genesis_allocation,
                     genesis_time,
