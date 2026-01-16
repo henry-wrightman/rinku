@@ -16,7 +16,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **URL-Native Ledger:** The entire ledger state is embedded in cryptographically linked URLs, making the chain self-crawlable and verifiable. Transactions are base64url-encoded, deflated JSON objects directly in URLs.
 - **DAG-Based Consensus:** Accounts maintain micro-chains, with transactions referencing multiple prior "tips." Conflicts are resolved by cumulative weight, providing Sybil resistance.
 - **Trustless Verification:** Finality proofs, embedded as URL query parameters, allow complete cryptographic validation of transactions and ledger state directly from URLs.
-- **Smart Contracts:** Contract code and state are URL-encoded, with calls embedded within transactions.
+- **Smart Contracts:** Contract code and state are URL-encoded, with calls embedded within transactions. Contracts are persisted in node state and distributed across all nodes. API endpoints: `GET /api/contracts` (list all), `GET /api/contracts/:id` (get one), `POST /api/contracts/deploy` (deploy new), `POST /api/contracts/:id/call` (execute entrypoint with state mutation).
 - **Reward and Staking System:** Supports Tip, Stake, and Witness Rewards, with a staking mechanism for validators including slashing penalties and an unbonding queue.
 - **Dynamic Gas Fee Model (EIP-1559 Style):** Utilization-based pricing adjusts based on transaction volume, with an adaptive fee split (70%+ to validators, up to 30% burned).
 - **Tokenomics System:** Hard-capped supply (30M RKU), genesis allocation, checkpoint-based emission with 18-month halving epochs, and WPoS reward distribution.
