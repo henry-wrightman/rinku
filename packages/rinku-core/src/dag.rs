@@ -215,6 +215,11 @@ impl Dag {
     pub fn get_all_nodes(&self) -> Vec<&DagNode> {
         self.graph.node_weights().collect()
     }
+    
+    /// Get mutable iterator over all nodes (used for recalculating weights)
+    pub fn nodes_mut(&mut self) -> impl Iterator<Item = &mut DagNode> {
+        self.graph.node_weights_mut()
+    }
 
     pub fn all_transactions(&self) -> Vec<crate::types::SignedTransaction> {
         self.graph.node_weights().map(|n| n.tx.clone()).collect()

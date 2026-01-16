@@ -353,6 +353,40 @@ impl NodeState {
         }
         info!("Synced {} stakes to account state", synced);
     }
+    
+    /// Recalculate DAG node weights based on current account state
+    /// This is needed on startup to fix weights for transactions that were added
+    /// before their sender's stake was synced to account.staked
+    async fn recalculate_dag_weights(&self) {
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        let mut state = self.inner.write().await;
+        
+        // Get all account weights first
+        let account_weights: std::collections::HashMap<String, f64> = state.accounts
+            .iter()
+            .map(|(addr, acc)| (addr.clone(), calculate_account_weight(acc, now_secs)))
+            .collect();
+        
+        // Update DAG node weights
+        let mut updated = 0;
+        for node in state.dag.nodes_mut() {
+            let sender = &node.tx.tx.from;
+            if let Some(&new_weight) = account_weights.get(sender) {
+                if (node.weight - new_weight).abs() > 0.01 {
+                    node.weight = new_weight;
+                    updated += 1;
+                }
+            }
+        }
+        
+        if updated > 0 {
+            info!("Recalculated {} DAG node weights based on current account state", updated);
+        }
+    }
 
     pub async fn save_snapshot(&self) -> Result<()> {
         // Run memory cleanup before saving
