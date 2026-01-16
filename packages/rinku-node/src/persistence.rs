@@ -24,8 +24,12 @@ impl PersistenceService {
     pub fn new(data_dir: &str) -> Result<Self> {
         let db_path = format!("{}/sled-db", data_dir);
         std::fs::create_dir_all(data_dir)?;
-        let db = sled::open(&db_path)?;
-        info!("Opened sled database at {}", db_path);
+        // Limit sled page cache to 32MB to prevent memory bloat
+        let db = sled::Config::new()
+            .path(&db_path)
+            .cache_capacity(32 * 1024 * 1024)  // 32MB cache cap
+            .open()?;
+        info!("Opened sled database at {} (32MB cache)", db_path);
         Ok(Self { db })
     }
 

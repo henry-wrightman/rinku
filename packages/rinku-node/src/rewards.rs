@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 pub const WITNESS_TTL_MS: u64 = 3_600_000;
 pub const QUEUE_COMPACT_THRESHOLD: usize = 10_000;
+pub const MAX_WITNESSED_ENTRIES: usize = 20_000;  // Hard cap to prevent memory leak
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -236,7 +237,11 @@ impl RewardsService {
         recipient: &str,
         tx_amount: f64,
     ) -> Option<WitnessReward> {
-        let key = format!("{}:{}", referencing_tx_url, referenced_tx_url);
+        // Use short key: just last 16 chars of each hash to save memory
+        let ref_short = referencing_tx_url.chars().rev().take(16).collect::<String>();
+        let parent_short = referenced_tx_url.chars().rev().take(16).collect::<String>();
+        let key = format!("{}:{}", ref_short, parent_short);
+        
         if self.witnessed_txs.contains_key(&key) {
             return None;
         }
@@ -244,6 +249,11 @@ impl RewardsService {
         let amount = self.calculate_witness_reward(tx_amount);
         if amount <= 0.0 {
             return None;
+        }
+
+        // Enforce hard cap - evict oldest entries if at limit
+        if self.witnessed_txs.len() >= MAX_WITNESSED_ENTRIES {
+            self.force_prune_witnessed(MAX_WITNESSED_ENTRIES / 4);  // Remove 25%
         }
 
         let now = current_time_ms();
@@ -260,6 +270,23 @@ impl RewardsService {
         self.witnessed_queue.push(WitnessedEntry { key, ts: now });
 
         Some(reward)
+    }
+    
+    /// Force prune oldest witnessed entries to stay under memory cap
+    fn force_prune_witnessed(&mut self, count: usize) {
+        let mut pruned = 0;
+        while pruned < count && self.witnessed_queue_head < self.witnessed_queue.len() {
+            let oldest = &self.witnessed_queue[self.witnessed_queue_head];
+            self.witnessed_txs.remove(&oldest.key);
+            self.witnessed_queue_head += 1;
+            pruned += 1;
+        }
+        
+        // Compact the queue if needed
+        if self.witnessed_queue_head >= QUEUE_COMPACT_THRESHOLD {
+            self.witnessed_queue = self.witnessed_queue[self.witnessed_queue_head..].to_vec();
+            self.witnessed_queue_head = 0;
+        }
     }
 
     pub fn stake(&mut self, staker: &str, amount: f64) -> Result<StakePosition, String> {
