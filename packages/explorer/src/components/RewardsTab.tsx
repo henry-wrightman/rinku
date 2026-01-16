@@ -322,34 +322,34 @@ export function RewardsTab() {
             </div>
             <div className="stat-row">
               <span>active validators:</span>
-              <span className="value">{stakingInfo.validators.length}</span>
+              <span className="value">{stakingInfo.validators?.length ?? 0}</span>
             </div>
             <div className="stat-row">
               <span>min stake:</span>
               <span className="value">
-                {stakingInfo.config.minStakeAmount} RKU
+                {stakingInfo.config?.minStakeAmount ?? 100} RKU
               </span>
             </div>
             <div className="stat-row">
               <span>tip reward rate:</span>
               <span className="value">
-                {(stakingInfo.config.tipRewardRate * 100).toFixed(1)}%
+                {((stakingInfo.config?.tipRewardRate ?? 0) * 100).toFixed(1)}%
               </span>
             </div>
             <div className="stat-row">
               <span>stake reward rate:</span>
               <span className="value">
-                {(stakingInfo.config.stakeRewardRate * 100).toFixed(2)}%
+                {((stakingInfo.config?.stakeRewardRate ?? 0) * 100).toFixed(2)}%
               </span>
             </div>
             <div className="stat-row">
               <span>witness reward rate:</span>
               <span className="value">
-                {(stakingInfo.config.witnessRewardRate * 100).toFixed(2)}%
+                {((stakingInfo.config?.witnessRewardRate ?? 0) * 100).toFixed(2)}%
               </span>
             </div>
 
-            {stakingInfo.topStakers.length > 0 && (
+            {(stakingInfo.topStakers?.length ?? 0) > 0 && (
               <div className="top-stakers">
                 <h4>top stakers</h4>
                 {stakingInfo.topStakers.map((s, i) => (
@@ -410,7 +410,7 @@ export function RewardsTab() {
               </div>
             </div>
 
-            {rewards.rewardHistory.length > 0 && (
+            {(rewards.rewardHistory?.length ?? 0) > 0 && (
               <div className="reward-history">
                 <h4>recent rewards</h4>
                 {rewards.rewardHistory
