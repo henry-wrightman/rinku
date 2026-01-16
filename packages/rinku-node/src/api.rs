@@ -1969,7 +1969,9 @@ async fn post_stake(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ContractDeployRequest {
-    creator: String,
+    tx: TxInner,
+    #[serde(default)]
+    public_key: Option<Vec<u8>>,
     wasm_base64: String,
     init_state: std::collections::HashMap<String, serde_json::Value>,
 }
@@ -1986,7 +1988,8 @@ struct ContractDeployResponse {
 async fn post_contract_deploy(
     Json(req): Json<ContractDeployRequest>,
 ) -> Json<ContractDeployResponse> {
-    let contract_id = format!("contract-{}", &rinku_core::crypto::sha256_hex(&req.creator)[..16]);
+    let creator = req.tx.from.clone();
+    let contract_id = format!("contract-{}", &rinku_core::crypto::sha256_hex(&creator)[..16]);
     let deploy_url = format!("rinku://contract/{}", contract_id);
     
     Json(ContractDeployResponse {
@@ -1998,8 +2001,11 @@ async fn post_contract_deploy(
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ContractCallRequest {
-    caller: String,
+    tx: TxInner,
+    #[serde(default)]
+    public_key: Option<Vec<u8>>,
     entrypoint: String,
     input: serde_json::Value,
 }
@@ -2016,11 +2022,12 @@ async fn post_contract_call(
     Path(contract_id): Path<String>,
     Json(req): Json<ContractCallRequest>,
 ) -> Json<ContractCallResponse> {
+    let caller = req.tx.from.clone();
     Json(ContractCallResponse {
         success: true,
         result: Some(serde_json::json!({
             "contract_id": contract_id,
-            "caller": req.caller,
+            "caller": caller,
             "entrypoint": req.entrypoint,
         })),
         gas_used: 1000,
