@@ -158,6 +158,28 @@ impl PersistenceService {
             }
         }
     }
+
+    pub fn save_contracts(&self, contracts: &[crate::contracts::ContractState]) -> Result<()> {
+        let data = serde_json::to_vec(contracts)?;
+        self.db.insert("contracts", data)?;
+        self.db.flush()?;
+        debug!("Saved {} contracts", contracts.len());
+        Ok(())
+    }
+
+    pub fn load_contracts(&self) -> Result<Vec<crate::contracts::ContractState>> {
+        match self.db.get("contracts")? {
+            Some(data) => {
+                let contracts: Vec<crate::contracts::ContractState> = serde_json::from_slice(&data)?;
+                info!("Loaded {} contracts from persistence", contracts.len());
+                Ok(contracts)
+            }
+            None => {
+                debug!("No contracts found in persistence");
+                Ok(Vec::new())
+            }
+        }
+    }
 }
 
 #[cfg(test)]

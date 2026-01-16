@@ -68,6 +68,7 @@ pub struct StateInner {
     pub accounts: HashMap<String, Account>,
     pub validators: HashMap<String, Validator>,
     pub checkpoints: Vec<Checkpoint>,
+    pub contracts: HashMap<String, crate::contracts::ContractState>,
     pub current_gas_price: f64,
     pub total_supply: f64,
     pub genesis_time: u64,
@@ -154,11 +155,18 @@ impl NodeState {
                     .last()
                     .map(|c| c.timestamp * 1000)
                     .unwrap_or(now_ms);
+                let loaded_contracts = persistence.load_contracts().unwrap_or_default();
+                let contracts: HashMap<String, crate::contracts::ContractState> = loaded_contracts
+                    .into_iter()
+                    .map(|c| (c.contract_id.clone(), c))
+                    .collect();
+                info!("Loaded {} contracts from persistence", contracts.len());
                 StateInner {
                     dag,
                     accounts,
                     validators,
                     checkpoints,
+                    contracts,
                     current_gas_price: gas_price,
                     total_supply: supply,
                     genesis_time: genesis,
@@ -273,6 +281,7 @@ impl NodeState {
                     accounts,
                     validators: HashMap::new(),
                     checkpoints: vec![genesis_checkpoint],
+                    contracts: HashMap::new(),
                     current_gas_price: config.gas.min_gas_price,
                     total_supply: config.tokenomics.genesis_allocation,
                     genesis_time,
@@ -1441,5 +1450,50 @@ impl NodeState {
         };
 
         Some((winner, loser, weight_a, weight_b))
+    }
+
+    pub async fn store_contract(&self, contract: crate::contracts::ContractState) -> Result<()> {
+        let mut state = self.inner.write().await;
+        let contract_id = contract.contract_id.clone();
+        state.contracts.insert(contract_id.clone(), contract);
+        info!("Stored contract {}", contract_id);
+        
+        let contracts_data: Vec<_> = state.contracts.values().cloned().collect();
+        drop(state);
+        self.persistence.save_contracts(&contracts_data)?;
+        Ok(())
+    }
+
+    pub async fn get_contract(&self, contract_id: &str) -> Option<crate::contracts::ContractState> {
+        let state = self.inner.read().await;
+        state.contracts.get(contract_id).cloned()
+    }
+
+    pub async fn get_all_contracts(&self) -> Vec<crate::contracts::ContractState> {
+        let state = self.inner.read().await;
+        state.contracts.values().cloned().collect()
+    }
+
+    pub async fn update_contract_state(
+        &self,
+        contract_id: &str,
+        new_state: std::collections::HashMap<String, serde_json::Value>,
+        state_hash: String,
+        new_height: u64,
+    ) -> Result<()> {
+        let mut state = self.inner.write().await;
+        if let Some(contract) = state.contracts.get_mut(contract_id) {
+            contract.state = new_state;
+            contract.state_hash = state_hash;
+            contract.height = new_height;
+            info!("Updated contract {} state at height {}", contract_id, new_height);
+            
+            let contracts_data: Vec<_> = state.contracts.values().cloned().collect();
+            drop(state);
+            self.persistence.save_contracts(&contracts_data)?;
+            Ok(())
+        } else {
+            anyhow::bail!("Contract {} not found", contract_id)
+        }
     }
 }

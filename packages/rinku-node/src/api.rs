@@ -1986,18 +1986,43 @@ struct ContractDeployResponse {
 }
 
 async fn post_contract_deploy(
+    State(state): State<NodeState>,
     Json(req): Json<ContractDeployRequest>,
 ) -> Json<ContractDeployResponse> {
     let creator = req.tx.from.clone();
-    let contract_id = format!("contract-{}", &rinku_core::crypto::sha256_hex(&creator)[..16]);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let contract_id = format!("contract-{}-{}", &rinku_core::crypto::sha256_hex(&format!("{}:{}", creator, now))[..12], now);
     let deploy_url = format!("rinku://contract/{}", contract_id);
+    let state_hash = rinku_core::crypto::sha256_hex(&serde_json::to_string(&req.init_state).unwrap_or_default());
     
-    Json(ContractDeployResponse {
-        success: true,
-        contract_id: Some(contract_id),
-        deploy_url: Some(deploy_url),
-        error: None,
-    })
+    let contract = crate::contracts::ContractState {
+        contract_id: contract_id.clone(),
+        creator: creator.clone(),
+        wasm_base64: req.wasm_base64,
+        deploy_url: deploy_url.clone(),
+        state: req.init_state,
+        state_hash,
+        height: 0,
+        created_at: now,
+    };
+    
+    match state.store_contract(contract).await {
+        Ok(()) => Json(ContractDeployResponse {
+            success: true,
+            contract_id: Some(contract_id),
+            deploy_url: Some(deploy_url),
+            error: None,
+        }),
+        Err(e) => Json(ContractDeployResponse {
+            success: false,
+            contract_id: None,
+            deploy_url: None,
+            error: Some(e.to_string()),
+        }),
+    }
 }
 
 #[derive(Deserialize)]
@@ -2019,20 +2044,80 @@ struct ContractCallResponse {
 }
 
 async fn post_contract_call(
+    State(state): State<NodeState>,
     Path(contract_id): Path<String>,
     Json(req): Json<ContractCallRequest>,
 ) -> Json<ContractCallResponse> {
     let caller = req.tx.from.clone();
-    Json(ContractCallResponse {
-        success: true,
-        result: Some(serde_json::json!({
-            "contract_id": contract_id,
-            "caller": caller,
-            "entrypoint": req.entrypoint,
-        })),
-        gas_used: 1000,
-        error: None,
-    })
+    
+    let contract = match state.get_contract(&contract_id).await {
+        Some(c) => c,
+        None => {
+            return Json(ContractCallResponse {
+                success: false,
+                result: None,
+                gas_used: 0,
+                error: Some(format!("Contract {} not found", contract_id)),
+            });
+        }
+    };
+    
+    let mut new_state = contract.state.clone();
+    new_state.insert("lastCaller".to_string(), serde_json::json!(caller));
+    new_state.insert("lastEntrypoint".to_string(), serde_json::json!(req.entrypoint.clone()));
+    new_state.insert("lastInput".to_string(), req.input.clone());
+    new_state.insert("callCount".to_string(), serde_json::json!(
+        new_state.get("callCount").and_then(|v| v.as_u64()).unwrap_or(0) + 1
+    ));
+    
+    let new_height = contract.height + 1;
+    let state_hash = rinku_core::crypto::sha256_hex(&serde_json::to_string(&new_state).unwrap_or_default());
+    
+    match state.update_contract_state(&contract_id, new_state.clone(), state_hash, new_height).await {
+        Ok(()) => Json(ContractCallResponse {
+            success: true,
+            result: Some(serde_json::json!({
+                "contract_id": contract_id,
+                "caller": caller,
+                "entrypoint": req.entrypoint,
+                "height": new_height,
+                "state": new_state,
+            })),
+            gas_used: 1000,
+            error: None,
+        }),
+        Err(e) => Json(ContractCallResponse {
+            success: false,
+            result: None,
+            gas_used: 0,
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContractListResponse {
+    contracts: Vec<crate::contracts::ContractState>,
+    count: usize,
+}
+
+async fn get_contracts(
+    State(state): State<NodeState>,
+) -> Json<ContractListResponse> {
+    let contracts = state.get_all_contracts().await;
+    let count = contracts.len();
+    Json(ContractListResponse { contracts, count })
+}
+
+async fn get_contract(
+    State(state): State<NodeState>,
+    Path(contract_id): Path<String>,
+) -> Result<Json<crate::contracts::ContractState>, StatusCode> {
+    match state.get_contract(&contract_id).await {
+        Some(contract) => Ok(Json(contract)),
+        None => Err(StatusCode::NOT_FOUND),
+    }
 }
 
 async fn get_version() -> Json<VersionResponse> {
@@ -2222,6 +2307,8 @@ pub async fn start_api_server(
         .route("/api/staking", get(get_staking))
         .route("/api/staking/stake", post(post_stake))
         .route("/api/staking/:address", get(get_staking_address))
+        .route("/api/contracts", get(get_contracts))
+        .route("/api/contracts/:contract_id", get(get_contract))
         .route("/api/contracts/deploy", post(post_contract_deploy))
         .route("/api/contracts/:contract_id/call", post(post_contract_call))
         .route("/api/tokenomics/supply", get(get_tokenomics_supply))
