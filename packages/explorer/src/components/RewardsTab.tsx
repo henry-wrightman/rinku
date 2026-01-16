@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
-import { 
-  createSignedTransaction, 
-  generateKeyPair, 
-  serializeKeyPair, 
-  deserializeKeyPair, 
+import {
+  createSignedTransaction,
+  generateKeyPair,
+  serializeKeyPair,
+  deserializeKeyPair,
   validateSerializedKey,
   getFingerprint,
-  type SerializedKeyPair 
+  type SerializedKeyPair,
 } from "../crypto";
 
 interface RewardsSummary {
@@ -85,12 +85,14 @@ export function RewardsTab() {
       setError("Please paste a key");
       return;
     }
-    
+
     if (!validateSerializedKey(keyInput)) {
-      setError("Invalid key format. Paste the full JSON key from CLI (including publicKey, privateKey, and fingerprint).");
+      setError(
+        "Invalid key format. Paste the full JSON key from CLI (including publicKey, privateKey, and fingerprint).",
+      );
       return;
     }
-    
+
     try {
       const kp = deserializeKeyPair(keyInput);
       setKeyPair(kp);
@@ -114,7 +116,9 @@ export function RewardsTab() {
       setWalletReady(true);
       setAddress(kp.fingerprint);
       setShowPrivateKey(true);
-      setResult(`Wallet created! Address: ${kp.fingerprint.slice(0, 16)}... SAVE YOUR KEY!`);
+      setResult(
+        `Wallet created! Address: ${kp.fingerprint.slice(0, 16)}... SAVE YOUR KEY!`,
+      );
     } catch (e: any) {
       setError(e.message);
     }
@@ -189,10 +193,15 @@ export function RewardsTab() {
 
     try {
       const tipsRes = await fetch(`${NODE_URL}/tips`);
-      const tips = await tipsRes.json();
-      const parents = (tips as string[]).slice(0, 2).map((h: string) => `rinku://tx/h/${h}`);
+      const tipsData = await tipsRes.json();
+      const tips = tipsData.tips || tipsData || [];
+      const parents = (tips as string[])
+        .slice(0, 2)
+        .map((h: string) => `rinku://tx/h/${h}`);
 
-      const accountRes = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
+      const accountRes = await fetch(
+        `${NODE_URL}/account/${keyPair.fingerprint}`,
+      );
       const account = await accountRes.json();
       const nonce = (account.nonce || 0) + 1;
 
@@ -213,7 +222,9 @@ export function RewardsTab() {
 
       const data = await res.json();
       if (res.ok && data.hash) {
-        setResult(`Staked ${stakeAmount} RKU (tx: ${data.hash.slice(0, 12)}...)`);
+        setResult(
+          `Staked ${stakeAmount} RKU (tx: ${data.hash.slice(0, 12)}...)`,
+        );
         setTimeout(() => {
           fetchRewards();
           fetchStakingInfo();
@@ -240,10 +251,15 @@ export function RewardsTab() {
 
     try {
       const tipsRes = await fetch(`${NODE_URL}/tips`);
-      const tips = await tipsRes.json();
-      const parents = (tips as string[]).slice(0, 2).map((h: string) => `rinku://tx/h/${h}`);
+      const tipsData = await tipsRes.json();
+      const tips = tipsData.tips || tipsData || [];
+      const parents = (tips as string[])
+        .slice(0, 2)
+        .map((h: string) => `rinku://tx/h/${h}`);
 
-      const accountRes = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
+      const accountRes = await fetch(
+        `${NODE_URL}/account/${keyPair.fingerprint}`,
+      );
       const account = await accountRes.json();
       const nonce = (account.nonce || 0) + 1;
 
@@ -264,7 +280,9 @@ export function RewardsTab() {
 
       const data = await res.json();
       if (res.ok && data.hash) {
-        setResult(`Unstaked ${staking.stakedAmount} RKU (tx: ${data.hash.slice(0, 12)}...)`);
+        setResult(
+          `Unstaked ${staking.stakedAmount} RKU (tx: ${data.hash.slice(0, 12)}...)`,
+        );
         setTimeout(() => {
           fetchRewards();
           fetchStakingInfo();
@@ -322,7 +340,9 @@ export function RewardsTab() {
             </div>
             <div className="stat-row">
               <span>active validators:</span>
-              <span className="value">{stakingInfo.validators?.length ?? 0}</span>
+              <span className="value">
+                {stakingInfo.validators?.length ?? 0}
+              </span>
             </div>
             <div className="stat-row">
               <span>min stake:</span>
@@ -345,7 +365,10 @@ export function RewardsTab() {
             <div className="stat-row">
               <span>witness reward rate:</span>
               <span className="value">
-                {((stakingInfo.config?.witnessRewardRate ?? 0) * 100).toFixed(2)}%
+                {((stakingInfo.config?.witnessRewardRate ?? 0) * 100).toFixed(
+                  2,
+                )}
+                %
               </span>
             </div>
 
@@ -477,7 +500,7 @@ export function RewardsTab() {
                     value={keyInput}
                     onChange={(e) => setKeyInput(e.target.value)}
                     rows={3}
-                    style={{ fontFamily: 'monospace', fontSize: '11px' }}
+                    style={{ fontFamily: "monospace", fontSize: "11px" }}
                   />
                 </div>
                 <button onClick={handleImportKey} className="secondary">
@@ -491,16 +514,25 @@ export function RewardsTab() {
                   <span className="mono">{keyPair?.fingerprint}</span>
                 </div>
                 <div className="form-row">
-                  <button onClick={() => setShowPrivateKey(!showPrivateKey)} className="secondary small">
-                    {showPrivateKey ? 'hide' : 'show'} key
+                  <button
+                    onClick={() => setShowPrivateKey(!showPrivateKey)}
+                    className="secondary small"
+                  >
+                    {showPrivateKey ? "hide" : "show"} key
                   </button>
-                  <button onClick={() => {
-                    navigator.clipboard.writeText(getSerializedKey());
-                    setResult('Key copied to clipboard!');
-                  }} className="secondary small">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(getSerializedKey());
+                      setResult("Key copied to clipboard!");
+                    }}
+                    className="secondary small"
+                  >
                     copy key
                   </button>
-                  <button onClick={handleClearWallet} className="secondary small danger">
+                  <button
+                    onClick={handleClearWallet}
+                    className="secondary small danger"
+                  >
                     clear
                   </button>
                 </div>
@@ -520,26 +552,26 @@ export function RewardsTab() {
                   type="number"
                   placeholder="amount to stake"
                   value={stakeAmount}
-                  onChange={(e) => setStakeAmount(parseInt(e.target.value) || 0)}
+                  onChange={(e) =>
+                    setStakeAmount(parseInt(e.target.value) || 0)
+                  }
                   min={stakingInfo?.config.minStakeAmount || 100}
                 />
-                <button
-                  onClick={handleStake}
-                  disabled={stakeAmount <= 0}
-                >
+                <button onClick={handleStake} disabled={stakeAmount <= 0}>
                   stake
                 </button>
-                {staking?.stakedAmount && staking.stakedAmount > 0 && (
+                {staking?.stakedAmount && staking.stakedAmount > 0 ? (
                   <button onClick={handleUnstake} className="secondary">
                     unstake
                   </button>
-                )}
+                ) : undefined}
               </div>
             </div>
           )}
 
           <div className="stake-note">
-            transactions are signed locally - your private key never leaves your browser
+            transactions are signed locally - your private key never leaves your
+            browser
           </div>
         </div>
       </div>
