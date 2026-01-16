@@ -15,6 +15,7 @@ interface FaucetTabProps {
 }
 
 const FAUCET_URL = "/api/faucet";
+const NODE_API_URL = "/api";
 
 export function FaucetTab({ onSuccess }: FaucetTabProps) {
   const [address, setAddress] = useState("");

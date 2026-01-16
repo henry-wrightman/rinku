@@ -739,6 +739,40 @@ async fn handle_faucet_request(
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FaucetStatsResponse {
+    rate_limit_entries: usize,
+    max_entries: usize,
+    node_url: String,
+    genesis_allocation: f64,
+    current_balance: f64,
+    total_distributed: f64,
+    drop_amount: f64,
+}
+
+async fn get_faucet_stats(State(state): State<NodeState>) -> Json<FaucetStatsResponse> {
+    let rate_limit_entries = {
+        let rate_limit = FAUCET_RATE_LIMIT.lock().unwrap();
+        rate_limit.len()
+    };
+    
+    let faucet_account = state.get_account("faucet").await;
+    let current_balance = faucet_account.map(|a| a.balance).unwrap_or(0.0);
+    let genesis_allocation = 1_000_000.0;
+    let total_distributed = genesis_allocation - current_balance;
+    
+    Json(FaucetStatsResponse {
+        rate_limit_entries,
+        max_entries: 10000,
+        node_url: "local".to_string(),
+        genesis_allocation,
+        current_balance,
+        total_distributed,
+        drop_amount: FAUCET_AMOUNT,
+    })
+}
+
 async fn get_stats(State(state): State<NodeState>) -> Json<StatsResponse> {
     let (dag_nodes, tips, accounts) = state.get_dag_stats().await;
     let checkpoint_height = state.get_checkpoint_height().await;
@@ -1879,17 +1913,54 @@ async fn post_stake(
     State(state): State<NodeState>,
     Json(req): Json<StakeRequest>,
 ) -> Json<StakeResponse> {
-    let mut rewards = state.rewards.write().await;
+    // First check if account has sufficient balance
+    {
+        let inner = state.inner.read().await;
+        if let Some(account) = inner.accounts.get(&req.address) {
+            if account.balance < req.amount {
+                return Json(StakeResponse {
+                    success: false,
+                    address: req.address,
+                    amount: req.amount,
+                    error: Some(format!("Insufficient balance: {} < {}", account.balance, req.amount)),
+                });
+            }
+        } else {
+            return Json(StakeResponse {
+                success: false,
+                address: req.address,
+                amount: req.amount,
+                error: Some("Account not found".to_string()),
+            });
+        }
+    }
     
+    // Add stake to rewards service
+    let mut rewards = state.rewards.write().await;
     match rewards.stake(&req.address, req.amount) {
         Ok(position) => {
-            // Sync staked amount to account state for weight calculation
-            drop(rewards); // Release lock before calling async method
-            state.update_account_staked(
-                &req.address, 
-                position.amount, 
-                Some(position.staked_at / 1000) // Convert ms to seconds
-            ).await;
+            let staked_amount = position.amount;
+            let staked_at = position.staked_at;
+            drop(rewards); // Release rewards lock
+            
+            // Deduct balance AND sync staked amount atomically
+            {
+                let mut inner = state.inner.write().await;
+                if let Some(account) = inner.accounts.get_mut(&req.address) {
+                    account.balance -= req.amount;
+                    account.staked = staked_amount;
+                    if account.first_seen == 0 {
+                        account.first_seen = staked_at / 1000;
+                    }
+                    tracing::info!(
+                        "Stake processed: {} staked {} RKU (balance: {}, total staked: {})",
+                        &req.address[..16.min(req.address.len())],
+                        req.amount,
+                        account.balance,
+                        account.staked
+                    );
+                }
+            }
             
             Json(StakeResponse {
                 success: true,
@@ -2134,9 +2205,11 @@ pub async fn start_api_server(
         .route("/health", get(health))
         .route("/api/status", get(get_node_status))
         .route("/api/stats", get(get_stats))
+        .route("/api/faucet/stats", get(get_faucet_stats))
         .route("/api/tips", get(get_tips))
         .route("/api/tipUrls", get(get_tip_urls))
         .route("/api/request", post(handle_faucet_request))
+        .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/account/:address", get(get_account))
         .route("/api/tx", post(submit_legacy_transaction))
         .route("/api/tx/batch", post(submit_batch_transaction))
