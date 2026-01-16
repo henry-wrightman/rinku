@@ -320,6 +320,9 @@ impl NodeState {
         // Sync stakes from RewardsService to account state
         node_state.sync_stakes_to_accounts().await;
         
+        // Recalculate DAG weights based on current account state
+        node_state.recalculate_dag_weights().await;
+        
         Ok(node_state)
     }
     
