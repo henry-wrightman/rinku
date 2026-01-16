@@ -464,6 +464,7 @@ impl RewardsService {
         let cutoff = now.saturating_sub(WITNESS_TTL_MS);
         let mut pruned = 0;
 
+        // Prune expired witnessed txs
         while self.witnessed_queue_head < self.witnessed_queue.len() {
             let oldest = &self.witnessed_queue[self.witnessed_queue_head];
             if oldest.ts >= cutoff {
@@ -479,6 +480,28 @@ impl RewardsService {
         if self.witnessed_queue_head >= QUEUE_COMPACT_THRESHOLD {
             self.witnessed_queue = self.witnessed_queue[self.witnessed_queue_head..].to_vec();
             self.witnessed_queue_head = 0;
+        }
+        
+        // Prune zero pending_rewards (memory optimization)
+        let zero_pending: Vec<String> = self.pending_rewards
+            .iter()
+            .filter(|(_, &v)| v < 0.0001)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in zero_pending {
+            self.pending_rewards.remove(&key);
+            pruned += 1;
+        }
+        
+        // Prune empty rewards lists
+        let empty_rewards: Vec<String> = self.rewards
+            .iter()
+            .filter(|(_, v)| v.is_empty())
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in empty_rewards {
+            self.rewards.remove(&key);
+            pruned += 1;
         }
 
         pruned

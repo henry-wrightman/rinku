@@ -352,6 +352,9 @@ impl NodeState {
     }
 
     pub async fn save_snapshot(&self) -> Result<()> {
+        // Run memory cleanup before saving
+        self.cleanup_old_data().await;
+        
         let state = self.inner.read().await;
         let transactions: Vec<SignedTransaction> = state.dag.all_transactions();
         self.persistence.save_snapshot(
@@ -371,6 +374,55 @@ impl NodeState {
         self.persistence.save_rewards(&rewards_snapshot)?;
 
         Ok(())
+    }
+    
+    /// Periodic cleanup to prevent memory leaks
+    async fn cleanup_old_data(&self) {
+        const MAX_CHECKPOINTS: usize = 500;  // Keep last ~2 hours of checkpoints
+        const MAX_ACCOUNTS: usize = 50000;   // Cap on accounts
+        
+        let mut state = self.inner.write().await;
+        
+        // Prune old checkpoints (keep most recent MAX_CHECKPOINTS)
+        if state.checkpoints.len() > MAX_CHECKPOINTS {
+            let to_remove = state.checkpoints.len() - MAX_CHECKPOINTS;
+            state.checkpoints.drain(0..to_remove);
+            info!("Pruned {} old checkpoints, {} remaining", to_remove, state.checkpoints.len());
+        }
+        
+        // Prune zero-balance accounts with no stake (keep accounts under limit)
+        if state.accounts.len() > MAX_ACCOUNTS {
+            let mut removable: Vec<String> = state.accounts
+                .iter()
+                .filter(|(_, a)| a.balance < 0.001 && a.staked < 0.001)
+                .map(|(k, _)| k.clone())
+                .collect();
+            
+            // Remove oldest first (by first_seen)
+            removable.sort_by(|a, b| {
+                let a_time = state.accounts.get(a).map(|acc| acc.first_seen).unwrap_or(0);
+                let b_time = state.accounts.get(b).map(|acc| acc.first_seen).unwrap_or(0);
+                a_time.cmp(&b_time)
+            });
+            
+            let to_remove = (state.accounts.len() - MAX_ACCOUNTS).min(removable.len());
+            for key in removable.into_iter().take(to_remove) {
+                state.accounts.remove(&key);
+            }
+            
+            if to_remove > 0 {
+                info!("Pruned {} inactive accounts, {} remaining", to_remove, state.accounts.len());
+            }
+        }
+        
+        drop(state);
+        
+        // Prune rewards data
+        let mut rewards = self.rewards.write().await;
+        let pruned = rewards.prune_old_data();
+        if pruned > 0 {
+            info!("Pruned {} expired witness entries", pruned);
+        }
     }
 
     pub async fn get_uptime_seconds(&self) -> u64 {
