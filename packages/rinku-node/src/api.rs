@@ -1879,6 +1879,56 @@ async fn get_rewards_address(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ClaimRewardsResponse {
+    success: bool,
+    claimed_amount: f64,
+    message: String,
+}
+
+async fn post_claim_rewards(
+    State(state): State<NodeState>,
+    Path(address): Path<String>,
+) -> Json<ClaimRewardsResponse> {
+    let mut rewards = state.rewards.write().await;
+    let claimed = rewards.claim_rewards(&address);
+    
+    if claimed > 0.0 {
+        drop(rewards);
+        let mut inner = state.inner.write().await;
+        if let Some(account) = inner.accounts.get_mut(&address) {
+            account.balance += claimed;
+        } else {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            inner.accounts.insert(address.clone(), rinku_core::types::Account {
+                address: address.clone(),
+                balance: claimed,
+                nonce: 0,
+                staked: 0.0,
+                first_seen: now,
+                unbonding: 0.0,
+                unbonding_release: None,
+            });
+        }
+        
+        Json(ClaimRewardsResponse {
+            success: true,
+            claimed_amount: claimed,
+            message: format!("Successfully claimed {} RKU", claimed),
+        })
+    } else {
+        Json(ClaimRewardsResponse {
+            success: false,
+            claimed_amount: 0.0,
+            message: "No rewards to claim".to_string(),
+        })
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StakingAddressResponse {
     address: String,
     staked_amount: f64,
@@ -2244,6 +2294,7 @@ pub async fn start_api_server(
         .route("/api/tokenomics/slashing", get(get_tokenomics_slashing))
         .route("/api/rewards/config", get(get_rewards_config))
         .route("/api/rewards/:address", get(get_rewards_address))
+        .route("/api/rewards/:address/claim", post(post_claim_rewards))
         .route("/api/checkpoints", get(get_checkpoints))
         .route("/api/checkpoints/latest", get(get_checkpoints_latest))
         .route("/api/checkpoints/:height", get(get_checkpoint_by_height))
