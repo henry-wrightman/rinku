@@ -800,7 +800,7 @@ impl NodeState {
 
         // Period-based gas adjustment
         const PERIOD_MS: u64 = 15000;
-        const TARGET_TPS: f64 = 1000.0;
+        const TARGET_TPS: f64 = 10.0;
         const MAX_CHANGE_PERCENT: f64 = 0.125;
         const ELASTICITY: f64 = 2.0;
 
