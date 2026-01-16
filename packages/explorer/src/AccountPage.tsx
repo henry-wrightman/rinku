@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
+import { PageHeader } from "./components/PageHeader";
 
 interface AccountData {
   fingerprint: string;
@@ -130,12 +131,7 @@ function AccountPage() {
   if (loading) {
     return (
       <div className="container">
-        <header>
-          <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-            <h1>rinku explorer</h1>
-          </Link>
-          <p>url-native distributed ledger</p>
-        </header>
+        <PageHeader />
         <div className="loading">loading account...</div>
       </div>
     );
@@ -144,12 +140,7 @@ function AccountPage() {
   if (error || !account) {
     return (
       <div className="container">
-        <header>
-          <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-            <h1>rinku explorer</h1>
-          </Link>
-          <p>url-native distributed ledger</p>
-        </header>
+        <PageHeader />
         <div className="section">
           <div className="error">{error || "Account not found"}</div>
           <Link
@@ -166,12 +157,7 @@ function AccountPage() {
 
   return (
     <div className="container">
-      <header>
-        <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-          <h1>rinku explorer</h1>
-        </Link>
-        <p>url-native distributed ledger</p>
-      </header>
+      <PageHeader />
 
       <div className="section tx-detail">
         <div className="tx-header">

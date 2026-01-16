@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { parseTransactionURL } from "@rinku/core";
+import { PageHeader } from "./components/PageHeader";
 
 interface TransactionData {
   from: string;
@@ -73,12 +74,7 @@ function TransactionPage() {
   if (loading) {
     return (
       <div className="container">
-        <header>
-          <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-            <h1>rinku explorer</h1>
-          </Link>
-          <p>url-native distributed ledger</p>
-        </header>
+        <PageHeader />
         <div className="loading">loading transaction...</div>
       </div>
     );
@@ -87,12 +83,7 @@ function TransactionPage() {
   if (error || !tx) {
     return (
       <div className="container">
-        <header>
-          <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-            <h1>rinku explorer</h1>
-          </Link>
-          <p>url-native distributed ledger</p>
-        </header>
+        <PageHeader />
         <div className="section">
           <div className="error">{error || "Transaction not found"}</div>
           <Link
@@ -109,12 +100,7 @@ function TransactionPage() {
 
   return (
     <div className="container">
-      <header>
-        <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-          <h1>rinku explorer</h1>
-        </Link>
-        <p>url-native distributed ledger</p>
-      </header>
+      <PageHeader />
 
       <div className="section tx-detail">
         <div className="tx-header">

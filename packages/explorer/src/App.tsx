@@ -14,6 +14,7 @@ import {
   VerifyProofTab,
 } from "./components";
 import { formatNumber, formatTps } from "./utils";
+import { useTheme } from "./hooks/useTheme";
 
 // In production, API is on same host but port 3001. In dev, Vite proxies /api to 3001.
 const getApiBaseUrl = () => {
@@ -118,7 +119,7 @@ function App() {
   );
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
+  const { darkMode, toggleTheme } = useTheme();
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [searchResult, setSearchResult] = useState<{
@@ -128,9 +129,6 @@ function App() {
   } | null>(null);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
 
-  useEffect(() => {
-    document.body.classList.toggle("light", !darkMode);
-  }, [darkMode]);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -252,7 +250,7 @@ function App() {
         >
           whitepaper
         </a>
-        <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
+        <button className="theme-toggle" onClick={toggleTheme}>
           {darkMode ? "☀" : "☾"}
         </button>
       </div>

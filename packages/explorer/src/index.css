@@ -4,6 +4,13 @@
   padding: 0;
 }
 
+:root {
+  --accent: #b48ead;
+  --bg-secondary: #1a1a1a;
+  --text-primary: #c0c0c0;
+  --border: #333;
+}
+
 body {
   font-family: 'Courier New', Courier, monospace;
   background: #0d0d0d;
@@ -626,6 +633,10 @@ input[type="text"]::placeholder {
    Light Mode - Clean, Nord-inspired palette
    ============================================ */
 body.light {
+  --accent: #8b5a8b;
+  --bg-secondary: #ffffff;
+  --text-primary: #2e3440;
+  --border: #d8dee9;
   background: #f8f9fb;
   color: #2e3440;
 }
