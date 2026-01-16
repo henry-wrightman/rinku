@@ -105,6 +105,14 @@ struct WitnessedEntry {
     ts: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LifetimeRewards {
+    pub tip_rewards: f64,
+    pub stake_rewards: f64,
+    pub witness_rewards: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RewardsSnapshot {
@@ -114,6 +122,8 @@ pub struct RewardsSnapshot {
     pub witnessed_txs: Vec<(String, u64)>,
     pub witnessed_queue: Vec<WitnessedEntry>,
     pub config: RewardConfig,
+    #[serde(default)]
+    pub lifetime_rewards: Vec<(String, LifetimeRewards)>,
 }
 
 pub struct RewardsService {
@@ -121,6 +131,7 @@ pub struct RewardsService {
     rewards: HashMap<String, Vec<Reward>>,
     stakes: HashMap<String, StakePosition>,
     pending_rewards: HashMap<String, f64>,
+    lifetime_rewards: HashMap<String, LifetimeRewards>,
     witnessed_txs: HashMap<String, u64>,
     witnessed_queue: Vec<WitnessedEntry>,
     witnessed_queue_head: usize,
@@ -133,6 +144,7 @@ impl RewardsService {
             rewards: HashMap::new(),
             stakes: HashMap::new(),
             pending_rewards: HashMap::new(),
+            lifetime_rewards: HashMap::new(),
             witnessed_txs: HashMap::new(),
             witnessed_queue: Vec::new(),
             witnessed_queue_head: 0,
@@ -348,27 +360,15 @@ impl RewardsService {
     }
 
     pub fn get_rewards_summary(&self, address: &str) -> RewardsSummary {
-        let rewards = self.rewards.get(address).map(|r| r.as_slice()).unwrap_or(&[]);
         let pending = self.pending_rewards.get(address).copied().unwrap_or(0.0);
-
-        let mut tip_rewards = 0.0;
-        let mut stake_rewards = 0.0;
-        let mut witness_rewards = 0.0;
-
-        for reward in rewards {
-            match reward {
-                Reward::Tip(r) => tip_rewards += r.amount,
-                Reward::Stake(r) => stake_rewards += r.amount,
-                Reward::Witness(r) => witness_rewards += r.amount,
-            }
-        }
+        let lifetime = self.lifetime_rewards.get(address).cloned().unwrap_or_default();
 
         RewardsSummary {
             address: address.to_string(),
-            tip_rewards,
-            stake_rewards,
-            witness_rewards,
-            total_rewards: tip_rewards + stake_rewards + witness_rewards,
+            tip_rewards: lifetime.tip_rewards,
+            stake_rewards: lifetime.stake_rewards,
+            witness_rewards: lifetime.witness_rewards,
+            total_rewards: lifetime.tip_rewards + lifetime.stake_rewards + lifetime.witness_rewards,
             pending_rewards: pending,
         }
     }
@@ -464,6 +464,13 @@ impl RewardsService {
             Reward::Witness(r) => r.amount,
         };
 
+        let lifetime = self.lifetime_rewards.entry(address.to_string()).or_default();
+        match &reward {
+            Reward::Tip(_) => lifetime.tip_rewards += amount,
+            Reward::Stake(_) => lifetime.stake_rewards += amount,
+            Reward::Witness(_) => lifetime.witness_rewards += amount,
+        }
+
         let rewards = self.rewards.entry(address.to_string()).or_default();
         rewards.push(reward);
         if rewards.len() > 100 {
@@ -545,6 +552,7 @@ impl RewardsService {
             witnessed_txs: self.witnessed_txs.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             witnessed_queue: active_queue,
             config: self.config.clone(),
+            lifetime_rewards: self.lifetime_rewards.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
         }
     }
 
@@ -565,6 +573,10 @@ impl RewardsService {
 
         for (key, ts) in snapshot.witnessed_txs {
             service.witnessed_txs.insert(key, ts);
+        }
+
+        for (addr, lifetime) in snapshot.lifetime_rewards {
+            service.lifetime_rewards.insert(addr, lifetime);
         }
 
         service.witnessed_queue = snapshot.witnessed_queue;
