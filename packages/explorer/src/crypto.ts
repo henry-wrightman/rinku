@@ -115,7 +115,7 @@ export interface TransactionPayload {
 export interface SignedTransaction {
   tx: TransactionPayload;
   hash: string;
-  signature: string;
+  sig: string;
 }
 
 export async function createSignedTransaction(
@@ -132,7 +132,7 @@ export async function createSignedTransaction(
   const hash = await hashTransaction(txJson);
   const signature = await signMessage(keyPair.privateKey, txJson);
   
-  return { tx, hash, signature };
+  return { tx, hash, sig: signature };
 }
 
 export function validateSerializedKey(data: string): boolean {
