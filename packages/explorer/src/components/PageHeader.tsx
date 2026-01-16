@@ -9,11 +9,13 @@ export function PageHeader({ showThemeToggle = true }: PageHeaderProps) {
   const { darkMode, toggleTheme } = useTheme();
 
   return (
-    <header style={{ position: 'relative' }}>
-      <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-        <h1>rinku explorer</h1>
-      </Link>
-      <p>url-native distributed ledger</p>
+    <>
+      <header>
+        <Link to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <h1>rinku explorer</h1>
+        </Link>
+        <p>url-native distributed ledger</p>
+      </header>
       {showThemeToggle && (
         <div className="header-actions">
           <button className="theme-toggle" onClick={toggleTheme}>
@@ -21,6 +23,6 @@ export function PageHeader({ showThemeToggle = true }: PageHeaderProps) {
           </button>
         </div>
       )}
-    </header>
+    </>
   );
 }
