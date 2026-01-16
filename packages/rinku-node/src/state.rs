@@ -762,7 +762,7 @@ impl NodeState {
         let node = rinku_core::types::DagNode {
             hash: tx.hash.clone(),
             tx: tx.clone(),
-            parents: normalized_parents,
+            parents: normalized_parents.clone(),
             children: Vec::new(),
             weight: tx_weight,
             finalized: false,
@@ -821,8 +821,49 @@ impl NodeState {
         let tx_kind = tx.tx.kind.clone();
         let from_addr = tx.tx.from.clone();
         let stake_amount = tx.tx.amount;
+        let tx_amount = tx.tx.amount;
+        let tx_hash = tx.hash.clone();
+        let tx_url = format!("rinku://tx/h/{}", tx_hash);
+        
+        // Collect parent tx creators for witness rewards (while we have the lock)
+        let parent_creators: Vec<(String, String)> = normalized_parents
+            .iter()
+            .filter_map(|parent_hash| {
+                state.dag.get_node(parent_hash).map(|node| {
+                    let parent_url = format!("rinku://tx/h/{}", parent_hash);
+                    (parent_url, node.tx.tx.from.clone())
+                })
+            })
+            .collect();
+        
+        // Get validator address for tip rewards
+        let validator_addr = state.node_validator_address.clone();
         
         drop(state);
+        
+        // Process tip and witness rewards (separate lock for rewards service)
+        if tx_amount > 0.0 || gas_fee > 0.0 {
+            let reward_base = tx_amount + gas_fee;
+            let mut rewards = self.rewards.write().await;
+            
+            // Tip reward: validator who included this transaction gets rewarded
+            if let Some(ref validator) = validator_addr {
+                if let Some(first_parent) = normalized_parents.first() {
+                    let tip_url = format!("rinku://tx/h/{}", first_parent);
+                    rewards.process_tip_reward(&tx_url, &tip_url, validator, reward_base);
+                }
+            }
+            
+            // Witness rewards: reward creators of referenced parent transactions
+            for (parent_url, parent_creator) in &parent_creators {
+                // Don't reward yourself for referencing your own transactions
+                if parent_creator != &from_addr {
+                    rewards.process_witness_reward(&tx_url, parent_url, parent_creator, reward_base);
+                }
+            }
+            
+            drop(rewards);
+        }
         
         // Process stake/unstake transactions (separate lock for rewards)
         if let Some(kind) = tx_kind {
@@ -931,8 +972,14 @@ impl NodeState {
         let mut state = self.inner.write().await;
         let mut results = Vec::with_capacity(txs.len());
         let mut stake_txs: Vec<(rinku_core::types::TransactionKind, String, f64)> = Vec::new();
+        
+        // Collect reward info for processing after lock release
+        // (tx_url, from_addr, reward_base, normalized_parents, parent_creators)
+        let mut reward_infos: Vec<(String, String, f64, Vec<String>, Vec<(String, String)>)> = Vec::new();
+        let validator_addr = state.node_validator_address.clone();
 
         for (node, tx) in prepared.into_iter().zip(txs.iter()) {
+            let normalized_parents = node.parents.clone();
             let result = state
                 .dag
                 .add_node(node)
@@ -960,6 +1007,22 @@ impl NodeState {
                 if let Some(kind) = &tx.tx.kind {
                     stake_txs.push((kind.clone(), tx.tx.from.clone(), tx.tx.amount));
                 }
+                
+                // Collect reward info for this transaction
+                let reward_base = tx.tx.amount + gas_fee;
+                if reward_base > 0.0 {
+                    let tx_url = format!("rinku://tx/h/{}", tx.hash);
+                    let parent_creators: Vec<(String, String)> = normalized_parents
+                        .iter()
+                        .filter_map(|parent_hash| {
+                            state.dag.get_node(parent_hash).map(|pnode| {
+                                let parent_url = format!("rinku://tx/h/{}", parent_hash);
+                                (parent_url, pnode.tx.tx.from.clone())
+                            })
+                        })
+                        .collect();
+                    reward_infos.push((tx_url, tx.tx.from.clone(), reward_base, normalized_parents.clone(), parent_creators));
+                }
             }
             results.push(result);
         }
@@ -984,6 +1047,29 @@ impl NodeState {
         }
         
         drop(state);
+        
+        // Process tip and witness rewards for all transactions in batch
+        if !reward_infos.is_empty() {
+            let mut rewards = self.rewards.write().await;
+            for (tx_url, from_addr, reward_base, normalized_parents, parent_creators) in &reward_infos {
+                // Tip reward: validator who included this transaction gets rewarded
+                if let Some(ref validator) = validator_addr {
+                    if let Some(first_parent) = normalized_parents.first() {
+                        let tip_url = format!("rinku://tx/h/{}", first_parent);
+                        rewards.process_tip_reward(tx_url, &tip_url, validator, *reward_base);
+                    }
+                }
+                
+                // Witness rewards: reward creators of referenced parent transactions
+                for (parent_url, parent_creator) in parent_creators {
+                    // Don't reward yourself for referencing your own transactions
+                    if parent_creator != from_addr {
+                        rewards.process_witness_reward(tx_url, parent_url, parent_creator, *reward_base);
+                    }
+                }
+            }
+            drop(rewards);
+        }
         
         // Process stake/unstake transactions (separate lock for rewards)
         // Collect account updates to apply after releasing rewards lock
