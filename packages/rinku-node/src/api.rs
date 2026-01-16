@@ -101,9 +101,15 @@ struct LegacyTxInner {
     nonce: u64,
     #[serde(default)]
     tip_urls: Vec<String>,
+    #[serde(default)]
+    parents: Vec<String>,
     sig: String,
     ts: u64,
+    #[serde(default)]
+    timestamp: Option<u64>,
     hash: String,
+    #[serde(default)]
+    kind: Option<rinku_core::types::TransactionKind>,
 }
 
 #[derive(Deserialize)]
@@ -875,15 +881,17 @@ async fn submit_legacy_transaction(
     Json(req): Json<LegacySubmitTxRequest>,
 ) -> impl IntoResponse {
     let inner = req.tx;
+    let timestamp = inner.timestamp.unwrap_or(inner.ts);
+    let parents = if !inner.parents.is_empty() { inner.parents } else { inner.tip_urls };
     let tx = rinku_core::types::SignedTransaction {
         tx: rinku_core::types::Transaction {
             from: inner.from,
             to: inner.to,
             amount: inner.amount,
             nonce: inner.nonce,
-            timestamp: inner.ts,
-            parents: inner.tip_urls,
-            kind: None,
+            timestamp,
+            parents,
+            kind: inner.kind,
             gas_limit: None,
             gas_price: Some(inner.fee),
             data: None,
@@ -924,15 +932,17 @@ async fn submit_batch_transaction(
         .into_iter()
         .map(|item| {
             let inner = item.tx;
+            let timestamp = inner.timestamp.unwrap_or(inner.ts);
+            let parents = if !inner.parents.is_empty() { inner.parents } else { inner.tip_urls };
             rinku_core::types::SignedTransaction {
                 tx: rinku_core::types::Transaction {
                     from: inner.from,
                     to: inner.to,
                     amount: inner.amount,
                     nonce: inner.nonce,
-                    timestamp: inner.ts,
-                    parents: inner.tip_urls,
-                    kind: None,
+                    timestamp,
+                    parents,
+                    kind: inner.kind,
                     gas_limit: None,
                     gas_price: Some(inner.fee),
                     data: None,

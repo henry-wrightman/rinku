@@ -99,40 +99,49 @@ export async function hashTransaction(txJson: string): Promise<string> {
   return sha256Hex(txJson);
 }
 
-export interface TransactionPayload {
+export interface TransactionInner {
   from: string;
   to: string;
   amount: number;
   nonce: number;
-  timestamp: number;
+  ts: number;
   parents: string[];
   kind?: 'transfer' | 'stake' | 'unstake' | 'contract' | 'consolidation' | 'reward';
-  gasLimit?: number;
-  gasPrice?: number;
-  data?: string;
+  fee?: number;
+  sig: string;
+  hash: string;
 }
 
 export interface SignedTransaction {
-  tx: TransactionPayload;
-  hash: string;
-  sig: string;
+  tx: TransactionInner;
 }
 
 export async function createSignedTransaction(
   keyPair: SerializedKeyPair,
-  payload: Omit<TransactionPayload, 'from' | 'timestamp'>
+  payload: { to: string; amount: number; nonce: number; parents: string[]; kind?: string; gasPrice?: number }
 ): Promise<SignedTransaction> {
-  const tx: TransactionPayload = {
-    ...payload,
+  const txData = {
     from: keyPair.fingerprint,
-    timestamp: Date.now(),
+    to: payload.to,
+    amount: payload.amount,
+    nonce: payload.nonce,
+    ts: Date.now(),
+    parents: payload.parents,
+    kind: payload.kind,
+    fee: payload.gasPrice ?? 0.001,
   };
   
-  const txJson = JSON.stringify(tx);
+  const txJson = JSON.stringify(txData);
   const hash = await hashTransaction(txJson);
-  const signature = await signMessage(keyPair.privateKey, txJson);
+  const sig = await signMessage(keyPair.privateKey, txJson);
   
-  return { tx, hash, sig: signature };
+  const tx: TransactionInner = {
+    ...txData,
+    sig,
+    hash,
+  };
+  
+  return { tx };
 }
 
 export function validateSerializedKey(data: string): boolean {
