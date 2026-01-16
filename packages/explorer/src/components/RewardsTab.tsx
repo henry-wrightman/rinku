@@ -176,6 +176,8 @@ export function RewardsTab() {
   useEffect(() => {
     if (address) {
       fetchRewards();
+      const interval = setInterval(fetchRewards, 5000);
+      return () => clearInterval(interval);
     }
   }, [address]);
 

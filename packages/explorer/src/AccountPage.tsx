@@ -109,6 +109,8 @@ function AccountPage() {
     };
 
     fetchAccountData();
+    const interval = setInterval(fetchAccountData, 5000);
+    return () => clearInterval(interval);
   }, [address]);
 
   const formatTime = (ts: number) => {
@@ -229,27 +231,27 @@ function AccountPage() {
             <div className="tx-meta">
               <div className="meta-row">
                 <span className="label">tip rewards</span>
-                <span className="value">{rewards.tipRewards}</span>
+                <span className="value">{rewards.tipRewards.toFixed(2)}</span>
               </div>
               <div className="meta-row">
                 <span className="label">stake rewards</span>
-                <span className="value">{rewards.stakeRewards}</span>
+                <span className="value">{rewards.stakeRewards.toFixed(2)}</span>
               </div>
               <div className="meta-row">
                 <span className="label">witness rewards</span>
-                <span className="value">{rewards.witnessRewards}</span>
+                <span className="value">{rewards.witnessRewards.toFixed(2)}</span>
               </div>
               <div className="meta-row">
                 <span className="label">total earned</span>
                 <span className="value" style={{ color: "#b48ead" }}>
-                  {rewards.totalRewards}
+                  {rewards.totalRewards.toFixed(2)}
                 </span>
               </div>
               {rewards.pendingRewards > 0 && (
                 <div className="meta-row">
                   <span className="label">pending</span>
                   <span className="value" style={{ color: "#a3be8c" }}>
-                    {rewards.pendingRewards}
+                    {rewards.pendingRewards.toFixed(2)}
                   </span>
                 </div>
               )}
