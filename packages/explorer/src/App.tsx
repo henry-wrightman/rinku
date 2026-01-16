@@ -75,29 +75,55 @@ interface VersionInfo {
   features: { id: string; name: string; status: string }[];
 }
 
-type TabType = "dag" | "accounts" | "faucet" | "contracts" | "rewards" | "tokenomics" | "zk" | "verify";
+type TabType =
+  | "dag"
+  | "accounts"
+  | "faucet"
+  | "contracts"
+  | "rewards"
+  | "tokenomics"
+  | "zk"
+  | "verify";
 
-const validTabs: TabType[] = ["dag", "accounts", "faucet", "contracts", "rewards", "tokenomics", "zk", "verify"];
+const validTabs: TabType[] = [
+  "dag",
+  "accounts",
+  "faucet",
+  "contracts",
+  "rewards",
+  "tokenomics",
+  "zk",
+  "verify",
+];
 
 function App() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const initialTab = tabParam && validTabs.includes(tabParam as TabType) ? tabParam as TabType : "dag";
+  const initialTab =
+    tabParam && validTabs.includes(tabParam as TabType)
+      ? (tabParam as TabType)
+      : "dag";
   const [tab, setTabState] = useState<TabType>(initialTab);
 
-  const setTab = useCallback((newTab: TabType) => {
-    setTabState(newTab);
-    if (newTab === "dag") {
-      setSearchParams({});
-    } else {
-      setSearchParams({ tab: newTab });
-    }
-  }, [setSearchParams]);
+  const setTab = useCallback(
+    (newTab: TabType) => {
+      setTabState(newTab);
+      if (newTab === "dag") {
+        setSearchParams({});
+      } else {
+        setSearchParams({ tab: newTab });
+      }
+    },
+    [setSearchParams],
+  );
 
   // Sync tab state when URL changes (e.g., back/forward navigation)
   useEffect(() => {
     const urlTab = searchParams.get("tab");
-    const newTab = urlTab && validTabs.includes(urlTab as TabType) ? urlTab as TabType : "dag";
+    const newTab =
+      urlTab && validTabs.includes(urlTab as TabType)
+        ? (urlTab as TabType)
+        : "dag";
     if (newTab !== tab) {
       setTabState(newTab);
     }
@@ -128,7 +154,6 @@ function App() {
     error?: string;
   } | null>(null);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
-
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -242,14 +267,14 @@ function App() {
       />
 
       <div className="header-actions">
-        <a
+        {/* <a
           href="/rinku.pdf"
           target="_blank"
           rel="noopener noreferrer"
           className="whitepaper-link"
         >
           whitepaper
-        </a>
+        </a> */}
         <button className="theme-toggle" onClick={toggleTheme}>
           {darkMode ? "☀" : "☾"}
         </button>

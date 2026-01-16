@@ -55,13 +55,13 @@ export function VerifyProofTab() {
     // Check if user pasted just a hash or reference URL instead of a proof
     if (/^[a-f0-9]{64}$/i.test(trimmed)) {
       setError(
-        "This looks like a transaction hash, not a proof URL. Self-contained proofs start with 'rinku://sp/' and contain compressed cryptographic data."
+        "This looks like a transaction hash, not a proof URL. Self-contained proofs start with 'rinku://sp/' and contain compressed cryptographic data.",
       );
       return;
     }
     if (trimmed.startsWith("/tx/") || trimmed.startsWith("rinku://tx")) {
       setError(
-        "This is a transaction reference URL. To verify offline, you need a self-contained proof URL that starts with 'rinku://sp/' and contains all cryptographic data."
+        "This is a transaction reference URL. To verify offline, you need a self-contained proof URL that starts with 'rinku://sp/' and contains all cryptographic data.",
       );
       return;
     }
@@ -264,7 +264,9 @@ export function VerifyProofTab() {
                 <span>merkle proof:</span>
                 <span
                   className="value"
-                  style={{ color: result.merkleVerified ? "#22c55e" : "#ef4444" }}
+                  style={{
+                    color: result.merkleVerified ? "#22c55e" : "#ef4444",
+                  }}
                 >
                   {result.merkleVerified ? "✓ valid" : "✗ invalid"}
                 </span>
@@ -318,7 +320,10 @@ export function VerifyProofTab() {
                         : "#ef4444",
                   }}
                 >
-                  {((result.signerWeight / result.totalWeight) * 100).toFixed(1)}%
+                  {((result.signerWeight / result.totalWeight) * 100).toFixed(
+                    1,
+                  )}
+                  %
                   {result.signerWeight / result.totalWeight >= 0.67
                     ? " (≥67%)"
                     : " (<67%)"}

@@ -783,22 +783,39 @@ impl NodeState {
             use rinku_core::types::TransactionKind;
             match kind {
                 TransactionKind::Stake => {
-                    let mut rewards = self.rewards.write().await;
-                    if let Err(e) = rewards.stake(&from_addr, stake_amount) {
-                        tracing::warn!("Failed to process stake tx: {}", e);
-                    } else {
-                        tracing::debug!("Processed stake: {} staked {} RKU", &from_addr[..16.min(from_addr.len())], stake_amount);
+                    let stake_update: Option<(f64, u64)> = {
+                        let mut rewards = self.rewards.write().await;
+                        if let Err(e) = rewards.stake(&from_addr, stake_amount) {
+                            tracing::warn!("Failed to process stake tx: {}", e);
+                            None
+                        } else {
+                            tracing::debug!("Processed stake: {} staked {} RKU", &from_addr[..16.min(from_addr.len())], stake_amount);
+                            // Get stake position data before releasing lock
+                            rewards.get_stake(&from_addr).map(|p| (p.amount, p.staked_at))
+                        }
+                    };
+                    // Sync staked amount to account state (after releasing rewards lock)
+                    if let Some((amount, staked_at)) = stake_update {
+                        self.update_account_staked(&from_addr, amount, Some(staked_at / 1000)).await;
                     }
                 }
                 TransactionKind::Unstake => {
-                    let mut rewards = self.rewards.write().await;
-                    match rewards.unstake(&from_addr) {
-                        Ok(amount) => {
-                            tracing::debug!("Processed unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
+                    let unstake_success = {
+                        let mut rewards = self.rewards.write().await;
+                        match rewards.unstake(&from_addr) {
+                            Ok(amount) => {
+                                tracing::debug!("Processed unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
+                                true
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to process unstake tx: {}", e);
+                                false
+                            }
                         }
-                        Err(e) => {
-                            tracing::warn!("Failed to process unstake tx: {}", e);
-                        }
+                    };
+                    // Sync staked amount (now 0) to account state (after releasing rewards lock)
+                    if unstake_success {
+                        self.update_account_staked(&from_addr, 0.0, None).await;
                     }
                 }
                 _ => {}
@@ -923,6 +940,9 @@ impl NodeState {
         drop(state);
         
         // Process stake/unstake transactions (separate lock for rewards)
+        // Collect account updates to apply after releasing rewards lock
+        let mut account_stake_updates: Vec<(String, f64, Option<u64>)> = Vec::new();
+        
         if !stake_txs.is_empty() {
             use rinku_core::types::TransactionKind;
             let mut rewards = self.rewards.write().await;
@@ -933,12 +953,18 @@ impl NodeState {
                             tracing::warn!("Failed to process batch stake tx: {}", e);
                         } else {
                             tracing::debug!("Batch stake: {} staked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
+                            // Track account update for after lock release
+                            if let Some(position) = rewards.get_stake(&from_addr) {
+                                account_stake_updates.push((from_addr.clone(), position.amount, Some(position.staked_at / 1000)));
+                            }
                         }
                     }
                     TransactionKind::Unstake => {
                         match rewards.unstake(&from_addr) {
                             Ok(unstaked) => {
                                 tracing::debug!("Batch unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], unstaked);
+                                // Track account update for after lock release
+                                account_stake_updates.push((from_addr.clone(), 0.0, None));
                             }
                             Err(e) => {
                                 tracing::warn!("Failed to process batch unstake tx: {}", e);
@@ -948,6 +974,11 @@ impl NodeState {
                     _ => {}
                 }
             }
+        }
+        
+        // Sync staked amounts to account state (after releasing rewards lock)
+        for (addr, staked_amount, staked_at) in account_stake_updates {
+            self.update_account_staked(&addr, staked_amount, staked_at).await;
         }
 
         results
