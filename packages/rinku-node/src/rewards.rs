@@ -391,6 +391,10 @@ impl RewardsService {
     pub fn get_total_staked(&self) -> f64 {
         self.stakes.values().map(|s| s.amount).sum()
     }
+    
+    pub fn get_all_stakes(&self) -> Vec<&StakePosition> {
+        self.stakes.values().collect()
+    }
 
     pub fn get_pending_rewards(&self, address: &str) -> f64 {
         self.pending_rewards.get(address).copied().unwrap_or(0.0)

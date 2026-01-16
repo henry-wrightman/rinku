@@ -272,9 +272,14 @@ function AccountPage() {
         )}
 
         <div className="tx-parents" style={{ marginTop: 24 }}>
-          <h3>transaction history ({transactions.length})</h3>
+          <h3>
+            transaction history ({transactions.length} indexed of{" "}
+            {account.nonce} total)
+          </h3>
           {transactions.length === 0 ? (
-            <div className="empty">no transactions yet</div>
+            <div className="empty">
+              no transactions indexed (might've been pruned)
+            </div>
           ) : (
             <div className="parent-list">
               {transactions.slice(0, 20).map((tx, i) => {

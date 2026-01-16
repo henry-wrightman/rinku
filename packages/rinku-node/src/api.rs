@@ -1881,12 +1881,22 @@ async fn post_stake(
     let mut rewards = state.rewards.write().await;
     
     match rewards.stake(&req.address, req.amount) {
-        Ok(_position) => Json(StakeResponse {
-            success: true,
-            address: req.address,
-            amount: req.amount,
-            error: None,
-        }),
+        Ok(position) => {
+            // Sync staked amount to account state for weight calculation
+            drop(rewards); // Release lock before calling async method
+            state.update_account_staked(
+                &req.address, 
+                position.amount, 
+                Some(position.staked_at / 1000) // Convert ms to seconds
+            ).await;
+            
+            Json(StakeResponse {
+                success: true,
+                address: req.address,
+                amount: req.amount,
+                error: None,
+            })
+        },
         Err(e) => Json(StakeResponse {
             success: false,
             address: req.address,

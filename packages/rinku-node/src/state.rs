@@ -307,7 +307,7 @@ impl NodeState {
             RewardsService::new(crate::rewards::RewardConfig::default())
         };
 
-        Ok(Self {
+        let node_state = Self {
             config,
             inner: Arc::new(RwLock::new(inner)),
             persistence,
@@ -315,7 +315,40 @@ impl NodeState {
             slashing: Arc::new(RwLock::new(slashing)),
             rewards: Arc::new(RwLock::new(rewards)),
             start_time: std::time::Instant::now(),
-        })
+        };
+        
+        // Sync stakes from RewardsService to account state
+        node_state.sync_stakes_to_accounts().await;
+        
+        Ok(node_state)
+    }
+    
+    /// Sync all stakes from RewardsService to account.staked fields
+    async fn sync_stakes_to_accounts(&self) {
+        let rewards = self.rewards.read().await;
+        let stakes: Vec<(String, f64, u64)> = rewards.get_all_stakes()
+            .iter()
+            .map(|s| (s.staker.clone(), s.amount, s.staked_at / 1000))
+            .collect();
+        drop(rewards);
+        
+        if stakes.is_empty() {
+            return;
+        }
+        
+        let mut state = self.inner.write().await;
+        let mut synced = 0;
+        for (address, amount, staked_at) in stakes {
+            if let Some(account) = state.accounts.get_mut(&address) {
+                account.staked = amount;
+            } else {
+                let mut account = Account::new(address.clone(), staked_at);
+                account.staked = amount;
+                state.accounts.insert(address, account);
+            }
+            synced += 1;
+        }
+        info!("Synced {} stakes to account state", synced);
     }
 
     pub async fn save_snapshot(&self) -> Result<()> {
@@ -358,6 +391,28 @@ impl NodeState {
     pub async fn get_account(&self, address: &str) -> Option<Account> {
         let state = self.inner.read().await;
         state.accounts.get(address).cloned()
+    }
+
+    /// Update account's staked amount (syncs with RewardsService)
+    pub async fn update_account_staked(&self, address: &str, staked_amount: f64, staked_at: Option<u64>) {
+        let mut state = self.inner.write().await;
+        if let Some(account) = state.accounts.get_mut(address) {
+            account.staked = staked_amount;
+            if let Some(ts) = staked_at {
+                account.first_seen = ts;
+            }
+        } else {
+            // Create account if doesn't exist
+            let now = staked_at.unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            });
+            let mut account = Account::new(address.to_string(), now);
+            account.staked = staked_amount;
+            state.accounts.insert(address.to_string(), account);
+        }
     }
 
     pub async fn get_or_create_account(&self, address: &str) -> Account {
