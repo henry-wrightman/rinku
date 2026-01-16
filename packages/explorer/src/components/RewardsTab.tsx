@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createSignedTransaction, validatePrivateKey, getAddressFromPrivateKey, generateKeyPair, saveKeyToStorage, loadKeyFromStorage } from "../crypto";
 
 interface RewardsSummary {
   address: string;
@@ -43,6 +44,10 @@ const NODE_URL = "/api";
 
 export function RewardsTab() {
   const [address, setAddress] = useState("");
+  const [privateKey, setPrivateKey] = useState("");
+  const [derivedAddress, setDerivedAddress] = useState("");
+  const [walletReady, setWalletReady] = useState(false);
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [rewards, setRewards] = useState<RewardsSummary | null>(null);
   const [staking, setStaking] = useState<StakingStatus | null>(null);
   const [stakingInfo, setStakingInfo] = useState<StakingInfo | null>(null);
@@ -50,6 +55,44 @@ export function RewardsTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (privateKey && validatePrivateKey(privateKey)) {
+      if (loadKeyFromStorage(privateKey)) {
+        getAddressFromPrivateKey(privateKey)
+          .then(({ address }) => {
+            setDerivedAddress(address);
+            setWalletReady(true);
+          })
+          .catch(() => {
+            setDerivedAddress("");
+            setWalletReady(false);
+          });
+      } else {
+        setDerivedAddress("");
+        setWalletReady(false);
+        setError("Key not recognized. Use 'Generate Wallet' to create a new one.");
+      }
+    } else {
+      setDerivedAddress("");
+      setWalletReady(false);
+    }
+  }, [privateKey]);
+
+  const handleGenerateWallet = async () => {
+    setError(null);
+    try {
+      const kp = await generateKeyPair();
+      saveKeyToStorage(kp.privateKey);
+      setPrivateKey(kp.privateKey);
+      setDerivedAddress(kp.address);
+      setWalletReady(true);
+      setShowPrivateKey(true);
+      setResult(`Wallet created! Address: ${kp.address.slice(0, 16)}... SAVE YOUR PRIVATE KEY!`);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
 
   const fetchStakingInfo = async () => {
     try {
@@ -91,22 +134,49 @@ export function RewardsTab() {
   };
 
   const handleStake = async () => {
-    if (!address || stakeAmount <= 0) return;
+    if (!walletReady || !privateKey) {
+      setError("Generate a wallet first to sign transactions");
+      return;
+    }
+    if (stakeAmount <= 0) {
+      setError("Invalid stake amount");
+      return;
+    }
     setError(null);
     setResult(null);
 
     try {
-      const res = await fetch(`${NODE_URL}/staking/stake`, {
+      const tipsRes = await fetch(`${NODE_URL}/tips`);
+      const tips = await tipsRes.json();
+      const parents = (tips as string[]).slice(0, 2).map((h: string) => `rinku://tx/h/${h}`);
+
+      const accountRes = await fetch(`${NODE_URL}/account/${derivedAddress}`);
+      const account = await accountRes.json();
+      const nonce = (account.nonce || 0) + 1;
+
+      const signedTx = await createSignedTransaction(privateKey, {
+        to: derivedAddress,
+        amount: stakeAmount,
+        nonce,
+        parents,
+        kind: "stake",
+        gasPrice: 0.001,
+      });
+
+      const res = await fetch(`${NODE_URL}/tx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, amount: stakeAmount }),
+        body: JSON.stringify(signedTx),
       });
 
       const data = await res.json();
-      if (data.success) {
-        setResult(`Staked ${stakeAmount} RKU successfully`);
-        fetchRewards();
-        fetchStakingInfo();
+      if (res.ok && data.hash) {
+        setResult(`Staked ${stakeAmount} RKU (tx: ${data.hash.slice(0, 12)}...)`);
+        setAddress(derivedAddress);
+        setTimeout(() => {
+          fetchRewards();
+          fetchStakingInfo();
+        }, 1000);
       } else {
         setError(data.error || "Staking failed");
       }
@@ -116,22 +186,48 @@ export function RewardsTab() {
   };
 
   const handleUnstake = async () => {
-    if (!address) return;
+    if (!walletReady || !privateKey) {
+      setError("Generate a wallet first to sign transactions");
+      return;
+    }
+    if (!staking?.stakedAmount || staking.stakedAmount <= 0) {
+      setError("No stake to unstake");
+      return;
+    }
     setError(null);
     setResult(null);
 
     try {
-      const res = await fetch(`${NODE_URL}/staking/unstake`, {
+      const tipsRes = await fetch(`${NODE_URL}/tips`);
+      const tips = await tipsRes.json();
+      const parents = (tips as string[]).slice(0, 2).map((h: string) => `rinku://tx/h/${h}`);
+
+      const accountRes = await fetch(`${NODE_URL}/account/${derivedAddress}`);
+      const account = await accountRes.json();
+      const nonce = (account.nonce || 0) + 1;
+
+      const signedTx = await createSignedTransaction(privateKey, {
+        to: derivedAddress,
+        amount: staking.stakedAmount,
+        nonce,
+        parents,
+        kind: "unstake",
+        gasPrice: 0.001,
+      });
+
+      const res = await fetch(`${NODE_URL}/tx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address }),
+        body: JSON.stringify(signedTx),
       });
 
       const data = await res.json();
-      if (data.success) {
-        setResult(`Unstaked ${data.amount} RKU successfully`);
-        fetchRewards();
-        fetchStakingInfo();
+      if (res.ok && data.hash) {
+        setResult(`Unstaked ${staking.stakedAmount} RKU (tx: ${data.hash.slice(0, 12)}...)`);
+        setTimeout(() => {
+          fetchRewards();
+          fetchStakingInfo();
+        }, 1000);
       } else {
         setError(data.error || "Unstaking failed");
       }
@@ -317,25 +413,79 @@ export function RewardsTab() {
         )}
 
         <div className="stake-form">
-          <div className="form-row">
-            <input
-              type="number"
-              placeholder="amount to stake"
-              value={stakeAmount}
-              onChange={(e) => setStakeAmount(parseInt(e.target.value) || 0)}
-              min={stakingInfo?.config.minStakeAmount || 100}
-            />
-            <button
-              onClick={handleStake}
-              disabled={!address || stakeAmount <= 0}
-            >
-              stake
-            </button>
-            {staking?.stakedAmount && staking.stakedAmount > 0 && (
-              <button onClick={handleUnstake} className="secondary">
-                unstake
-              </button>
+          <div className="wallet-section">
+            <h4>wallet</h4>
+            {!walletReady ? (
+              <div className="wallet-setup">
+                <button onClick={handleGenerateWallet} className="primary">
+                  generate new wallet
+                </button>
+                <div className="stake-note">
+                  or paste an existing private key below
+                </div>
+                <div className="form-row">
+                  <input
+                    type="password"
+                    placeholder="private key (64 hex chars)"
+                    value={privateKey}
+                    onChange={(e) => setPrivateKey(e.target.value.trim())}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="wallet-info">
+                <div className="derived-address">
+                  <span className="label">address:</span>
+                  <span className="mono">{derivedAddress}</span>
+                </div>
+                <div className="form-row">
+                  <button onClick={() => setShowPrivateKey(!showPrivateKey)} className="secondary small">
+                    {showPrivateKey ? 'hide' : 'show'} private key
+                  </button>
+                  <button onClick={() => {
+                    navigator.clipboard.writeText(privateKey);
+                    setResult('Private key copied!');
+                  }} className="secondary small">
+                    copy key
+                  </button>
+                </div>
+                {showPrivateKey && (
+                  <div className="private-key-display">
+                    <code>{privateKey}</code>
+                  </div>
+                )}
+              </div>
             )}
+          </div>
+
+          {walletReady && (
+            <div className="stake-actions">
+              <div className="form-row">
+                <input
+                  type="number"
+                  placeholder="amount to stake"
+                  value={stakeAmount}
+                  onChange={(e) => setStakeAmount(parseInt(e.target.value) || 0)}
+                  min={stakingInfo?.config.minStakeAmount || 100}
+                />
+                <button
+                  onClick={handleStake}
+                  disabled={stakeAmount <= 0}
+                >
+                  stake
+                </button>
+                {staking?.stakedAmount && staking.stakedAmount > 0 && (
+                  <button onClick={handleUnstake} className="secondary">
+                    unstake
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="stake-note">
+            transactions are signed locally - your private key never leaves your browser
           </div>
         </div>
       </div>

@@ -1447,6 +1447,83 @@ body.light .contracts-tab button:hover {
   border-top: 1px solid #333;
 }
 
+.stake-form .derived-address {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 13px;
+  color: #a3be8c;
+}
+
+.stake-form .derived-address .label {
+  color: #888;
+}
+
+.stake-form .stake-note {
+  font-size: 11px;
+  color: #666;
+  margin-top: 8px;
+  font-style: italic;
+}
+
+.stake-form .wallet-section {
+  margin-bottom: 16px;
+}
+
+.stake-form .wallet-section h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #b48ead;
+}
+
+.stake-form .wallet-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stake-form button.primary {
+  background: #8b5a8b;
+  color: #fff;
+  border: none;
+  padding: 10px 16px;
+}
+
+.stake-form button.primary:hover {
+  background: #a06da0;
+}
+
+.stake-form button.small {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.stake-form .wallet-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stake-form .private-key-display {
+  background: #1a1a2e;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.stake-form .private-key-display code {
+  font-family: monospace;
+  font-size: 12px;
+  color: #ebcb8b;
+  word-break: break-all;
+}
+
+.stake-form .stake-actions {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #333;
+}
+
 .rewards-tab .error {
   color: #bf616a;
   padding: 12px;

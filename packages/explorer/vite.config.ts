@@ -11,11 +11,6 @@ export default defineConfig({
     port: 5000,
     allowedHosts: true,
     proxy: {
-      '/api/faucet': {
-        target: 'http://127.0.0.1:3002',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/faucet/, '/api')
-      },
       '/api': {
         target: 'http://127.0.0.1:3001',
         changeOrigin: true

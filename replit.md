@@ -10,6 +10,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 
 ### UI/UX Decisions
 - **Explorer:** A React-based block explorer for visualizing the DAG, accounts, faucet, contracts, and staking.
+- **In-Browser Wallet:** The Rewards/Staking tab includes a built-in wallet that generates ECDSA P-256 keypairs using Web Crypto API. Keys are cached in memory and can be persisted to localStorage. All transaction signing happens client-side - private keys never leave the browser.
 
 ### System Design Choices
 - **URL-Native Ledger:** The entire ledger state is embedded in cryptographically linked URLs, making the chain self-crawlable and verifiable. Transactions are base64url-encoded, deflated JSON objects directly in URLs.
