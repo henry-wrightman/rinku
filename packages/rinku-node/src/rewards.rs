@@ -4,6 +4,8 @@ use std::collections::HashMap;
 pub const WITNESS_TTL_MS: u64 = 3_600_000;
 pub const QUEUE_COMPACT_THRESHOLD: usize = 10_000;
 pub const MAX_WITNESSED_ENTRIES: usize = 20_000;  // Hard cap to prevent memory leak
+pub const MAX_LIFETIME_ENTRIES: usize = 10_000;   // Cap on tracked addresses
+pub const MAX_PENDING_ENTRIES: usize = 10_000;    // Cap on pending reward addresses
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -555,6 +557,47 @@ impl RewardsService {
         for key in empty_rewards {
             self.rewards.remove(&key);
             pruned += 1;
+        }
+        
+        // Cap lifetime_rewards to prevent memory growth from many unique addresses
+        if self.lifetime_rewards.len() > MAX_LIFETIME_ENTRIES {
+            // Keep addresses with highest total rewards
+            let mut sorted: Vec<_> = self.lifetime_rewards.iter()
+                .map(|(k, v)| (k.clone(), v.tip_rewards + v.stake_rewards + v.witness_rewards))
+                .collect();
+            sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            let keep: std::collections::HashSet<String> = sorted.into_iter()
+                .take(MAX_LIFETIME_ENTRIES)
+                .map(|(k, _)| k)
+                .collect();
+            let to_remove: Vec<String> = self.lifetime_rewards.keys()
+                .filter(|k| !keep.contains(*k))
+                .cloned()
+                .collect();
+            for key in &to_remove {
+                self.lifetime_rewards.remove(key);
+            }
+            pruned += to_remove.len();
+        }
+        
+        // Cap pending_rewards similarly
+        if self.pending_rewards.len() > MAX_PENDING_ENTRIES {
+            let mut sorted: Vec<_> = self.pending_rewards.iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect();
+            sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            let keep: std::collections::HashSet<String> = sorted.into_iter()
+                .take(MAX_PENDING_ENTRIES)
+                .map(|(k, _)| k)
+                .collect();
+            let to_remove: Vec<String> = self.pending_rewards.keys()
+                .filter(|k| !keep.contains(*k))
+                .cloned()
+                .collect();
+            for key in &to_remove {
+                self.pending_rewards.remove(key);
+            }
+            pruned += to_remove.len();
         }
 
         pruned

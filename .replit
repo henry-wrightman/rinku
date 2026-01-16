@@ -69,6 +69,10 @@ externalPort = 3002
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 5001
+externalPort = 3000
+
 [nix]
 channel = "stable-25_05"
 packages = ["nettools", "rustc", "circom", "openssl", "pkg-config", "pandoc", "jq"]
