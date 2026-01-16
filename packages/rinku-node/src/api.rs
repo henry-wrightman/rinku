@@ -1114,7 +1114,8 @@ async fn get_transaction(
     State(state): State<NodeState>,
     Path(hash): Path<String>,
 ) -> Result<Json<TransactionResponse>, ApiError> {
-    if let Some(tx) = state.get_transaction(&hash).await {
+    // Get transaction with weight from DAG node
+    if let Some((tx, weight)) = state.get_transaction_with_weight(&hash).await {
         let finalized = state.is_finalized(&hash).await;
         // Normalize parents to /tx/h/{hash} format for explorer navigation
         let tip_urls: Vec<String> = tx.tx.parents.iter()
@@ -1141,7 +1142,7 @@ async fn get_transaction(
             ts: tx.tx.timestamp,
             tip_urls,
             finalized,
-            weight: 1.0,
+            weight,
             url: format!("/tx/h/{}", tx.hash),
         }))
     } else {
