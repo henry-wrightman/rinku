@@ -44,6 +44,7 @@ pub struct NodeConfig {
     pub rate_limit_general_max: u32,
     pub static_dir: Option<String>,
     pub trust: TrustConfig,
+    pub public_url: Option<String>,
 }
 
 impl NodeConfig {
@@ -106,6 +107,7 @@ impl NodeConfig {
                 .unwrap_or(100),
             static_dir: env::var("STATIC_DIR").ok(),
             trust: TrustConfig::from_env(),
+            public_url: env::var("PUBLIC_URL").ok(),
         }
     }
 }

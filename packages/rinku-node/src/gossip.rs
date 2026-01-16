@@ -101,12 +101,16 @@ pub enum GossipMessage {
     Transaction {
         hash: String,
         tx: SignedTransaction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
     },
     TipAnnouncement {
         tips: Vec<String>,
         tip_urls: Vec<String>,
         dag_size: usize,
         merkle_root: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
     },
     CheckpointSignature {
         checkpoint_id: String,
@@ -114,10 +118,14 @@ pub enum GossipMessage {
         validator_address: String,
         signature: String,
         weight: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
     },
     PeerDiscovery {
         peers: Vec<String>,
         node_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
     },
     ConflictResolution {
         conflict_id: String,
@@ -127,14 +135,20 @@ pub enum GossipMessage {
         weight_1: f64,
         weight_2: f64,
         resolved_by: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
     },
     SyncRequest {
         from_checkpoint: u64,
         missing_hashes: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
     },
     SyncResponse {
         transactions: Vec<SignedTransaction>,
         checkpoint_height: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
     },
 }
 
@@ -430,11 +444,13 @@ impl GossipService {
 
         let merkle_root = self.state.get_dag_merkle_root().await.unwrap_or_default();
 
+        let public_url = std::env::var("PUBLIC_URL").ok();
         let message = GossipMessage::TipAnnouncement {
             tips: tips.clone(),
             tip_urls,
             dag_size,
             merkle_root,
+            sender_url: public_url.clone(),
         };
 
         let mut success_count = 0;
@@ -466,6 +482,46 @@ impl GossipService {
 
         self.propagate_pending_txs().await;
         self.request_sync_if_needed(checkpoint_height).await;
+        
+        // Periodic peer exchange: every 30 seconds, share known peers
+        let should_exchange_peers = {
+            let inner = self.inner.read().await;
+            inner.round_counter % 150 == 0  // ~30s at 200ms interval
+        };
+        if should_exchange_peers {
+            self.broadcast_peer_list().await;
+        }
+    }
+    
+    async fn broadcast_peer_list(&self) {
+        let (known_peers, current_peers): (Vec<String>, Vec<String>) = {
+            let inner = self.inner.read().await;
+            let known: Vec<String> = inner.peers.keys()
+                .filter(|p| inner.peers.get(*p).map(|i| i.is_healthy).unwrap_or(false))
+                .cloned()
+                .collect();
+            let current: Vec<String> = inner.peers.keys().cloned().collect();
+            (known, current)
+        };
+        
+        if known_peers.is_empty() {
+            return;
+        }
+        
+        let public_url = std::env::var("PUBLIC_URL").ok();
+        let message = GossipMessage::PeerDiscovery {
+            peers: known_peers,
+            node_id: self.node_id.clone(),
+            sender_url: public_url,
+        };
+        
+        for peer in &current_peers {
+            if let Err(e) = self.send_to_peer(peer, &message).await {
+                debug!("Failed to share peer list with {}: {}", peer, e);
+            }
+        }
+        
+        info!("Broadcast peer list to {} peers", current_peers.len());
     }
 
     async fn propagate_pending_txs(&self) {
@@ -476,10 +532,12 @@ impl GossipService {
             (txs, peer_addrs)
         };
 
+        let public_url = std::env::var("PUBLIC_URL").ok();
         for tx in pending_txs {
             let message = GossipMessage::Transaction {
                 hash: tx.hash.clone(),
                 tx: tx.clone(),
+                sender_url: public_url.clone(),
             };
 
             for peer in &peers {
@@ -505,10 +563,12 @@ impl GossipService {
                 .collect()
         };
 
+        let public_url = std::env::var("PUBLIC_URL").ok();
         for (peer, _remote_height) in peers {
             let message = GossipMessage::SyncRequest {
                 from_checkpoint: local_checkpoint,
                 missing_hashes: Vec::new(),
+                sender_url: public_url.clone(),
             };
 
             if let Err(e) = self.send_to_peer(&peer, &message).await {
@@ -697,8 +757,14 @@ impl GossipService {
     }
 
     pub async fn handle_message(&self, message: GossipMessage) -> Result<Option<GossipMessage>> {
+        // Centralized reverse peer discovery: extract sender_url from any message type
+        let sender_url = Self::extract_sender_url(&message);
+        if let Some(url) = sender_url {
+            self.add_peer(url).await;
+        }
+        
         match message {
-            GossipMessage::Transaction { hash, tx } => {
+            GossipMessage::Transaction { hash, tx, .. } => {
                 let is_new = {
                     let mut inner = self.inner.write().await;
                     if inner.known_txs.contains(&hash) {
@@ -729,7 +795,8 @@ impl GossipService {
                 Ok(None)
             }
 
-            GossipMessage::PeerDiscovery { peers, node_id } => {
+            GossipMessage::PeerDiscovery { peers, node_id, .. } => {
+                // sender_url already handled at top of handle_message
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -770,13 +837,16 @@ impl GossipService {
             GossipMessage::SyncRequest {
                 from_checkpoint,
                 missing_hashes,
+                ..
             } => {
+                // sender_url already handled at top of handle_message
                 let txs = self.state.get_txs_since_checkpoint(from_checkpoint, &missing_hashes).await;
                 let checkpoint_height = self.state.get_checkpoint_height().await;
 
                 Ok(Some(GossipMessage::SyncResponse {
                     transactions: txs,
                     checkpoint_height,
+                    sender_url: std::env::var("PUBLIC_URL").ok(),
                 }))
             }
 
@@ -838,6 +908,7 @@ impl GossipService {
             weight_1,
             weight_2,
             resolved_by: self.node_id.clone(),
+            sender_url: std::env::var("PUBLIC_URL").ok(),
         };
 
         let peers: Vec<String> = {
@@ -898,6 +969,18 @@ impl GossipService {
 
     pub fn is_tx_known(&self, _hash: &str) -> bool {
         false
+    }
+    
+    fn extract_sender_url(message: &GossipMessage) -> Option<String> {
+        match message {
+            GossipMessage::Transaction { sender_url, .. } => sender_url.clone(),
+            GossipMessage::TipAnnouncement { sender_url, .. } => sender_url.clone(),
+            GossipMessage::CheckpointSignature { sender_url, .. } => sender_url.clone(),
+            GossipMessage::PeerDiscovery { sender_url, .. } => sender_url.clone(),
+            GossipMessage::ConflictResolution { sender_url, .. } => sender_url.clone(),
+            GossipMessage::SyncRequest { sender_url, .. } => sender_url.clone(),
+            GossipMessage::SyncResponse { sender_url, .. } => sender_url.clone(),
+        }
     }
 }
 

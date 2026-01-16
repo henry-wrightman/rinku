@@ -18,6 +18,13 @@ primary_region = "sjc"
   CHECKPOINT_INTERVAL_MS = "30000"
   NODE_ID = "fly-node-1"
   DATA_DIR = "/data"
+  # PUBLIC_URL: Set to this node's public URL for peer discovery
+  # New nodes will learn about this node when they receive gossip from it
+  # Example: PUBLIC_URL = "https://rinku-node.fly.dev"
+  # 
+  # NODE_PEERS: Comma-separated list of bootstrap/seed node URLs
+  # New nodes need at least one seed to join the network
+  # Example: NODE_PEERS = "https://rinkuchan.com,https://other-node.fly.dev"
 
 [http_service]
   internal_port = 8080

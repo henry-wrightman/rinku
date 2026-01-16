@@ -29,6 +29,12 @@ I want to work iteratively. Please ask before making major changes. I prefer det
     - Supports pagination: `?from_checkpoint=N&limit=500&offset=0` returns structured response with `transactions`, `total`, `offset`, `limit`, `hasMore`
 - **Periodic Peer Sync:** Nodes poll peer status every ~10 seconds and request missing transactions via delta sync endpoint
   - Paginated sync: fetches in batches of 500 transactions, iterates until caught up
+- **Dynamic Peer Discovery:** Nodes automatically discover each other without static configuration:
+  - All gossip messages include `sender_url` field identifying the sender's public URL
+  - When receiving any gossip, nodes add the sender to their peer list (reverse discovery)
+  - Periodic peer exchange: every ~30 seconds, nodes broadcast their known peer list
+  - New nodes only need one bootstrap/seed node to discover the full network
+  - Environment variables: `PUBLIC_URL` (this node's public URL), `NODE_PEERS` (comma-separated bootstrap seeds)
 - **Snapshot-Based Sync Architecture:** New nodes sync via state snapshots instead of full transaction history.
   - Transfers ~10KB (accounts + validators + checkpoints) instead of potentially GBs of transaction history
   - Self-contained URL proofs mean historical transactions aren't needed for verification

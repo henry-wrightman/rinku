@@ -456,8 +456,12 @@ async fn post_gossip(
     info!("Received gossip message: {:?}", std::mem::discriminant(&message));
     
     match &message {
-        GossipMessage::Transaction { hash, tx } => {
-            info!("Gossip: received tx {} from peer", &hash[..16.min(hash.len())]);
+        GossipMessage::Transaction { hash, tx, sender_url } => {
+            if let Some(url) = sender_url {
+                info!("Gossip: received tx {} from {}", &hash[..16.min(hash.len())], url);
+            } else {
+                info!("Gossip: received tx {} from peer", &hash[..16.min(hash.len())]);
+            }
             if let Err(e) = state.add_transaction(tx.clone()).await {
                 warn!("Failed to add gossiped transaction: {}", e);
                 return (
@@ -469,7 +473,7 @@ async fn post_gossip(
         GossipMessage::TipAnnouncement { dag_size, tips, .. } => {
             info!("Gossip: peer announced {} tips, dag_size={}", tips.len(), dag_size);
         }
-        GossipMessage::SyncRequest { from_checkpoint, missing_hashes } => {
+        GossipMessage::SyncRequest { from_checkpoint, missing_hashes, .. } => {
             info!("Gossip: sync request from checkpoint {} for {} hashes", 
                 from_checkpoint, missing_hashes.len());
             let txs = state.get_txs_since_checkpoint(*from_checkpoint, missing_hashes).await;
@@ -481,7 +485,7 @@ async fn post_gossip(
                 "checkpoint_height": checkpoint_height
             })).into_response();
         }
-        GossipMessage::SyncResponse { transactions, checkpoint_height } => {
+        GossipMessage::SyncResponse { transactions, checkpoint_height, .. } => {
             info!("Gossip: received sync response with {} txs at height {}", 
                 transactions.len(), checkpoint_height);
             for tx in transactions {
@@ -490,7 +494,7 @@ async fn post_gossip(
                 }
             }
         }
-        GossipMessage::PeerDiscovery { peers, node_id } => {
+        GossipMessage::PeerDiscovery { peers, node_id, .. } => {
             info!("Gossip: peer {} announced {} peers", node_id, peers.len());
         }
         GossipMessage::ConflictResolution { winner_hash, .. } => {
