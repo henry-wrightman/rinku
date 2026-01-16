@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
-import { createSignedTransaction, validatePrivateKey, getAddressFromPrivateKey, generateKeyPair, saveKeyToStorage, loadKeyFromStorage } from "../crypto";
+import { 
+  createSignedTransaction, 
+  generateKeyPair, 
+  serializeKeyPair, 
+  deserializeKeyPair, 
+  validateSerializedKey,
+  getFingerprint,
+  type SerializedKeyPair 
+} from "../crypto";
 
 interface RewardsSummary {
   address: string;
@@ -41,11 +49,12 @@ interface StakingInfo {
 }
 
 const NODE_URL = "/api";
+const WALLET_STORAGE_KEY = "rinku_wallet";
 
 export function RewardsTab() {
   const [address, setAddress] = useState("");
-  const [privateKey, setPrivateKey] = useState("");
-  const [derivedAddress, setDerivedAddress] = useState("");
+  const [keyInput, setKeyInput] = useState("");
+  const [keyPair, setKeyPair] = useState<SerializedKeyPair | null>(null);
   const [walletReady, setWalletReady] = useState(false);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [rewards, setRewards] = useState<RewardsSummary | null>(null);
@@ -57,41 +66,68 @@ export function RewardsTab() {
   const [result, setResult] = useState<string | null>(null);
 
   useEffect(() => {
-    if (privateKey && validatePrivateKey(privateKey)) {
-      if (loadKeyFromStorage(privateKey)) {
-        getAddressFromPrivateKey(privateKey)
-          .then(({ address }) => {
-            setDerivedAddress(address);
-            setWalletReady(true);
-          })
-          .catch(() => {
-            setDerivedAddress("");
-            setWalletReady(false);
-          });
-      } else {
-        setDerivedAddress("");
-        setWalletReady(false);
-        setError("Key not recognized. Use 'Generate Wallet' to create a new one.");
+    const stored = localStorage.getItem(WALLET_STORAGE_KEY);
+    if (stored && validateSerializedKey(stored)) {
+      try {
+        const kp = deserializeKeyPair(stored);
+        setKeyPair(kp);
+        setWalletReady(true);
+        setAddress(kp.fingerprint);
+      } catch (e) {
+        console.error("Failed to load stored wallet:", e);
       }
-    } else {
-      setDerivedAddress("");
-      setWalletReady(false);
     }
-  }, [privateKey]);
+  }, []);
+
+  const handleImportKey = () => {
+    setError(null);
+    if (!keyInput.trim()) {
+      setError("Please paste a key");
+      return;
+    }
+    
+    if (!validateSerializedKey(keyInput)) {
+      setError("Invalid key format. Paste the full JSON key from CLI (including publicKey, privateKey, and fingerprint).");
+      return;
+    }
+    
+    try {
+      const kp = deserializeKeyPair(keyInput);
+      setKeyPair(kp);
+      setWalletReady(true);
+      setAddress(kp.fingerprint);
+      localStorage.setItem(WALLET_STORAGE_KEY, keyInput);
+      setResult(`Wallet imported! Address: ${kp.fingerprint.slice(0, 16)}...`);
+      setKeyInput("");
+    } catch (e: any) {
+      setError("Failed to import key: " + e.message);
+    }
+  };
 
   const handleGenerateWallet = async () => {
     setError(null);
     try {
       const kp = await generateKeyPair();
-      saveKeyToStorage(kp.privateKey);
-      setPrivateKey(kp.privateKey);
-      setDerivedAddress(kp.address);
+      const serialized = serializeKeyPair(kp);
+      localStorage.setItem(WALLET_STORAGE_KEY, serialized);
+      setKeyPair(kp);
       setWalletReady(true);
+      setAddress(kp.fingerprint);
       setShowPrivateKey(true);
-      setResult(`Wallet created! Address: ${kp.address.slice(0, 16)}... SAVE YOUR PRIVATE KEY!`);
+      setResult(`Wallet created! Address: ${kp.fingerprint.slice(0, 16)}... SAVE YOUR KEY!`);
     } catch (e: any) {
       setError(e.message);
     }
+  };
+
+  const handleClearWallet = () => {
+    localStorage.removeItem(WALLET_STORAGE_KEY);
+    setKeyPair(null);
+    setWalletReady(false);
+    setAddress("");
+    setRewards(null);
+    setStaking(null);
+    setResult("Wallet cleared");
   };
 
   const fetchStakingInfo = async () => {
@@ -133,9 +169,15 @@ export function RewardsTab() {
     }
   };
 
+  useEffect(() => {
+    if (address) {
+      fetchRewards();
+    }
+  }, [address]);
+
   const handleStake = async () => {
-    if (!walletReady || !privateKey) {
-      setError("Generate a wallet first to sign transactions");
+    if (!walletReady || !keyPair) {
+      setError("Set up a wallet first");
       return;
     }
     if (stakeAmount <= 0) {
@@ -150,12 +192,12 @@ export function RewardsTab() {
       const tips = await tipsRes.json();
       const parents = (tips as string[]).slice(0, 2).map((h: string) => `rinku://tx/h/${h}`);
 
-      const accountRes = await fetch(`${NODE_URL}/account/${derivedAddress}`);
+      const accountRes = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
       const account = await accountRes.json();
       const nonce = (account.nonce || 0) + 1;
 
-      const signedTx = await createSignedTransaction(privateKey, {
-        to: derivedAddress,
+      const signedTx = await createSignedTransaction(keyPair, {
+        to: keyPair.fingerprint,
         amount: stakeAmount,
         nonce,
         parents,
@@ -172,7 +214,6 @@ export function RewardsTab() {
       const data = await res.json();
       if (res.ok && data.hash) {
         setResult(`Staked ${stakeAmount} RKU (tx: ${data.hash.slice(0, 12)}...)`);
-        setAddress(derivedAddress);
         setTimeout(() => {
           fetchRewards();
           fetchStakingInfo();
@@ -186,8 +227,8 @@ export function RewardsTab() {
   };
 
   const handleUnstake = async () => {
-    if (!walletReady || !privateKey) {
-      setError("Generate a wallet first to sign transactions");
+    if (!walletReady || !keyPair) {
+      setError("Set up a wallet first");
       return;
     }
     if (!staking?.stakedAmount || staking.stakedAmount <= 0) {
@@ -202,12 +243,12 @@ export function RewardsTab() {
       const tips = await tipsRes.json();
       const parents = (tips as string[]).slice(0, 2).map((h: string) => `rinku://tx/h/${h}`);
 
-      const accountRes = await fetch(`${NODE_URL}/account/${derivedAddress}`);
+      const accountRes = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
       const account = await accountRes.json();
       const nonce = (account.nonce || 0) + 1;
 
-      const signedTx = await createSignedTransaction(privateKey, {
-        to: derivedAddress,
+      const signedTx = await createSignedTransaction(keyPair, {
+        to: keyPair.fingerprint,
         amount: staking.stakedAmount,
         nonce,
         parents,
@@ -262,6 +303,11 @@ export function RewardsTab() {
   const formatTime = (ts: number) => {
     const d = new Date(ts);
     return d.toLocaleString();
+  };
+
+  const getSerializedKey = (): string => {
+    if (!keyPair) return "";
+    return serializeKeyPair(keyPair);
   };
 
   return (
@@ -320,17 +366,19 @@ export function RewardsTab() {
 
       <div className="section">
         <h3>your rewards</h3>
-        <div className="form-row">
-          <input
-            type="text"
-            placeholder="your wallet address (fingerprint)"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-          />
-          <button onClick={fetchRewards} disabled={!address || loading}>
-            {loading ? "loading..." : "lookup"}
-          </button>
-        </div>
+        {!walletReady && (
+          <div className="form-row">
+            <input
+              type="text"
+              placeholder="wallet address (fingerprint)"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+            <button onClick={fetchRewards} disabled={!address || loading}>
+              {loading ? "loading..." : "lookup"}
+            </button>
+          </div>
+        )}
 
         {rewards && (
           <div className="rewards-summary">
@@ -421,38 +469,44 @@ export function RewardsTab() {
                   generate new wallet
                 </button>
                 <div className="stake-note">
-                  or paste an existing private key below
+                  or import an existing wallet from CLI
                 </div>
                 <div className="form-row">
-                  <input
-                    type="password"
-                    placeholder="private key (64 hex chars)"
-                    value={privateKey}
-                    onChange={(e) => setPrivateKey(e.target.value.trim())}
-                    style={{ fontFamily: 'monospace' }}
+                  <textarea
+                    placeholder='paste full key JSON: {"publicKey":"...", "privateKey":"...", "fingerprint":"..."}'
+                    value={keyInput}
+                    onChange={(e) => setKeyInput(e.target.value)}
+                    rows={3}
+                    style={{ fontFamily: 'monospace', fontSize: '11px' }}
                   />
                 </div>
+                <button onClick={handleImportKey} className="secondary">
+                  import key
+                </button>
               </div>
             ) : (
               <div className="wallet-info">
                 <div className="derived-address">
                   <span className="label">address:</span>
-                  <span className="mono">{derivedAddress}</span>
+                  <span className="mono">{keyPair?.fingerprint}</span>
                 </div>
                 <div className="form-row">
                   <button onClick={() => setShowPrivateKey(!showPrivateKey)} className="secondary small">
-                    {showPrivateKey ? 'hide' : 'show'} private key
+                    {showPrivateKey ? 'hide' : 'show'} key
                   </button>
                   <button onClick={() => {
-                    navigator.clipboard.writeText(privateKey);
-                    setResult('Private key copied!');
+                    navigator.clipboard.writeText(getSerializedKey());
+                    setResult('Key copied to clipboard!');
                   }} className="secondary small">
                     copy key
+                  </button>
+                  <button onClick={handleClearWallet} className="secondary small danger">
+                    clear
                   </button>
                 </div>
                 {showPrivateKey && (
                   <div className="private-key-display">
-                    <code>{privateKey}</code>
+                    <code>{getSerializedKey()}</code>
                   </div>
                 )}
               </div>
