@@ -427,12 +427,20 @@ impl RewardsService {
         }
 
         let mut distributions = Vec::new();
+        let now = current_time_ms();
 
-        for (staker, amount) in eligible_validators {
-            let share = amount / total_eligible_stake;
-            let reward = reward_amount * share;
-            self.add_pending_reward(&staker, reward);
-            distributions.push((staker, reward));
+        for (staker, stake_amount) in eligible_validators {
+            let share = stake_amount / total_eligible_stake;
+            let reward_amt = reward_amount * share;
+            
+            let stake_reward = StakeReward {
+                recipient: staker.clone(),
+                amount: reward_amt,
+                tx_url: format!("checkpoint:{}", now),
+                timestamp: now,
+            };
+            self.add_reward(&staker, Reward::Stake(stake_reward));
+            distributions.push((staker, reward_amt));
         }
 
         distributions
