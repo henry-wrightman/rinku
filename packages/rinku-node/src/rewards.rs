@@ -409,16 +409,27 @@ impl RewardsService {
     }
 
     pub fn distribute_checkpoint_rewards(&mut self, reward_amount: f64) -> Vec<(String, f64)> {
-        let total_stake = self.get_total_staked();
-        if total_stake <= 0.0 {
+        let now = current_time_ms();
+        let min_stake_age_ms: u64 = 15_000;
+        
+        let eligible_validators: Vec<(String, f64)> = self.stakes
+            .values()
+            .filter(|s| {
+                s.amount >= self.config.min_stake_amount
+                    && now.saturating_sub(s.staked_at) >= min_stake_age_ms
+            })
+            .map(|s| (s.staker.clone(), s.amount))
+            .collect();
+        
+        let total_eligible_stake: f64 = eligible_validators.iter().map(|(_, amt)| amt).sum();
+        if total_eligible_stake <= 0.0 {
             return vec![];
         }
 
-        let validator_data = self.get_active_validators_data();
         let mut distributions = Vec::new();
 
-        for (staker, amount) in validator_data {
-            let share = amount / total_stake;
+        for (staker, amount) in eligible_validators {
+            let share = amount / total_eligible_stake;
             let reward = reward_amount * share;
             self.add_pending_reward(&staker, reward);
             distributions.push((staker, reward));

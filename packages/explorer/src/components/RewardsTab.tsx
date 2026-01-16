@@ -308,10 +308,10 @@ export function RewardsTab() {
 
       const data = await res.json();
       if (data.success) {
-        setResult(`Claimed ${data.amount} reward RKU`);
+        setResult(`Claimed ${data.claimedAmount.toFixed(4)} RKU`);
         fetchRewards();
       } else {
-        setError("No rewards to claim");
+        setError(data.message || "No rewards to claim");
       }
     } catch (e: any) {
       setError(e.message);
