@@ -87,7 +87,7 @@ struct TxInner {
     #[serde(default)]
     fee: f64,
     nonce: u64,
-    #[serde(default)]
+    #[serde(default, alias = "tipUrls")]
     parents: Vec<String>,
     sig: String,
     ts: u64,
