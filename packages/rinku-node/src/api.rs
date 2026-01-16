@@ -79,20 +79,8 @@ struct AccountResponse {
 }
 
 #[derive(Deserialize)]
-struct SubmitTxRequest {
-    from: String,
-    to: String,
-    amount: f64,
-    nonce: u64,
-    timestamp: u64,
-    parents: Vec<String>,
-    signature: String,
-    hash: String,
-}
-
-#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LegacyTxInner {
+struct TxInner {
     from: String,
     to: String,
     amount: f64,
@@ -100,27 +88,23 @@ struct LegacyTxInner {
     fee: f64,
     nonce: u64,
     #[serde(default)]
-    tip_urls: Vec<String>,
-    #[serde(default)]
     parents: Vec<String>,
     sig: String,
     ts: u64,
-    #[serde(default)]
-    timestamp: Option<u64>,
     hash: String,
     #[serde(default)]
     kind: Option<rinku_core::types::TransactionKind>,
 }
 
 #[derive(Deserialize)]
-struct LegacySubmitTxRequest {
-    tx: LegacyTxInner,
+struct SubmitTxRequest {
+    tx: TxInner,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BatchTxItem {
-    tx: LegacyTxInner,
+    tx: TxInner,
     #[serde(default)]
     public_key: Option<Vec<u8>>,
 }
@@ -616,27 +600,17 @@ const MAX_SYNC_LIMIT: usize = 2000;
 async fn get_sync_transactions(
     State(state): State<NodeState>,
     Query(query): Query<SyncTxQuery>,
-) -> axum::response::Response {
-    use axum::response::IntoResponse;
-    
+) -> Json<SyncDeltaResponse> {
     let from_checkpoint = query.from_checkpoint.unwrap_or(0);
     
     // Get all transactions since the given checkpoint
     let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
     
-    // If no pagination params, return legacy array format for backward compatibility
-    if query.limit.is_none() && query.offset.is_none() {
-        info!("Sync delta request (legacy): checkpoint={}, returning {} txs", 
-              from_checkpoint, all_txs.len());
-        return Json(all_txs).into_response();
-    }
-    
-    // Paginated mode
     let offset = query.offset.unwrap_or(0);
     let limit = query.limit.unwrap_or(DEFAULT_SYNC_LIMIT).min(MAX_SYNC_LIMIT);
     let total = all_txs.len();
     
-    info!("Sync delta request (paginated): checkpoint={}, offset={}, limit={}", 
+    info!("Sync delta request: checkpoint={}, offset={}, limit={}", 
           from_checkpoint, offset, limit);
     
     // Apply pagination
@@ -658,7 +632,7 @@ async fn get_sync_transactions(
         offset,
         limit,
         has_more,
-    }).into_response()
+    })
 }
 
 async fn handle_faucet_request(
@@ -838,59 +812,15 @@ async fn submit_transaction(
     State(state): State<NodeState>,
     Json(req): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
-    let tx = rinku_core::types::SignedTransaction {
-        tx: rinku_core::types::Transaction {
-            from: req.from,
-            to: req.to,
-            amount: req.amount,
-            nonce: req.nonce,
-            timestamp: req.timestamp,
-            parents: req.parents,
-            kind: None,
-            gas_limit: None,
-            gas_price: None,
-            data: None,
-            signature: Some(req.signature.clone()),
-        },
-        hash: req.hash.clone(),
-        signature: req.signature,
-    };
-
-    match state.add_transaction(tx).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(SubmitTxResponse {
-                success: true,
-                hash: req.hash,
-                error: None,
-            }),
-        ),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(SubmitTxResponse {
-                success: false,
-                hash: req.hash,
-                error: Some(e.to_string()),
-            }),
-        ),
-    }
-}
-
-async fn submit_legacy_transaction(
-    State(state): State<NodeState>,
-    Json(req): Json<LegacySubmitTxRequest>,
-) -> impl IntoResponse {
     let inner = req.tx;
-    let timestamp = inner.timestamp.unwrap_or(inner.ts);
-    let parents = if !inner.parents.is_empty() { inner.parents } else { inner.tip_urls };
     let tx = rinku_core::types::SignedTransaction {
         tx: rinku_core::types::Transaction {
             from: inner.from,
             to: inner.to,
             amount: inner.amount,
             nonce: inner.nonce,
-            timestamp,
-            parents,
+            timestamp: inner.ts,
+            parents: inner.parents,
             kind: inner.kind,
             gas_limit: None,
             gas_price: Some(inner.fee),
@@ -932,16 +862,14 @@ async fn submit_batch_transaction(
         .into_iter()
         .map(|item| {
             let inner = item.tx;
-            let timestamp = inner.timestamp.unwrap_or(inner.ts);
-            let parents = if !inner.parents.is_empty() { inner.parents } else { inner.tip_urls };
             rinku_core::types::SignedTransaction {
                 tx: rinku_core::types::Transaction {
                     from: inner.from,
                     to: inner.to,
                     amount: inner.amount,
                     nonce: inner.nonce,
-                    timestamp,
-                    parents,
+                    timestamp: inner.ts,
+                    parents: inner.parents,
                     kind: inner.kind,
                     gas_limit: None,
                     gas_price: Some(inner.fee),
@@ -2271,7 +2199,7 @@ pub async fn start_api_server(
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/account/:address", get(get_account))
-        .route("/api/tx", post(submit_legacy_transaction))
+        .route("/api/tx", post(submit_transaction))
         .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/txp/:hash", get(get_self_provable_tx))

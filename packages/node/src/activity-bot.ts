@@ -710,11 +710,11 @@ async function claimRewards(): Promise<void> {
     );
 
     if (res.ok) {
-      const result = (await res.json()) as { success: boolean; amount: number };
+      const result = (await res.json()) as { success: boolean; claimedAmount: number };
       if (result.success) {
-        totalRewardsClaimed += result.amount || 0;
+        totalRewardsClaimed += result.claimedAmount || 0;
         log(
-          `Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.amount} RKU`,
+          `Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.claimedAmount} RKU`,
         );
       } else {
         log(

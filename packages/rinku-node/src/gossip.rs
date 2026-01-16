@@ -611,23 +611,15 @@ impl GossipService {
                 has_more: bool,
             }
             
-            // Try parsing as paginated response first, fall back to legacy array
             let response_text = response.text().await?;
-            let (transactions, has_more): (Vec<SignedTransaction>, bool) = 
-                if let Ok(delta) = serde_json::from_str::<DeltaResponse>(&response_text) {
-                    // Paginated response
-                    info!(
-                        "Sync page: received {}/{} transactions (offset={}, has_more={})", 
-                        delta.transactions.len(), delta.total, delta.offset, delta.has_more
-                    );
-                    (delta.transactions, delta.has_more)
-                } else if let Ok(txs) = serde_json::from_str::<Vec<SignedTransaction>>(&response_text) {
-                    // Legacy array response (old peers)
-                    info!("Sync legacy: received {} transactions from peer", txs.len());
-                    (txs, false)
-                } else {
-                    anyhow::bail!("Failed to parse sync response");
-                };
+            let delta: DeltaResponse = serde_json::from_str(&response_text)
+                .map_err(|e| anyhow::anyhow!("Failed to parse sync response: {}", e))?;
+            
+            info!(
+                "Sync page: received {}/{} transactions (offset={}, has_more={})", 
+                delta.transactions.len(), delta.total, delta.offset, delta.has_more
+            );
+            let (transactions, has_more) = (delta.transactions, delta.has_more);
             
             if transactions.is_empty() {
                 break;
