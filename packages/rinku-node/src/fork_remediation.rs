@@ -325,6 +325,16 @@ impl ForkRemediationService {
             inner.double_spend_events.truncate(500);
         }
 
+        const MAX_NONCE_INDEX_SIZE: usize = 50000;
+        if inner.nonce_index.len() > MAX_NONCE_INDEX_SIZE {
+            let entries_to_remove = inner.nonce_index.len() - (MAX_NONCE_INDEX_SIZE / 2);
+            let keys_to_remove: Vec<_> = inner.nonce_index.keys().take(entries_to_remove).cloned().collect();
+            for key in keys_to_remove {
+                inner.nonce_index.remove(&key);
+            }
+            debug!("Pruned nonce_index: removed {} entries, {} remaining", entries_to_remove, inner.nonce_index.len());
+        }
+
         inner.stats.active_forks = inner.fork_events.iter()
             .filter(|e| e.resolved_at.is_none())
             .count();

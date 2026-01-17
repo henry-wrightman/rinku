@@ -691,10 +691,15 @@ impl ContractService {
                 contract.height += 1;
 
                 let mut history = self.execution_history.write().await;
-                history
+                let contract_history = history
                     .entry(call.contract_id.clone())
-                    .or_default()
-                    .push(diff.clone());
+                    .or_default();
+                contract_history.push(diff.clone());
+                
+                const MAX_HISTORY_PER_CONTRACT: usize = 1000;
+                if contract_history.len() > MAX_HISTORY_PER_CONTRACT {
+                    contract_history.drain(0..contract_history.len() - MAX_HISTORY_PER_CONTRACT);
+                }
             }
 
             let checkpoint_height = *self.checkpoint_height.read().await;
@@ -715,6 +720,14 @@ impl ContractService {
 
             let mut receipts = self.receipts.write().await;
             receipts.insert(tx_hash.to_string(), receipt.clone());
+            
+            const MAX_RECEIPTS: usize = 10000;
+            if receipts.len() > MAX_RECEIPTS {
+                let keys_to_remove: Vec<_> = receipts.keys().take(MAX_RECEIPTS / 2).cloned().collect();
+                for key in keys_to_remove {
+                    receipts.remove(&key);
+                }
+            }
 
             Ok((result, Some(receipt)))
         } else {
