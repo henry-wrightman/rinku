@@ -1944,26 +1944,59 @@ async fn post_stake(
     State(state): State<NodeState>,
     Json(req): Json<StakeRequest>,
 ) -> Json<StakeResponse> {
-    // First check if account has sufficient balance
-    {
-        let inner = state.inner.read().await;
-        if let Some(account) = inner.accounts.get(&req.address) {
-            if account.balance < req.amount {
-                return Json(StakeResponse {
-                    success: false,
-                    address: req.address,
-                    amount: req.amount,
-                    error: Some(format!("Insufficient balance: {} < {}", account.balance, req.amount)),
-                });
+    // Epsilon for floating-point comparison to prevent precision issues
+    const BALANCE_EPSILON: f64 = 0.000001;
+    
+    // Validate amount is positive
+    if req.amount <= 0.0 {
+        return Json(StakeResponse {
+            success: false,
+            address: req.address,
+            amount: req.amount,
+            error: Some("Stake amount must be positive".to_string()),
+        });
+    }
+
+    // ATOMIC: Check balance and deduct in one critical section to prevent race conditions
+    // We acquire the write lock FIRST, then check balance, then deduct
+    let balance_result = {
+        let mut inner = state.inner.write().await;
+        if let Some(account) = inner.accounts.get_mut(&req.address) {
+            // Use epsilon comparison to handle floating-point precision
+            if account.balance + BALANCE_EPSILON < req.amount {
+                Err(format!("Insufficient balance: {:.6} < {:.6}", account.balance, req.amount))
+            } else {
+                // Deduct balance immediately while holding the lock
+                let old_balance = account.balance;
+                account.balance -= req.amount;
+                
+                // Ensure balance doesn't go negative due to floating-point errors
+                if account.balance < 0.0 {
+                    account.balance = 0.0;
+                }
+                
+                tracing::info!(
+                    "Stake balance deducted: {} balance {:.6} -> {:.6} (staking {:.6})",
+                    &req.address[..16.min(req.address.len())],
+                    old_balance,
+                    account.balance,
+                    req.amount
+                );
+                Ok(())
             }
         } else {
-            return Json(StakeResponse {
-                success: false,
-                address: req.address,
-                amount: req.amount,
-                error: Some("Account not found".to_string()),
-            });
+            Err("Account not found".to_string())
         }
+    };
+
+    // If balance check/deduction failed, return error
+    if let Err(e) = balance_result {
+        return Json(StakeResponse {
+            success: false,
+            address: req.address,
+            amount: req.amount,
+            error: Some(e),
+        });
     }
     
     // Add stake to rewards service
@@ -1974,11 +2007,10 @@ async fn post_stake(
             let staked_at = position.staked_at;
             drop(rewards); // Release rewards lock
             
-            // Deduct balance AND sync staked amount atomically
+            // Sync staked amount to account (balance already deducted above)
             {
                 let mut inner = state.inner.write().await;
                 if let Some(account) = inner.accounts.get_mut(&req.address) {
-                    account.balance -= req.amount;
                     account.staked = staked_amount;
                     if account.first_seen == 0 {
                         account.first_seen = staked_at / 1000;
@@ -2000,12 +2032,26 @@ async fn post_stake(
                 error: None,
             })
         },
-        Err(e) => Json(StakeResponse {
-            success: false,
-            address: req.address,
-            amount: req.amount,
-            error: Some(e),
-        }),
+        Err(e) => {
+            // Rollback: restore the balance since stake failed
+            {
+                let mut inner = state.inner.write().await;
+                if let Some(account) = inner.accounts.get_mut(&req.address) {
+                    account.balance += req.amount;
+                    tracing::warn!(
+                        "Stake failed, rolling back balance for {}: restored {} RKU",
+                        &req.address[..16.min(req.address.len())],
+                        req.amount
+                    );
+                }
+            }
+            Json(StakeResponse {
+                success: false,
+                address: req.address,
+                amount: req.amount,
+                error: Some(e),
+            })
+        },
     }
 }
 
