@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 import {
-  generateKeyPair,
   deserializeKeyPair,
-  serializeKeyPair,
   createSignedTransaction,
   type SerializedKeyPair,
 } from "../crypto";
@@ -35,7 +33,7 @@ interface AccountInfo {
 }
 
 const NODE_URL = "/api";
-const WALLET_STORAGE_KEY = "rinku_contracts_wallet";
+const WALLET_STORAGE_KEY = "rinku_wallet";
 
 export function ContractsTab() {
   const [contracts, setContracts] = useState<ContractSummary[]>([]);
@@ -52,7 +50,6 @@ export function ContractsTab() {
 
   const [keyPair, setKeyPair] = useState<SerializedKeyPair | null>(null);
   const [walletReady, setWalletReady] = useState(false);
-  const [importKey, setImportKey] = useState("");
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -100,48 +97,6 @@ export function ContractsTab() {
         staked: 0,
       });
     }
-  };
-
-  const handleImportWallet = async () => {
-    setError(null);
-    setResult(null);
-    try {
-      const kp = deserializeKeyPair(importKey);
-      setKeyPair(kp);
-      localStorage.setItem(WALLET_STORAGE_KEY, serializeKeyPair(kp));
-      setWalletReady(true);
-      setImportKey("");
-      setResult(`Wallet imported! Address: ${kp.fingerprint.slice(0, 16)}...`);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Unknown error";
-      setError(`Import failed: ${message}`);
-    }
-  };
-
-  const handleGenerateWallet = async () => {
-    setError(null);
-    setResult(null);
-    try {
-      const kp = await generateKeyPair();
-      setKeyPair(kp);
-      localStorage.setItem(WALLET_STORAGE_KEY, serializeKeyPair(kp));
-      setWalletReady(true);
-      setResult(
-        `Wallet created! Address: ${kp.fingerprint.slice(0, 16)}... SAVE YOUR KEY!`,
-      );
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Unknown error";
-      setError(`Generation failed: ${message}`);
-    }
-  };
-
-  const handleClearWallet = () => {
-    setKeyPair(null);
-    setAccountInfo(null);
-    setWalletReady(false);
-    localStorage.removeItem(WALLET_STORAGE_KEY);
-    setSelectedContract(null);
-    setResult("Wallet cleared");
   };
 
   const fetchContracts = async () => {
@@ -335,49 +290,20 @@ export function ContractsTab() {
         <div className="wallet-section">
           <h4>wallet</h4>
           {!walletReady ? (
-            <div className="wallet-setup">
-              <button onClick={handleGenerateWallet} className="primary">
-                generate new wallet
-              </button>
-              <div style={{ margin: "12px 0", color: "#666", fontSize: 12 }}>
-                or import an existing wallet from CLI
-              </div>
-              <div className="form-row">
-                <input
-                  type="text"
-                  placeholder='paste wallet JSON {"publicKey":"...","privateKey":"...","fingerprint":"..."}'
-                  value={importKey}
-                  onChange={(e) => setImportKey(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button onClick={handleImportWallet} disabled={!importKey}>
-                  import
-                </button>
-              </div>
+            <div className="wallet-connect-prompt">
+              <p>connect a wallet using the wallet button in the header to deploy and interact with contracts.</p>
             </div>
           ) : (
             <div className="wallet-info">
               <div className="stat-row">
                 <span>address:</span>
-                <span className="value mono">{keyPair?.fingerprint}</span>
+                <span className="value mono">{keyPair?.fingerprint?.slice(0, 12)}...</span>
               </div>
               <div className="stat-row">
                 <span>balance:</span>
                 <span className="value">
-                  {accountInfo?.balance?.toLocaleString() || "0.00"} RKU
+                  {accountInfo?.balance?.toFixed(4) || "0.0000"} RKU
                 </span>
-              </div>
-              <div className="stat-row">
-                <span>nonce:</span>
-                <span className="value">{accountInfo?.nonce || 0}</span>
-              </div>
-              <div style={{ marginTop: 8 }}>
-                <button
-                  onClick={handleClearWallet}
-                  style={{ background: "#3b4252", fontSize: 11 }}
-                >
-                  disconnect wallet
-                </button>
               </div>
             </div>
           )}

@@ -1,11 +1,8 @@
 import { useState, useEffect } from "react";
 import {
   createSignedTransaction,
-  generateKeyPair,
-  serializeKeyPair,
   deserializeKeyPair,
   validateSerializedKey,
-  getFingerprint,
   type SerializedKeyPair,
 } from "../crypto";
 
@@ -53,10 +50,8 @@ const WALLET_STORAGE_KEY = "rinku_wallet";
 
 export function RewardsTab() {
   const [address, setAddress] = useState("");
-  const [keyInput, setKeyInput] = useState("");
   const [keyPair, setKeyPair] = useState<SerializedKeyPair | null>(null);
   const [walletReady, setWalletReady] = useState(false);
-  const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [rewards, setRewards] = useState<RewardsSummary | null>(null);
   const [staking, setStaking] = useState<StakingStatus | null>(null);
   const [stakingInfo, setStakingInfo] = useState<StakingInfo | null>(null);
@@ -78,61 +73,6 @@ export function RewardsTab() {
       }
     }
   }, []);
-
-  const handleImportKey = () => {
-    setError(null);
-    if (!keyInput.trim()) {
-      setError("Please paste a key");
-      return;
-    }
-
-    if (!validateSerializedKey(keyInput)) {
-      setError(
-        "Invalid key format. Paste the full JSON key from CLI (including publicKey, privateKey, and fingerprint).",
-      );
-      return;
-    }
-
-    try {
-      const kp = deserializeKeyPair(keyInput);
-      setKeyPair(kp);
-      setWalletReady(true);
-      setAddress(kp.fingerprint);
-      localStorage.setItem(WALLET_STORAGE_KEY, keyInput);
-      setResult(`Wallet imported! Address: ${kp.fingerprint.slice(0, 16)}...`);
-      setKeyInput("");
-    } catch (e: any) {
-      setError("Failed to import key: " + e.message);
-    }
-  };
-
-  const handleGenerateWallet = async () => {
-    setError(null);
-    try {
-      const kp = await generateKeyPair();
-      const serialized = serializeKeyPair(kp);
-      localStorage.setItem(WALLET_STORAGE_KEY, serialized);
-      setKeyPair(kp);
-      setWalletReady(true);
-      setAddress(kp.fingerprint);
-      setShowPrivateKey(true);
-      setResult(
-        `Wallet created! Address: ${kp.fingerprint.slice(0, 16)}... SAVE YOUR KEY!`,
-      );
-    } catch (e: any) {
-      setError(e.message);
-    }
-  };
-
-  const handleClearWallet = () => {
-    localStorage.removeItem(WALLET_STORAGE_KEY);
-    setKeyPair(null);
-    setWalletReady(false);
-    setAddress("");
-    setRewards(null);
-    setStaking(null);
-    setResult("Wallet cleared");
-  };
 
   const fetchStakingInfo = async () => {
     try {
@@ -525,60 +465,15 @@ export function RewardsTab() {
           <div className="wallet-section">
             <h4>wallet</h4>
             {!walletReady ? (
-              <div className="wallet-setup">
-                <button onClick={handleGenerateWallet} className="primary">
-                  generate new wallet
-                </button>
-                <div className="stake-note">
-                  or import an existing wallet from CLI
-                </div>
-                <div className="form-row">
-                  <textarea
-                    placeholder='paste full key JSON: {"publicKey":"...", "privateKey":"...", "fingerprint":"..."}'
-                    value={keyInput}
-                    onChange={(e) => setKeyInput(e.target.value)}
-                    rows={3}
-                    style={{ fontFamily: "monospace", fontSize: "11px" }}
-                  />
-                </div>
-                <button onClick={handleImportKey} className="secondary">
-                  import key
-                </button>
+              <div className="wallet-connect-prompt">
+                <p>connect a wallet using the wallet button in the header to stake and claim rewards.</p>
               </div>
             ) : (
               <div className="wallet-info">
                 <div className="derived-address">
                   <span className="label">address:</span>
-                  <span className="mono">{keyPair?.fingerprint}</span>
+                  <span className="mono">{keyPair?.fingerprint?.slice(0, 12)}...</span>
                 </div>
-                <div className="form-row">
-                  <button
-                    onClick={() => setShowPrivateKey(!showPrivateKey)}
-                    className="secondary small"
-                  >
-                    {showPrivateKey ? "hide" : "show"} key
-                  </button>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(getSerializedKey());
-                      setResult("Key copied to clipboard!");
-                    }}
-                    className="secondary small"
-                  >
-                    copy key
-                  </button>
-                  <button
-                    onClick={handleClearWallet}
-                    className="secondary small danger"
-                  >
-                    clear
-                  </button>
-                </div>
-                {showPrivateKey && (
-                  <div className="private-key-display">
-                    <code>{getSerializedKey()}</code>
-                  </div>
-                )}
               </div>
             )}
           </div>

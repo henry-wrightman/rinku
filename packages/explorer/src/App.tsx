@@ -12,6 +12,8 @@ import {
   SearchBar,
   ZKTab,
   VerifyProofTab,
+  WalletModal,
+  useWallet,
 } from "./components";
 import { formatNumber, formatTps } from "./utils";
 import { useTheme } from "./hooks/useTheme";
@@ -146,6 +148,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const { darkMode, toggleTheme } = useTheme();
+  const [walletOpen, setWalletOpen] = useState(false);
+  const wallet = useWallet();
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [searchResult, setSearchResult] = useState<{
@@ -267,18 +271,21 @@ function App() {
       />
 
       <div className="header-actions">
-        {/* <a
-          href="/rinku.pdf"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="whitepaper-link"
+        <button 
+          className={`wallet-btn-header ${wallet ? 'connected' : ''}`}
+          onClick={() => setWalletOpen(true)}
         >
-          whitepaper
-        </a> */}
+          {wallet ? `${wallet.fingerprint.slice(0, 6)}...` : 'wallet'}
+        </button>
         <button className="theme-toggle" onClick={toggleTheme}>
           {darkMode ? "☀" : "☾"}
         </button>
       </div>
+
+      <WalletModal 
+        isOpen={walletOpen} 
+        onClose={() => setWalletOpen(false)} 
+      />
 
       <div className="stats">
         <div className="stat-item">
