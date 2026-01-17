@@ -5,15 +5,25 @@ edition = "2021"
 description = "Rinku node implementation with consensus, gossip, and API server"
 license.workspace = true
 
+[lib]
+name = "rinku_node"
+path = "src/lib.rs"
+
 [[bin]]
 name = "rinku-node"
 path = "src/main.rs"
 
+[[bin]]
+name = "rinku-tui"
+path = "src/bin/tui.rs"
+required-features = ["tui"]
+
 [features]
 default = []
+tui = ["ratatui", "crossterm"]
 zk = ["ark-bn254", "ark-groth16", "ark-serialize", "ark-std", "ark-ff", "ark-ec", "ark-relations", "light-poseidon"]
 p2p = ["libp2p"]
-full = ["zk", "p2p"]
+full = ["zk", "p2p", "tui"]
 
 [dependencies]
 rinku-core = { path = "../rinku-core" }
@@ -58,6 +68,10 @@ flate2 = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
 sysinfo = { workspace = true }
+
+# TUI (optional)
+ratatui = { workspace = true, optional = true }
+crossterm = { workspace = true, optional = true }
 
 # ZK-SNARKs (optional - heavy dependencies)
 ark-bn254 = { workspace = true, optional = true }

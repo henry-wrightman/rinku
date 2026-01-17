@@ -26,6 +26,8 @@ mod validator;
 mod versioning;
 #[cfg(feature = "zk")]
 mod zk;
+#[cfg(feature = "tui")]
+mod tui;
 
 use checkpoint::CheckpointService;
 use config::NodeConfig;
