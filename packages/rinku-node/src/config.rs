@@ -55,7 +55,7 @@ impl NodeConfig {
         let peers: Vec<String> = env::var("NODE_PEERS")
             .map(|p| p.split(',')
                 .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())  // Filter out empty strings
+                .filter(|s| !s.is_empty())
                 .collect())
             .unwrap_or_default();
 
