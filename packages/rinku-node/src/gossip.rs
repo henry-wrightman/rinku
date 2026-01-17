@@ -183,6 +183,7 @@ pub struct GossipStats {
     pub failed_sends: u64,
 }
 
+#[derive(Clone)]
 pub struct GossipService {
     state: NodeState,
     inner: Arc<RwLock<GossipServiceInner>>,

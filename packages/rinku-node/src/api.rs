@@ -15,7 +15,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 
-use crate::gossip::GossipMessage;
+use crate::gossip::{GossipMessage, GossipService};
 
 static FAUCET_RATE_LIMIT: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -23,6 +23,12 @@ const FAUCET_AMOUNT: f64 = 100.0;
 const FAUCET_RATE_LIMIT_MS: u64 = 60_000;
 
 use crate::state::NodeState;
+
+#[derive(Clone)]
+pub struct ApiState {
+    pub node_state: NodeState,
+    pub gossip_service: Option<GossipService>,
+}
 
 #[derive(Serialize)]
 struct ApiError {
@@ -450,60 +456,77 @@ async fn get_node_status(State(state): State<NodeState>) -> Json<NodeStatusRespo
 }
 
 async fn post_gossip(
-    State(state): State<NodeState>,
+    State(api_state): State<ApiState>,
     Json(message): Json<GossipMessage>,
 ) -> impl IntoResponse {
     info!("Received gossip message: {:?}", std::mem::discriminant(&message));
     
-    match &message {
-        GossipMessage::Transaction { hash, tx, sender_url } => {
-            if let Some(url) = sender_url {
-                info!("Gossip: received tx {} from {}", &hash[..16.min(hash.len())], url);
-            } else {
-                info!("Gossip: received tx {} from peer", &hash[..16.min(hash.len())]);
+    // Use GossipService.handle_message if available (for peer discovery)
+    if let Some(ref gossip_service) = api_state.gossip_service {
+        match gossip_service.handle_message(message.clone()).await {
+            Ok(Some(response)) => {
+                return Json(serde_json::json!(response)).into_response();
             }
-            if let Err(e) = state.add_transaction(tx.clone()).await {
-                warn!("Failed to add gossiped transaction: {}", e);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                ).into_response();
+            Ok(None) => {
+                // Message handled, continue to return ok
+            }
+            Err(e) => {
+                warn!("Gossip handle_message error: {}", e);
             }
         }
-        GossipMessage::TipAnnouncement { dag_size, tips, .. } => {
-            info!("Gossip: peer announced {} tips, dag_size={}", tips.len(), dag_size);
-        }
-        GossipMessage::SyncRequest { from_checkpoint, missing_hashes, .. } => {
-            info!("Gossip: sync request from checkpoint {} for {} hashes", 
-                from_checkpoint, missing_hashes.len());
-            let txs = state.get_txs_since_checkpoint(*from_checkpoint, missing_hashes).await;
-            let checkpoint_height = state.get_checkpoint_height().await;
-            info!("Gossip: responding with {} transactions", txs.len());
-            return Json(serde_json::json!({
-                "type": "sync_response",
-                "transactions": txs,
-                "checkpoint_height": checkpoint_height
-            })).into_response();
-        }
-        GossipMessage::SyncResponse { transactions, checkpoint_height, .. } => {
-            info!("Gossip: received sync response with {} txs at height {}", 
-                transactions.len(), checkpoint_height);
-            for tx in transactions {
+    } else {
+        // Fallback: process directly without GossipService
+        let state = &api_state.node_state;
+        match &message {
+            GossipMessage::Transaction { hash, tx, sender_url } => {
+                if let Some(url) = sender_url {
+                    info!("Gossip: received tx {} from {}", &hash[..16.min(hash.len())], url);
+                } else {
+                    info!("Gossip: received tx {} from peer", &hash[..16.min(hash.len())]);
+                }
                 if let Err(e) = state.add_transaction(tx.clone()).await {
-                    warn!("Failed to add synced tx {}: {}", &tx.hash[..16.min(tx.hash.len())], e);
+                    warn!("Failed to add gossiped transaction: {}", e);
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({ "error": e.to_string() })),
+                    ).into_response();
                 }
             }
-        }
-        GossipMessage::PeerDiscovery { peers, node_id, .. } => {
-            info!("Gossip: peer {} announced {} peers", node_id, peers.len());
-        }
-        GossipMessage::ConflictResolution { winner_hash, .. } => {
-            info!("Gossip: conflict resolution, winner: {}", &winner_hash[..16.min(winner_hash.len())]);
-        }
-        GossipMessage::CheckpointSignature { checkpoint_id, validator_address, .. } => {
-            info!("Gossip: checkpoint sig for {} from validator {}", 
-                &checkpoint_id[..16.min(checkpoint_id.len())], 
-                &validator_address[..16.min(validator_address.len())]);
+            GossipMessage::TipAnnouncement { dag_size, tips, .. } => {
+                info!("Gossip: peer announced {} tips, dag_size={}", tips.len(), dag_size);
+            }
+            GossipMessage::SyncRequest { from_checkpoint, missing_hashes, .. } => {
+                info!("Gossip: sync request from checkpoint {} for {} hashes", 
+                    from_checkpoint, missing_hashes.len());
+                let txs = state.get_txs_since_checkpoint(*from_checkpoint, missing_hashes).await;
+                let checkpoint_height = state.get_checkpoint_height().await;
+                info!("Gossip: responding with {} transactions", txs.len());
+                return Json(serde_json::json!({
+                    "type": "sync_response",
+                    "transactions": txs,
+                    "checkpoint_height": checkpoint_height
+                })).into_response();
+            }
+            GossipMessage::SyncResponse { transactions, checkpoint_height, .. } => {
+                info!("Gossip: received sync response with {} txs at height {}", 
+                    transactions.len(), checkpoint_height);
+                for tx in transactions {
+                    if let Err(e) = state.add_transaction(tx.clone()).await {
+                        warn!("Failed to add synced tx {}: {}", &tx.hash[..16.min(tx.hash.len())], e);
+                    }
+                }
+            }
+            GossipMessage::PeerDiscovery { peers, node_id, .. } => {
+                info!("Gossip: peer {} announced {} peers", node_id, peers.len());
+            }
+            GossipMessage::ConflictResolution { winner_hash, .. } => {
+                info!("Gossip: conflict resolution, winner: {}", &winner_hash[..16.min(winner_hash.len())]);
+            }
+            GossipMessage::CheckpointSignature { checkpoint_id, validator_address, .. } => {
+                info!("Gossip: checkpoint sig for {} from validator {}", 
+                    &checkpoint_id[..16.min(checkpoint_id.len())], 
+                    &validator_address[..16.min(validator_address.len())]);
+            }
         }
     }
 
@@ -1552,13 +1575,26 @@ struct GossipStatsResponse {
     last_gossip_at: u64,
 }
 
-async fn get_gossip_stats() -> Json<GossipStatsResponse> {
-    Json(GossipStatsResponse {
-        peers_connected: 0,
-        messages_sent: 0,
-        messages_received: 0,
-        last_gossip_at: 0,
-    })
+async fn get_gossip_stats(
+    State(api_state): State<ApiState>,
+) -> Json<GossipStatsResponse> {
+    if let Some(ref gossip_service) = api_state.gossip_service {
+        let stats = gossip_service.get_stats().await;
+        let peer_count = gossip_service.get_peer_count().await;
+        Json(GossipStatsResponse {
+            peers_connected: peer_count,
+            messages_sent: stats.txs_propagated,
+            messages_received: stats.txs_received,
+            last_gossip_at: stats.sync_requests,
+        })
+    } else {
+        Json(GossipStatsResponse {
+            peers_connected: 0,
+            messages_sent: 0,
+            messages_received: 0,
+            last_gossip_at: 0,
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -2280,6 +2316,7 @@ rinku_uptime_seconds {}
 
 pub async fn start_api_server(
     state: NodeState,
+    gossip_service: Option<GossipService>,
     port: u16,
     static_dir: Option<PathBuf>,
 ) -> anyhow::Result<JoinHandle<()>> {
@@ -2288,7 +2325,21 @@ pub async fn start_api_server(
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let api_routes = Router::new()
+    // Create ApiState for gossip routes
+    let api_state = ApiState {
+        node_state: state.clone(),
+        gossip_service,
+    };
+
+    // Routes that need ApiState (gossip)
+    let gossip_routes = Router::new()
+        .route("/api/gossip", post(post_gossip))
+        .route("/api/gossip/stats", get(get_gossip_stats))
+        .layer(cors.clone())
+        .with_state(api_state);
+
+    // Routes that use NodeState
+    let node_routes = Router::new()
         .route("/health", get(health))
         .route("/api/status", get(get_node_status))
         .route("/api/stats", get(get_stats))
@@ -2328,8 +2379,6 @@ pub async fn start_api_server(
         .route("/api/checkpoints/latest", get(get_checkpoints_latest))
         .route("/api/checkpoints/:height", get(get_checkpoint_by_height))
         .route("/api/fork/stats", get(get_fork_stats))
-        .route("/api/gossip", post(post_gossip))
-        .route("/api/gossip/stats", get(get_gossip_stats))
         .route("/api/sync/status", get(get_sync_status))
         .route("/api/sync/bootstrap", post(post_bootstrap))
         .route("/api/sync/snapshot", get(get_snapshot_sync))
@@ -2340,6 +2389,9 @@ pub async fn start_api_server(
         .route("/metrics", get(get_metrics))
         .layer(cors.clone())
         .with_state(state);
+
+    // Merge both routers
+    let api_routes = gossip_routes.merge(node_routes);
 
     let app = if let Some(static_path) = static_dir {
         if static_path.exists() {

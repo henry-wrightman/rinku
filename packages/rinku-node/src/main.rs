@@ -151,15 +151,17 @@ async fn main() -> Result<()> {
     });
     info!("Fork remediation service started");
 
-    if config.gossip_enabled {
-        let gossip_service = GossipService::new(
+    // Create GossipService - shared between background task and API
+    let gossip_service = if config.gossip_enabled {
+        let service = GossipService::new(
             state.clone(),
             config.peers.clone(),
             config.gossip_interval_ms,
             config.trust.clone(),
         );
+        let service_for_task = service.clone();
         tokio::spawn(async move {
-            if let Err(e) = gossip_service.start().await {
+            if let Err(e) = service_for_task.start().await {
                 tracing::error!("Gossip service error: {}", e);
             }
         });
@@ -167,7 +169,10 @@ async fn main() -> Result<()> {
             "Gossip service started ({}ms interval)",
             config.gossip_interval_ms
         );
-    }
+        Some(service)
+    } else {
+        None
+    };
 
     let tip_consolidator = TipConsolidator::new(state.clone(), validator_address);
     let tip_handle = tokio::spawn(async move {
@@ -194,7 +199,7 @@ async fn main() -> Result<()> {
 
     let static_dir = config.static_dir.as_ref().map(std::path::PathBuf::from);
     info!("STATIC_DIR config: {:?}", config.static_dir);
-    let api_handle = api::start_api_server(state.clone(), config.api_port, static_dir).await?;
+    let api_handle = api::start_api_server(state.clone(), gossip_service, config.api_port, static_dir).await?;
 
     info!("Rinku Node running on port {}", config.api_port);
     info!("API available at http://0.0.0.0:{}/api", config.api_port);
