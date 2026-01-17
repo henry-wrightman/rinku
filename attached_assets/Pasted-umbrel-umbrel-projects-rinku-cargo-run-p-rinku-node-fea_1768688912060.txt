@@ -1,0 +1,59 @@
+umbrel@umbrel:~/projects/rinku$ cargo run -p rinku-node --features tui -- --tui
+    Updating crates.io index
+  Downloaded quote v1.0.42
+  Downloaded adler2 v2.0.1
+  Downloaded fs2 v0.4.3
+  Downloaded lru v0.12.5
+  Downloaded http-body v1.0.1
+  Downloaded cfg-if v1.0.4
+  Downloaded itoa v1.0.17
+  Downloaded castaway v0.2.4
+  Downloaded base16ct v0.2.0
+  Downloaded serdect v0.2.0
+  Downloaded signal-hook-mio v0.2.5
+  Downloaded sync_wrapper v1.0.2
+  Downloaded unicode-truncate v1.1.0
+  Downloaded fxhash v0.2.1
+  Downloaded errno v0.3.14
+  Downloaded crypto-common v0.1.7
+  Downloaded funty v2.0.0
+  Downloaded equivalent v1.0.2
+  Downloaded form_urlencoded v1.2.2
+  Downloaded matchers v0.2.0
+  Downloaded subtle v2.6.1
+  Downloaded tap v1.0.1
+  Downloaded strum v0.26.3
+  Downloaded idna_adapter v1.2.1
+  Downloaded tower-layer v0.3.3
+  Downloaded fixedbitset v0.4.2
+  Downloaded yoke-derive v0.8.1
+  Downloaded potential_utf v0.1.4
+  Downloaded zerofrom-derive v0.1.6
+  Downloaded threadpool v1.8.1
+  Downloaded http-range-header v0.4.2
+  Downloaded num_cpus v1.17.0
+  Downloaded signature v2.2.0
+  Downloaded instant v0.1.13
+  Downloaded pairing v0.23.0
+  Downloaded stable_deref_trait v1.2.1
+  Downloaded percent-encoding v2.3.2
+  Downloaded radium v0.7.0
+  Downloaded primeorder v0.13.6
+  Downloaded axum-core v0.4.5
+  Downloaded serde_path_to_error v0.1.20
+  Downloaded rustversion v1.0.22
+  Downloaded simd-adler32 v0.3.8
+  Downloaded rfc6979 v0.4.0
+  Downloaded autocfg v1.5.0
+  Downloaded base64ct v1.8.2
+error: failed to parse manifest at `/home/umbrel/.cargo/registry/src/index.crates.io-6f17d22bba15001f/base64ct-1.8.2/Cargo.toml`
+
+Caused by:
+  feature `edition2024` is required
+
+  The package requires the Cargo feature called `edition2024`, but that feature is not stabilized in this version of Cargo (1.84.1 (66221abde 2024-11-19)).
+  Consider trying a newer version of Cargo (this may require the nightly release).
+  See https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#edition-2024 for more information about the status of this feature.
+umbrel@umbrel:~/projects/rinku$ brew install rust
+-bash: brew: command not found
+umbrel@umbrel:~/projects/rinku$ 
