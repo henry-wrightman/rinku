@@ -13,8 +13,8 @@ import {
   ZKTab,
   VerifyProofTab,
   WalletModal,
-  useWallet,
 } from "./components";
+import { deserializeKeyPair, validateSerializedKey, type SerializedKeyPair } from "./crypto";
 import { formatNumber, formatTps } from "./utils";
 import { useTheme } from "./hooks/useTheme";
 
@@ -149,7 +149,18 @@ function App() {
   const [connected, setConnected] = useState(false);
   const { darkMode, toggleTheme } = useTheme();
   const [walletOpen, setWalletOpen] = useState(false);
-  const wallet = useWallet();
+  const [wallet, setWallet] = useState<SerializedKeyPair | null>(null);
+  
+  useEffect(() => {
+    const stored = localStorage.getItem("rinku_wallet");
+    if (stored && validateSerializedKey(stored)) {
+      try {
+        setWallet(deserializeKeyPair(stored));
+      } catch (e) {
+        console.error("Failed to load stored wallet:", e);
+      }
+    }
+  }, []);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [searchResult, setSearchResult] = useState<{
@@ -284,7 +295,8 @@ function App() {
 
       <WalletModal 
         isOpen={walletOpen} 
-        onClose={() => setWalletOpen(false)} 
+        onClose={() => setWalletOpen(false)}
+        onWalletChange={setWallet}
       />
 
       <div className="stats">
