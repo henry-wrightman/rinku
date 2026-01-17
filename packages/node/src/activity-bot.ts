@@ -313,6 +313,8 @@ async function doSingleTransaction(
   fee: number,
 ): Promise<boolean> {
   try {
+    // Refresh wallet state to get fresh nonce before sending
+    await sender.wallet.refresh();
     await sender.wallet.send(recipient.fingerprint, amount, fee);
     totalTransactions++;
     return true;
@@ -436,9 +438,10 @@ async function doBatchTransactions(): Promise<void> {
       const amount = Math.floor(Math.random() * 5) + 1;
 
       try {
-        const balance = await sender.wallet.getBalance();
+        // Refresh wallet state to get fresh nonce before signing
+        const state = await sender.wallet.refresh();
         const needed = amount + gasPrice + 5;
-        if (balance < needed) {
+        if (state.balance < needed) {
           skippedDueToBalance++;
           continue;
         }
@@ -464,13 +467,13 @@ async function doBatchTransactions(): Promise<void> {
       }
     }
 
-    // Unlock senders before submitting batch
-    for (const fp of lockedForThisBatch) {
-      unlockSender(fp);
+    if (preparedTxs.length === 0) {
+      // Unlock all senders if no transactions were prepared
+      for (const fp of lockedForThisBatch) {
+        unlockSender(fp);
+      }
+      return;
     }
-    lockedForThisBatch.length = 0;
-
-    if (preparedTxs.length === 0) return;
 
     const res = await fetchWithTimeout(`${NODE_URL}/api/tx/batch`, {
       method: "POST",
@@ -502,7 +505,7 @@ async function doBatchTransactions(): Promise<void> {
   } catch (err: any) {
     errors++;
   } finally {
-    // Safety cleanup
+    // Unlock senders AFTER batch submission completes (prevents nonce races)
     for (const fp of lockedForThisBatch) {
       unlockSender(fp);
     }

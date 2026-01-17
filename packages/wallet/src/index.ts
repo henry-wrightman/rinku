@@ -1,6 +1,10 @@
-import { KeyManager } from './keys.js';
-import { createTransaction, createAndSignTransaction, createURL } from './tx.js';
-import type { KeyPair, SignedTransaction, AccountState } from '@rinku/core';
+import { KeyManager } from "./keys.js";
+import {
+  createTransaction,
+  createAndSignTransaction,
+  createURL,
+} from "./tx.js";
+import type { KeyPair, SignedTransaction, AccountState } from "@rinku/core";
 
 export interface WalletState {
   fingerprint: string;
@@ -13,7 +17,7 @@ export class Wallet {
   private nodeUrl: string;
   private state: WalletState | null = null;
 
-  constructor(nodeUrl: string = 'http://localhost:3001') {
+  constructor(nodeUrl: string = "http://localhost:3001") {
     this.keyManager = new KeyManager();
     this.nodeUrl = nodeUrl;
   }
@@ -42,28 +46,33 @@ export class Wallet {
 
   async refresh(): Promise<WalletState> {
     const fingerprint = this.keyManager.getFingerprint();
-    
+
     try {
-      const response = await fetch(`${this.nodeUrl}/api/account/${fingerprint}`);
+      const response = await fetch(
+        `${this.nodeUrl}/api/account/${fingerprint}`,
+      );
       if (response.ok) {
-        const data = await response.json() as { balance: number; nonce: number };
+        const data = (await response.json()) as {
+          balance: number;
+          nonce: number;
+        };
         this.state = {
           fingerprint,
           balance: data.balance,
-          nonce: data.nonce
+          nonce: data.nonce,
         };
       } else {
         this.state = {
           fingerprint,
           balance: 0,
-          nonce: 0
+          nonce: 0,
         };
       }
     } catch {
       this.state = {
         fingerprint,
         balance: 0,
-        nonce: 0
+        nonce: 0,
       };
     }
 
@@ -79,27 +88,31 @@ export class Wallet {
     try {
       const response = await fetch(`${this.nodeUrl}/api/gas/price`);
       if (response.ok) {
-        const data = await response.json() as { currentPrice: number };
+        const data = (await response.json()) as { currentPrice: number };
         return data.currentPrice;
       }
     } catch {}
     return 0.01; // fallback default
   }
 
-  async send(to: string, amount: number, fee?: number): Promise<{ tx: SignedTransaction; url: string }> {
+  async send(
+    to: string,
+    amount: number,
+    fee?: number,
+  ): Promise<{ tx: SignedTransaction; url: string }> {
     await this.refresh();
-    
+
     if (!this.state) {
-      throw new Error('Wallet not initialized');
+      throw new Error("Wallet not initialized");
     }
 
     const actualFee = fee ?? 0.01;
     if (this.state.balance < amount + actualFee) {
-      throw new Error('Insufficient balance for amount + fee');
+      throw new Error("Insufficient balance for amount + fee");
     }
 
     const tipsResponse = await fetch(`${this.nodeUrl}/api/tipUrls`);
-    const tipsData = await tipsResponse.json() as { tipUrls: string[] };
+    const tipsData = (await tipsResponse.json()) as { tipUrls: string[] };
     let tipUrls = tipsData.tipUrls.slice(0, 5);
 
     if (tipUrls.length === 0) {
@@ -112,42 +125,46 @@ export class Wallet {
         to,
         amount,
         fee: actualFee,
-        nonce: this.state.nonce + 1,
-        tipUrls
-      }
+        nonce: this.state.nonce,
+        tipUrls,
+      },
     );
 
     const submitResponse = await fetch(`${this.nodeUrl}/api/tx`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         tx,
-        publicKey: Array.from(this.keyManager.getPublicKey())
-      })
+        publicKey: Array.from(this.keyManager.getPublicKey()),
+      }),
     });
 
     if (!submitResponse.ok) {
-      const error = await submitResponse.json() as { error?: string };
-      throw new Error(error.error || 'Transaction failed');
+      const error = (await submitResponse.json()) as { error?: string };
+      throw new Error(error.error || "Transaction failed");
     }
 
     return { tx, url: url.path };
   }
 
-  async createSignedTransaction(to: string, amount: number, fee?: number): Promise<SignedTransaction> {
+  async createSignedTransaction(
+    to: string,
+    amount: number,
+    fee?: number,
+  ): Promise<SignedTransaction> {
     await this.refresh();
-    
+
     if (!this.state) {
-      throw new Error('Wallet not initialized');
+      throw new Error("Wallet not initialized");
     }
 
     const actualFee = fee ?? 0.01;
     if (this.state.balance < amount + actualFee) {
-      throw new Error('Insufficient balance for amount + fee');
+      throw new Error("Insufficient balance for amount + fee");
     }
 
     const tipsResponse = await fetch(`${this.nodeUrl}/api/tipUrls`);
-    const tipsData = await tipsResponse.json() as { tipUrls: string[] };
+    const tipsData = (await tipsResponse.json()) as { tipUrls: string[] };
     let tipUrls = tipsData.tipUrls.slice(0, 5);
 
     if (tipUrls.length === 0) {
@@ -160,9 +177,9 @@ export class Wallet {
         to,
         amount,
         fee: actualFee,
-        nonce: this.state.nonce + 1,
-        tipUrls
-      }
+        nonce: this.state.nonce,
+        tipUrls,
+      },
     );
 
     this.state.nonce++;
@@ -170,15 +187,20 @@ export class Wallet {
     return tx;
   }
 
-  async sendWithCustomTips(to: string, amount: number, fee: number, customTipUrls: string[]): Promise<{ tx: SignedTransaction; url: string }> {
+  async sendWithCustomTips(
+    to: string,
+    amount: number,
+    fee: number,
+    customTipUrls: string[],
+  ): Promise<{ tx: SignedTransaction; url: string }> {
     await this.refresh();
-    
+
     if (!this.state) {
-      throw new Error('Wallet not initialized');
+      throw new Error("Wallet not initialized");
     }
 
     if (this.state.balance < amount + fee) {
-      throw new Error('Insufficient balance for amount + fee');
+      throw new Error("Insufficient balance for amount + fee");
     }
 
     const { tx, url } = await createAndSignTransaction(
@@ -187,23 +209,23 @@ export class Wallet {
         to,
         amount,
         fee,
-        nonce: this.state.nonce + 1,
-        tipUrls: customTipUrls
-      }
+        nonce: this.state.nonce,
+        tipUrls: customTipUrls,
+      },
     );
 
     const submitResponse = await fetch(`${this.nodeUrl}/api/tx`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         tx,
-        publicKey: Array.from(this.keyManager.getPublicKey())
-      })
+        publicKey: Array.from(this.keyManager.getPublicKey()),
+      }),
     });
 
     if (!submitResponse.ok) {
-      const error = await submitResponse.json() as { error?: string };
-      throw new Error(error.error || 'Transaction failed');
+      const error = (await submitResponse.json()) as { error?: string };
+      throw new Error(error.error || "Transaction failed");
     }
 
     this.state.nonce++;
@@ -212,5 +234,9 @@ export class Wallet {
   }
 }
 
-export { KeyManager } from './keys.js';
-export { createTransaction, createAndSignTransaction, createURL } from './tx.js';
+export { KeyManager } from "./keys.js";
+export {
+  createTransaction,
+  createAndSignTransaction,
+  createURL,
+} from "./tx.js";
