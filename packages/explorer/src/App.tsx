@@ -110,6 +110,7 @@ function App() {
       ? (tabParam as TabType)
       : "dag";
   const [tab, setTabState] = useState<TabType>(initialTab);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const setTab = useCallback(
     (newTab: TabType) => {
@@ -416,56 +417,67 @@ function App() {
         </div>
       )}
 
-      <div className="nav">
-        <span
-          className={tab === "dag" ? "active" : ""}
-          onClick={() => setTab("dag")}
+      <div className="nav-container">
+        <button 
+          className="mobile-nav-toggle" 
+          onClick={() => setMobileNavOpen(!mobileNavOpen)}
+          aria-label="Toggle navigation"
         >
-          dag
-        </span>
-        <span
-          className={tab === "accounts" ? "active" : ""}
-          onClick={() => setTab("accounts")}
-        >
-          accounts
-        </span>
-        <span
-          className={tab === "faucet" ? "active" : ""}
-          onClick={() => setTab("faucet")}
-        >
-          faucet
-        </span>
-        <span
-          className={tab === "contracts" ? "active" : ""}
-          onClick={() => setTab("contracts")}
-        >
-          contracts
-        </span>
-        <span
-          className={tab === "zk" ? "active" : ""}
-          onClick={() => setTab("zk")}
-        >
-          zk
-        </span>
-        <span
-          className={tab === "rewards" ? "active" : ""}
-          onClick={() => setTab("rewards")}
-        >
-          rewards
-        </span>
-        <span
-          className={tab === "tokenomics" ? "active" : ""}
-          onClick={() => setTab("tokenomics")}
-        >
-          tokenomics
-        </span>
-        <span
-          className={tab === "verify" ? "active" : ""}
-          onClick={() => setTab("verify")}
-        >
-          verify
-        </span>
+          <span className="hamburger-icon">{mobileNavOpen ? '✕' : '☰'}</span>
+          <span className="current-tab">{tab}</span>
+        </button>
+        <div className={`nav ${mobileNavOpen ? 'open' : ''}`}>
+          <span
+            className={tab === "dag" ? "active" : ""}
+            onClick={() => { setTab("dag"); setMobileNavOpen(false); }}
+          >
+            dag
+          </span>
+          <span
+            className={tab === "accounts" ? "active" : ""}
+            onClick={() => { setTab("accounts"); setMobileNavOpen(false); }}
+          >
+            accounts
+          </span>
+          <span
+            className={tab === "faucet" ? "active" : ""}
+            onClick={() => { setTab("faucet"); setMobileNavOpen(false); }}
+          >
+            faucet
+          </span>
+          <span
+            className={tab === "contracts" ? "active" : ""}
+            onClick={() => { setTab("contracts"); setMobileNavOpen(false); }}
+          >
+            contracts
+          </span>
+          <span
+            className={tab === "zk" ? "active" : ""}
+            onClick={() => { setTab("zk"); setMobileNavOpen(false); }}
+          >
+            zk
+          </span>
+          <span
+            className={tab === "rewards" ? "active" : ""}
+            onClick={() => { setTab("rewards"); setMobileNavOpen(false); }}
+          >
+            rewards
+          </span>
+          <span
+            className={tab === "tokenomics" ? "active" : ""}
+            onClick={() => { setTab("tokenomics"); setMobileNavOpen(false); }}
+          >
+            tokenomics
+          </span>
+          <span
+            className={tab === "verify" ? "active" : ""}
+            onClick={() => { setTab("verify"); setMobileNavOpen(false); }}
+          >
+            verify
+          </span>
+        </div>
       </div>
+      {mobileNavOpen && <div className="nav-overlay" onClick={() => setMobileNavOpen(false)} />}
 
       {tab === "dag" && (
         <DAGTab
