@@ -89,6 +89,17 @@ function HashTransactionPage() {
       .finally(() => setLoading(false));
   }, [hash]);
 
+  useEffect(() => {
+    if (!hash || (!tx?.finalized && !tx?.finality)) return;
+    
+    setProofLoading(true);
+    fetch(`/api/tx/${hash}/proof`)
+      .then((res) => res.json())
+      .then((data) => setProofData(data))
+      .catch(() => setProofData({ txHash: hash, finalized: false, error: "Failed to fetch proof" }))
+      .finally(() => setProofLoading(false));
+  }, [hash, tx?.finalized, tx?.finality]);
+
   const fetchProof = async () => {
     if (!hash) return;
     setProofLoading(true);
@@ -349,86 +360,66 @@ function HashTransactionPage() {
         </div>
 
         {(tx.finalized || tx.finality) && (
-          <div className="tx-proof" style={{ marginTop: 16 }}>
-            <h3>self-contained proof</h3>
-            <p style={{ opacity: 0.7, fontSize: "0.85rem", marginBottom: 12 }}>
-              Generate a cryptographic proof URL that can verify this
-              transaction offline, without needing the network.
-            </p>
+          <div className="tx-proof" style={{ 
+            marginTop: 24, 
+            padding: 16, 
+            background: "rgba(136, 192, 208, 0.1)", 
+            borderRadius: 8,
+            border: "1px solid rgba(136, 192, 208, 0.3)"
+          }}>
+            <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>
+              self-provable url
+            </h3>
 
-            {!proofData && (
-              <button
-                className="btn-small"
-                onClick={fetchProof}
-                disabled={proofLoading}
-                style={{ marginBottom: 12 }}
-              >
-                {proofLoading ? "generating..." : "generate proof"}
-              </button>
-            )}
-
-            {proofData && proofData.proofUrl && (
-              <div style={{ marginTop: 8 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    marginBottom: 8,
-                  }}
-                >
-                  <span style={{ color: "#a3be8c" }}>proof ready</span>
-                  <button className="btn-small" onClick={copyProof}>
+            {proofLoading ? (
+              <div style={{ color: "#d8dee9", opacity: 0.7 }}>loading proof...</div>
+            ) : proofData?.proofUrl ? (
+              <>
+                <div style={{ 
+                  fontFamily: "monospace", 
+                  fontSize: 11, 
+                  wordBreak: "break-all",
+                  background: "rgba(0,0,0,0.2)",
+                  padding: 12,
+                  borderRadius: 4,
+                  marginBottom: 12,
+                  maxHeight: 100,
+                  overflow: "auto"
+                }}>
+                  {proofData.proofUrl}
+                </div>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <button 
+                    className="btn-small" 
+                    onClick={copyProof}
+                    style={{ background: proofCopied ? "#a3be8c" : "#88c0d0" }}
+                  >
                     {proofCopied ? "copied!" : "copy proof url"}
                   </button>
                   <Link
                     to={{ pathname: "/", search: "?tab=verify" }}
                     className="btn-small"
-                    style={{ textDecoration: "none" }}
+                    style={{ textDecoration: "none", background: "#5e81ac" }}
                   >
                     verify
                   </Link>
+                  <span style={{ fontSize: 12, color: "#d8dee9", opacity: 0.7 }}>
+                    {proofData.proofSizeBytes?.toLocaleString()} bytes
+                    {proofData.qrViable && " · QR viable"}
+                  </span>
                 </div>
-                <div
-                  style={{
-                    fontSize: "0.75rem",
-                    opacity: 0.6,
-                    marginBottom: 8,
-                  }}
-                >
-                  size: {proofData.proofSizeBytes?.toLocaleString()} bytes
-                  {proofData.qrViable
-                    ? " (QR compatible)"
-                    : " (too large for QR)"}
-                </div>
-                <textarea
-                  readOnly
-                  value={proofData.proofUrl}
-                  rows={4}
-                  style={{
-                    width: "100%",
-                    padding: "8px",
-                    fontSize: "0.75rem",
-                    fontFamily: "monospace",
-                    backgroundColor: "var(--bg-secondary)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 4,
-                    color: "var(--text-primary)",
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-            )}
-
-            {proofData && proofData.error && (
-              <div style={{ color: "#bf616a", marginTop: 8 }}>
+                <p style={{ fontSize: 12, marginTop: 12, opacity: 0.8, color: "#d8dee9" }}>
+                  this proof is completely self-contained. anyone can verify this 
+                  transaction offline using only the url above.
+                </p>
+              </>
+            ) : proofData?.error ? (
+              <div style={{ color: "#bf616a", opacity: 0.8 }}>
                 {proofData.error}
               </div>
-            )}
-
-            {proofData && !proofData.proofUrl && !proofData.error && (
-              <div style={{ opacity: 0.7, marginTop: 8 }}>
-                Proof not available yet. Transaction may still be processing.
+            ) : (
+              <div style={{ color: "#ebcb8b", opacity: 0.8 }}>
+                awaiting finalization...
               </div>
             )}
           </div>

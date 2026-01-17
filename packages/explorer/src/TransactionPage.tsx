@@ -22,12 +22,22 @@ interface ApiResponse {
   url?: string;
 }
 
+interface ProofData {
+  loading: boolean;
+  proofUrl?: string;
+  error?: string;
+  sizeBytes?: number;
+  qrViable?: boolean;
+}
+
 function TransactionPage() {
   const { payload } = useParams<{ payload: string }>();
   const [tx, setTx] = useState<TransactionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [proofCopied, setProofCopied] = useState(false);
+  const [proof, setProof] = useState<ProofData>({ loading: false });
 
   useEffect(() => {
     if (!payload) {
@@ -55,6 +65,32 @@ function TransactionPage() {
     }
   }, [payload]);
 
+  useEffect(() => {
+    if (!tx?.hash) return;
+    
+    setProof({ loading: true });
+    fetch(`/api/tx/${tx.hash}/proof`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.proofUrl) {
+          setProof({
+            loading: false,
+            proofUrl: data.proofUrl,
+            sizeBytes: data.proofSizeBytes,
+            qrViable: data.qrViable,
+          });
+        } else {
+          setProof({
+            loading: false,
+            error: data.error || "Proof not available",
+          });
+        }
+      })
+      .catch(() => {
+        setProof({ loading: false, error: "Failed to fetch proof" });
+      });
+  }, [tx?.hash]);
+
   const formatTime = (ts: number) => {
     return new Date(ts).toLocaleString();
   };
@@ -69,6 +105,14 @@ function TransactionPage() {
     navigator.clipboard.writeText(fullUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copyProofUrl = () => {
+    if (proof.proofUrl) {
+      navigator.clipboard.writeText(proof.proofUrl);
+      setProofCopied(true);
+      setTimeout(() => setProofCopied(false), 2000);
+    }
   };
 
   if (loading) {
@@ -204,13 +248,71 @@ function TransactionPage() {
           )}
         </div>
 
-        <div className="tx-note">
-          <p>
-            this transaction is self-contained in the url. anyone can validate
-            it by decoding the payload and verifying the signature and parent
-            references.
-          </p>
-        </div>
+        {tx.hash ? (
+          <div className="tx-proof" style={{ 
+            marginTop: 24, 
+            padding: 16, 
+            background: "rgba(136, 192, 208, 0.1)", 
+            borderRadius: 8,
+            border: "1px solid rgba(136, 192, 208, 0.3)"
+          }}>
+            <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>
+              self-provable url
+            </h3>
+            {proof.loading ? (
+              <div style={{ color: "#d8dee9", opacity: 0.7 }}>loading proof...</div>
+            ) : proof.proofUrl ? (
+              <>
+                <div style={{ 
+                  fontFamily: "monospace", 
+                  fontSize: 11, 
+                  wordBreak: "break-all",
+                  background: "rgba(0,0,0,0.2)",
+                  padding: 12,
+                  borderRadius: 4,
+                  marginBottom: 12,
+                  maxHeight: 100,
+                  overflow: "auto"
+                }}>
+                  {proof.proofUrl}
+                </div>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <button 
+                    className="btn-small" 
+                    onClick={copyProofUrl}
+                    style={{ background: proofCopied ? "#a3be8c" : "#88c0d0" }}
+                  >
+                    {proofCopied ? "copied!" : "copy proof url"}
+                  </button>
+                  <span style={{ fontSize: 12, color: "#d8dee9", opacity: 0.7 }}>
+                    {proof.sizeBytes} bytes
+                    {proof.qrViable && " · QR viable"}
+                  </span>
+                </div>
+                <p style={{ fontSize: 12, marginTop: 12, opacity: 0.8, color: "#d8dee9" }}>
+                  this proof is completely self-contained. anyone can verify this 
+                  transaction offline using only the url above.
+                </p>
+              </>
+            ) : (
+              <div style={{ color: "#ebcb8b", opacity: 0.8 }}>
+                {proof.error || "awaiting finalization..."}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="tx-note">
+            <p>
+              this transaction is self-contained in the url. anyone can validate
+              it by decoding the payload and verifying the signature and parent
+              references.
+            </p>
+            <p style={{ marginTop: 8, fontSize: "0.9em", opacity: 0.7 }}>
+              once submitted to the network and finalized, a self-provable url 
+              will be available for offline verification.
+            </p>
+          </div>
+        )}
 
         <Link
           to="/"

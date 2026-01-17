@@ -1,8 +1,14 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import type { DAGNode } from "../types";
 import { truncate, timeAgo } from "../utils";
 import { Pagination } from "./Pagination";
+
+interface ProofState {
+  loading: boolean;
+  copied: boolean;
+  error?: string;
+}
 
 interface ExtendedDAGNode extends DAGNode {
   finalized?: boolean;
@@ -29,6 +35,7 @@ export function DAGTab({
   onPageChange,
 }: DAGTabProps) {
   const [newHashes, setNewHashes] = useState<Set<string>>(new Set());
+  const [proofStates, setProofStates] = useState<Record<string, ProofState>>({});
   const prevHashesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -48,6 +55,36 @@ export function DAGTab({
 
     prevHashesRef.current = currentHashes;
   }, [nodes]);
+
+  const copyProofUrl = useCallback(async (hash: string) => {
+    setProofStates(prev => ({ ...prev, [hash]: { loading: true, copied: false } }));
+    
+    try {
+      const res = await fetch(`/api/tx/${hash}/proof`);
+      const data = await res.json();
+      
+      if (data.proofUrl) {
+        await navigator.clipboard.writeText(data.proofUrl);
+        setProofStates(prev => ({ ...prev, [hash]: { loading: false, copied: true } }));
+        setTimeout(() => {
+          setProofStates(prev => ({ ...prev, [hash]: { loading: false, copied: false } }));
+        }, 2000);
+      } else {
+        setProofStates(prev => ({ 
+          ...prev, 
+          [hash]: { loading: false, copied: false, error: data.error || "Not finalized" } 
+        }));
+        setTimeout(() => {
+          setProofStates(prev => ({ ...prev, [hash]: { loading: false, copied: false } }));
+        }, 2000);
+      }
+    } catch {
+      setProofStates(prev => ({ 
+        ...prev, 
+        [hash]: { loading: false, copied: false, error: "Failed" } 
+      }));
+    }
+  }, []);
 
   if (nodes.length === 0) {
     return <div className="empty">no transactions yet</div>;
@@ -89,6 +126,21 @@ export function DAGTab({
             >
               copy url
             </span>
+            {node.finalized && (
+              <span
+                className="link"
+                style={{ color: proofStates[node.hash]?.copied ? "#a3be8c" : proofStates[node.hash]?.error ? "#bf616a" : "#88c0d0" }}
+                onClick={() => copyProofUrl(node.hash)}
+              >
+                {proofStates[node.hash]?.loading 
+                  ? "..." 
+                  : proofStates[node.hash]?.copied 
+                    ? "proof copied!" 
+                    : proofStates[node.hash]?.error 
+                      ? proofStates[node.hash].error 
+                      : "copy proof"}
+              </span>
+            )}
             <Link to={node.url} className="link">
               view
             </Link>
