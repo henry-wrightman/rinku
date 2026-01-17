@@ -14,7 +14,11 @@ import {
   VerifyProofTab,
   WalletModal,
 } from "./components";
-import { deserializeKeyPair, validateSerializedKey, type SerializedKeyPair } from "./crypto";
+import {
+  deserializeKeyPair,
+  validateSerializedKey,
+  type SerializedKeyPair,
+} from "./crypto";
 import { formatNumber, formatTps } from "./utils";
 import { useTheme } from "./hooks/useTheme";
 
@@ -150,7 +154,7 @@ function App() {
   const { darkMode, toggleTheme } = useTheme();
   const [walletOpen, setWalletOpen] = useState(false);
   const [wallet, setWallet] = useState<SerializedKeyPair | null>(null);
-  
+
   useEffect(() => {
     const stored = localStorage.getItem("rinku_wallet");
     if (stored && validateSerializedKey(stored)) {
@@ -275,26 +279,27 @@ function App() {
 
   return (
     <div className="container">
-      <Header
-        connected={connected}
-        protocolVersion={versionInfo?.protocolVersion}
-        nodeVersion={versionInfo?.nodeVersion}
-      />
-
-      <div className="header-actions">
-        <button 
-          className={`wallet-btn-header ${wallet ? 'connected' : ''}`}
-          onClick={() => setWalletOpen(true)}
-        >
-          {wallet ? `${wallet.fingerprint.slice(0, 6)}...` : 'wallet'}
-        </button>
-        <button className="theme-toggle" onClick={toggleTheme}>
-          {darkMode ? "☀" : "☾"}
-        </button>
+      <div className="header-row">
+        <Header
+          connected={connected}
+          protocolVersion={versionInfo?.protocolVersion}
+          nodeVersion={versionInfo?.nodeVersion}
+        />
+        <div className="header-actions">
+          <button
+            className={`wallet-btn-header ${wallet ? "connected" : ""}`}
+            onClick={() => setWalletOpen(true)}
+          >
+            {wallet ? `${wallet.fingerprint.slice(0, 6)}...` : "wallet"}
+          </button>
+          <button className="theme-toggle" onClick={toggleTheme}>
+            {darkMode ? "☀" : "☾"}
+          </button>
+        </div>
       </div>
 
-      <WalletModal 
-        isOpen={walletOpen} 
+      <WalletModal
+        isOpen={walletOpen}
         onClose={() => setWalletOpen(false)}
         onWalletChange={setWallet}
       />

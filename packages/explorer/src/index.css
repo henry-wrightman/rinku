@@ -592,10 +592,18 @@ input[type="text"]::placeholder {
   100% { color: #ff6b6b; }
 }
 
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 30px;
+}
+
+.header-row header {
+  margin-bottom: 0;
+}
+
 .header-actions {
-  position: absolute;
-  top: 0;
-  right: 0;
   display: flex;
   gap: 12px;
   align-items: center;
