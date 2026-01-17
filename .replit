@@ -57,6 +57,15 @@ waitForPort = 3002
 [workflows.workflow.metadata]
 outputType = "console"
 
+[[workflows.workflow]]
+name = "Rinku Node TUI"
+mode = "sequential"
+author = 15786169
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cargo build --features tui --bin rinku-tui && ./target/debug/rinku-tui"
+
 [[ports]]
 localPort = 3001
 externalPort = 3001
