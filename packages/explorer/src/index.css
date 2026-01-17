@@ -600,9 +600,16 @@ input[type="text"]::placeholder {
 }
 
 .header-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.headert .header-actions {
+  position: static;
 }
 
 .whitepaper-link {
