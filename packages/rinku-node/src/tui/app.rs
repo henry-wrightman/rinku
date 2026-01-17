@@ -250,19 +250,28 @@ impl App {
             finalized_count: finalized as u64,
             pending_count: pending as u64,
             checkpoint_height,
-            latest_checkpoint_id: None,
+            latest_checkpoint_id: self.state.get_latest_checkpoint_id().await,
             gas_price,
             total_burned,
         };
 
+        // Get this node's validator info from state
+        let (validator_address, _bls_key) = self.state.get_validator_info().await;
+        let (stake_amount, pending_rewards, unbonding_amount, is_validator) = 
+            if let Some(ref addr) = validator_address {
+                self.state.get_validator_staking_info(addr).await
+            } else {
+                (0.0, 0.0, 0.0, false)
+            };
+
         self.validator_stats = ValidatorStats {
-            address: None,
-            is_validator: false,
-            stake_amount: 0.0,
-            pending_rewards: 0.0,
+            address: validator_address,
+            is_validator,
+            stake_amount,
+            pending_rewards,
             total_validators: validator_count,
             total_staked,
-            unbonding_amount: 0.0,
+            unbonding_amount,
         };
 
         self.dag_stats = DagStats {

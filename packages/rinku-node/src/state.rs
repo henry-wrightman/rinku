@@ -609,6 +609,11 @@ impl NodeState {
         state.checkpoints.len() as u64
     }
 
+    pub async fn get_latest_checkpoint_id(&self) -> Option<String> {
+        let state = self.inner.read().await;
+        state.checkpoints.last().map(|c| c.hash.chars().take(16).collect())
+    }
+
     pub async fn get_gas_price(&self) -> f64 {
         let state = self.inner.read().await;
         state.current_gas_price
@@ -637,6 +642,21 @@ impl NodeState {
     pub async fn get_total_stake(&self) -> f64 {
         let state = self.inner.read().await;
         state.validators.values().map(|v| v.stake).sum()
+    }
+
+    /// Get staking info for a specific validator address (for TUI display)
+    pub async fn get_validator_staking_info(&self, address: &str) -> (f64, f64, f64, bool) {
+        let rewards = self.rewards.read().await;
+        let stake_amount = rewards.get_stake(address).map(|p| p.amount).unwrap_or(0.0);
+        let pending_rewards = rewards.get_pending_rewards(address);
+        
+        let state = self.inner.read().await;
+        let is_validator = state.validators.contains_key(address);
+        
+        // Unbonding amount - check if in unbonding queue
+        let unbonding = 0.0; // TODO: Track unbonding separately if needed
+        
+        (stake_amount, pending_rewards, unbonding, is_validator)
     }
 
     pub async fn get_total_transactions(&self) -> u64 {
