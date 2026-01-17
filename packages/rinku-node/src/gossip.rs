@@ -438,7 +438,11 @@ impl GossipService {
             self.refresh_peer_status_and_sync().await;
         }
 
-        let tip_urls: Vec<String> = tips
+        // Cap tips to 10 to prevent bandwidth explosion when tip count is high
+        // Peers only need a sample of tips for sync, not the full set
+        const MAX_GOSSIP_TIPS: usize = 10;
+        let tips_capped: Vec<String> = tips.iter().take(MAX_GOSSIP_TIPS).cloned().collect();
+        let tip_urls: Vec<String> = tips_capped
             .iter()
             .map(|h| format!("rinku://tx/h/{}", h))
             .collect();
@@ -446,8 +450,9 @@ impl GossipService {
         let merkle_root = self.state.get_dag_merkle_root().await.unwrap_or_default();
 
         let public_url = std::env::var("PUBLIC_URL").ok();
+        let tips_announced = tips_capped.len();
         let message = GossipMessage::TipAnnouncement {
-            tips: tips.clone(),
+            tips: tips_capped,
             tip_urls,
             dag_size,
             merkle_root,
@@ -476,8 +481,8 @@ impl GossipService {
 
         if success_count > 0 || fail_count > 0 {
             debug!(
-                "Gossip round: {} tips announced to {} peers ({} failed), dag_size={}",
-                tips.len(), success_count, fail_count, dag_size
+                "Gossip round: {}/{} tips announced to {} peers ({} failed), dag_size={}",
+                tips_announced, tips.len(), success_count, fail_count, dag_size
             );
         }
 

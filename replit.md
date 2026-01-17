@@ -42,6 +42,8 @@ I want to work iteratively. Please ask before making major changes. I prefer det
   - Fresh nodes rebuild DAG with synthetic genesis node, orphaned parents point to genesis
 - **Performance Optimizations:** Includes in-memory DAG pruning, snapshot optimizations, checkpoint-bounded self-crawlable URLs, per-transaction finality, self-contained Merkle proofs, batched operations, parallel signature verification, and batch transaction API.
 - **Memory Management:** Bounded hash sets for transaction tracking (50k max known_txs, 10k max seen_conflicts) with FIFO eviction to prevent memory leaks during continuous operation.
+- **Gossip Bandwidth Optimization:** TipAnnouncement messages cap tips at 10 (MAX_GOSSIP_TIPS) to prevent bandwidth explosion when tip counts are high. Without this cap, broadcasting thousands of tips every 200ms would consume hundreds of GB/day.
+- **Server-Side Tip Injection:** When transactions reference parent hashes that don't exist in the DAG (due to pruning or sync delays), the node automatically substitutes current DAG tips as parents. This prevents tip explosion where every transaction becomes a new tip.
 - **Protocol-Level Tip Consolidation:** Automatic DAG tip reduction via validator-created zero-fee consolidation transactions.
 - **BLS Signature Aggregation:** Uses BLS12-381 for compact checkpoint validator signatures.
 - **Compact Proof Format (Profile B Compact):** Self-contained finality proofs designed to fit in QR codes, utilizing DEFLATE compression and base64url encoding.
