@@ -279,23 +279,25 @@ function App() {
 
   return (
     <div className="container">
-      <div className="header-row">
-        <Header
-          connected={connected}
-          protocolVersion={versionInfo?.protocolVersion}
-          nodeVersion={versionInfo?.nodeVersion}
-        />
-        <div className="header-actions">
-          <button
-            className={`wallet-btn-header ${wallet ? "connected" : ""}`}
-            onClick={() => setWalletOpen(true)}
-          >
-            {wallet ? `${wallet.fingerprint.slice(0, 6)}...` : "wallet"}
-          </button>
-          <button className="theme-toggle" onClick={toggleTheme}>
-            {darkMode ? "☀" : "☾"}
-          </button>
-        </div>
+      <Header
+        connected={connected}
+        protocolVersion={versionInfo?.protocolVersion}
+        nodeVersion={versionInfo?.nodeVersion}
+      />
+
+      <div className="header-actions">
+        <a target="_blank" className="whitepaper-link" href="/rinku.pdf">
+          whitepaper
+        </a>
+        <button
+          className={`wallet-btn-header ${wallet ? "connected" : ""}`}
+          onClick={() => setWalletOpen(true)}
+        >
+          {wallet ? `${wallet.fingerprint.slice(0, 6)}...` : "wallet"}
+        </button>
+        <button className="theme-toggle" onClick={toggleTheme}>
+          {darkMode ? "☀" : "☾"}
+        </button>
       </div>
 
       <WalletModal

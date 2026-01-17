@@ -1,16 +1,17 @@
-# rinku: Self-Provable URLs for Trustless Verification
+# rinku: Self-Verifiable URLs for Trustless Verification
 
-**Abstract.** It seems a bit strange to me that most distributed networks require external tooling to validate the most basic unit of their network. Sure, it's just an API call to a trusted node to validate a transaction as genuine, but what if it could be confirmed soley client-side, even _offline_? We propose a distributed network in which URLs serve as self-contained, cryptographic proofs needed for said verification. This would enable trustless validation without reliance on any external infrastructure or services. A Rinku URL carries not just transaction data, but its complete verification path - ancestry, signatures, and checkpoint anchors. Ultimately, *the link itself is the proof*. This paper focuses on the URL-native proof system that a distributed network could incorperate.
+**Abstract.** Today, most decentralized networks require external tooling to validate the most basic unit of their system. Sure, it's just an API call to a trusted node to validate a transaction as genuine, but what if it could be confirmed soley client-side, even _offline_? We propose a distributed network in which URLs serve as self-contained, cryptographic proofs needed for said verification. This would enable trustless confirmation without reliance on any external infrastructure or services. This URL carries not just transaction data, but its complete verification path - ancestry, signatures, and checkpoint anchors. Ultimately, *the link itself is the proof*. This paper focuses on the URL-native proof system that the rinku network leverages.
 
-## 1. The Problem with Verification Today
+## 1. The Problem with Modern Verification
 
-The traditional blockchain networks requires some form extraneous software for verification, such as a light client, explorer, an API, etc. This dependency can become quite an issue, not only from a trust perspective, but a reliability standpoint. What if the API isn't accessible, or network conditions unreliable? Relying on hardware for a personal node, syncing, or a light client is also troublesome. Further, there's also slight latency introduced for this secondary request.
+Traditional blockchain networks requires some form extraneous software for verification, such as a light client, node, an API, etc. Other lightweight solutions such as quorum-signed receipts also exist, but they require fetching a validator set from the chain. Same story for gossip witnessing, timestamp/anchoring, even zk proofs - all of these either rely on the live network, or external infrasture. Further, additional latency is introduced due to this secondary confirmation process. One way or another, there's an issue with trust, overhead, delays, or overall reliability. An API may be inaccessible, network conditions unreliable, or hardware restrictions surface. In the end, these gaps create risk within the user experience, and overall assurances of the transactional process.
 
-Ultimatley, *some infrastructure* is required to be trusted & relied upon to provide proofs. It is outsourced, not self-contained. Imagine point-of-sale that is immediately confirmable on the client itself - offline, instantly?
+Ultimatley, *some infrastructure* is required to be trusted & relied upon to provide proofs. However in rinku's case, verification becomes self-contained. Imagine point-of-sale that is immediately confirmable on the client itself, nearly instantaneous with absolute certainty?
+
 
 ## 2. URLs as Proofs
 
-Instead of storing data on-chain and fetching proofs from nodes, we can encode proofs directly into URLs that is returned inside a transaction receipt:
+Instead of storing data on-chain and fetching proofs from nodes, we can encode proofs directly into URLs that are returned within a transaction's receipt:
 
 For example
 
@@ -61,8 +62,8 @@ A proof bundle contains:
 
 **Key elements:**
 
-- `fromPubKey` - The sender's full ECDSA P-256 public key, enabling signature verification. The `from` field is its fingerprint (SHA-256 truncated to 40 hex chars).
-- `checkpoint` - Contains the finality proof: BLS-aggregated signature from validators, a bitmap indicating which validators have signed, and a Merkle proof for the validator set.
+- `fromPubKey` - The sender's full ECDSA P-256 public key, enabling signature verification. The `from` field is its fingerprint (SHA-256 truncated to 40 hex chars)
+- `checkpoint` - Contains the finality proof: BLS-aggregated signature from validators, a bitmap indicating which validators have signed, & a Merkle proof for the validator set
 
 Each parent itself becomes a proof bundle, creating a recursive structure that traces back to a known checkpoint.
 
@@ -89,8 +90,10 @@ function verify(proofUrl):
   assert verifyCheckpointSignatures(bundle.checkpoint)
 
   return true
+  
 ```
 
+ 
 ### 3.4 Data Availability
 
 **Important clarification:** Self-provable URLs guarantee **verification** without infrastructure, but not **discovery**. The URL must reach the verifier through some sort of transport, such as:
@@ -115,7 +118,7 @@ Validators periodically create checkpoints that finalize batches of transactions
 * A BLS-aggregated signature from >= 67% of the validator set
 * A commitment to the next validator set
 
-Once a transaction is included in a checkpoint (thereform confirmed), a self-provable URL can be generated. The checkpoint's aggregated signature becomes the trust anchor embedded inside the proof.
+Once a transaction is included in a checkpoint and confirmed, a self-provable URL is generated. The checkpoint's aggregated signature becomes the trust anchor embedded inside the proof.
 
 ## 4. Proof Profiles
 
@@ -135,7 +138,7 @@ rinku://tx/{payload}
 
 **What it proves:** Transaction is Merkle-included in a checkpoint signed by >= 67% of validators
 **Trust assumption:** Verifier knows the validator set
-**Use case:** High-value settlements
+**Use case:** High value (or risk) settlements
 
 ```
 rinku://txp/{payload}
@@ -186,10 +189,10 @@ This mirrors TLS certificate chains - the proof is self-contained, but root trus
 
 ### 7.1 Infrastructure Independence
 
-Traditional flow:
+Traditional flow (simplified):
 
 ```
-User -> Trust Node -> Query Proof -> Verify with Node's Help
+User -> Trust Node -> Query Proof -> Verify with Node
 ```
 
 Rinku flow:
@@ -203,7 +206,7 @@ User -> Receive URL -> Verify Locally
 A Rinku URL can be:
 
 - Printed as a QR code on a receipt
-- Sent via SMS, email, or any messaging app
+- Sent via SMS, email, or messaging app
 - Embedded in a PDF or document
 - Stored offline indefinitely
 
@@ -232,7 +235,7 @@ ECDSA verification can use the Web Crypto API; BLS verification can use a WASM l
 
 ## 9. Limitations
 
-**Size constraints:** Complex proofs (30+ transactions) exceed QR capacity and require standard URL sharing
+**Size constraints:** Complex proofs (30+ transactions) exceed QR capacity and require standard URLs
 
 **Bootstrap requirement:** First-time verifiers need a trust anchor (genesis or pinned checkpoint)
 
@@ -242,11 +245,10 @@ ECDSA verification can use the Web Crypto API; BLS verification can use a WASM l
 
 ## 10. Conclusion
 
-The rinku network demonstrates that transactional proofs can be fully self-contained within URLs. By encoding transaction data, ancestry chains, and checkpoint anchors directly into the URL, we can eliminate infrastructure dependencies for verification.
+The rinku network demonstrates that transactional proofs can be fully self-contained within URLs. By encoding transaction data, ancestry chains, and checkpoint anchors directly into the URL, we can eliminate infrastructure dependencies for verification, and vastly improve the transactional experience for network participants.
 
 The core innovation is architectural: treating URLs as the canonical proof object rather than as references to external state. This enables truly trustless, offline verification.
 
-*The link is the proof.*
 
 ---
 
@@ -365,5 +367,4 @@ async function verifyProofUrl(url) {
 3. R. Merkle. "A Digital Signature Based on a Conventional Encryption Function." CRYPTO 1987.
 
 ---
-
 
