@@ -2,11 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum TransactionKind {
     Transfer,
     Stake,
     Unstake,
+    #[serde(alias = "claimRewards")]
+    ClaimRewards,
     Contract,
     Consolidation,
     Reward,

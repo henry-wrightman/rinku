@@ -162,12 +162,12 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
           </div>
         )}
 
-        <div
+        {/* <div
           className="hint"
           style={{ marginTop: 16, fontSize: 11, color: "#555" }}
         >
           tip: use @rinku/wallet to generate an address
-        </div>
+        </div> */}
       </div>
 
       {recentDrops.length > 0 && (

@@ -797,6 +797,7 @@ impl NodeState {
         // PHASE 0: Validate transaction BEFORE any state mutations
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+        let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
         
         // Pre-check balance validation
         {
@@ -806,8 +807,8 @@ impl NodeState {
             // Calculate required balance based on transaction type
             let required_balance = if is_stake_tx {
                 tx.tx.amount + gas_fee // Stake: need amount + gas
-            } else if is_unstake_tx {
-                gas_fee // Unstake: only need gas
+            } else if is_unstake_tx || is_claim_tx {
+                gas_fee // Unstake/Claim: only need gas
             } else {
                 tx.tx.amount + gas_fee // Transfer: need amount + gas
             };
@@ -936,24 +937,25 @@ impl NodeState {
         // Check transaction kind to determine balance handling
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+        let is_claim_tx_inner = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
         
         if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
             // For stake: deduct amount (locks it in stake)
-            // For unstake: don't deduct (amount will be returned from stake)
+            // For unstake/claim: don't deduct amount (only gas)
             // For transfer: deduct amount (sends to recipient)
             if is_stake_tx {
                 from_account.balance -= tx.tx.amount + gas_fee;
-            } else if is_unstake_tx {
-                from_account.balance -= gas_fee; // Only gas for unstake
+            } else if is_unstake_tx || is_claim_tx_inner {
+                from_account.balance -= gas_fee; // Only gas for unstake/claim
             } else {
                 from_account.balance -= tx.tx.amount + gas_fee;
             }
             from_account.nonce = tx.tx.nonce + 1;
         }
 
-        // For stake/unstake: don't transfer to recipient (amount is locked/unlocked in staking)
+        // For stake/unstake/claim: don't transfer to recipient (amount is handled by rewards/staking)
         // For transfer: add to recipient balance
-        if !is_stake_tx && !is_unstake_tx {
+        if !is_stake_tx && !is_unstake_tx && !is_claim_tx_inner {
             let to_account = state
                 .accounts
                 .entry(tx.tx.to.clone())
@@ -1087,6 +1089,24 @@ impl NodeState {
                         }
                     }
                 }
+                TransactionKind::ClaimRewards => {
+                    let claimed: f64 = {
+                        let mut rewards = self.rewards.write().await;
+                        rewards.claim_rewards(&from_addr)
+                    };
+                    if claimed > 0.0 {
+                        let mut state = self.inner.write().await;
+                        if let Some(account) = state.accounts.get_mut(&from_addr) {
+                            account.balance += claimed;
+                            tracing::info!(
+                                "Rewards claimed: {} received {} RKU (new balance: {})",
+                                &from_addr[..16.min(from_addr.len())],
+                                claimed,
+                                account.balance
+                            );
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -1103,11 +1123,12 @@ impl NodeState {
             for tx in txs.iter() {
                 let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
                 let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
                 let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
                 
                 let required_balance = if is_stake_tx {
                     tx.tx.amount + gas_fee
-                } else if is_unstake_tx {
+                } else if is_unstake_tx || is_claim_tx {
                     gas_fee
                 } else {
                     tx.tx.amount + gas_fee
@@ -1234,24 +1255,25 @@ impl NodeState {
                 // Check transaction kind to determine balance handling
                 let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
                 let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
 
                 if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
                     // For stake: deduct amount (locks it in stake)
-                    // For unstake: don't deduct (amount will be returned from stake)
+                    // For unstake/claim: don't deduct amount (only gas)
                     // For transfer: deduct amount (sends to recipient)
                     if is_stake_tx {
                         from_account.balance -= tx.tx.amount + gas_fee;
-                    } else if is_unstake_tx {
-                        from_account.balance -= gas_fee; // Only gas for unstake
+                    } else if is_unstake_tx || is_claim_tx {
+                        from_account.balance -= gas_fee; // Only gas for unstake/claim
                     } else {
                         from_account.balance -= tx.tx.amount + gas_fee;
                     }
                     from_account.nonce = tx.tx.nonce + 1;
                 }
 
-                // For stake/unstake: don't transfer to recipient (amount is locked/unlocked in staking)
+                // For stake/unstake/claim: don't transfer to recipient (amount is handled by rewards/staking)
                 // For transfer: add to recipient balance
-                if !is_stake_tx && !is_unstake_tx {
+                if !is_stake_tx && !is_unstake_tx && !is_claim_tx {
                     let to_account = state
                         .accounts
                         .entry(tx.tx.to.clone())
@@ -1365,28 +1387,39 @@ impl NodeState {
                             }
                         }
                     }
+                    TransactionKind::ClaimRewards => {
+                        let claimed = rewards.claim_rewards(&from_addr);
+                        if claimed > 0.0 {
+                            tracing::debug!("Batch claim rewards: {} claimed {} RKU", &from_addr[..16.min(from_addr.len())], claimed);
+                            // Track account update to add claimed rewards to balance
+                            account_stake_updates.push((from_addr.clone(), -1.0, None, claimed)); // -1.0 signals "don't update staked"
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         
-        // Sync staked amounts and return unstaked balance (after releasing rewards lock)
-        for (addr, staked_amount, staked_at, unstaked_to_return) in account_stake_updates {
+        // Sync staked amounts and return unstaked/claimed balance (after releasing rewards lock)
+        for (addr, staked_amount, staked_at, amount_to_add) in account_stake_updates {
             let mut state = self.inner.write().await;
             if let Some(account) = state.accounts.get_mut(&addr) {
-                account.staked = staked_amount;
-                if let Some(ts) = staked_at {
-                    if account.first_seen == 0 {
-                        account.first_seen = ts;
+                // Only update staked amount if >= 0 (negative signals "don't update staked", used for claim rewards)
+                if staked_amount >= 0.0 {
+                    account.staked = staked_amount;
+                    if let Some(ts) = staked_at {
+                        if account.first_seen == 0 {
+                            account.first_seen = ts;
+                        }
                     }
                 }
-                // Return unstaked amount to balance
-                if unstaked_to_return > 0.0 {
-                    account.balance += unstaked_to_return;
+                // Add claimed rewards or return unstaked amount to balance
+                if amount_to_add > 0.0 {
+                    account.balance += amount_to_add;
                     tracing::info!(
-                        "Batch unstake completed: {} balance restored by {} RKU (new balance: {})",
+                        "Batch balance update: {} received {} RKU (new balance: {})",
                         &addr[..16.min(addr.len())],
-                        unstaked_to_return,
+                        amount_to_add,
                         account.balance
                     );
                 }

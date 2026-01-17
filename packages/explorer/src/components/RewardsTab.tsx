@@ -293,10 +293,6 @@ export function RewardsTab() {
     return d.toLocaleString();
   };
 
-  const getSerializedKey = (): string => {
-    if (!keyPair) return "";
-    return serializeKeyPair(keyPair);
-  };
 
   return (
     <div className="rewards-tab">
