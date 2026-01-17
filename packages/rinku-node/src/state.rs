@@ -729,7 +729,7 @@ impl NodeState {
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<()> {
         // PHASE 1: Pre-compute everything outside the lock
         // Normalize parent URLs to just hashes
-        let normalized_parents: Vec<String> = tx
+        let client_parents: Vec<String> = tx
             .tx
             .parents
             .iter()
@@ -750,13 +750,44 @@ impl NodeState {
             .unwrap_or_default()
             .as_secs();
         
-        let tx_weight = {
+        // CRITICAL FIX: Server-side tip injection
+        // If client-provided parents don't exist in DAG, substitute with actual tips
+        // This prevents tip explosion when clients reference pruned/missing transactions
+        let (tx_weight, normalized_parents) = {
             let state = self.inner.read().await;
-            if let Some(account) = state.accounts.get(&tx.tx.from) {
+            
+            let weight = if let Some(account) = state.accounts.get(&tx.tx.from) {
                 calculate_account_weight(account, now_secs)
             } else {
                 1.0 // New account, minimum weight
-            }
+            };
+            
+            // Check which client parents exist in DAG
+            let valid_parents: Vec<String> = client_parents
+                .iter()
+                .filter(|p| !p.is_empty() && state.dag.get_node(p).is_some())
+                .cloned()
+                .collect();
+            
+            // If no valid parents exist, inject current tips as parents
+            let final_parents = if valid_parents.is_empty() {
+                let current_tips = state.dag.tips();
+                // Take up to 2 tips to reference (standard DAG behavior)
+                let injected: Vec<String> = current_tips.into_iter().take(2).collect();
+                if !injected.is_empty() {
+                    tracing::debug!(
+                        "Tip injection: tx {} had {} orphan parents, injecting {} tips",
+                        &tx.hash[..16.min(tx.hash.len())],
+                        client_parents.len(),
+                        injected.len()
+                    );
+                }
+                injected
+            } else {
+                valid_parents
+            };
+            
+            (weight, final_parents)
         };
 
         let node = rinku_core::types::DagNode {
@@ -914,12 +945,32 @@ impl NodeState {
 
     /// Batch add transactions - optimized for high throughput
     pub async fn add_transactions_batch(&self, txs: Vec<SignedTransaction>) -> Vec<Result<()>> {
-        // PHASE 1: Pre-compute all nodes outside lock
+        // PHASE 1: Pre-compute outside lock
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
         let now_secs = now_ms / 1000;
+
+        // Pre-normalize client parents for each tx
+        let client_parents_list: Vec<Vec<String>> = txs
+            .iter()
+            .map(|tx| {
+                tx.tx
+                    .parents
+                    .iter()
+                    .map(|p| {
+                        if p.starts_with("rinku://tx/h/") {
+                            p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+                        } else if p.starts_with("rinku://tx/") {
+                            p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+                        } else {
+                            p.clone()
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
 
         // Get account weights with read lock first
         let account_weights: std::collections::HashMap<String, f64> = {
@@ -936,39 +987,7 @@ impl NodeState {
                 .collect()
         };
 
-        let prepared: Vec<_> = txs
-            .iter()
-            .map(|tx| {
-                let normalized_parents: Vec<String> = tx
-                    .tx
-                    .parents
-                    .iter()
-                    .map(|p| {
-                        if p.starts_with("rinku://tx/h/") {
-                            p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
-                        } else if p.starts_with("rinku://tx/") {
-                            p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
-                        } else {
-                            p.clone()
-                        }
-                    })
-                    .collect();
-
-                let tx_weight = account_weights.get(&tx.tx.from).copied().unwrap_or(1.0);
-
-                rinku_core::types::DagNode {
-                    hash: tx.hash.clone(),
-                    tx: tx.clone(),
-                    parents: normalized_parents,
-                    children: Vec::new(),
-                    weight: tx_weight,
-                    finalized: false,
-                    checkpoint_height: None,
-                }
-            })
-            .collect();
-
-        // PHASE 2: Single write lock for entire batch
+        // PHASE 2: Single write lock for entire batch - with tip injection
         let mut state = self.inner.write().await;
         let mut results = Vec::with_capacity(txs.len());
         let mut stake_txs: Vec<(rinku_core::types::TransactionKind, String, f64)> = Vec::new();
@@ -978,8 +997,37 @@ impl NodeState {
         let mut reward_infos: Vec<(String, String, f64, Vec<String>, Vec<(String, String)>)> = Vec::new();
         let validator_addr = state.node_validator_address.clone();
 
-        for (node, tx) in prepared.into_iter().zip(txs.iter()) {
-            let normalized_parents = node.parents.clone();
+        for (idx, tx) in txs.iter().enumerate() {
+            let client_parents = &client_parents_list[idx];
+            let tx_weight = account_weights.get(&tx.tx.from).copied().unwrap_or(1.0);
+            
+            // CRITICAL FIX: Server-side tip injection for batch
+            // Check which client parents exist in DAG
+            let valid_parents: Vec<String> = client_parents
+                .iter()
+                .filter(|p| !p.is_empty() && state.dag.get_node(p).is_some())
+                .cloned()
+                .collect();
+            
+            // If no valid parents exist, inject current tips as parents
+            let normalized_parents = if valid_parents.is_empty() {
+                let current_tips = state.dag.tips();
+                // Take up to 2 tips to reference
+                current_tips.into_iter().take(2).collect()
+            } else {
+                valid_parents
+            };
+            
+            let node = rinku_core::types::DagNode {
+                hash: tx.hash.clone(),
+                tx: tx.clone(),
+                parents: normalized_parents.clone(),
+                children: Vec::new(),
+                weight: tx_weight,
+                finalized: false,
+                checkpoint_height: None,
+            };
+            
             let result = state
                 .dag
                 .add_node(node)
