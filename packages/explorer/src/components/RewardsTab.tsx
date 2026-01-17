@@ -205,7 +205,7 @@ export function RewardsTab() {
         `${NODE_URL}/account/${keyPair.fingerprint}`,
       );
       const account = await accountRes.json();
-      const nonce = (account.nonce || 0) + 1;
+      const nonce = account.nonce || 0;
 
       const signedTx = await createSignedTransaction(keyPair, {
         to: keyPair.fingerprint,
@@ -263,7 +263,7 @@ export function RewardsTab() {
         `${NODE_URL}/account/${keyPair.fingerprint}`,
       );
       const account = await accountRes.json();
-      const nonce = (account.nonce || 0) + 1;
+      const nonce = account.nonce || 0;
 
       const signedTx = await createSignedTransaction(keyPair, {
         to: keyPair.fingerprint,
@@ -298,22 +298,50 @@ export function RewardsTab() {
   };
 
   const handleClaim = async () => {
-    if (!address) return;
+    if (!walletReady || !keyPair) {
+      setError("Set up a wallet first to claim rewards");
+      return;
+    }
     setError(null);
     setResult(null);
 
     try {
-      const res = await fetch(`${NODE_URL}/rewards/${address}/claim`, {
+      const tipsRes = await fetch(`${NODE_URL}/tips`);
+      const tipsData = await tipsRes.json();
+      const tips = tipsData.tips || tipsData || [];
+      const parents = (tips as string[])
+        .slice(0, 2)
+        .map((h: string) => `rinku://tx/h/${h}`);
+
+      const accountRes = await fetch(
+        `${NODE_URL}/account/${keyPair.fingerprint}`,
+      );
+      const account = await accountRes.json();
+      const nonce = account.nonce || 0;
+
+      const signedTx = await createSignedTransaction(keyPair, {
+        to: keyPair.fingerprint,
+        amount: 0,
+        nonce,
+        parents,
+        kind: "claim_rewards",
+        gasPrice: 0.001,
+      });
+
+      const res = await fetch(`${NODE_URL}/tx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(signedTx),
       });
 
       const data = await res.json();
-      if (data.success) {
-        setResult(`Claimed ${data.claimedAmount.toFixed(4)} RKU`);
-        fetchRewards();
+      if (res.ok && data.hash) {
+        setResult(`Claimed rewards (tx: ${data.hash.slice(0, 12)}...)`);
+        setTimeout(() => {
+          fetchRewards();
+        }, 1000);
       } else {
-        setError(data.message || "No rewards to claim");
+        setError(data.error || "Claim failed");
       }
     } catch (e: any) {
       setError(e.message);

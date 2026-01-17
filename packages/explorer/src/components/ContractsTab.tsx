@@ -3,8 +3,7 @@ import {
   generateKeyPair,
   deserializeKeyPair,
   serializeKeyPair,
-  signMessage,
-  hashTransaction,
+  createSignedTransaction,
   type SerializedKeyPair,
 } from "../crypto";
 
@@ -180,7 +179,7 @@ export function ContractsTab() {
   };
 
   const handleDeploy = async () => {
-    if (!walletReady || !keyPair || !accountInfo) {
+    if (!walletReady || !keyPair) {
       setError("Set up a wallet first");
       return;
     }
@@ -192,45 +191,35 @@ export function ContractsTab() {
     try {
       const tips = await getTips();
       const fee = await getGasPrice();
-      const nonce = accountInfo.nonce + 1;
       
-      const txData = {
-        from: keyPair.fingerprint,
+      const accountRes = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
+      const account = await accountRes.json();
+      const nonce = account.nonce || 0;
+      
+      const signedTx = await createSignedTransaction(keyPair, {
         to: "contract:deploy",
         amount: 0,
-        fee,
         nonce,
-        ts: Date.now(),
         parents: tips,
-        kind: "user" as const,
-      };
+        kind: "contract",
+        gasPrice: fee,
+      });
 
-      const txJson = JSON.stringify(txData);
-      const hash = await hashTransaction(txJson);
-      const sig = await signMessage(keyPair.privateKey, txJson);
-
-      const signedTx = { ...txData, hash, sig };
-
-      const publicKeyBytes = keyPair.publicKey.match(/.{1,2}/g)?.map((b: string) => parseInt(b, 16)) || [];
-
-      const res = await fetch(`${NODE_URL}/contracts/deploy`, {
+      const res = await fetch(`${NODE_URL}/tx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tx: signedTx,
-          publicKey: publicKeyBytes,
-          wasmBase64: btoa("mock-wasm-bytecode"),
-          initState: JSON.parse(deployForm.initState)
-        })
+        body: JSON.stringify(signedTx)
       });
       
       const data = await res.json();
       
-      if (data.success || data.contractId) {
-        setResult(`Contract deployed: ${data.contractId}`);
+      if (res.ok && data.hash) {
+        setResult(`Contract deploy submitted (tx: ${data.hash.slice(0, 12)}...)`);
         setDeployForm({ initState: "{}" });
-        fetchContracts();
-        fetchAccountInfo();
+        setTimeout(() => {
+          fetchContracts();
+          fetchAccountInfo();
+        }, 1000);
       } else {
         setError(data.error || "Deploy failed");
       }
@@ -243,7 +232,7 @@ export function ContractsTab() {
 
   const handleCall = async () => {
     if (!selectedContract) return;
-    if (!walletReady || !keyPair || !accountInfo) {
+    if (!walletReady || !keyPair) {
       setError("Set up a wallet first");
       return;
     }
@@ -255,45 +244,35 @@ export function ContractsTab() {
     try {
       const tips = await getTips();
       const fee = await getGasPrice();
-      const nonce = accountInfo.nonce + 1;
       
-      const txData = {
-        from: keyPair.fingerprint,
+      const accountRes = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
+      const account = await accountRes.json();
+      const nonce = account.nonce || 0;
+      
+      const signedTx = await createSignedTransaction(keyPair, {
         to: `contract:${selectedContract.contractId}`,
         amount: 0,
-        fee,
         nonce,
-        ts: Date.now(),
         parents: tips,
-        kind: "user" as const,
-      };
+        kind: "contract",
+        gasPrice: fee,
+      });
 
-      const txJson = JSON.stringify(txData);
-      const hash = await hashTransaction(txJson);
-      const sig = await signMessage(keyPair.privateKey, txJson);
-
-      const signedTx = { ...txData, hash, sig };
-
-      const publicKeyBytes = keyPair.publicKey.match(/.{1,2}/g)?.map((b: string) => parseInt(b, 16)) || [];
-
-      const res = await fetch(`${NODE_URL}/contracts/${selectedContract.contractId}/call`, {
+      const res = await fetch(`${NODE_URL}/tx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tx: signedTx,
-          publicKey: publicKeyBytes,
-          entrypoint: callForm.entrypoint,
-          input: JSON.parse(callForm.input),
-        })
+        body: JSON.stringify(signedTx)
       });
       
       const data = await res.json();
       
-      if (data.success) {
-        setResult(`Success! Gas: ${data.gasUsed}, Logs: ${data.logs?.join(", ") || "none"}`);
-        fetchContractDetails(selectedContract.contractId);
-        fetchContracts();
-        fetchAccountInfo();
+      if (res.ok && data.hash) {
+        setResult(`Contract call submitted (tx: ${data.hash.slice(0, 12)}...)`);
+        setTimeout(() => {
+          fetchContractDetails(selectedContract.contractId);
+          fetchContracts();
+          fetchAccountInfo();
+        }, 1000);
       } else {
         setError(data.error || "Call failed");
       }
