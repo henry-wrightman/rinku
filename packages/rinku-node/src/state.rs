@@ -790,6 +790,60 @@ impl NodeState {
     }
 
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<()> {
+        // PHASE 0: Validate transaction BEFORE any state mutations
+        let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+        let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+        
+        // Pre-check balance validation
+        {
+            let state = self.inner.read().await;
+            let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+            
+            // Calculate required balance based on transaction type
+            let required_balance = if is_stake_tx {
+                tx.tx.amount + gas_fee // Stake: need amount + gas
+            } else if is_unstake_tx {
+                gas_fee // Unstake: only need gas
+            } else {
+                tx.tx.amount + gas_fee // Transfer: need amount + gas
+            };
+            
+            // Check sender account
+            if tx.tx.from != "genesis" {
+                match state.accounts.get(&tx.tx.from) {
+                    Some(account) => {
+                        if account.balance < required_balance {
+                            tracing::warn!(
+                                "Transaction rejected: insufficient balance. Have {:.6}, need {:.6} (amount: {:.6}, gas: {:.6})",
+                                account.balance, required_balance, tx.tx.amount, gas_fee
+                            );
+                            return Err(anyhow::anyhow!(
+                                "Insufficient balance: have {:.6}, need {:.6}",
+                                account.balance, required_balance
+                            ));
+                        }
+                        if tx.tx.nonce != account.nonce {
+                            tracing::warn!(
+                                "Transaction rejected: invalid nonce. Expected {}, got {}",
+                                account.nonce, tx.tx.nonce
+                            );
+                            return Err(anyhow::anyhow!(
+                                "Invalid nonce: expected {}, got {}",
+                                account.nonce, tx.tx.nonce
+                            ));
+                        }
+                    }
+                    None => {
+                        tracing::warn!(
+                            "Transaction rejected: account {} does not exist",
+                            &tx.tx.from[..16.min(tx.tx.from.len())]
+                        );
+                        return Err(anyhow::anyhow!("Account does not exist"));
+                    }
+                }
+            }
+        }
+        
         // PHASE 1: Pre-compute everything outside the lock
         // Normalize parent URLs to just hashes
         let client_parents: Vec<String> = tx
@@ -1038,6 +1092,45 @@ impl NodeState {
 
     /// Batch add transactions - optimized for high throughput
     pub async fn add_transactions_batch(&self, txs: Vec<SignedTransaction>) -> Vec<Result<()>> {
+        // PHASE 0: Pre-validate all transactions BEFORE any state mutations
+        let mut validation_results: Vec<Option<anyhow::Error>> = Vec::with_capacity(txs.len());
+        {
+            let state = self.inner.read().await;
+            for tx in txs.iter() {
+                let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+                let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+                
+                let required_balance = if is_stake_tx {
+                    tx.tx.amount + gas_fee
+                } else if is_unstake_tx {
+                    gas_fee
+                } else {
+                    tx.tx.amount + gas_fee
+                };
+                
+                if tx.tx.from != "genesis" {
+                    match state.accounts.get(&tx.tx.from) {
+                        Some(account) => {
+                            if account.balance < required_balance {
+                                validation_results.push(Some(anyhow::anyhow!(
+                                    "Insufficient balance: have {:.6}, need {:.6}",
+                                    account.balance, required_balance
+                                )));
+                                continue;
+                            }
+                            // Note: nonce check in batch is complex due to ordering, skip for now
+                        }
+                        None => {
+                            validation_results.push(Some(anyhow::anyhow!("Account does not exist")));
+                            continue;
+                        }
+                    }
+                }
+                validation_results.push(None); // Valid
+            }
+        }
+        
         // PHASE 1: Pre-compute outside lock
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1091,6 +1184,12 @@ impl NodeState {
         let validator_addr = state.node_validator_address.clone();
 
         for (idx, tx) in txs.iter().enumerate() {
+            // Check if this tx failed pre-validation
+            if let Some(err) = validation_results.get(idx).and_then(|r| r.as_ref()) {
+                results.push(Err(anyhow::anyhow!("{}", err)));
+                continue;
+            }
+            
             let client_parents = &client_parents_list[idx];
             let tx_weight = account_weights.get(&tx.tx.from).copied().unwrap_or(1.0);
             
