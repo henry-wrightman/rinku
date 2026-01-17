@@ -91,3 +91,6 @@ build = [
 [userenv.production]
 STATIC_DIR = "packages/explorer/dist"
 API_PORT = "5000"
+
+[userenv.shared]
+PUBLIC_URL = "https://rinkuchan.com"
