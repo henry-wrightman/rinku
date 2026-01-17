@@ -22,6 +22,26 @@ static FAUCET_RATE_LIMIT: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
 const FAUCET_AMOUNT: f64 = 100.0;
 const FAUCET_RATE_LIMIT_MS: u64 = 60_000;
 
+/// Check if development-only endpoints are enabled.
+/// These endpoints bypass transaction validation and should NEVER be enabled in production.
+/// Set ENABLE_DEV_ENDPOINTS=true to enable (for local testing/development only).
+fn dev_endpoints_enabled() -> bool {
+    std::env::var("ENABLE_DEV_ENDPOINTS")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false)
+}
+
+/// Standard response for disabled dev endpoints
+fn dev_endpoint_disabled_error() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({
+            "error": "This development endpoint is disabled. Use /api/tx with proper transaction signing instead.",
+            "hint": "Set ENABLE_DEV_ENDPOINTS=true to enable (for local testing only, never in production)"
+        }))
+    )
+}
+
 use crate::state::NodeState;
 
 #[derive(Clone)]
@@ -1860,13 +1880,15 @@ struct ClaimRewardsResponse {
 async fn post_claim_rewards(
     State(state): State<NodeState>,
     Path(address): Path<String>,
-) -> Json<ClaimRewardsResponse> {
-    // SECURITY WARNING: This endpoint lacks signature verification!
-    // In production, this should require proof of address ownership.
-    // Rewards claiming should go through the transaction flow (/api/tx with kind=claim_rewards)
-    // TODO: Implement signature verification or deprecate this direct endpoint
+) -> impl IntoResponse {
+    // SECURITY: This endpoint is disabled by default.
+    // Rewards claiming should go through signed transaction flow.
+    if !dev_endpoints_enabled() {
+        return dev_endpoint_disabled_error().into_response();
+    }
+    
     warn!(
-        "Direct rewards claim called for {} - no signature verification!",
+        "DEV ENDPOINT: Direct rewards claim called for {} - no signature verification!",
         &address[..16.min(address.len())]
     );
     
@@ -1898,13 +1920,13 @@ async fn post_claim_rewards(
             success: true,
             claimed_amount: claimed,
             message: format!("Successfully claimed {} RKU", claimed),
-        })
+        }).into_response()
     } else {
         Json(ClaimRewardsResponse {
             success: false,
             claimed_amount: 0.0,
             message: "No rewards to claim".to_string(),
-        })
+        }).into_response()
     }
 }
 
@@ -1959,15 +1981,15 @@ struct StakeResponse {
 async fn post_stake(
     State(state): State<NodeState>,
     Json(req): Json<StakeRequest>,
-) -> Json<StakeResponse> {
-    // SECURITY: This endpoint is for TESTING ONLY in development
-    // Production staking MUST go through /api/tx with kind=stake to ensure:
-    // - Proper signature verification via transaction flow
-    // - Gas fees are paid
-    // - Nonce validation
-    // TODO: Add proper signature verification or deprecate this endpoint
+) -> impl IntoResponse {
+    // SECURITY: This endpoint is disabled by default.
+    // Production staking MUST go through /api/tx with kind=stake.
+    if !dev_endpoints_enabled() {
+        return dev_endpoint_disabled_error().into_response();
+    }
+    
     warn!(
-        "Direct staking API called for {} - this bypasses transaction validation!",
+        "DEV ENDPOINT: Direct staking API called for {} - bypasses transaction validation!",
         &req.address[..16.min(req.address.len())]
     );
     
@@ -1982,7 +2004,7 @@ async fn post_stake(
             address: req.address,
             amount: req.amount,
             error: Some("Stake amount must be positive".to_string()),
-        });
+        }).into_response();
     }
 
     // ATOMIC: Check balance and deduct in one critical section to prevent race conditions
@@ -2026,7 +2048,7 @@ async fn post_stake(
             address: req.address,
             amount: req.amount,
             error: Some(e),
-        });
+        }).into_response();
     }
     
     // Add stake to rewards service
@@ -2060,7 +2082,7 @@ async fn post_stake(
                 address: req.address,
                 amount: req.amount,
                 error: None,
-            })
+            }).into_response()
         },
         Err(e) => {
             // Rollback: restore the balance since stake failed
@@ -2080,7 +2102,7 @@ async fn post_stake(
                 address: req.address,
                 amount: req.amount,
                 error: Some(e),
-            })
+            }).into_response()
         },
     }
 }
@@ -2107,15 +2129,15 @@ struct ContractDeployResponse {
 async fn post_contract_deploy(
     State(state): State<NodeState>,
     Json(req): Json<ContractDeployRequest>,
-) -> Json<ContractDeployResponse> {
-    // SECURITY WARNING: This endpoint does not validate the transaction or charge gas!
-    // In production, contract deployment should go through /api/tx to ensure:
-    // - Proper signature verification
-    // - Gas fees are paid
-    // - Balance validation
-    // TODO: Either validate the tx field properly or deprecate this endpoint
+) -> impl IntoResponse {
+    // SECURITY: This endpoint is disabled by default.
+    // Contract deployment should go through signed transaction flow.
+    if !dev_endpoints_enabled() {
+        return dev_endpoint_disabled_error().into_response();
+    }
+    
     warn!(
-        "Contract deploy called without tx validation from {}",
+        "DEV ENDPOINT: Contract deploy called without tx validation from {}",
         &req.tx.from[..16.min(req.tx.from.len())]
     );
     
@@ -2145,13 +2167,13 @@ async fn post_contract_deploy(
             contract_id: Some(contract_id),
             deploy_url: Some(deploy_url),
             error: None,
-        }),
+        }).into_response(),
         Err(e) => Json(ContractDeployResponse {
             success: false,
             contract_id: None,
             deploy_url: None,
             error: Some(e.to_string()),
-        }),
+        }).into_response(),
     }
 }
 
@@ -2177,16 +2199,15 @@ async fn post_contract_call(
     State(state): State<NodeState>,
     Path(contract_id): Path<String>,
     Json(req): Json<ContractCallRequest>,
-) -> Json<ContractCallResponse> {
-    // SECURITY WARNING: This endpoint does not validate the transaction or charge gas!
-    // gas_used is reported but not actually deducted from caller's balance.
-    // In production, contract calls should go through /api/tx to ensure:
-    // - Proper signature verification  
-    // - Gas fees are paid
-    // - Balance validation
-    // TODO: Either validate the tx field properly or deprecate this endpoint
+) -> impl IntoResponse {
+    // SECURITY: This endpoint is disabled by default.
+    // Contract calls should go through signed transaction flow.
+    if !dev_endpoints_enabled() {
+        return dev_endpoint_disabled_error().into_response();
+    }
+    
     warn!(
-        "Contract call to {} without tx validation from {}",
+        "DEV ENDPOINT: Contract call to {} without tx validation from {}",
         &contract_id[..16.min(contract_id.len())],
         &req.tx.from[..16.min(req.tx.from.len())]
     );
@@ -2201,7 +2222,7 @@ async fn post_contract_call(
                 result: None,
                 gas_used: 0,
                 error: Some(format!("Contract {} not found", contract_id)),
-            });
+            }).into_response();
         }
     };
     
@@ -2228,13 +2249,13 @@ async fn post_contract_call(
             })),
             gas_used: 1000,
             error: None,
-        }),
+        }).into_response(),
         Err(e) => Json(ContractCallResponse {
             success: false,
             result: None,
             gas_used: 0,
             error: Some(e.to_string()),
-        }),
+        }).into_response(),
     }
 }
 
