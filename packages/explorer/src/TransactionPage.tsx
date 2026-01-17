@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
-import { parseTransactionURL } from "@rinku/core";
+import { parseTransactionURL, TransactionKind } from "@rinku/core";
 import { PageHeader } from "./components/PageHeader";
 
 interface TransactionData {
@@ -13,6 +13,7 @@ interface TransactionData {
   sig: string;
   ts: number;
   hash?: string;
+  kind?: TransactionKind;
 }
 
 interface ApiResponse {
@@ -100,6 +101,18 @@ function TransactionPage() {
     return `${s.slice(0, len)}...`;
   };
 
+  const formatTxKind = (kind?: TransactionKind): { label: string; color: string } => {
+    switch (kind) {
+      case 'stake': return { label: 'stake', color: '#a3be8c' };
+      case 'unstake': return { label: 'unstake', color: '#ebcb8b' };
+      case 'claim_rewards': return { label: 'claim rewards', color: '#b48ead' };
+      case 'contract': return { label: 'contract call', color: '#88c0d0' };
+      case 'consolidation': return { label: 'consolidation', color: '#81a1c1' };
+      case 'reward': return { label: 'reward', color: '#b48ead' };
+      default: return { label: 'transfer', color: '#d8dee9' };
+    }
+  };
+
   const copyUrl = () => {
     const fullUrl = window.location.href;
     navigator.clipboard.writeText(fullUrl);
@@ -183,6 +196,12 @@ function TransactionPage() {
         </div>
 
         <div className="tx-meta">
+          <div className="meta-row">
+            <span className="label">type</span>
+            <span className="value" style={{ color: formatTxKind(tx.kind).color }}>
+              {formatTxKind(tx.kind).label}
+            </span>
+          </div>
           <div className="meta-row">
             <span className="label">timestamp</span>
             <span className="value">{formatTime(tx.ts)}</span>

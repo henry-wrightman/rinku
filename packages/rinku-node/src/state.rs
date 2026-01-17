@@ -42,6 +42,7 @@ pub struct DagNodeInfo {
     pub parents: Vec<String>,
     pub finalized: bool,
     pub weight: f64,
+    pub kind: Option<rinku_core::types::TransactionKind>,
 }
 
 /// Combined stats for dashboard - fetched with a single lock acquisition
@@ -749,6 +750,7 @@ impl NodeState {
                 parents: n.parents.clone(),
                 finalized: n.finalized,
                 weight: n.weight,
+                kind: n.tx.tx.kind,
             })
             .collect()
     }
@@ -782,6 +784,7 @@ impl NodeState {
                 parents: n.parents.clone(),
                 finalized: n.finalized,
                 weight: n.weight,
+                kind: n.tx.tx.kind,
             })
             .collect();
         

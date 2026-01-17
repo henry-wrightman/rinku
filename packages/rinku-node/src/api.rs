@@ -188,6 +188,8 @@ struct DagNodeResponse {
     finalized: bool,
     weight: f64,
     url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<rinku_core::types::TransactionKind>,
 }
 
 #[derive(Serialize)]
@@ -980,6 +982,7 @@ async fn get_dag(
                 finalized: n.finalized,
                 weight: n.weight,
                 url,
+                kind: n.kind,
             }
         })
         .collect();

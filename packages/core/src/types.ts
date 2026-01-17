@@ -6,7 +6,7 @@ export interface AccountState {
 }
 
 /** Transaction kind - distinguishes protocol transactions from user transactions */
-export type TransactionKind = 'user' | 'consolidation';
+export type TransactionKind = 'transfer' | 'stake' | 'unstake' | 'claim_rewards' | 'contract' | 'consolidation' | 'reward';
 
 export interface Transaction {
   from: string;
@@ -17,7 +17,7 @@ export interface Transaction {
   tipUrls: string[];
   sig: string;
   ts: number;
-  kind?: TransactionKind;  // Default: 'user' - consolidation txs are protocol-level tip pruning
+  kind?: TransactionKind;  // Default: 'transfer' - other kinds for staking, rewards, contracts, etc.
 }
 
 // ============================================

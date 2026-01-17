@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { PageHeader } from "./components/PageHeader";
+import type { TransactionKind } from "@rinku/core";
 
 interface AccountData {
   fingerprint: string;
@@ -17,6 +18,7 @@ interface Transaction {
   nonce: number;
   ts: number;
   url?: string;
+  kind?: TransactionKind;
 }
 
 interface StakingStatus {
@@ -86,6 +88,7 @@ function AccountPage() {
             nonce: node.nonce,
             ts: node.ts,
             url: node.url,
+            kind: node.kind,
           }))
           .sort((a: Transaction, b: Transaction) => b.ts - a.ts);
 
@@ -120,6 +123,18 @@ function AccountPage() {
   const truncate = (s: string, len = 16) => {
     if (!s || s.length <= len) return s;
     return `${s.slice(0, len)}...`;
+  };
+
+  const formatTxKind = (kind?: TransactionKind): { label: string; color: string } => {
+    switch (kind) {
+      case 'stake': return { label: 'stake', color: '#a3be8c' };
+      case 'unstake': return { label: 'unstake', color: '#ebcb8b' };
+      case 'claim_rewards': return { label: 'claim', color: '#b48ead' };
+      case 'contract': return { label: 'contract', color: '#88c0d0' };
+      case 'consolidation': return { label: 'consolidate', color: '#81a1c1' };
+      case 'reward': return { label: 'reward', color: '#b48ead' };
+      default: return { label: 'transfer', color: '#d8dee9' };
+    }
   };
 
   const copyAddress = () => {
@@ -272,6 +287,8 @@ function AccountPage() {
             <div className="parent-list">
               {transactions.slice(0, 20).map((tx, i) => {
                 const isIncoming = tx.to === address;
+                const txType = formatTxKind(tx.kind);
+                const isSpecialTx = tx.kind && tx.kind !== 'transfer';
                 return (
                   <Link
                     key={i}
@@ -280,12 +297,14 @@ function AccountPage() {
                   >
                     <span
                       className="index"
-                      style={{ color: isIncoming ? "#a3be8c" : "#bf616a" }}
+                      style={{ color: isSpecialTx ? txType.color : (isIncoming ? "#a3be8c" : "#bf616a") }}
                     >
-                      {isIncoming ? "+" : "-"}
+                      {isSpecialTx ? txType.label.charAt(0).toUpperCase() : (isIncoming ? "+" : "-")}
                     </span>
                     <span className="parent-info">
-                      {isIncoming ? (
+                      {isSpecialTx ? (
+                        <span style={{ color: txType.color }}>{txType.label}</span>
+                      ) : isIncoming ? (
                         <>
                           from{" "}
                           {tx.from === "faucet"
@@ -298,10 +317,10 @@ function AccountPage() {
                     </span>
                     <span
                       className="parent-amount"
-                      style={{ color: isIncoming ? "#a3be8c" : "#bf616a" }}
+                      style={{ color: isSpecialTx ? txType.color : (isIncoming ? "#a3be8c" : "#bf616a") }}
                     >
-                      {isIncoming ? "+" : "-"}
-                      {tx.amount} RKU
+                      {isSpecialTx ? "" : (isIncoming ? "+" : "-")}
+                      {tx.amount > 0 ? `${tx.amount} RKU` : (isSpecialTx ? "" : "0 RKU")}
                     </span>
                   </Link>
                 );
