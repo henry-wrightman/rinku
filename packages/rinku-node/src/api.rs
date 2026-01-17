@@ -704,7 +704,8 @@ async fn handle_faucet_request(
         .collect();
 
     let faucet_account = state.get_account("faucet").await;
-    let nonce = faucet_account.map(|a| a.nonce).unwrap_or(0) + 1;
+    // Use current nonce (not +1) - add_transaction will increment it
+    let nonce = faucet_account.map(|a| a.nonce).unwrap_or(0);
 
     let inner_tx = rinku_core::types::Transaction {
         from: "faucet".to_string(),
@@ -1031,10 +1032,10 @@ async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsR
         finality_ratio,
         checkpoint_count: stats.checkpoint_height,
         latest_checkpoint_height: stats.checkpoint_height,
-        latest_checkpoint_id: None,
+        latest_checkpoint_id: stats.latest_checkpoint_id,
         total_staked: total_stake,
         validator_count: validators,
-        network_age: 0,
+        network_age: elapsed_secs as u64,
     })
 }
 
@@ -1860,6 +1861,15 @@ async fn post_claim_rewards(
     State(state): State<NodeState>,
     Path(address): Path<String>,
 ) -> Json<ClaimRewardsResponse> {
+    // SECURITY WARNING: This endpoint lacks signature verification!
+    // In production, this should require proof of address ownership.
+    // Rewards claiming should go through the transaction flow (/api/tx with kind=claim_rewards)
+    // TODO: Implement signature verification or deprecate this direct endpoint
+    warn!(
+        "Direct rewards claim called for {} - no signature verification!",
+        &address[..16.min(address.len())]
+    );
+    
     let mut rewards = state.rewards.write().await;
     let claimed = rewards.claim_rewards(&address);
     
@@ -1930,6 +1940,12 @@ async fn get_staking_address(
 struct StakeRequest {
     address: String,
     amount: f64,
+    /// Signature proving ownership of the address (required for production)
+    #[serde(default)]
+    signature: Option<String>,
+    /// Message that was signed (typically a timestamp or nonce)
+    #[serde(default)]
+    message: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -1944,8 +1960,20 @@ async fn post_stake(
     State(state): State<NodeState>,
     Json(req): Json<StakeRequest>,
 ) -> Json<StakeResponse> {
+    // SECURITY: This endpoint is for TESTING ONLY in development
+    // Production staking MUST go through /api/tx with kind=stake to ensure:
+    // - Proper signature verification via transaction flow
+    // - Gas fees are paid
+    // - Nonce validation
+    // TODO: Add proper signature verification or deprecate this endpoint
+    warn!(
+        "Direct staking API called for {} - this bypasses transaction validation!",
+        &req.address[..16.min(req.address.len())]
+    );
+    
     // Epsilon for floating-point comparison to prevent precision issues
     const BALANCE_EPSILON: f64 = 0.000001;
+    const MIN_GAS_RESERVE: f64 = 0.01; // Require gas reserve even for direct staking
     
     // Validate amount is positive
     if req.amount <= 0.0 {
@@ -1962,9 +1990,11 @@ async fn post_stake(
     let balance_result = {
         let mut inner = state.inner.write().await;
         if let Some(account) = inner.accounts.get_mut(&req.address) {
-            // Use epsilon comparison to handle floating-point precision
-            if account.balance + BALANCE_EPSILON < req.amount {
-                Err(format!("Insufficient balance: {:.6} < {:.6}", account.balance, req.amount))
+            // SECURITY: Require amount + gas reserve to prevent dust exploitation
+            let required = req.amount + MIN_GAS_RESERVE;
+            if account.balance + BALANCE_EPSILON < required {
+                Err(format!("Insufficient balance: have {:.6}, need {:.6} (amount + gas reserve)", 
+                    account.balance, required))
             } else {
                 // Deduct balance immediately while holding the lock
                 let old_balance = account.balance;
@@ -2078,6 +2108,17 @@ async fn post_contract_deploy(
     State(state): State<NodeState>,
     Json(req): Json<ContractDeployRequest>,
 ) -> Json<ContractDeployResponse> {
+    // SECURITY WARNING: This endpoint does not validate the transaction or charge gas!
+    // In production, contract deployment should go through /api/tx to ensure:
+    // - Proper signature verification
+    // - Gas fees are paid
+    // - Balance validation
+    // TODO: Either validate the tx field properly or deprecate this endpoint
+    warn!(
+        "Contract deploy called without tx validation from {}",
+        &req.tx.from[..16.min(req.tx.from.len())]
+    );
+    
     let creator = req.tx.from.clone();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2137,6 +2178,19 @@ async fn post_contract_call(
     Path(contract_id): Path<String>,
     Json(req): Json<ContractCallRequest>,
 ) -> Json<ContractCallResponse> {
+    // SECURITY WARNING: This endpoint does not validate the transaction or charge gas!
+    // gas_used is reported but not actually deducted from caller's balance.
+    // In production, contract calls should go through /api/tx to ensure:
+    // - Proper signature verification  
+    // - Gas fees are paid
+    // - Balance validation
+    // TODO: Either validate the tx field properly or deprecate this endpoint
+    warn!(
+        "Contract call to {} without tx validation from {}",
+        &contract_id[..16.min(contract_id.len())],
+        &req.tx.from[..16.min(req.tx.from.len())]
+    );
+    
     let caller = req.tx.from.clone();
     
     let contract = match state.get_contract(&contract_id).await {

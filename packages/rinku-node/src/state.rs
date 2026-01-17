@@ -58,6 +58,7 @@ pub struct DashboardStats {
     pub gas_price: f64,
     pub total_burned: f64,
     pub avg_gas: f64,
+    pub latest_checkpoint_id: Option<String>,
 }
 
 use std::collections::VecDeque;
@@ -774,6 +775,8 @@ impl NodeState {
         let finalized_count = all_nodes.iter().filter(|n| n.finalized).count();
         let unfinalized_count = all_nodes.len() - finalized_count;
         
+        let latest_checkpoint_id = state.checkpoints.last().map(|cp| cp.hash.clone());
+        
         DashboardStats {
             dag_nodes: all_nodes.len(),
             tip_count: state.dag.tip_count(),
@@ -786,6 +789,7 @@ impl NodeState {
             gas_price: state.current_gas_price,
             total_burned: state.total_burned,
             avg_gas: state.current_gas_price, // Could compute from history if needed
+            latest_checkpoint_id,
         }
     }
 
