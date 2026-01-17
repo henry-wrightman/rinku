@@ -39,13 +39,17 @@ const WALLET_STORAGE_KEY = "rinku_contracts_wallet";
 
 export function ContractsTab() {
   const [contracts, setContracts] = useState<ContractSummary[]>([]);
-  const [selectedContract, setSelectedContract] = useState<ContractState | null>(null);
+  const [selectedContract, setSelectedContract] =
+    useState<ContractState | null>(null);
   const [loading, setLoading] = useState(true);
   const [deployForm, setDeployForm] = useState({ initState: "{}" });
-  const [callForm, setCallForm] = useState({ entrypoint: "mint", input: '{"to": "", "amount": 100}' });
+  const [callForm, setCallForm] = useState({
+    entrypoint: "mint",
+    input: '{"to": "", "amount": 100}',
+  });
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [keyPair, setKeyPair] = useState<SerializedKeyPair | null>(null);
   const [walletReady, setWalletReady] = useState(false);
   const [importKey, setImportKey] = useState("");
@@ -81,10 +85,20 @@ export function ContractsTab() {
         const data = await res.json();
         setAccountInfo(data);
       } else {
-        setAccountInfo({ fingerprint: keyPair.fingerprint, balance: 0, nonce: 0, staked: 0 });
+        setAccountInfo({
+          fingerprint: keyPair.fingerprint,
+          balance: 0,
+          nonce: 0,
+          staked: 0,
+        });
       }
     } catch {
-      setAccountInfo({ fingerprint: keyPair.fingerprint, balance: 0, nonce: 0, staked: 0 });
+      setAccountInfo({
+        fingerprint: keyPair.fingerprint,
+        balance: 0,
+        nonce: 0,
+        staked: 0,
+      });
     }
   };
 
@@ -183,19 +197,21 @@ export function ContractsTab() {
       setError("Set up a wallet first");
       return;
     }
-    
+
     setError(null);
     setResult(null);
     setSubmitting(true);
-    
+
     try {
       const tips = await getTips();
       const fee = await getGasPrice();
-      
-      const accountRes = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
+
+      const accountRes = await fetch(
+        `${NODE_URL}/account/${keyPair.fingerprint}`,
+      );
       const account = await accountRes.json();
       const nonce = account.nonce || 0;
-      
+
       const signedTx = await createSignedTransaction(keyPair, {
         to: "contract:deploy",
         amount: 0,
@@ -208,13 +224,15 @@ export function ContractsTab() {
       const res = await fetch(`${NODE_URL}/tx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signedTx)
+        body: JSON.stringify(signedTx),
       });
-      
+
       const data = await res.json();
-      
+
       if (res.ok && data.hash) {
-        setResult(`Contract deploy submitted (tx: ${data.hash.slice(0, 12)}...)`);
+        setResult(
+          `Contract deploy submitted (tx: ${data.hash.slice(0, 12)}...)`,
+        );
         setDeployForm({ initState: "{}" });
         setTimeout(() => {
           fetchContracts();
@@ -236,19 +254,21 @@ export function ContractsTab() {
       setError("Set up a wallet first");
       return;
     }
-    
+
     setError(null);
     setResult(null);
     setSubmitting(true);
-    
+
     try {
       const tips = await getTips();
       const fee = await getGasPrice();
-      
-      const accountRes = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
+
+      const accountRes = await fetch(
+        `${NODE_URL}/account/${keyPair.fingerprint}`,
+      );
       const account = await accountRes.json();
       const nonce = account.nonce || 0;
-      
+
       const signedTx = await createSignedTransaction(keyPair, {
         to: `contract:${selectedContract.contractId}`,
         amount: 0,
@@ -261,11 +281,11 @@ export function ContractsTab() {
       const res = await fetch(`${NODE_URL}/tx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signedTx)
+        body: JSON.stringify(signedTx),
       });
-      
+
       const data = await res.json();
-      
+
       if (res.ok && data.hash) {
         setResult(`Contract call submitted (tx: ${data.hash.slice(0, 12)}...)`);
         setTimeout(() => {
@@ -343,7 +363,9 @@ export function ContractsTab() {
               </div>
               <div className="stat-row">
                 <span>balance:</span>
-                <span className="value">{accountInfo?.balance?.toFixed(2) || "0.00"} RKU</span>
+                <span className="value">
+                  {accountInfo?.balance?.toLocaleString() || "0.00"} RKU
+                </span>
               </div>
               <div className="stat-row">
                 <span>nonce:</span>
@@ -375,9 +397,11 @@ export function ContractsTab() {
           <div className="form-row">
             <input
               type="text"
-              placeholder='initial state (json)'
+              placeholder="initial state (json)"
               value={deployForm.initState}
-              onChange={(e) => setDeployForm({ ...deployForm, initState: e.target.value })}
+              onChange={(e) =>
+                setDeployForm({ ...deployForm, initState: e.target.value })
+              }
             />
             <button onClick={handleDeploy} disabled={submitting}>
               {submitting ? "deploying..." : "deploy"}
@@ -400,9 +424,15 @@ export function ContractsTab() {
                 key={c.contractId}
                 className={`staker-row ${selectedContract?.contractId === c.contractId ? "selected" : ""}`}
                 onClick={() => fetchContractDetails(c.contractId)}
-                style={{ cursor: "pointer", padding: "8px 0", borderBottom: "1px solid #333" }}
+                style={{
+                  cursor: "pointer",
+                  padding: "8px 0",
+                  borderBottom: "1px solid #333",
+                }}
               >
-                <span className="mono" style={{ color: "#b48ead" }}>{c.contractId}</span>
+                <span className="mono" style={{ color: "#b48ead" }}>
+                  {c.contractId}
+                </span>
                 <span className="value">height {c.height}</span>
               </div>
             ))}
@@ -417,7 +447,9 @@ export function ContractsTab() {
             <div className="staking-overview">
               <div className="stat-row">
                 <span>creator:</span>
-                <span className="value mono">{selectedContract.creator.slice(0, 16)}...</span>
+                <span className="value mono">
+                  {selectedContract.creator.slice(0, 16)}...
+                </span>
               </div>
               <div className="stat-row">
                 <span>height:</span>
@@ -425,24 +457,30 @@ export function ContractsTab() {
               </div>
               <div className="stat-row">
                 <span>created:</span>
-                <span className="value">{formatTime(selectedContract.createdAt)}</span>
+                <span className="value">
+                  {formatTime(selectedContract.createdAt)}
+                </span>
               </div>
               <div className="stat-row">
                 <span>state hash:</span>
-                <span className="value mono">{selectedContract.stateHash.slice(0, 16)}...</span>
+                <span className="value mono">
+                  {selectedContract.stateHash.slice(0, 16)}...
+                </span>
               </div>
             </div>
 
             <h4 style={{ marginTop: 16 }}>state</h4>
-            <pre style={{
-              background: "#000",
-              border: "1px solid #333",
-              padding: 12,
-              fontSize: 12,
-              color: "#a3be8c",
-              overflow: "auto",
-              maxHeight: 200
-            }}>
+            <pre
+              style={{
+                background: "#000",
+                border: "1px solid #333",
+                padding: 12,
+                fontSize: 12,
+                color: "#a3be8c",
+                overflow: "auto",
+                maxHeight: 200,
+              }}
+            >
               {JSON.stringify(selectedContract.state, null, 2)}
             </pre>
           </div>
@@ -453,7 +491,9 @@ export function ContractsTab() {
               <div className="form-row">
                 <select
                   value={callForm.entrypoint}
-                  onChange={(e) => setCallForm({ ...callForm, entrypoint: e.target.value })}
+                  onChange={(e) =>
+                    setCallForm({ ...callForm, entrypoint: e.target.value })
+                  }
                   style={{
                     flex: "none",
                     width: 140,
@@ -462,7 +502,7 @@ export function ContractsTab() {
                     color: "#a3be8c",
                     padding: "8px 12px",
                     fontFamily: "'Courier New', Courier, monospace",
-                    fontSize: 13
+                    fontSize: 13,
                   }}
                 >
                   <option value="mint">mint</option>
@@ -473,7 +513,9 @@ export function ContractsTab() {
                   type="text"
                   placeholder="input (json)"
                   value={callForm.input}
-                  onChange={(e) => setCallForm({ ...callForm, input: e.target.value })}
+                  onChange={(e) =>
+                    setCallForm({ ...callForm, input: e.target.value })
+                  }
                 />
                 <button onClick={handleCall} disabled={submitting}>
                   {submitting ? "executing..." : "execute"}
