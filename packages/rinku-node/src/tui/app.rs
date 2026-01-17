@@ -218,11 +218,9 @@ impl App {
         let total_staked = self.state.get_total_stake().await;
         let tps = self.state.get_finalized_tps().await;
 
-        let dag_nodes = self.state.get_all_dag_nodes().await;
+        let (dag_nodes, _total, _has_more) = self.state.get_dag_nodes_paginated(0, 10).await;
         let recent_txs: Vec<RecentTx> = dag_nodes
             .iter()
-            .rev()
-            .take(10)
             .map(|node| RecentTx {
                 hash: node.hash.chars().take(12).collect(),
                 from: node.from.chars().take(8).collect(),
