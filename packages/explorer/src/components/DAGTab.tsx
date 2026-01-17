@@ -67,7 +67,9 @@ export function DAGTab({
           </div>
           <div className="amount">
             {node.amount.toLocaleString()} RKU
-            {node.fee > 0 && <span className="fee"> (+{node.fee} fee)</span>}
+            {node.fee > 0 && (
+              <span className="fee"> (+{node.fee?.toFixed(5)} fee)</span>
+            )}
           </div>
           <div className="meta">
             {node.from === "genesis" ? "genesis" : truncate(node.from, 6)} →{" "}

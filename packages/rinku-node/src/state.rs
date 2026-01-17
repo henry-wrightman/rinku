@@ -85,6 +85,8 @@ pub struct StateInner {
     pub finality_max_ms: u64,             // Track maximum finality time
     pub node_validator_address: Option<String>,
     pub node_bls_public_key: Option<String>,
+    // TPS calculation: track (timestamp_ms, finalized_tx_count) for sliding window
+    pub finalized_tx_history: VecDeque<(u64, u64)>,
 }
 
 #[derive(Clone)]
@@ -183,6 +185,7 @@ impl NodeState {
                     finality_max_ms: 0,
                     node_validator_address: None,
                     node_bls_public_key: None,
+                    finalized_tx_history: VecDeque::new(),
                 }
             } else {
                 let genesis_time = std::time::SystemTime::now()
@@ -298,6 +301,7 @@ impl NodeState {
                     finality_max_ms: 0,
                     node_validator_address: None,
                     node_bls_public_key: None,
+                    finalized_tx_history: VecDeque::new(),
                 }
             };
 
@@ -641,6 +645,65 @@ impl NodeState {
 
     pub fn get_elapsed_seconds(&self) -> f64 {
         self.start_time.elapsed().as_secs_f64()
+    }
+
+    /// Record finalized transaction count at current timestamp for TPS calculation
+    pub async fn record_finalized_batch(&self, tx_count: u64) {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        
+        let mut state = self.inner.write().await;
+        state.finalized_tx_history.push_back((now_ms, tx_count));
+        
+        // Keep only last 5 minutes of history (300 seconds)
+        const WINDOW_MS: u64 = 300_000;
+        let cutoff = now_ms.saturating_sub(WINDOW_MS);
+        while let Some(&(ts, _)) = state.finalized_tx_history.front() {
+            if ts < cutoff {
+                state.finalized_tx_history.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Calculate network TPS based on finalized transactions over a sliding window
+    pub async fn get_finalized_tps(&self) -> f64 {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        
+        let state = self.inner.read().await;
+        
+        if state.finalized_tx_history.is_empty() {
+            return 0.0;
+        }
+        
+        // Calculate TPS over the last 60 seconds
+        const TPS_WINDOW_MS: u64 = 60_000;
+        let cutoff = now_ms.saturating_sub(TPS_WINDOW_MS);
+        
+        let mut total_txs: u64 = 0;
+        let mut earliest_ts = now_ms;
+        
+        for &(ts, count) in state.finalized_tx_history.iter() {
+            if ts >= cutoff {
+                total_txs += count;
+                if ts < earliest_ts {
+                    earliest_ts = ts;
+                }
+            }
+        }
+        
+        let elapsed_ms = now_ms.saturating_sub(earliest_ts);
+        if elapsed_ms > 0 && total_txs > 0 {
+            (total_txs as f64) / (elapsed_ms as f64 / 1000.0)
+        } else {
+            0.0
+        }
     }
 
     pub async fn get_all_accounts(&self) -> Vec<Account> {

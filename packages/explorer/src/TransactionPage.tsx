@@ -117,7 +117,7 @@ function TransactionPage() {
               className="fee"
               style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}
             >
-              (+{tx.fee} fee)
+              (+{tx.fee?.toFixed(5)} fee)
             </span>
           )}
         </div>

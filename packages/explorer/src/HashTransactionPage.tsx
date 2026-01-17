@@ -187,7 +187,10 @@ function HashTransactionPage() {
               <p style={{ marginTop: 12 }}>
                 If you have a self-contained proof URL for this transaction, you
                 can verify it offline using the{" "}
-                <Link to={{ pathname: "/", search: "?tab=verify" }} style={{ color: "#88c0d0" }}>
+                <Link
+                  to={{ pathname: "/", search: "?tab=verify" }}
+                  style={{ color: "#88c0d0" }}
+                >
                   verify tab
                 </Link>
                 .
@@ -212,12 +215,16 @@ function HashTransactionPage() {
         <PageHeader />
         <div className="section">
           <div className="error">
-            {error || "Transaction not found (may have been pruned after finalization)"}
+            {error ||
+              "Transaction not found (may have been pruned after finalization)"}
           </div>
           <p style={{ marginTop: 12, color: "#888", fontSize: "0.9em" }}>
             If this transaction was pruned, you can still verify it using a
             self-contained proof URL in the{" "}
-            <Link to={{ pathname: "/", search: "?tab=verify" }} style={{ color: "#88c0d0" }}>
+            <Link
+              to={{ pathname: "/", search: "?tab=verify" }}
+              style={{ color: "#88c0d0" }}
+            >
               verify tab
             </Link>
             .
@@ -253,7 +260,7 @@ function HashTransactionPage() {
               className="fee"
               style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}
             >
-              (+{tx.fee} fee)
+              (+{tx.fee?.toFixed(5)} fee)
             </span>
           )}
         </div>
@@ -316,7 +323,10 @@ function HashTransactionPage() {
           </div>
           <div className="meta-row">
             <span className="label">status</span>
-            <span className="value" style={{ color: tx.finalized ? "#a3be8c" : "#ebcb8b" }}>
+            <span
+              className="value"
+              style={{ color: tx.finalized ? "#a3be8c" : "#ebcb8b" }}
+            >
               {tx.finalized ? "finalized" : "pending"}
             </span>
           </div>
@@ -342,13 +352,13 @@ function HashTransactionPage() {
           <div className="tx-proof" style={{ marginTop: 16 }}>
             <h3>self-contained proof</h3>
             <p style={{ opacity: 0.7, fontSize: "0.85rem", marginBottom: 12 }}>
-              Generate a cryptographic proof URL that can verify this transaction offline, 
-              without needing the network.
+              Generate a cryptographic proof URL that can verify this
+              transaction offline, without needing the network.
             </p>
-            
+
             {!proofData && (
-              <button 
-                className="btn-small" 
+              <button
+                className="btn-small"
                 onClick={fetchProof}
                 disabled={proofLoading}
                 style={{ marginBottom: 12 }}
@@ -359,17 +369,19 @@ function HashTransactionPage() {
 
             {proofData && proofData.proofUrl && (
               <div style={{ marginTop: 8 }}>
-                <div style={{ 
-                  display: "flex", 
-                  gap: 8, 
-                  alignItems: "center",
-                  marginBottom: 8 
-                }}>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    marginBottom: 8,
+                  }}
+                >
                   <span style={{ color: "#a3be8c" }}>proof ready</span>
                   <button className="btn-small" onClick={copyProof}>
                     {proofCopied ? "copied!" : "copy proof url"}
                   </button>
-                  <Link 
+                  <Link
                     to={{ pathname: "/", search: "?tab=verify" }}
                     className="btn-small"
                     style={{ textDecoration: "none" }}
@@ -377,13 +389,17 @@ function HashTransactionPage() {
                     verify
                   </Link>
                 </div>
-                <div style={{ 
-                  fontSize: "0.75rem", 
-                  opacity: 0.6, 
-                  marginBottom: 8 
-                }}>
-                  size: {proofData.proofSizeBytes?.toLocaleString()} bytes 
-                  {proofData.qrViable ? " (QR compatible)" : " (too large for QR)"}
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    opacity: 0.6,
+                    marginBottom: 8,
+                  }}
+                >
+                  size: {proofData.proofSizeBytes?.toLocaleString()} bytes
+                  {proofData.qrViable
+                    ? " (QR compatible)"
+                    : " (too large for QR)"}
                 </div>
                 <textarea
                   readOnly
