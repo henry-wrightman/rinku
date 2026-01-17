@@ -459,7 +459,8 @@ async fn post_gossip(
     State(api_state): State<ApiState>,
     Json(message): Json<GossipMessage>,
 ) -> impl IntoResponse {
-    info!("Received gossip message: {:?}", std::mem::discriminant(&message));
+    // Only log at debug level to avoid log spam from frequent gossip rounds
+    tracing::debug!("Received gossip message: {:?}", std::mem::discriminant(&message));
     
     // Use GossipService.handle_message if available (for peer discovery)
     if let Some(ref gossip_service) = api_state.gossip_service {

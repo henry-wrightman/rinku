@@ -31,7 +31,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "RUST_LOG=\"rinku_node=info,rinku_node::gossip=info\" cargo run -p rinku-node --features tui"
+args = "RUST_LOG=\"rinku_node=info,rinku_node::gossip=info\" cargo run -p rinku-node"
 
 [[workflows.workflow]]
 name = "Rinku Explorer"
