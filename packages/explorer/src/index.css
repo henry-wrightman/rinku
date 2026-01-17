@@ -601,8 +601,8 @@ input[type="text"]::placeholder {
 
 .header-actions {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: 20px;
+  right: 20px;
   display: flex;
   gap: 12px;
   align-items: center;
