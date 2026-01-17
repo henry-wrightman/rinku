@@ -53,7 +53,10 @@ impl NodeConfig {
             .unwrap_or_else(|_| hex::encode(&rand::random::<[u8; 8]>()));
 
         let peers: Vec<String> = env::var("NODE_PEERS")
-            .map(|p| p.split(',').map(|s| s.trim().to_string()).collect())
+            .map(|p| p.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())  // Filter out empty strings
+                .collect())
             .unwrap_or_default();
 
         Self {
