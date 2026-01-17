@@ -91,12 +91,18 @@ function HashTransactionPage() {
 
   useEffect(() => {
     if (!hash || (!tx?.finalized && !tx?.finality)) return;
-    
+
     setProofLoading(true);
     fetch(`/api/tx/${hash}/proof`)
       .then((res) => res.json())
       .then((data) => setProofData(data))
-      .catch(() => setProofData({ txHash: hash, finalized: false, error: "Failed to fetch proof" }))
+      .catch(() =>
+        setProofData({
+          txHash: hash,
+          finalized: false,
+          error: "Failed to fetch proof",
+        }),
+      )
       .finally(() => setProofLoading(false));
   }, [hash, tx?.finalized, tx?.finality]);
 
@@ -360,37 +366,52 @@ function HashTransactionPage() {
         </div>
 
         {(tx.finalized || tx.finality) && (
-          <div className="tx-proof" style={{ 
-            marginTop: 24, 
-            padding: 16, 
-            background: "rgba(136, 192, 208, 0.1)", 
-            borderRadius: 8,
-            border: "1px solid rgba(136, 192, 208, 0.3)"
-          }}>
+          <div
+            className="tx-proof"
+            style={{
+              marginTop: 24,
+              padding: 20,
+              background: "rgba(136, 192, 208, 0.1)",
+              borderRadius: 8,
+              border: "1px solid rgba(136, 192, 208, 0.3)",
+              marginBottom: 20,
+            }}
+          >
             <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>
               self-provable url
             </h3>
 
             {proofLoading ? (
-              <div style={{ color: "#d8dee9", opacity: 0.7 }}>loading proof...</div>
+              <div style={{ color: "#d8dee9", opacity: 0.7 }}>
+                loading proof...
+              </div>
             ) : proofData?.proofUrl ? (
               <>
-                <div style={{ 
-                  fontFamily: "monospace", 
-                  fontSize: 11, 
-                  wordBreak: "break-all",
-                  background: "rgba(0,0,0,0.2)",
-                  padding: 12,
-                  borderRadius: 4,
-                  marginBottom: 12,
-                  maxHeight: 100,
-                  overflow: "auto"
-                }}>
+                <div
+                  style={{
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    wordBreak: "break-all",
+                    background: "rgba(0,0,0,0.2)",
+                    padding: 12,
+                    borderRadius: 4,
+                    marginBottom: 12,
+                    maxHeight: 100,
+                    overflow: "auto",
+                  }}
+                >
                   {proofData.proofUrl}
                 </div>
-                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                  <button 
-                    className="btn-small" 
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button
+                    className="btn-small"
                     onClick={copyProof}
                     style={{ background: proofCopied ? "#a3be8c" : "#88c0d0" }}
                   >
@@ -403,14 +424,23 @@ function HashTransactionPage() {
                   >
                     verify
                   </Link>
-                  <span style={{ fontSize: 12, color: "#d8dee9", opacity: 0.7 }}>
+                  <span
+                    style={{ fontSize: 12, color: "#d8dee9", opacity: 0.7 }}
+                  >
                     {proofData.proofSizeBytes?.toLocaleString()} bytes
                     {proofData.qrViable && " · QR viable"}
                   </span>
                 </div>
-                <p style={{ fontSize: 12, marginTop: 12, opacity: 0.8, color: "#d8dee9" }}>
-                  this proof is completely self-contained. anyone can verify this 
-                  transaction offline using only the url above.
+                <p
+                  style={{
+                    fontSize: 12,
+                    marginTop: 12,
+                    opacity: 0.8,
+                    color: "#d8dee9",
+                  }}
+                >
+                  this proof is completely self-contained. anyone can verify
+                  this transaction offline using only the url above.
                 </p>
               </>
             ) : proofData?.error ? (

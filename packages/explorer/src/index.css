@@ -31,6 +31,13 @@ header {
   margin-bottom: 30px;
 }
 
+.headert {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  position: relative;
+}
+
 header h1 {
   font-size: 16px;
   font-weight: normal;
@@ -590,17 +597,6 @@ input[type="text"]::placeholder {
   75% { color: #ff6b9d; }
   87.5% { color: #00d9ff; }
   100% { color: #ff6b6b; }
-}
-
-.header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 30px;
-}
-
-.header-row header {
-  margin-bottom: 0;
 }
 
 .header-actions {
