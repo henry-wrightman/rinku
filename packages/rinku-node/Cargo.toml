@@ -13,11 +13,6 @@ path = "src/lib.rs"
 name = "rinku-node"
 path = "src/main.rs"
 
-[[bin]]
-name = "rinku-tui"
-path = "src/bin/tui.rs"
-required-features = ["tui"]
-
 [features]
 default = []
 tui = ["ratatui", "crossterm"]

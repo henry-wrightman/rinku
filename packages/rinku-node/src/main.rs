@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::Result;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -27,7 +28,7 @@ mod versioning;
 #[cfg(feature = "zk")]
 mod zk;
 #[cfg(feature = "tui")]
-mod tui;
+pub mod tui;
 
 use checkpoint::CheckpointService;
 use config::NodeConfig;
@@ -42,12 +43,33 @@ use validator::ValidatorKeyManager;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let args: Vec<String> = std::env::args().collect();
+    let tui_mode = args.iter().any(|a| a == "--tui" || a == "-t");
+    
+    if tui_mode {
+        #[cfg(feature = "tui")]
+        {
+            // TUI mode: redirect logs to stderr so they don't interfere with terminal
+            tracing_subscriber::registry()
+                .with(tracing_subscriber::EnvFilter::new(
+                    std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()),
+                ))
+                .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+                .init();
+        }
+        #[cfg(not(feature = "tui"))]
+        {
+            eprintln!("TUI feature not enabled. Rebuild with: cargo build --features tui");
+            std::process::exit(1);
+        }
+    } else {
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::new(
+                std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
+            ))
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    }
 
     info!("Starting Rinku Node v0.1.0");
     info!("Process PID: {}", std::process::id());
@@ -231,6 +253,16 @@ async fn main() -> Result<()> {
         }
     });
 
+    // TUI mode: run the terminal interface instead of waiting on background tasks
+    #[cfg(feature = "tui")]
+    if tui_mode {
+        info!("Starting TUI mode...");
+        let tui_state = Arc::new(state);
+        let node_id = config.node_id.clone();
+        return tui::run_tui(tui_state, node_id).await;
+    }
+
+    // Headless mode: wait on all background services
     tokio::select! {
         _ = api_handle => info!("API server stopped"),
         _ = checkpoint_handle => info!("Checkpoint service stopped"),

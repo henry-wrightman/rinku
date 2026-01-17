@@ -31,7 +31,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "RUST_LOG=\"rinku_node=info,rinku_node::gossip=info\" cargo run -p rinku-node --bin rinku-node"
+args = "RUST_LOG=\"rinku_node=info,rinku_node::gossip=info\" cargo run -p rinku-node --features tui"
 
 [[workflows.workflow]]
 name = "Rinku Explorer"
@@ -56,15 +56,6 @@ waitForPort = 3002
 
 [workflows.workflow.metadata]
 outputType = "console"
-
-[[workflows.workflow]]
-name = "Rinku Node TUI"
-mode = "sequential"
-author = 15786169
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cargo build --features tui --bin rinku-tui && ./target/debug/rinku-tui"
 
 [[ports]]
 localPort = 3001
