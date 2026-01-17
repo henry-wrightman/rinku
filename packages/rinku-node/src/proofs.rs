@@ -692,11 +692,92 @@ mod tests {
 
     #[test]
     fn test_merkle_proof_verification() {
-        let tx_hash = "abc123";
+        let tx_hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let proof: Vec<String> = vec![];
+        let root = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        assert!(verify_tx_merkle_proof(tx_hash, &proof, 0, root));
+    }
+
+    #[test]
+    fn test_merkle_proof_verification_with_sibling() {
+        use sha2::{Sha256, Digest};
+
+        let left = "0000000000000000000000000000000000000000000000000000000000000001";
+        let right = "0000000000000000000000000000000000000000000000000000000000000002";
+
+        let left_bytes = hex::decode(left).unwrap();
+        let right_bytes = hex::decode(right).unwrap();
+
+        let mut combined = Vec::with_capacity(64);
+        combined.extend_from_slice(&left_bytes);
+        combined.extend_from_slice(&right_bytes);
+
+        let mut hasher = Sha256::new();
+        hasher.update(&combined);
+        let root_bytes = hasher.finalize();
+        let root = hex::encode(root_bytes);
+
+        assert!(verify_tx_merkle_proof(left, &[right.to_string()], 0, &root));
+        assert!(verify_tx_merkle_proof(right, &[left.to_string()], 1, &root));
+    }
+
+    #[test]
+    fn test_merkle_proof_rejects_invalid_hash() {
+        let invalid_hash = "abc123";
         let proof: Vec<String> = vec![];
         let root = "abc123";
 
-        assert!(verify_tx_merkle_proof(tx_hash, &proof, 0, root));
+        assert!(!verify_tx_merkle_proof(invalid_hash, &proof, 0, root));
+    }
+
+    #[test]
+    fn test_merkle_proof_with_core_tree() {
+        use rinku_core::merkle::MerkleTree;
+        use rinku_core::crypto::sha256;
+
+        let leaves = vec![
+            sha256(b"tx1"),
+            sha256(b"tx2"),
+            sha256(b"tx3"),
+            sha256(b"tx4"),
+        ];
+
+        let tree = MerkleTree::new(leaves.clone()).unwrap();
+        let root = tree.root();
+
+        for index in 0..4 {
+            let proof = tree.get_proof(index).unwrap();
+            let tx_hash = hex::encode(leaves[index]);
+
+            assert!(
+                verify_tx_merkle_proof(&tx_hash, &proof.siblings, index, &root),
+                "Proof verification failed for leaf at index {}", index
+            );
+        }
+    }
+
+    #[test]
+    fn test_merkle_proof_with_5_leaves() {
+        use rinku_core::merkle::MerkleTree;
+        use rinku_core::crypto::sha256;
+
+        let leaves: Vec<[u8; 32]> = (0..5)
+            .map(|i| sha256(format!("transaction_{}", i).as_bytes()))
+            .collect();
+
+        let tree = MerkleTree::new(leaves.clone()).unwrap();
+        let root = tree.root();
+
+        for index in 0..5 {
+            let proof = tree.get_proof(index).unwrap();
+            let tx_hash = hex::encode(leaves[index]);
+
+            assert!(
+                verify_tx_merkle_proof(&tx_hash, &proof.siblings, index, &root),
+                "Proof verification failed for index {} in 5-leaf tree", index
+            );
+        }
     }
 
     #[test]

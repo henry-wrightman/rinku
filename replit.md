@@ -58,7 +58,12 @@ Consensus is maintained across nodes by ensuring critical metrics like checkpoin
 A hybrid trust model combines genesis validators and stake-weighted verification. Environment variables configure genesis validators, quorum thresholds, and weak subjectivity checkpoints for fast bootstrapping. Testnet mode operates without genesis validators, performing only BLS format validation.
 
 ### Test Coverage
-Comprehensive test coverage includes unit tests for core components and multi-node integration tests covering fork detection, snapshot sync, checkpoint adoption, fork resolution, delta sync, and network partitions.
+Comprehensive test coverage includes 89 unit tests and 20 multi-node integration tests:
+- **Merkle Proofs:** Verified compatibility between `verify_tx_merkle_proof` and core `MerkleTree` builder, covering multi-leaf and odd-sized trees
+- **Consensus:** Fork detection, snapshot sync, checkpoint adoption, fork resolution, delta sync, network partitions
+- **Cryptography:** BLS signatures, P-256 ECDSA, SHA-256 hashing
+- **State Management:** Persistence, state trie, validator management, slashing, unbonding
+- **Protocol:** Version compatibility, trust verification, checkpoint chain validation
 
 ### Fly.io Deployment
 The Rust node is deployable to Fly.io using a `Dockerfile.fly` and `fly.toml` for production environments.
