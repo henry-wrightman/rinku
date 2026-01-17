@@ -8,7 +8,6 @@ Traditional blockchain networks requires some form extraneous software for verif
 
 Ultimatley, *some infrastructure* is required to be trusted & relied upon to provide proofs. However in rinku's case, verification becomes self-contained. Imagine point-of-sale that is immediately confirmable on the client itself, nearly instantaneous with absolute certainty?
 
-
 ## 2. URLs as Proofs
 
 Instead of storing data on-chain and fetching proofs from nodes, we can encode proofs directly into URLs that are returned within a transaction's receipt:
@@ -90,10 +89,8 @@ function verify(proofUrl):
   assert verifyCheckpointSignatures(bundle.checkpoint)
 
   return true
-  
 ```
 
- 
 ### 3.4 Data Availability
 
 **Important clarification:** Self-provable URLs guarantee **verification** without infrastructure, but not **discovery**. The URL must reach the verifier through some sort of transport, such as:
@@ -106,9 +103,9 @@ function verify(proofUrl):
 
 rinku is a DAG-based distributed network where:
 
-* **Account micro-chains** - Each account maintains its own chain of transactions, with each new transaction referencing the account's previous transaction
-* **DAG linking** - Transactions additionally reference 1-2 recent **tip** transactions from other accounts, creating individual chains into a shared DAG structure
-* **Weight-based order** - Conflicts are resolved by cumulative weight which in turn provides Sybil resistance
+* **Shared DAG structure** - Transactions reference 1-2 recent global **tip** transactions (the latest unconfirmed transactions across the network), weaving all network activity into a unified DAG
+* **Nonce-based ordering** - Each account maintains the _classic_ sequential nonce to prevent replay attacks & establish per-account ordering
+* **Weight-based consensus** - Conflicts are resolved by cumulative weight (based on account age & stake), ensuring Sybil resistance
 
 **Finality via checkpoints:**
 
@@ -249,7 +246,6 @@ The rinku network demonstrates that transactional proofs can be fully self-conta
 
 The core innovation is architectural: treating URLs as the canonical proof object rather than as references to external state. This enables truly trustless, offline verification.
 
-
 ---
 
 ## Appendix A: Encoding Specification
@@ -367,4 +363,3 @@ async function verifyProofUrl(url) {
 3. R. Merkle. "A Digital Signature Based on a Conventional Encryption Function." CRYPTO 1987.
 
 ---
-

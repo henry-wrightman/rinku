@@ -106,13 +106,7 @@ export function VerifyProofTab() {
         <h3>verify proof URL</h3>
         <p style={{ opacity: 0.7, marginBottom: "1rem", fontSize: "0.9rem" }}>
           Paste a self-contained proof URL (<code>rinku://sp/...</code>) to
-          verify a transaction. These proofs bundle all cryptographic data
-          (merkle proof, BLS signatures, validator set) needed for verification.
-        </p>
-        <p style={{ opacity: 0.5, marginBottom: "1rem", fontSize: "0.8rem" }}>
-          Note: A transaction hash or explorer link is not a proof URL. Proof
-          URLs are generated when transactions are finalized and should be saved
-          for future verification.
+          verify a transaction.
         </p>
 
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
