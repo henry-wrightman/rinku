@@ -35,14 +35,13 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 ### Transaction Validation & Security
 All transactions undergo comprehensive validation, including account existence, balance, nonce, and gas fee checks. Production APIs (`/api/tx`, `/api/tx/batch`) enforce full validation with pre-validation checks (balance + gas) before any state mutations.
 
-**Development-Only Endpoints (Disabled by Default):**
-The following endpoints bypass transaction validation and are disabled by default, returning HTTP 403 FORBIDDEN:
-- `POST /api/staking/stake` - Direct staking (bypasses signature verification)
-- `POST /api/rewards/:address/claim` - Direct rewards claim (no ownership proof)
-- `POST /api/contracts/deploy` - Contract deployment (no gas charged)
-- `POST /api/contracts/:id/call` - Contract calls (no gas charged)
+**All state-changing operations must go through the signed transaction flow:**
+- Staking: Submit a transaction with `kind: "stake"` via `/api/tx`
+- Rewards claiming: Submit a transaction with `kind: "claim_rewards"` via `/api/tx`
+- Contract deployment: Submit a transaction with `kind: "deploy_contract"` via `/api/tx`
+- Contract calls: Submit a transaction with `kind: "call_contract"` via `/api/tx`
 
-To enable for local testing only, set `ENABLE_DEV_ENDPOINTS=true`. **Never enable in production.**
+Read-only endpoints (`GET /api/staking/:address`, `GET /api/rewards/:address`, `GET /api/contracts/:id`) remain available for querying state without authentication.
 
 ### Technical Implementations
 - **Core Library:** Shared library for types, cryptography (Web Crypto API), encoding, Merkle trees, DAG structures, and weight calculation.
