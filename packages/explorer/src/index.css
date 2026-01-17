@@ -24,6 +24,7 @@ body {
   max-width: 800px;
   margin: 0 auto;
   padding: 20px;
+  position: relative;
 }
 
 header {
@@ -593,8 +594,8 @@ input[type="text"]::placeholder {
 
 .header-actions {
   position: absolute;
-  top: 20px;
-  right: 20px;
+  top: 0;
+  right: 0;
   display: flex;
   gap: 12px;
   align-items: center;
