@@ -14,7 +14,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 
 ### System Design Choices
 - **URL-Native Ledger:** The entire ledger state is embedded in cryptographically linked URLs, making the chain self-crawlable and verifiable. Transactions are base64url-encoded, deflated JSON objects in URLs.
-- **DAG-Based Consensus:** Accounts maintain micro-chains, with transactions referencing multiple prior "tips." Conflicts are resolved by cumulative weight for Sybil resistance.
+- **DAG-Based Consensus:** Transactions reference 1-2 global DAG "tips" (recent unconfirmed transactions), weaving all activity into a shared directed acyclic graph. Nonces provide per-account ordering. Conflicts are resolved by cumulative weight for Sybil resistance.
 - **Trustless Verification:** Finality proofs, embedded as URL query parameters, allow complete cryptographic validation of transactions and ledger state directly from URLs.
 - **Smart Contracts:** Contract code and state are URL-encoded, with calls embedded within transactions.
 - **Reward and Staking System:** Supports Tip, Stake, and Witness Rewards, with a staking mechanism for validators including slashing and an unbonding queue.
@@ -71,7 +71,7 @@ The Rust node is deployable to Fly.io using a `Dockerfile.fly` and `fly.toml` fo
 ## External Dependencies
 - **Monorepo Management:** Cargo workspaces (Rust), npm workspaces (TypeScript).
 - **Frontend:** React, Vite.
-- **Backend:** Express (for TypeScript faucet).
+- **Backend:** Rust node (Axum) for consensus/API, Express (for TypeScript faucet).
 - **Cryptography:** Web Crypto API, @noble/curves (BLS12-381), @noble/hashes (SHA-256).
 - **Compression:** pako (DEFLATE).
 - **Testing:** vitest.

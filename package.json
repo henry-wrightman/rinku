@@ -8,14 +8,13 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces",
-    "test": "npm run test -w @rinku/core && npm run test -w @rinku/node",
+    "test": "npm run test -w @rinku/core",
     "test:core": "npm run test -w @rinku/core",
-    "test:node": "npm run test -w @rinku/node",
-    "dev:node": "npm run dev -w @rinku/node",
     "dev:explorer": "npm run dev -w @rinku/explorer",
     "dev:faucet": "npm run dev -w @rinku/faucet",
     "validate": "npx tsx scripts/validate-testnet.ts",
-    "stress-test": "npx tsx scripts/stress-test.ts"
+    "stress-test": "npx tsx scripts/stress-test.ts",
+    "activity-bot": "npx tsx scripts/activity-bot.ts"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
