@@ -87,7 +87,11 @@ packages = [
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["bash", "-c", "PUBLIC_URL=https://rinkuchan.com ./rinku-node-bin"]
+run = [
+  "bash",
+  "-c",
+  "NODE_PEERS='' PUBLIC_URL=https://rinkuchan.com ./rinku-node-bin",
+]
 build = [
   "bash",
   "-c",
