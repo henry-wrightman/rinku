@@ -12,16 +12,17 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use super::app::App;
 use super::event::{AppEvent, EventHandler};
 use super::ui;
+use crate::gossip::GossipService;
 use crate::state::NodeState;
 
-pub async fn run_tui(state: Arc<NodeState>, node_id: String) -> anyhow::Result<()> {
+pub async fn run_tui(state: Arc<NodeState>, gossip_service: Option<GossipService>, node_id: String) -> anyhow::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(state.clone(), node_id);
+    let mut app = App::new(state.clone(), gossip_service, node_id);
     let events = EventHandler::new(Duration::from_millis(250));
 
     let result = run_app(&mut terminal, &mut app, &events).await;

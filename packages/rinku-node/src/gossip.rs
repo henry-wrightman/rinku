@@ -945,6 +945,10 @@ impl GossipService {
             .count()
     }
 
+    pub async fn get_peer_addresses(&self) -> Vec<String> {
+        self.inner.read().await.peers.keys().cloned().collect()
+    }
+
     pub async fn add_peer(&self, address: String) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

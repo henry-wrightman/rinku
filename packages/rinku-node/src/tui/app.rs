@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use sysinfo::System;
 use crate::state::NodeState;
+use crate::gossip::GossipService;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -108,13 +109,14 @@ pub struct App {
     pub logs: Vec<String>,
     pub scroll_offset: usize,
     pub state: Arc<NodeState>,
+    pub gossip_service: Option<GossipService>,
     pub system: System,
     pub start_time: std::time::Instant,
     pub node_id: String,
 }
 
 impl App {
-    pub fn new(state: Arc<NodeState>, node_id: String) -> Self {
+    pub fn new(state: Arc<NodeState>, gossip_service: Option<GossipService>, node_id: String) -> Self {
         Self {
             running: true,
             current_tab: Tab::Dashboard,
@@ -158,6 +160,7 @@ impl App {
             ],
             scroll_offset: 0,
             state,
+            gossip_service,
             system: System::new_all(),
             start_time: std::time::Instant::now(),
             node_id,
@@ -230,9 +233,18 @@ impl App {
             })
             .collect();
 
+        // Fetch peer info from gossip service if available
+        let (peer_count, peers) = if let Some(ref gs) = self.gossip_service {
+            let count = gs.get_peer_count().await;
+            let peer_list = gs.get_peer_addresses().await;
+            (count, peer_list)
+        } else {
+            (0, vec![])
+        };
+
         self.network_stats = NetworkStats {
-            peer_count: 0,
-            peers: vec![],
+            peer_count,
+            peers,
             tps,
             total_transactions: dashboard.total_transactions,
             finalized_count: finalized as u64,
