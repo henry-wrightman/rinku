@@ -812,16 +812,33 @@ impl NodeState {
 
         let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
 
+        // Check transaction kind to determine balance handling
+        let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+        let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+        
         if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-            from_account.balance -= tx.tx.amount + gas_fee;
+            // For stake: deduct amount (locks it in stake)
+            // For unstake: don't deduct (amount will be returned from stake)
+            // For transfer: deduct amount (sends to recipient)
+            if is_stake_tx {
+                from_account.balance -= tx.tx.amount + gas_fee;
+            } else if is_unstake_tx {
+                from_account.balance -= gas_fee; // Only gas for unstake
+            } else {
+                from_account.balance -= tx.tx.amount + gas_fee;
+            }
             from_account.nonce = tx.tx.nonce + 1;
         }
 
-        let to_account = state
-            .accounts
-            .entry(tx.tx.to.clone())
-            .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-        to_account.balance += tx.tx.amount;
+        // For stake/unstake: don't transfer to recipient (amount is locked/unlocked in staking)
+        // For transfer: add to recipient balance
+        if !is_stake_tx && !is_unstake_tx {
+            let to_account = state
+                .accounts
+                .entry(tx.tx.to.clone())
+                .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
+            to_account.balance += tx.tx.amount;
+        }
 
         // EIP-1559 tracking
         state.total_burned += gas_fee * 0.5;
@@ -918,22 +935,35 @@ impl NodeState {
                     }
                 }
                 TransactionKind::Unstake => {
-                    let unstake_success = {
+                    let unstake_result: Option<f64> = {
                         let mut rewards = self.rewards.write().await;
                         match rewards.unstake(&from_addr) {
                             Ok(amount) => {
                                 tracing::debug!("Processed unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
-                                true
+                                Some(amount)
                             }
                             Err(e) => {
                                 tracing::warn!("Failed to process unstake tx: {}", e);
-                                false
+                                None
                             }
                         }
                     };
-                    // Sync staked amount (now 0) to account state (after releasing rewards lock)
-                    if unstake_success {
-                        self.update_account_staked(&from_addr, 0.0, None).await;
+                    // Sync staked amount (now 0) and return unstaked amount to balance
+                    if let Some(unstaked_amount) = unstake_result {
+                        // Return unstaked amount to user's balance
+                        {
+                            let mut state = self.inner.write().await;
+                            if let Some(account) = state.accounts.get_mut(&from_addr) {
+                                account.balance += unstaked_amount;
+                                account.staked = 0.0;
+                                tracing::info!(
+                                    "Unstake completed: {} balance restored by {} RKU (new balance: {})",
+                                    &from_addr[..16.min(from_addr.len())],
+                                    unstaked_amount,
+                                    account.balance
+                                );
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -1034,17 +1064,34 @@ impl NodeState {
                 .map_err(|e| anyhow::anyhow!("{}", e));
             if result.is_ok() {
                 let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+                
+                // Check transaction kind to determine balance handling
+                let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+                let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
 
                 if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-                    from_account.balance -= tx.tx.amount + gas_fee;
+                    // For stake: deduct amount (locks it in stake)
+                    // For unstake: don't deduct (amount will be returned from stake)
+                    // For transfer: deduct amount (sends to recipient)
+                    if is_stake_tx {
+                        from_account.balance -= tx.tx.amount + gas_fee;
+                    } else if is_unstake_tx {
+                        from_account.balance -= gas_fee; // Only gas for unstake
+                    } else {
+                        from_account.balance -= tx.tx.amount + gas_fee;
+                    }
                     from_account.nonce = tx.tx.nonce + 1;
                 }
 
-                let to_account = state
-                    .accounts
-                    .entry(tx.tx.to.clone())
-                    .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-                to_account.balance += tx.tx.amount;
+                // For stake/unstake: don't transfer to recipient (amount is locked/unlocked in staking)
+                // For transfer: add to recipient balance
+                if !is_stake_tx && !is_unstake_tx {
+                    let to_account = state
+                        .accounts
+                        .entry(tx.tx.to.clone())
+                        .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
+                    to_account.balance += tx.tx.amount;
+                }
 
                 state.total_burned += gas_fee * 0.5;
                 state.total_to_validators += gas_fee * 0.5;
@@ -1121,7 +1168,8 @@ impl NodeState {
         
         // Process stake/unstake transactions (separate lock for rewards)
         // Collect account updates to apply after releasing rewards lock
-        let mut account_stake_updates: Vec<(String, f64, Option<u64>)> = Vec::new();
+        // (address, staked_amount, staked_at, unstaked_amount_to_return)
+        let mut account_stake_updates: Vec<(String, f64, Option<u64>, f64)> = Vec::new();
         
         if !stake_txs.is_empty() {
             use rinku_core::types::TransactionKind;
@@ -1135,7 +1183,7 @@ impl NodeState {
                             tracing::debug!("Batch stake: {} staked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
                             // Track account update for after lock release
                             if let Some(position) = rewards.get_stake(&from_addr) {
-                                account_stake_updates.push((from_addr.clone(), position.amount, Some(position.staked_at / 1000)));
+                                account_stake_updates.push((from_addr.clone(), position.amount, Some(position.staked_at / 1000), 0.0));
                             }
                         }
                     }
@@ -1143,8 +1191,8 @@ impl NodeState {
                         match rewards.unstake(&from_addr) {
                             Ok(unstaked) => {
                                 tracing::debug!("Batch unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], unstaked);
-                                // Track account update for after lock release
-                                account_stake_updates.push((from_addr.clone(), 0.0, None));
+                                // Track account update for after lock release - return unstaked amount to balance
+                                account_stake_updates.push((from_addr.clone(), 0.0, None, unstaked));
                             }
                             Err(e) => {
                                 tracing::warn!("Failed to process batch unstake tx: {}", e);
@@ -1156,9 +1204,27 @@ impl NodeState {
             }
         }
         
-        // Sync staked amounts to account state (after releasing rewards lock)
-        for (addr, staked_amount, staked_at) in account_stake_updates {
-            self.update_account_staked(&addr, staked_amount, staked_at).await;
+        // Sync staked amounts and return unstaked balance (after releasing rewards lock)
+        for (addr, staked_amount, staked_at, unstaked_to_return) in account_stake_updates {
+            let mut state = self.inner.write().await;
+            if let Some(account) = state.accounts.get_mut(&addr) {
+                account.staked = staked_amount;
+                if let Some(ts) = staked_at {
+                    if account.first_seen == 0 {
+                        account.first_seen = ts;
+                    }
+                }
+                // Return unstaked amount to balance
+                if unstaked_to_return > 0.0 {
+                    account.balance += unstaked_to_return;
+                    tracing::info!(
+                        "Batch unstake completed: {} balance restored by {} RKU (new balance: {})",
+                        &addr[..16.min(addr.len())],
+                        unstaked_to_return,
+                        account.balance
+                    );
+                }
+            }
         }
 
         results
