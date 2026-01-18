@@ -200,105 +200,26 @@ impl ForkRemediationService {
     }
 
     async fn detect_and_resolve_forks(&self) {
+        // IMPORTANT: In a DAG, having multiple tips is NORMAL and expected.
+        // Tips are concurrent transactions that haven't been merged yet.
+        // We should NOT prune tips just because they have different weights.
+        //
+        // Real forks only occur when there's an actual conflict:
+        // - Same account + same nonce = double-spend (handled by detect_double_spend)
+        //
+        // Checkpointing will naturally merge tips into finalized state.
+        // Aggressive tip pruning destroys legitimate transactions from other nodes.
+        
         let tips = self.state.get_tips().await;
-
-        if tips.len() > 50 {
-            debug!("Too many tips ({}), skipping fork detection", tips.len());
-            return;
+        
+        // Just log tip count for monitoring, don't prune
+        if tips.len() > 10 {
+            debug!("DAG has {} tips (concurrent transaction branches)", tips.len());
         }
-
-        let tips_to_analyze: Vec<_> = tips.iter().take(MAX_TIPS_FOR_FULL_SCAN).cloned().collect();
-
-        for i in 0..tips_to_analyze.len() {
-            for j in (i + 1)..tips_to_analyze.len() {
-                let tip_a = &tips_to_analyze[i];
-                let tip_b = &tips_to_analyze[j];
-
-                let pair = if tip_a < tip_b {
-                    (tip_a.clone(), tip_b.clone())
-                } else {
-                    (tip_b.clone(), tip_a.clone())
-                };
-
-                let should_analyze = {
-                    let inner = self.inner.read().await;
-                    !inner.analyzed_pairs.contains(&pair)
-                };
-
-                if !should_analyze {
-                    continue;
-                }
-
-                if let Some((winner, loser, weight_a, weight_b)) = 
-                    self.state.resolve_fork(tip_a, tip_b).await 
-                {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-
-                    let fork_id = format!("{}:{}", &pair.0[..8.min(pair.0.len())], &pair.1[..8.min(pair.1.len())]);
-
-                    if weight_a > weight_b * WEIGHT_THRESHOLD || weight_b > weight_a * WEIGHT_THRESHOLD {
-                        info!(
-                            "Fork detected and resolved: {} wins over {} ({:.2} vs {:.2})",
-                            &winner[..16.min(winner.len())],
-                            &loser[..16.min(loser.len())],
-                            weight_a.max(weight_b),
-                            weight_a.min(weight_b)
-                        );
-
-                        let pruned_count = if let Ok(pruned) = self.state.prune_losing_branch(&loser).await {
-                            pruned
-                        } else {
-                            0
-                        };
-
-                        let mut inner = self.inner.write().await;
-                        inner.analyzed_pairs.insert(pair);
-                        inner.stats.total_forks_detected += 1;
-                        inner.stats.total_forks_resolved += 1;
-                        inner.stats.total_txs_pruned += pruned_count as u64;
-                        inner.stats.total_branches_pruned += 1;
-
-                        inner.fork_events.push(ForkEvent {
-                            fork_id,
-                            tip_a: tip_a.clone(),
-                            tip_b: tip_b.clone(),
-                            weight_a,
-                            weight_b,
-                            winner: Some(winner),
-                            loser: Some(loser),
-                            detected_at: now,
-                            resolved_at: Some(now),
-                            pruned_count,
-                        });
-                    } else {
-                        let mut inner = self.inner.write().await;
-                        inner.analyzed_pairs.insert(pair);
-                        inner.stats.total_forks_detected += 1;
-
-                        inner.fork_events.push(ForkEvent {
-                            fork_id,
-                            tip_a: tip_a.clone(),
-                            tip_b: tip_b.clone(),
-                            weight_a,
-                            weight_b,
-                            winner: None,
-                            loser: None,
-                            detected_at: now,
-                            resolved_at: None,
-                            pruned_count: 0,
-                        });
-                    }
-                }
-            }
-        }
-
+        
+        // Update stats for monitoring purposes only
         let mut inner = self.inner.write().await;
-        if inner.analyzed_pairs.len() > 500 {
-            inner.analyzed_pairs.clear();
-        }
+        inner.stats.active_forks = tips.len().saturating_sub(1); // tips - 1 = parallel branches
     }
 
     async fn cleanup_old_data(&self) {
@@ -342,16 +263,18 @@ impl ForkRemediationService {
 
     async fn log_summary(&self) {
         let inner = self.inner.read().await;
-        let active_forks = inner.fork_events.iter().filter(|e| e.resolved_at.is_none()).count();
+        let tips = self.state.get_tips().await.len();
         
-        if active_forks > 0 || inner.stats.total_forks_resolved > 0 {
+        // Only log if there are double-spends (actual conflicts)
+        if inner.stats.total_double_spends > 0 {
             info!(
-                "[ForkRemediation] Active: {}, Resolved: {}, Pruned TXs: {}, Double-spends: {}",
-                active_forks,
-                inner.stats.total_forks_resolved,
-                inner.stats.total_txs_pruned,
-                inner.stats.total_double_spends
+                "[ForkRemediation] Tips: {}, Double-spends resolved: {}, Pruned TXs: {}",
+                tips,
+                inner.stats.total_double_spends,
+                inner.stats.total_txs_pruned
             );
+        } else if tips > 5 {
+            debug!("[ForkRemediation] DAG tips: {} (healthy concurrent branches)", tips);
         }
     }
 

@@ -1,0 +1,112 @@
+
+c1551785
+User
+2026-01-18T15:15:08.692340Z INFO rinku_node::checkpoint: Created checkpoint e39b0a8e7e45aa0a at height 16 (3 txs finalized, 3.932411 RKU emitted)
+2026-01-18 10:15:08.78
+c1551785
+User
+2026-01-18T15:15:08.692309Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-18 10:15:10.66
+c1551785
+User
+2026-01-18T15:15:10.667740Z INFO rinku_node::api: Snapshot sync request received
+2026-01-18 10:15:10.66
+c1551785
+User
+2026-01-18T15:15:10.667822Z INFO rinku_node::api: Snapshot sync response: 10 accounts, 0 validators, 16 checkpoints, 37 dag txs
+2026-01-18 10:15:16.23
+c1551785
+User
+2026-01-18T15:15:16.239177Z INFO rinku_node::gossip: Peer https://rinku-node.fly.dev has more DAG data (dag: 38 vs 37), requesting delta sync...
+2026-01-18 10:15:16.39
+c1551785
+User
+2026-01-18T15:15:16.392223Z INFO rinku_node::gossip: Applied 3 account nonces from peer
+2026-01-18 10:15:16.39
+c1551785
+User
+2026-01-18T15:15:16.392116Z INFO rinku_node::gossip: Sync page: received 3/3 transactions, 3 account nonces (offset=0, has_more=false)
+2026-01-18 10:15:27.12
+c1551785
+User
+2026-01-18T15:15:27.122048Z INFO rinku_node::gossip: Peer https://rinku-node.fly.dev has more DAG data (dag: 38 vs 37), requesting delta sync...
+2026-01-18 10:15:27.26
+c1551785
+User
+2026-01-18T15:15:27.265473Z INFO rinku_node::gossip: Sync page: received 37/37 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-18 10:15:27.26
+c1551785
+User
+2026-01-18T15:15:27.265501Z INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-18 10:15:34.04
+c1551785
+User
+2026-01-18T15:15:34.048794Z INFO rinku_node::api: Transaction 86b09322c7ebb357 broadcast to peers
+2026-01-18 10:15:34.07
+c1551785
+User
+2026-01-18T15:15:34.077349Z INFO rinku_node::gossip: Propagating 1 pending transactions to 1 peers
+2026-01-18 10:15:34.16
+c1551785
+User
+2026-01-18T15:15:34.165687Z INFO rinku_node::api: Transaction 3dbf0aab4d2b56d6 broadcast to peers
+2026-01-18 10:15:34.16
+c1551785
+User
+2026-01-18T15:15:34.165711Z INFO rinku_node::api: Transaction f39aeacbc4fb4ad1 broadcast to peers
+2026-01-18 10:15:34.29
+c1551785
+User
+2026-01-18T15:15:34.291050Z INFO rinku_node::gossip: Propagating 2 pending transactions to 1 peers
+2026-01-18 10:15:36.17
+c1551785
+User
+2026-01-18T15:15:36.178392Z INFO rinku_node::gossip: Peer https://rinku-node.fly.dev is 1 checkpoint(s) ahead (cp: 17 vs 16), requesting snapshot sync...
+2026-01-18 10:15:36.19
+c1551785
+User
+2026-01-18T15:15:36.193745Z INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-node.fly.dev
+2026-01-18 10:15:36.38
+c1551785
+User
+2026-01-18T15:15:36.344971Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 41 local transactions to https://rinku-node.fly.dev before snapshot sync
+2026-01-18 10:15:36.38
+c1551785
+User
+2026-01-18T15:15:36.344925Z WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-18 10:15:36.38
+c1551785
+User
+2026-01-18T15:15:36.344904Z INFO rinku_node::gossip: Received snapshot: 10 accounts, 17 checkpoints, 41 dag txs, checkpoint height 17
+2026-01-18 10:15:37.12
+c1551785
+User
+2026-01-18T15:15:37.129104Z INFO rinku_node::fork_remediation: [ForkRemediation] Active: 12, Resolved: 0, Pruned TXs: 0, Double-spends: 0
+2026-01-18 10:15:38.69
+c1551785
+User
+2026-01-18T15:15:38.695003Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-18 10:15:38.69
+c1551785
+User
+2026-01-18T15:15:38.695039Z INFO rinku_node::checkpoint: Created checkpoint ff21199bb70bd350 at height 17 (4 txs finalized, 3.932411 RKU emitted)
+2026-01-18 10:15:57.63
+c1551785
+User
+2026-01-18T15:15:57.633396Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 40 transactions to peer (0 failed)
+2026-01-18 10:15:57.63
+c1551785
+User
+2026-01-18T15:15:57.633490Z INFO rinku_node::gossip: Snapshot sync complete: applied 0 DAG transactions
+2026-01-18 10:15:57.63
+c1551785
+User
+2026-01-18T15:15:57.633424Z INFO rinku_node::state: Skipping snapshot apply: local has 17 checkpoints, peer has 17
+2026-01-18 10:15:59.64
+c1551785
+User
+2026-01-18T15:15:59.646760Z INFO rinku_node::gossip: Peer https://rinku-node.fly.dev is 1 checkpoint(s) ahead (cp: 18 vs 17), requesting snapshot sync...
+2026-01-18 10:15:59.66
+c1551785
+User
+2026-01-18T15:15:59.660281Z INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-node.fly.dev

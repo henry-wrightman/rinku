@@ -1,0 +1,1540 @@
+15:15:42
+2026-01-18T15:15:42.093162Z  WARN rinku_node::gossip: Failed to add gossiped tx f3fa9d3a3f448e8e848564646c15fd522be189f71dc86484c3708feda72e64fa: Invalid nonce: expected 11, got 4
+15:15:42
+2026-01-18T15:15:42.200008Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 0
+15:15:42
+2026-01-18T15:15:42.200141Z  WARN rinku_node::gossip: Failed to add gossiped tx 2a39b3416c96988d283da38f7a402ec681b69cb6d761777aeccaabef8e04bf25: Invalid nonce: expected 6, got 0
+15:15:42
+2026-01-18T15:15:42.312572Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 11, got 5
+15:15:42
+2026-01-18T15:15:42.312704Z  WARN rinku_node::gossip: Failed to add gossiped tx 3db68ccbc2c5beb200b767f89e7467fcf19b4a7b6186be47276f078eaa6c0796: Invalid nonce: expected 11, got 5
+15:15:43
+2026-01-18T15:15:43.232555Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 1
+15:15:43
+2026-01-18T15:15:43.232591Z  WARN rinku_node::gossip: Failed to add gossiped tx b8cf140c0a80f5eb15ae5cfb792e9d152c8a79126566bcab48792cb076f856c3: Invalid nonce: expected 6, got 1
+15:15:43
+2026-01-18T15:15:43.337731Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 5, got 1
+15:15:43
+2026-01-18T15:15:43.337763Z  WARN rinku_node::gossip: Failed to add gossiped tx b91ac1389a3c3cea1032a77be14c4c7fe9a9582238479ea14c7242e153fda456: Invalid nonce: expected 5, got 1
+15:15:45
+2026-01-18T15:15:45.587494Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 11, got 6
+15:15:45
+2026-01-18T15:15:45.587630Z  WARN rinku_node::gossip: Failed to add gossiped tx dbff81325e94273d2f5cc6323c4df85af5be8b2b5715dfa92dd8b0244a1b7ef8: Invalid nonce: expected 11, got 6
+15:15:45
+2026-01-18T15:15:45.697567Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 11, got 7
+15:15:45
+2026-01-18T15:15:45.697704Z  WARN rinku_node::gossip: Failed to add gossiped tx d223fd527dba1618176f8c75f03dde69d7f40ed0d7c484b6cb9959e9d60c9842: Invalid nonce: expected 11, got 7
+15:15:45
+2026-01-18T15:15:45.809969Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 1
+15:15:45
+2026-01-18T15:15:45.810004Z  WARN rinku_node::gossip: Failed to add gossiped tx 35259a2c53d6c39cd945fa46a50ac7268a3755f7c53d1c4d8572c575c7c1bc1c: Invalid nonce: expected 6, got 1
+15:15:47
+2026-01-18T15:15:47.602929Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 2
+15:15:47
+2026-01-18T15:15:47.602960Z  WARN rinku_node::gossip: Failed to add gossiped tx d1c4be8a8f504172bac1abec073b375269c493a396662da45a0cd03760b5bbf6: Invalid nonce: expected 6, got 2
+15:15:47
+2026-01-18T15:15:47.707724Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 5, got 2
+15:15:47
+2026-01-18T15:15:47.707761Z  WARN rinku_node::gossip: Failed to add gossiped tx 3711de6bfa5f34af57ae0a5798f36284197fd352201f6f09e5a8c73e47ce5f02: Invalid nonce: expected 5, got 2
+15:15:47
+2026-01-18T15:15:47.825972Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 0
+15:15:47
+2026-01-18T15:15:47.826122Z  WARN rinku_node::gossip: Failed to add gossiped tx 4f5e986abc9604580aeb8ecc456b1e5b631fbe525bf2fc936bb041dc1dc5a98e: Invalid nonce: expected 4, got 0
+15:15:48
+2026-01-18T15:15:48.062202Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 11, got 8
+15:15:48
+2026-01-18T15:15:48.062239Z  WARN rinku_node::gossip: Failed to add gossiped tx 3503f64f84716de33ac4363e557a4392718a025ff6835dd3931d4b732c1d93e4: Invalid nonce: expected 11, got 8
+15:15:48
+2026-01-18T15:15:48.167402Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 1
+15:15:48
+2026-01-18T15:15:48.167422Z  WARN rinku_node::gossip: Failed to add gossiped tx 5f7bcb1441b7d8722ce41cf91f559a208970b1daec8b77b180121de56869f762: Invalid nonce: expected 4, got 1
+15:15:48
+2026-01-18T15:15:48.275834Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 3
+15:15:48
+2026-01-18T15:15:48.276020Z  WARN rinku_node::gossip: Failed to add gossiped tx 134b1b7b99c79bf5bb52bcdcd3ced3e41274c4e22684cc2b60488807c2e04cc7: Invalid nonce: expected 6, got 3
+15:15:48
+2026-01-18T15:15:48.387582Z  WARN rinku_node::state: Transaction rejected: insufficient balance. Have 9.999000, need 190.001000 (amount: 190.000000, gas: 0.001000)
+15:15:48
+2026-01-18T15:15:48.387727Z  WARN rinku_node::gossip: Failed to add gossiped tx 97297b6febcda62971ed1c670ddaa2d7a50a3e28cef960f64d711c43c9b163c9: Insufficient balance: have 9.999000, need 190.001000
+15:15:48
+2026-01-18T15:15:48.497728Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 2
+15:15:48
+2026-01-18T15:15:48.497759Z  WARN rinku_node::gossip: Failed to add gossiped tx cd78248951c403fa455cf5626fcce977ac4f63a9706938b4a7e1579cb9f7c5cf: Invalid nonce: expected 4, got 2
+15:15:48
+2026-01-18T15:15:48.603550Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 2
+15:15:48
+2026-01-18T15:15:48.603658Z  WARN rinku_node::gossip: Failed to add gossiped tx a65f371e0a6cc9d6ac1cccfd8f60f35b7c0a85351abb1d4b0eb487604c5fda5d: Invalid nonce: expected 6, got 2
+15:15:48
+2026-01-18T15:15:48.711306Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 11, got 9
+15:15:48
+2026-01-18T15:15:48.711341Z  WARN rinku_node::gossip: Failed to add gossiped tx e0da329822afab17e91673e9ff4df1c06fd793b1d90f0811c6861ed3fc7a0c75: Invalid nonce: expected 11, got 9
+15:15:48
+2026-01-18T15:15:48.825301Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 5, got 3
+15:15:48
+2026-01-18T15:15:48.825437Z  WARN rinku_node::gossip: Failed to add gossiped tx 437fab5b95de430e64f7aae4de147ccfbc21d7d2b6305213c8f2d97b5bf7f446: Invalid nonce: expected 5, got 3
+15:15:50
+2026-01-18T15:15:50.650507Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 4
+15:15:50
+2026-01-18T15:15:50.650583Z  WARN rinku_node::gossip: Failed to add gossiped tx 13cd715c6bb94b3d575b64cfeef425faefa2cc685536b4f2678277bf9e02855e: Invalid nonce: expected 6, got 4
+15:15:50
+2026-01-18T15:15:50.756075Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 0
+15:15:50
+2026-01-18T15:15:50.756204Z  WARN rinku_node::gossip: Failed to add gossiped tx 073cc5ba682ccaf6d65fe7dee9880ed58e624f03016c2b1590c97cb7ba70d8aa: Invalid nonce: expected 4, got 0
+15:15:50
+2026-01-18T15:15:50.863011Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 5
+15:15:50
+2026-01-18T15:15:50.863145Z  WARN rinku_node::gossip: Failed to add gossiped tx f0c502e89a6586b99f02611d721bce19aa80b8f059b0f674cd53feddb71738c7: Invalid nonce: expected 6, got 5
+15:15:50
+2026-01-18T15:15:50.969528Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 2, got 0
+15:15:50
+2026-01-18T15:15:50.969662Z  WARN rinku_node::gossip: Failed to add gossiped tx 5b40923fb0543d686aefcef4eb8cb2e03a3b8578583f2a977be81e84ce116046: Invalid nonce: expected 2, got 0
+15:15:51
+2026-01-18T15:15:51.078782Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 11, got 10
+15:15:51
+2026-01-18T15:15:51.078821Z  WARN rinku_node::gossip: Failed to add gossiped tx 1176674b4e772c0e4166fa2f6db92ab4ae8089b87c87a20c968c322e59352fcb: Invalid nonce: expected 11, got 10
+15:15:52
+2026-01-18T15:15:52.609554Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 3
+15:15:52
+2026-01-18T15:15:52.609593Z  WARN rinku_node::gossip: Failed to add gossiped tx 1945d358ef2f008421b608122ca8677959f0c9c7d21cf7f2ec6c6bc82f0c153b: Invalid nonce: expected 4, got 3
+15:15:52
+2026-01-18T15:15:52.713799Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 3
+15:15:52
+2026-01-18T15:15:52.713899Z  WARN rinku_node::gossip: Failed to add gossiped tx 7777fc70b8d171456ee252c0dac9e3f2d41e3f7777786d589f29ca9117db8012: Invalid nonce: expected 6, got 3
+15:15:52
+2026-01-18T15:15:52.817874Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 1
+15:15:52
+2026-01-18T15:15:52.817969Z  WARN rinku_node::gossip: Failed to add gossiped tx d24d543163aae66dd593f2e8f95fcddca7a5f4a4f22679a193c2189cbcea873b: Invalid nonce: expected 4, got 1
+15:15:59
+2026-01-18T15:15:59.199751Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 3dbf0aab4d2b56d6 wins over genesis (14.35 vs 1.00)
+15:15:59
+2026-01-18T15:15:59.199792Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:15:59
+2026-01-18T15:15:59.199807Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 8f036abc21ca9f9f wins over 3dbf0aab4d2b56d6 (999.45 vs 14.35)
+15:15:59
+2026-01-18T15:15:59.200044Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 3dbf0aab4d2b56d6, reverted account balances
+15:15:59
+2026-01-18T15:15:59.200066Z  INFO rinku_node::fork_remediation: Fork detected and resolved: f39aeacbc4fb4ad1 wins over 3dbf0aab4d2b56d6 (10.30 vs 0.00)
+15:15:59
+2026-01-18T15:15:59.200075Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 3dbf0aab4d2b56d6, reverted account balances
+15:15:59
+2026-01-18T15:15:59.200087Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 8f036abc21ca9f9f wins over genesis (999.45 vs 1.00)
+15:15:59
+2026-01-18T15:15:59.200095Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:15:59
+2026-01-18T15:15:59.200104Z  INFO rinku_node::fork_remediation: Fork detected and resolved: f39aeacbc4fb4ad1 wins over genesis (10.30 vs 1.00)
+15:15:59
+2026-01-18T15:15:59.200112Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:15:59
+2026-01-18T15:15:59.200122Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 8f036abc21ca9f9f wins over f39aeacbc4fb4ad1 (999.45 vs 10.30)
+15:15:59
+2026-01-18T15:15:59.200153Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at f39aeacbc4fb4ad1, reverted account balances
+15:15:59
+2026-01-18T15:15:59.200164Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 3, Resolved: 9, Pruned TXs: 2, Double-spends: 0
+15:15:59
+2026-01-18T15:15:59.577936Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:15:59
+2026-01-18T15:15:59.578083Z  INFO rinku_node::checkpoint: Created checkpoint c8ecf135c65b2df2 at height 18 (2 txs finalized, 3.932411 RKU emitted)
+15:15:59
+2026-01-18T15:15:59.720230Z  INFO rinku_node::api: Snapshot sync request received
+15:15:59
+2026-01-18T15:15:59.720529Z  INFO rinku_node::api: Snapshot sync response: 10 accounts, 0 validators, 18 checkpoints, 40 dag txs
+15:16:00
+2026-01-18T15:16:00.525205Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 41 vs 40), requesting delta sync...
+15:16:00
+2026-01-18T15:16:00.663974Z  INFO rinku_node::gossip: Sync page: received 0/0 transactions, 0 account nonces (offset=0, has_more=false)
+15:16:00
+2026-01-18T15:16:00.801439Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 1 peers
+15:16:10
+2026-01-18T15:16:10.488338Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 44 vs 40), requesting delta sync...
+15:16:10
+2026-01-18T15:16:10.622047Z  INFO rinku_node::gossip: Sync page: received 3/3 transactions, 3 account nonces (offset=0, has_more=false)
+15:16:10
+2026-01-18T15:16:10.622152Z  INFO rinku_node::gossip: Applied 3 account nonces from peer
+15:16:10
+2026-01-18T15:16:10.622319Z  INFO rinku_node::gossip: Delta sync complete: 0 added, 3 failed
+15:16:10
+2026-01-18T15:16:10.622360Z  WARN rinku_node::gossip: Delta sync had 3 failures vs 0 added - forcing snapshot recovery
+15:16:10
+2026-01-18T15:16:10.622532Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 40 local transactions to https://rinkuchan.com before snapshot sync
+15:16:12
+2026-01-18T15:16:12.968362Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 7, got 6
+15:16:12
+2026-01-18T15:16:12.968464Z  WARN rinku_node::gossip: Failed to add gossiped tx 7e68b2d6f0cf597a78449c458ec43be2a54d7ffeb632883070647edc208bc357: Invalid nonce: expected 7, got 6
+15:16:13
+2026-01-18T15:16:13.132589Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 5, got 4
+15:16:13
+2026-01-18T15:16:13.132655Z  WARN rinku_node::gossip: Failed to add gossiped tx 4217c4aa63e2ff7b418a172a21d36d469ceb72de508ee98ae576ced7e9b3a83e: Invalid nonce: expected 5, got 4
+15:16:13
+2026-01-18T15:16:13.256488Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 3, got 2
+15:16:13
+2026-01-18T15:16:13.256569Z  WARN rinku_node::gossip: Failed to add gossiped tx c979c84275c2fef8422bd191a4350999b08789796ed89313d6cdfd8f7fbd074c: Invalid nonce: expected 3, got 2
+15:16:16
+2026-01-18T15:16:16.617753Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 38 transactions to peer (0 failed)
+15:16:16
+2026-01-18T15:16:16.689644Z  WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinkuchan.com to fix state divergence
+15:16:16
+2026-01-18T15:16:16.764099Z  WARN rinku_node::gossip: RECOVERY: Received snapshot: 10 accounts, 18 checkpoints, 44 dag txs
+15:16:16
+2026-01-18T15:16:16.764129Z  WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+15:16:16
+2026-01-18T15:16:16.764139Z  WARN rinku_node::state: RECOVERY MODE: Force applying snapshot (10 accounts, 18 checkpoints) to fix state divergence
+15:16:16
+2026-01-18T15:16:16.764147Z  INFO rinku_node::state: Applying sync snapshot: 10 accounts, 18 checkpoints, 44 dag txs
+15:16:16
+2026-01-18T15:16:16.764861Z  INFO rinku_node::state: Snapshot applied: 44 DAG transactions, 0 validators, 18 checkpoints
+15:16:16
+2026-01-18T15:16:16.764936Z  WARN rinku_node::gossip: RECOVERY: Force snapshot sync complete - applied 44 DAG transactions
+15:16:23
+2026-01-18T15:16:23.417185Z  INFO rinku_node::api: Sync delta request: checkpoint=18, offset=0, limit=500
+15:16:23
+2026-01-18T15:16:23.417245Z  INFO rinku_node::api: Returning 44 of 44 transactions with 9 account nonces (offset=0, has_more=false)
+15:16:29
+2026-01-18T15:16:29.201589Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4217c4aa63e2ff7b wins over genesis (14.11 vs 1.00)
+15:16:29
+2026-01-18T15:16:29.201632Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:16:29
+2026-01-18T15:16:29.201683Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 7e68b2d6f0cf597a wins over genesis (10.10 vs 1.00)
+15:16:29
+2026-01-18T15:16:29.201694Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:16:29
+2026-01-18T15:16:29.201709Z  INFO rinku_node::fork_remediation: Fork detected and resolved: c979c84275c2fef8 wins over genesis (10.44 vs 1.00)
+15:16:29
+2026-01-18T15:16:29.201722Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:16:29
+2026-01-18T15:16:29.201750Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 6, Resolved: 12, Pruned TXs: 2, Double-spends: 0
+15:16:29
+2026-01-18T15:16:29.764134Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:16:29
+2026-01-18T15:16:29.764230Z  INFO rinku_node::checkpoint: Created checkpoint baf142f7c8287208 at height 19 (44 txs finalized, 3.932411 RKU emitted)
+15:16:33
+2026-01-18T15:16:33.384245Z  INFO rinku_node::api: Snapshot sync request received
+15:16:33
+2026-01-18T15:16:33.384374Z  INFO rinku_node::api: Snapshot sync response: 10 accounts, 0 validators, 19 checkpoints, 45 dag txs
+15:16:40
+2026-01-18T15:16:40.524648Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 48 vs 45), requesting delta sync...
+15:16:40
+2026-01-18T15:16:40.704214Z  INFO rinku_node::gossip: Sync page: received 4/4 transactions, 4 account nonces (offset=0, has_more=false)
+15:16:40
+2026-01-18T15:16:40.704327Z  INFO rinku_node::gossip: Applied 4 account nonces from peer
+15:16:40
+2026-01-18T15:16:40.704545Z  INFO rinku_node::gossip: Delta sync complete: 4 added, 0 failed
+15:16:53
+2026-01-18T15:16:53.343518Z  INFO rinku_node::api: Sync delta request: checkpoint=19, offset=0, limit=500
+15:16:53
+2026-01-18T15:16:53.343580Z  INFO rinku_node::api: Returning 48 of 48 transactions with 9 account nonces (offset=0, has_more=false)
+15:16:59
+2026-01-18T15:16:59.203689Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 6, Resolved: 12, Pruned TXs: 2, Double-spends: 0
+15:16:59
+2026-01-18T15:16:59.914523Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:16:59
+2026-01-18T15:16:59.914626Z  INFO rinku_node::checkpoint: Created checkpoint ac81c5eb1aaf3f01 at height 20 (4 txs finalized, 3.932411 RKU emitted)
+15:17:03
+2026-01-18T15:17:03.366778Z  INFO rinku_node::api: Snapshot sync request received
+15:17:03
+2026-01-18T15:17:03.366995Z  INFO rinku_node::api: Snapshot sync response: 10 accounts, 0 validators, 20 checkpoints, 49 dag txs
+15:17:10
+2026-01-18T15:17:10.496498Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 51 vs 49), requesting delta sync...
+15:17:10
+2026-01-18T15:17:10.625415Z  INFO rinku_node::gossip: Sync page: received 3/3 transactions, 3 account nonces (offset=0, has_more=false)
+15:17:10
+2026-01-18T15:17:10.625509Z  INFO rinku_node::gossip: Applied 3 account nonces from peer
+15:17:10
+2026-01-18T15:17:10.625673Z  INFO rinku_node::gossip: Delta sync complete: 3 added, 0 failed
+15:17:27
+2026-01-18T15:17:27.829506Z  INFO rinku_node::api: Sync delta request: checkpoint=20, offset=0, limit=500
+15:17:27
+2026-01-18T15:17:27.829540Z  INFO rinku_node::api: Returning 7 of 7 transactions with 6 account nonces (offset=0, has_more=false)
+15:17:29
+2026-01-18T15:17:29.204325Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 6, Resolved: 12, Pruned TXs: 2, Double-spends: 0
+15:17:30
+2026-01-18T15:17:30.076237Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:17:30
+2026-01-18T15:17:30.076282Z  INFO rinku_node::checkpoint: Created checkpoint ab7d0d6e18cfdd8d at height 21 (3 txs finalized, 3.932411 RKU emitted)
+15:17:35
+2026-01-18T15:17:35.521594Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 1 peers
+15:17:37
+2026-01-18T15:17:37.820590Z  INFO rinku_node::api: Snapshot sync request received
+15:17:37
+2026-01-18T15:17:37.820726Z  INFO rinku_node::api: Snapshot sync response: 11 accounts, 0 validators, 21 checkpoints, 56 dag txs
+15:17:40
+2026-01-18T15:17:40.659817Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 1 peers
+15:17:59
+2026-01-18T15:17:59.205946Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0208340546ffd5b7 wins over 5841126c126fa024 (9.70 vs 1.00)
+15:17:59
+2026-01-18T15:17:59.205983Z  INFO rinku_node::state: Cannot prune finalized node 5841126c126fa024
+15:17:59
+2026-01-18T15:17:59.206001Z  INFO rinku_node::fork_remediation: Fork detected and resolved: d5d9bf4db0dfbadb wins over 5841126c126fa024 (14.25 vs 1.00)
+15:17:59
+2026-01-18T15:17:59.206009Z  INFO rinku_node::state: Cannot prune finalized node 5841126c126fa024
+15:17:59
+2026-01-18T15:17:59.206027Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0208340546ffd5b7 wins over genesis (9.70 vs 1.00)
+15:17:59
+2026-01-18T15:17:59.206034Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:17:59
+2026-01-18T15:17:59.206052Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0208340546ffd5b7 wins over 2fc1ada931b38fe9 (9.70 vs 1.00)
+15:17:59
+2026-01-18T15:17:59.206060Z  INFO rinku_node::state: Cannot prune finalized node 2fc1ada931b38fe9
+15:17:59
+2026-01-18T15:17:59.206069Z  INFO rinku_node::fork_remediation: Fork detected and resolved: d5d9bf4db0dfbadb wins over genesis (14.25 vs 1.00)
+15:17:59
+2026-01-18T15:17:59.206076Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:17:59
+2026-01-18T15:17:59.206087Z  INFO rinku_node::fork_remediation: Fork detected and resolved: d5d9bf4db0dfbadb wins over 2fc1ada931b38fe9 (14.25 vs 1.00)
+15:17:59
+2026-01-18T15:17:59.206094Z  INFO rinku_node::state: Cannot prune finalized node 2fc1ada931b38fe9
+15:17:59
+2026-01-18T15:17:59.206104Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 7, Resolved: 18, Pruned TXs: 2, Double-spends: 0
+15:18:00
+2026-01-18T15:18:00.218015Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:18:00
+2026-01-18T15:18:00.218121Z  INFO rinku_node::checkpoint: Created checkpoint ab352d14138f99d9 at height 22 (4 txs finalized, 3.932411 RKU emitted)
+15:18:04
+2026-01-18T15:18:04.156363Z  INFO rinku_node::api: Snapshot sync request received
+15:18:04
+2026-01-18T15:18:04.156501Z  INFO rinku_node::api: Snapshot sync response: 11 accounts, 0 validators, 22 checkpoints, 57 dag txs
+15:18:05
+2026-01-18T15:18:05.537448Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 1 peers
+15:18:10
+2026-01-18T15:18:10.499352Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 60 vs 57), requesting delta sync...
+15:18:10
+2026-01-18T15:18:10.635696Z  INFO rinku_node::gossip: Sync page: received 4/4 transactions, 4 account nonces (offset=0, has_more=false)
+15:18:10
+2026-01-18T15:18:10.635791Z  INFO rinku_node::gossip: Applied 4 account nonces from peer
+15:18:10
+2026-01-18T15:18:10.635968Z  INFO rinku_node::gossip: Delta sync complete: 4 added, 0 failed
+15:18:29
+2026-01-18T15:18:29.207963Z  INFO rinku_node::fork_remediation: Fork detected and resolved: d28979ec555febb9 wins over c28c08c7f5c35aa5 (999.40 vs 1.00)
+15:18:29
+2026-01-18T15:18:29.208069Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at c28c08c7f5c35aa5, reverted account balances
+15:18:29
+2026-01-18T15:18:29.208089Z  INFO rinku_node::fork_remediation: Fork detected and resolved: f426b7164ae27baf wins over c28c08c7f5c35aa5 (1.00 vs 0.00)
+15:18:29
+2026-01-18T15:18:29.208099Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at c28c08c7f5c35aa5, reverted account balances
+15:18:29
+2026-01-18T15:18:29.208111Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 060510cf05fe1796 wins over c28c08c7f5c35aa5 (1.00 vs 0.00)
+15:18:29
+2026-01-18T15:18:29.208121Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at c28c08c7f5c35aa5, reverted account balances
+15:18:29
+2026-01-18T15:18:29.208132Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 021792eed768d43a wins over c28c08c7f5c35aa5 (1.00 vs 0.00)
+15:18:29
+2026-01-18T15:18:29.208141Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at c28c08c7f5c35aa5, reverted account balances
+15:18:29
+2026-01-18T15:18:29.208172Z  INFO rinku_node::fork_remediation: Fork detected and resolved: d28979ec555febb9 wins over genesis (999.40 vs 1.00)
+15:18:29
+2026-01-18T15:18:29.208180Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:18:29
+2026-01-18T15:18:29.208196Z  INFO rinku_node::fork_remediation: Fork detected and resolved: d28979ec555febb9 wins over f426b7164ae27baf (999.40 vs 1.00)
+15:18:29
+2026-01-18T15:18:29.208229Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at f426b7164ae27baf, reverted account balances
+15:18:29
+2026-01-18T15:18:29.208243Z  INFO rinku_node::fork_remediation: Fork detected and resolved: d28979ec555febb9 wins over 060510cf05fe1796 (999.40 vs 1.00)
+15:18:29
+2026-01-18T15:18:29.208277Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 060510cf05fe1796, reverted account balances
+15:18:29
+2026-01-18T15:18:29.208298Z  INFO rinku_node::fork_remediation: Fork detected and resolved: d28979ec555febb9 wins over 021792eed768d43a (999.40 vs 1.00)
+15:18:29
+2026-01-18T15:18:29.208375Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 021792eed768d43a, reverted account balances
+15:18:29
+2026-01-18T15:18:29.208407Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 7, Resolved: 26, Pruned TXs: 6, Double-spends: 0
+15:18:30
+2026-01-18T15:18:30.436086Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:18:30
+2026-01-18T15:18:30.436165Z  INFO rinku_node::checkpoint: Created checkpoint cf3845a7f9db2f30 at height 23 (1 txs finalized, 3.932411 RKU emitted)
+15:18:30
+2026-01-18T15:18:30.511603Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 60 vs 57), requesting delta sync...
+15:18:30
+2026-01-18T15:18:30.653813Z  INFO rinku_node::gossip: Sync page: received 4/4 transactions, 4 account nonces (offset=0, has_more=false)
+15:18:30
+2026-01-18T15:18:30.653948Z  INFO rinku_node::gossip: Applied 4 account nonces from peer
+15:18:34
+2026-01-18T15:18:34.131054Z  INFO rinku_node::api: Snapshot sync request received
+15:18:34
+2026-01-18T15:18:34.131254Z  INFO rinku_node::api: Snapshot sync response: 11 accounts, 0 validators, 23 checkpoints, 57 dag txs
+15:18:40
+2026-01-18T15:18:40.525378Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 65 vs 57), requesting delta sync...
+15:18:40
+2026-01-18T15:18:40.663848Z  INFO rinku_node::gossip: Sync page: received 5/5 transactions, 5 account nonces (offset=0, has_more=false)
+15:18:40
+2026-01-18T15:18:40.663992Z  INFO rinku_node::gossip: Applied 5 account nonces from peer
+15:18:40
+2026-01-18T15:18:40.664241Z  INFO rinku_node::gossip: Delta sync complete: 0 added, 5 failed
+15:18:40
+2026-01-18T15:18:40.664310Z  WARN rinku_node::gossip: Delta sync had 5 failures vs 0 added - forcing snapshot recovery
+15:18:40
+2026-01-18T15:18:40.664682Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 57 local transactions to https://rinkuchan.com before snapshot sync
+15:18:49
+2026-01-18T15:18:49.414255Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 15, got 14
+15:18:49
+2026-01-18T15:18:49.414332Z  WARN rinku_node::gossip: Failed to add gossiped tx 855c4af04280b7055bb9ca76a7b0aaf489b9380d8180c0202b27916632907a10: Invalid nonce: expected 15, got 14
+15:18:49
+2026-01-18T15:18:49.593888Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 5
+15:18:49
+2026-01-18T15:18:49.593952Z  WARN rinku_node::gossip: Failed to add gossiped tx 4e8a1a2c45592922aae70851a965ffad0648bca03c315336bf9af64edc4e493c: Invalid nonce: expected 6, got 5
+15:18:49
+2026-01-18T15:18:49.716445Z  WARN rinku_node::state: Transaction rejected: insufficient balance. Have 0.000000, need 1.001000 (amount: 1.000000, gas: 0.001000)
+15:18:49
+2026-01-18T15:18:49.716524Z  WARN rinku_node::gossip: Failed to add gossiped tx c673dfc959688115454df48d181d078b1a204cd658555133803caeaafe1e0a0c: Insufficient balance: have 0.000000, need 1.001000
+15:18:49
+2026-01-18T15:18:49.789577Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 55 transactions to peer (0 failed)
+15:18:49
+2026-01-18T15:18:49.856316Z  WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinkuchan.com to fix state divergence
+15:18:49
+2026-01-18T15:18:49.858694Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 10, got 9
+15:18:49
+2026-01-18T15:18:49.858742Z  WARN rinku_node::gossip: Failed to add gossiped tx 9d98da70258e05d37d02816022f307d55665fc8c07053c752b106481440e7c95: Invalid nonce: expected 10, got 9
+15:18:49
+2026-01-18T15:18:49.930771Z  WARN rinku_node::gossip: RECOVERY: Received snapshot: 12 accounts, 23 checkpoints, 65 dag txs
+15:18:49
+2026-01-18T15:18:49.930863Z  WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+15:18:49
+2026-01-18T15:18:49.930895Z  WARN rinku_node::state: RECOVERY MODE: Force applying snapshot (12 accounts, 23 checkpoints) to fix state divergence
+15:18:49
+2026-01-18T15:18:49.930923Z  INFO rinku_node::state: Applying sync snapshot: 12 accounts, 23 checkpoints, 65 dag txs
+15:18:49
+2026-01-18T15:18:49.931684Z  INFO rinku_node::state: Snapshot applied: 65 DAG transactions, 0 validators, 23 checkpoints
+15:18:49
+2026-01-18T15:18:49.931852Z  WARN rinku_node::gossip: RECOVERY: Force snapshot sync complete - applied 65 DAG transactions
+15:18:49
+2026-01-18T15:18:49.995725Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 9, got 8
+15:18:49
+2026-01-18T15:18:49.995801Z  WARN rinku_node::gossip: Failed to add gossiped tx 64b3754643cfa236c655a26be743a5b37cf6f324116046726c91da6d33286379: Invalid nonce: expected 9, got 8
+15:18:52
+2026-01-18T15:18:52.715907Z  INFO rinku_node::api: Sync delta request: checkpoint=23, offset=0, limit=500
+15:18:52
+2026-01-18T15:18:52.715952Z  INFO rinku_node::api: Returning 65 of 65 transactions with 11 account nonces (offset=0, has_more=false)
+15:18:59
+2026-01-18T15:18:59.209520Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 9d98da70258e05d3 wins over genesis (9.85 vs 1.00)
+15:18:59
+2026-01-18T15:18:59.209552Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:18:59
+2026-01-18T15:18:59.209566Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 64b3754643cfa236 wins over genesis (9.43 vs 1.00)
+15:18:59
+2026-01-18T15:18:59.209571Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:18:59
+2026-01-18T15:18:59.209582Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 8, Resolved: 28, Pruned TXs: 6, Double-spends: 0
+15:19:00
+2026-01-18T15:19:00.691709Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:19:00
+2026-01-18T15:19:00.691873Z  INFO rinku_node::checkpoint: Created checkpoint 83549863006cac1b at height 24 (65 txs finalized, 3.932411 RKU emitted)
+15:19:00
+2026-01-18T15:19:00.906005Z  INFO rinku_node::api: Snapshot sync request received
+15:19:00
+2026-01-18T15:19:00.906236Z  INFO rinku_node::api: Snapshot sync response: 12 accounts, 0 validators, 24 checkpoints, 66 dag txs
+15:19:10
+2026-01-18T15:19:10.491344Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 69 vs 66), requesting delta sync...
+15:19:10
+2026-01-18T15:19:10.628349Z  INFO rinku_node::gossip: Sync page: received 4/4 transactions, 4 account nonces (offset=0, has_more=false)
+15:19:10
+2026-01-18T15:19:10.628497Z  INFO rinku_node::gossip: Applied 4 account nonces from peer
+15:19:10
+2026-01-18T15:19:10.628634Z  INFO rinku_node::gossip: Delta sync complete: 4 added, 0 failed
+15:19:29
+2026-01-18T15:19:29.210957Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 8, Resolved: 28, Pruned TXs: 6, Double-spends: 0
+15:19:30
+2026-01-18T15:19:30.837906Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:19:30
+2026-01-18T15:19:30.838139Z  INFO rinku_node::checkpoint: Created checkpoint 1d458d3e8196153d at height 25 (4 txs finalized, 3.932411 RKU emitted)
+15:19:40
+2026-01-18T15:19:40.628008Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 1 peers
+15:19:40
+2026-01-18T15:19:40.681368Z  INFO rinku_node::api: Snapshot sync request received
+15:19:40
+2026-01-18T15:19:40.681732Z  INFO rinku_node::api: Snapshot sync response: 12 accounts, 0 validators, 25 checkpoints, 74 dag txs
+15:19:59
+2026-01-18T15:19:59.212092Z  INFO rinku_node::fork_remediation: Fork detected and resolved: f599f42414e7912e wins over be5697e9ba815535 (10.00 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212121Z  INFO rinku_node::state: Cannot prune finalized node be5697e9ba815535
+15:19:59
+2026-01-18T15:19:59.212131Z  INFO rinku_node::fork_remediation: Fork detected and resolved: f599f42414e7912e wins over genesis (10.00 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212136Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:19:59
+2026-01-18T15:19:59.212155Z  INFO rinku_node::fork_remediation: Fork detected and resolved: f599f42414e7912e wins over 8b134caaa485775a (10.00 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212160Z  INFO rinku_node::state: Cannot prune finalized node 8b134caaa485775a
+15:19:59
+2026-01-18T15:19:59.212166Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a1f54f138336d1a5 wins over be5697e9ba815535 (13.75 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212170Z  INFO rinku_node::state: Cannot prune finalized node be5697e9ba815535
+15:19:59
+2026-01-18T15:19:59.212178Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a1f54f138336d1a5 wins over genesis (13.75 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212182Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:19:59
+2026-01-18T15:19:59.212194Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a1f54f138336d1a5 wins over 8b134caaa485775a (13.75 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212198Z  INFO rinku_node::state: Cannot prune finalized node 8b134caaa485775a
+15:19:59
+2026-01-18T15:19:59.212206Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 16c8cbcf32a4d32f wins over be5697e9ba815535 (14.11 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212210Z  INFO rinku_node::state: Cannot prune finalized node be5697e9ba815535
+15:19:59
+2026-01-18T15:19:59.212216Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a1ec4e9d3305b01f wins over be5697e9ba815535 (14.21 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212221Z  INFO rinku_node::state: Cannot prune finalized node be5697e9ba815535
+15:19:59
+2026-01-18T15:19:59.212228Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 16c8cbcf32a4d32f wins over genesis (14.11 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212232Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:19:59
+2026-01-18T15:19:59.212239Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a1ec4e9d3305b01f wins over genesis (14.21 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212243Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:19:59
+2026-01-18T15:19:59.212253Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 16c8cbcf32a4d32f wins over 8b134caaa485775a (14.11 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212257Z  INFO rinku_node::state: Cannot prune finalized node 8b134caaa485775a
+15:19:59
+2026-01-18T15:19:59.212263Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a1ec4e9d3305b01f wins over 8b134caaa485775a (14.21 vs 1.00)
+15:19:59
+2026-01-18T15:19:59.212268Z  INFO rinku_node::state: Cannot prune finalized node 8b134caaa485775a
+15:19:59
+2026-01-18T15:19:59.212275Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 14, Resolved: 40, Pruned TXs: 6, Double-spends: 0
+15:20:01
+2026-01-18T15:20:01.002322Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:20:01
+2026-01-18T15:20:01.002471Z  INFO rinku_node::checkpoint: Created checkpoint e11a5886adb532df at height 26 (4 txs finalized, 3.932411 RKU emitted)
+15:20:05
+2026-01-18T15:20:05.535518Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 1 peers
+15:20:06
+2026-01-18T15:20:06.215808Z  INFO rinku_node::api: Snapshot sync request received
+15:20:06
+2026-01-18T15:20:06.215974Z  INFO rinku_node::api: Snapshot sync response: 12 accounts, 0 validators, 26 checkpoints, 79 dag txs
+15:20:10
+2026-01-18T15:20:10.630432Z  INFO rinku_node::gossip: Propagating 2 pending transactions to 1 peers
+15:20:29
+2026-01-18T15:20:29.213767Z  INFO rinku_node::fork_remediation: Fork detected and resolved: dcbf5da8f4522335 wins over f2819ecc97978ce7 (999.25 vs 13.67)
+15:20:29
+2026-01-18T15:20:29.213902Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at f2819ecc97978ce7, reverted account balances
+15:20:29
+2026-01-18T15:20:29.213924Z  INFO rinku_node::fork_remediation: Fork detected and resolved: dcbf5da8f4522335 wins over genesis (999.25 vs 1.00)
+15:20:29
+2026-01-18T15:20:29.213934Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:20:29
+2026-01-18T15:20:29.213945Z  INFO rinku_node::fork_remediation: Fork detected and resolved: dcbf5da8f4522335 wins over 8ef22a2ad1283e0c (999.25 vs 17.78)
+15:20:29
+2026-01-18T15:20:29.213989Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 8ef22a2ad1283e0c, reverted account balances
+15:20:29
+2026-01-18T15:20:29.214048Z  INFO rinku_node::fork_remediation: Fork detected and resolved: dcbf5da8f4522335 wins over 0a7a15c5ef55356b (999.25 vs 10.00)
+15:20:29
+2026-01-18T15:20:29.214089Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 0a7a15c5ef55356b, reverted account balances
+15:20:29
+2026-01-18T15:20:29.214103Z  INFO rinku_node::fork_remediation: Fork detected and resolved: dcbf5da8f4522335 wins over aea0dd042dd6572e (999.25 vs 10.49)
+15:20:29
+2026-01-18T15:20:29.214143Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at aea0dd042dd6572e, reverted account balances
+15:20:29
+2026-01-18T15:20:29.214157Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over f2819ecc97978ce7 (1.00 vs 0.00)
+15:20:29
+2026-01-18T15:20:29.214167Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at f2819ecc97978ce7, reverted account balances
+15:20:29
+2026-01-18T15:20:29.214181Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 8ef22a2ad1283e0c (1.00 vs 0.00)
+15:20:29
+2026-01-18T15:20:29.214190Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 8ef22a2ad1283e0c, reverted account balances
+15:20:29
+2026-01-18T15:20:29.214200Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 0a7a15c5ef55356b (1.00 vs 0.00)
+15:20:29
+2026-01-18T15:20:29.214209Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 0a7a15c5ef55356b, reverted account balances
+15:20:29
+2026-01-18T15:20:29.214218Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over aea0dd042dd6572e (1.00 vs 0.00)
+15:20:29
+2026-01-18T15:20:29.214228Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at aea0dd042dd6572e, reverted account balances
+15:20:29
+2026-01-18T15:20:29.214248Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 14, Resolved: 49, Pruned TXs: 10, Double-spends: 0
+15:20:30
+2026-01-18T15:20:30.494422Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 76 vs 75), requesting delta sync...
+15:20:30
+2026-01-18T15:20:30.672486Z  INFO rinku_node::gossip: Sync page: received 2/2 transactions, 2 account nonces (offset=0, has_more=false)
+15:20:30
+2026-01-18T15:20:30.672749Z  INFO rinku_node::gossip: Applied 2 account nonces from peer
+15:20:31
+2026-01-18T15:20:31.185401Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:20:31
+2026-01-18T15:20:31.185613Z  INFO rinku_node::checkpoint: Created checkpoint a0e56e3953e5678e at height 27 (1 txs finalized, 3.932411 RKU emitted)
+15:20:40
+2026-01-18T15:20:40.539459Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 79 vs 75), requesting delta sync...
+15:20:41
+2026-01-18T15:20:41.443774Z  INFO rinku_node::gossip: Sync page: received 3/3 transactions, 3 account nonces (offset=0, has_more=false)
+15:20:41
+2026-01-18T15:20:41.443811Z  INFO rinku_node::gossip: Applied 3 account nonces from peer
+15:20:41
+2026-01-18T15:20:41.443859Z  INFO rinku_node::gossip: Delta sync complete: 0 added, 3 failed
+15:20:41
+2026-01-18T15:20:41.443872Z  WARN rinku_node::gossip: Delta sync had 3 failures vs 0 added - forcing snapshot recovery
+15:20:41
+2026-01-18T15:20:41.444000Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 75 local transactions to https://rinkuchan.com before snapshot sync
+15:20:42
+2026-01-18T15:20:42.067527Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 9, got 8
+15:20:42
+2026-01-18T15:20:42.067602Z  WARN rinku_node::gossip: Failed to add gossiped tx 0edbf6e9a6c65f4ae1c3754c5229bacab3d24d9817bbe0f85ebd5e65de6e0b4a: Invalid nonce: expected 9, got 8
+15:20:42
+2026-01-18T15:20:42.242693Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 9, got 8
+15:20:42
+2026-01-18T15:20:42.242771Z  WARN rinku_node::gossip: Failed to add gossiped tx a2c58141aa64175b9d05889091b74ff334421acb5abea78df7283b944e7b8f84: Invalid nonce: expected 9, got 8
+15:20:53
+2026-01-18T15:20:53.465346Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 73 transactions to peer (0 failed)
+15:20:53
+2026-01-18T15:20:53.515635Z  WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinkuchan.com to fix state divergence
+15:20:53
+2026-01-18T15:20:53.597691Z  WARN rinku_node::gossip: RECOVERY: Received snapshot: 12 accounts, 27 checkpoints, 79 dag txs
+15:20:53
+2026-01-18T15:20:53.597819Z  WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+15:20:53
+2026-01-18T15:20:53.598002Z  WARN rinku_node::state: RECOVERY MODE: Force applying snapshot (12 accounts, 27 checkpoints) to fix state divergence
+15:20:53
+2026-01-18T15:20:53.598060Z  INFO rinku_node::state: Applying sync snapshot: 12 accounts, 27 checkpoints, 79 dag txs
+15:20:53
+2026-01-18T15:20:53.599549Z  INFO rinku_node::state: Snapshot applied: 79 DAG transactions, 0 validators, 27 checkpoints
+15:20:53
+2026-01-18T15:20:53.599861Z  WARN rinku_node::gossip: RECOVERY: Force snapshot sync complete - applied 79 DAG transactions
+15:20:53
+2026-01-18T15:20:53.744201Z  INFO rinku_node::gossip: Propagating 2 pending transactions to 1 peers
+15:20:59
+2026-01-18T15:20:59.216075Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0edbf6e9a6c65f4a wins over genesis (17.52 vs 1.00)
+15:20:59
+2026-01-18T15:20:59.216105Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:20:59
+2026-01-18T15:20:59.216118Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a2c58141aa64175b wins over genesis (14.18 vs 1.00)
+15:20:59
+2026-01-18T15:20:59.216123Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:20:59
+2026-01-18T15:20:59.216141Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 15, Resolved: 51, Pruned TXs: 10, Double-spends: 0
+15:21:01
+2026-01-18T15:21:01.329075Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:21:01
+2026-01-18T15:21:01.329218Z  INFO rinku_node::checkpoint: Created checkpoint a34c3d463185d3c5 at height 28 (79 txs finalized, 3.932411 RKU emitted)
+15:21:03
+2026-01-18T15:21:03.360289Z  INFO rinku_node::api: Snapshot sync request received
+15:21:03
+2026-01-18T15:21:03.360482Z  INFO rinku_node::api: Snapshot sync response: 12 accounts, 0 validators, 28 checkpoints, 80 dag txs
+15:21:05
+2026-01-18T15:21:05.547601Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 83 vs 80), requesting delta sync...
+15:21:05
+2026-01-18T15:21:05.724914Z  INFO rinku_node::gossip: Sync page: received 4/4 transactions, 4 account nonces (offset=0, has_more=false)
+15:21:05
+2026-01-18T15:21:05.725009Z  INFO rinku_node::gossip: Applied 4 account nonces from peer
+15:21:05
+2026-01-18T15:21:05.725206Z  INFO rinku_node::gossip: Delta sync complete: 4 added, 0 failed
+15:21:29
+2026-01-18T15:21:29.216857Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 15, Resolved: 51, Pruned TXs: 10, Double-spends: 0
+15:21:31
+2026-01-18T15:21:31.509845Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:21:31
+2026-01-18T15:21:31.509945Z  INFO rinku_node::checkpoint: Created checkpoint 32789e1d052f2b11 at height 29 (4 txs finalized, 3.932411 RKU emitted)
+15:21:34
+2026-01-18T15:21:34.114998Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 17, got 16
+15:21:34
+2026-01-18T15:21:34.115041Z  WARN rinku_node::gossip: Failed to add gossiped tx 007be0733463eda3a2d8d30309931c617f384d3530f64484a88cbed754e8c866: Invalid nonce: expected 17, got 16
+15:21:35
+2026-01-18T15:21:35.536470Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 87 vs 84), requesting delta sync...
+15:21:35
+2026-01-18T15:21:35.712697Z  INFO rinku_node::gossip: Sync page: received 5/5 transactions, 5 account nonces (offset=0, has_more=false)
+15:21:35
+2026-01-18T15:21:35.712728Z  INFO rinku_node::gossip: Applied 5 account nonces from peer
+15:21:35
+2026-01-18T15:21:35.712902Z  INFO rinku_node::gossip: Delta sync complete: 5 added, 0 failed
+15:21:41
+2026-01-18T15:21:41.626601Z  INFO rinku_node::api: Sync delta request: checkpoint=29, offset=0, limit=500
+15:21:41
+2026-01-18T15:21:41.626649Z  INFO rinku_node::api: Returning 9 of 9 transactions with 8 account nonces (offset=0, has_more=false)
+15:21:51
+2026-01-18T15:21:51.731936Z  INFO rinku_node::api: Sync delta request: checkpoint=29, offset=0, limit=500
+15:21:51
+2026-01-18T15:21:51.731971Z  INFO rinku_node::api: Returning 9 of 9 transactions with 8 account nonces (offset=0, has_more=false)
+15:21:59
+2026-01-18T15:21:59.218615Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 15, Resolved: 51, Pruned TXs: 10, Double-spends: 0
+15:22:01
+2026-01-18T15:22:01.048886Z  INFO rinku_node::api: Sync delta request: checkpoint=29, offset=0, limit=500
+15:22:01
+2026-01-18T15:22:01.048925Z  INFO rinku_node::api: Returning 9 of 9 transactions with 8 account nonces (offset=0, has_more=false)
+15:22:01
+2026-01-18T15:22:01.641273Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:22:01
+2026-01-18T15:22:01.641367Z  INFO rinku_node::checkpoint: Created checkpoint 8e0ada1056b0aace at height 30 (5 txs finalized, 3.932411 RKU emitted)
+15:22:05
+2026-01-18T15:22:05.628648Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 1 peers
+15:22:10
+2026-01-18T15:22:10.489586Z  INFO rinku_node::gossip: Propagating 2 pending transactions to 1 peers
+15:22:10
+2026-01-18T15:22:10.854569Z  INFO rinku_node::api: Sync delta request: checkpoint=30, offset=0, limit=500
+15:22:10
+2026-01-18T15:22:10.854665Z  INFO rinku_node::api: Returning 10 of 10 transactions with 7 account nonces (offset=0, has_more=false)
+15:22:21
+2026-01-18T15:22:21.692481Z  INFO rinku_node::api: Sync delta request: checkpoint=30, offset=0, limit=500
+15:22:21
+2026-01-18T15:22:21.692517Z  INFO rinku_node::api: Returning 10 of 10 transactions with 7 account nonces (offset=0, has_more=false)
+15:22:29
+2026-01-18T15:22:29.219726Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4bfca3d185f722d4 wins over genesis (11.45 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.219771Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:22:29
+2026-01-18T15:22:29.219799Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4bfca3d185f722d4 wins over 4a543bf49842cacf (11.45 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.219808Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:22:29
+2026-01-18T15:22:29.219819Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4bfca3d185f722d4 wins over 17e139acd7e29032 (11.45 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.219826Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:22:29
+2026-01-18T15:22:29.219862Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over genesis (10.95 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.219870Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:22:29
+2026-01-18T15:22:29.219895Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over 4a543bf49842cacf (10.95 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.219903Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:22:29
+2026-01-18T15:22:29.219927Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over 17e139acd7e29032 (10.95 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.219935Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:22:29
+2026-01-18T15:22:29.219949Z  INFO rinku_node::fork_remediation: Fork detected and resolved: f52d85fac1fe3b23 wins over genesis (10.68 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.219956Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:22:29
+2026-01-18T15:22:29.219966Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over genesis (14.32 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.219974Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:22:29
+2026-01-18T15:22:29.219986Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 8b17aa9bdd892c29 wins over genesis (13.86 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.219993Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:22:29
+2026-01-18T15:22:29.220007Z  INFO rinku_node::fork_remediation: Fork detected and resolved: f52d85fac1fe3b23 wins over 4a543bf49842cacf (10.68 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.220014Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:22:29
+2026-01-18T15:22:29.220024Z  INFO rinku_node::fork_remediation: Fork detected and resolved: f52d85fac1fe3b23 wins over 17e139acd7e29032 (10.68 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.220031Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:22:29
+2026-01-18T15:22:29.220045Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over 4a543bf49842cacf (14.32 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.220053Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:22:29
+2026-01-18T15:22:29.220062Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over 17e139acd7e29032 (14.32 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.220069Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:22:29
+2026-01-18T15:22:29.220084Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 8b17aa9bdd892c29 wins over 4a543bf49842cacf (13.86 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.220093Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:22:29
+2026-01-18T15:22:29.220102Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 8b17aa9bdd892c29 wins over 17e139acd7e29032 (13.86 vs 1.00)
+15:22:29
+2026-01-18T15:22:29.220110Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:22:29
+2026-01-18T15:22:29.220121Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 25, Resolved: 66, Pruned TXs: 10, Double-spends: 0
+15:22:30
+2026-01-18T15:22:30.661026Z  INFO rinku_node::api: Sync delta request: checkpoint=30, offset=0, limit=500
+15:22:30
+2026-01-18T15:22:30.661070Z  INFO rinku_node::api: Returning 10 of 10 transactions with 7 account nonces (offset=0, has_more=false)
+15:22:31
+2026-01-18T15:22:31.785003Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:22:31
+2026-01-18T15:22:31.785052Z  INFO rinku_node::checkpoint: Created checkpoint 4ea507a4870f0d79 at height 31 (5 txs finalized, 3.932411 RKU emitted)
+15:22:33
+2026-01-18T15:22:33.937500Z  WARN rinku_node::state: Transaction rejected: account fc7c58b1e25fb345 does not exist
+15:22:33
+2026-01-18T15:22:33.937545Z  WARN rinku_node::gossip: Failed to add gossiped tx 7b035f1d3847b8c0277d69dd2c47d628aa13871b5bb4ecf18d93c42ea5c4aeac: Account does not exist
+15:22:35
+2026-01-18T15:22:35.670037Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 1 peers
+15:22:41
+2026-01-18T15:22:41.171520Z  INFO rinku_node::api: Sync delta request: checkpoint=31, offset=0, limit=500
+15:22:41
+2026-01-18T15:22:41.171557Z  INFO rinku_node::api: Returning 9 of 9 transactions with 8 account nonces (offset=0, has_more=false)
+15:22:51
+2026-01-18T15:22:51.624997Z  INFO rinku_node::api: Sync delta request: checkpoint=31, offset=0, limit=500
+15:22:51
+2026-01-18T15:22:51.625057Z  INFO rinku_node::api: Returning 9 of 9 transactions with 8 account nonces (offset=0, has_more=false)
+15:22:59
+2026-01-18T15:22:59.220922Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over a64a9a88e78060af (10.95 vs 2.24)
+15:22:59
+2026-01-18T15:22:59.221091Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at a64a9a88e78060af, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221113Z  INFO rinku_node::fork_remediation: Fork detected and resolved: c9ca89b965daa690 wins over 42e15c1124db37d7 (17.26 vs 10.95)
+15:22:59
+2026-01-18T15:22:59.221122Z  INFO rinku_node::state: Cannot prune finalized node 42e15c1124db37d7
+15:22:59
+2026-01-18T15:22:59.221140Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over a64a9a88e78060af (1.00 vs 0.00)
+15:22:59
+2026-01-18T15:22:59.221150Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at a64a9a88e78060af, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221162Z  INFO rinku_node::fork_remediation: Fork detected and resolved: c9ca89b965daa690 wins over genesis (17.26 vs 1.00)
+15:22:59
+2026-01-18T15:22:59.221170Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:22:59
+2026-01-18T15:22:59.221184Z  INFO rinku_node::fork_remediation: Fork detected and resolved: e33dd7be551bfdf5 wins over genesis (10.77 vs 1.00)
+15:22:59
+2026-01-18T15:22:59.221192Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:22:59
+2026-01-18T15:22:59.221201Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over a64a9a88e78060af (14.32 vs 0.00)
+15:22:59
+2026-01-18T15:22:59.221209Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at a64a9a88e78060af, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221220Z  INFO rinku_node::fork_remediation: Fork detected and resolved: c9ca89b965daa690 wins over a64a9a88e78060af (17.26 vs 0.00)
+15:22:59
+2026-01-18T15:22:59.221228Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at a64a9a88e78060af, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221238Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a543bf49842cacf wins over a64a9a88e78060af (1.00 vs 0.00)
+15:22:59
+2026-01-18T15:22:59.221246Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at a64a9a88e78060af, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221256Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 17e139acd7e29032 wins over a64a9a88e78060af (1.00 vs 0.00)
+15:22:59
+2026-01-18T15:22:59.221264Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at a64a9a88e78060af, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221274Z  INFO rinku_node::fork_remediation: Fork detected and resolved: e33dd7be551bfdf5 wins over a64a9a88e78060af (10.77 vs 0.00)
+15:22:59
+2026-01-18T15:22:59.221282Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at a64a9a88e78060af, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221303Z  INFO rinku_node::fork_remediation: Fork detected and resolved: c9ca89b965daa690 wins over 4a543bf49842cacf (17.26 vs 1.00)
+15:22:59
+2026-01-18T15:22:59.221311Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:22:59
+2026-01-18T15:22:59.221321Z  INFO rinku_node::fork_remediation: Fork detected and resolved: c9ca89b965daa690 wins over 17e139acd7e29032 (17.26 vs 1.00)
+15:22:59
+2026-01-18T15:22:59.221328Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:22:59
+2026-01-18T15:22:59.221339Z  INFO rinku_node::fork_remediation: Fork detected and resolved: c9ca89b965daa690 wins over e33dd7be551bfdf5 (17.26 vs 10.77)
+15:22:59
+2026-01-18T15:22:59.221383Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at e33dd7be551bfdf5, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221397Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a543bf49842cacf wins over e33dd7be551bfdf5 (1.00 vs 0.00)
+15:22:59
+2026-01-18T15:22:59.221406Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at e33dd7be551bfdf5, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221416Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 17e139acd7e29032 wins over e33dd7be551bfdf5 (1.00 vs 0.00)
+15:22:59
+2026-01-18T15:22:59.221424Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at e33dd7be551bfdf5, reverted account balances
+15:22:59
+2026-01-18T15:22:59.221442Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 28, Resolved: 81, Pruned TXs: 12, Double-spends: 0
+15:23:01
+2026-01-18T15:23:01.619983Z  INFO rinku_node::api: Sync delta request: checkpoint=31, offset=0, limit=500
+15:23:01
+2026-01-18T15:23:01.620044Z  INFO rinku_node::api: Returning 7 of 7 transactions with 7 account nonces (offset=0, has_more=false)
+15:23:01
+2026-01-18T15:23:01.943781Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:23:01
+2026-01-18T15:23:01.943882Z  INFO rinku_node::checkpoint: Created checkpoint 51e12e7055ea5134 at height 32 (2 txs finalized, 3.932411 RKU emitted)
+15:23:05
+2026-01-18T15:23:05.634168Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 1 peers
+15:23:11
+2026-01-18T15:23:11.622827Z  INFO rinku_node::api: Sync delta request: checkpoint=32, offset=0, limit=500
+15:23:11
+2026-01-18T15:23:11.622861Z  INFO rinku_node::api: Returning 7 of 7 transactions with 6 account nonces (offset=0, has_more=false)
+15:23:21
+2026-01-18T15:23:21.619411Z  INFO rinku_node::api: Sync delta request: checkpoint=32, offset=0, limit=500
+15:23:21
+2026-01-18T15:23:21.619445Z  INFO rinku_node::api: Returning 7 of 7 transactions with 6 account nonces (offset=0, has_more=false)
+15:23:29
+2026-01-18T15:23:29.222704Z  INFO rinku_node::fork_remediation: Fork detected and resolved: b53d49868ea79392 wins over genesis (14.18 vs 1.00)
+15:23:29
+2026-01-18T15:23:29.222749Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:23:29
+2026-01-18T15:23:29.222862Z  INFO rinku_node::fork_remediation: Fork detected and resolved: b53d49868ea79392 wins over 4a543bf49842cacf (14.18 vs 1.00)
+15:23:29
+2026-01-18T15:23:29.222872Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:23:29
+2026-01-18T15:23:29.222883Z  INFO rinku_node::fork_remediation: Fork detected and resolved: b53d49868ea79392 wins over 17e139acd7e29032 (14.18 vs 1.00)
+15:23:29
+2026-01-18T15:23:29.222891Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:23:29
+2026-01-18T15:23:29.222905Z  INFO rinku_node::fork_remediation: Fork detected and resolved: b929add4f74bfad1 wins over 4011f46833ba88cf (17.61 vs 11.04)
+15:23:29
+2026-01-18T15:23:29.222983Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 4011f46833ba88cf, reverted account balances
+15:23:29
+2026-01-18T15:23:29.222997Z  INFO rinku_node::fork_remediation: Fork detected and resolved: b929add4f74bfad1 wins over 42e15c1124db37d7 (17.61 vs 10.95)
+15:23:29
+2026-01-18T15:23:29.223005Z  INFO rinku_node::state: Cannot prune finalized node 42e15c1124db37d7
+15:23:29
+2026-01-18T15:23:29.223015Z  INFO rinku_node::fork_remediation: Fork detected and resolved: b929add4f74bfad1 wins over genesis (17.61 vs 1.00)
+15:23:29
+2026-01-18T15:23:29.223022Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:23:29
+2026-01-18T15:23:29.223039Z  INFO rinku_node::fork_remediation: Fork detected and resolved: b929add4f74bfad1 wins over 4a543bf49842cacf (17.61 vs 1.00)
+15:23:29
+2026-01-18T15:23:29.223047Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:23:29
+2026-01-18T15:23:29.223056Z  INFO rinku_node::fork_remediation: Fork detected and resolved: b929add4f74bfad1 wins over 17e139acd7e29032 (17.61 vs 1.00)
+15:23:29
+2026-01-18T15:23:29.223064Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:23:29
+2026-01-18T15:23:29.223073Z  INFO rinku_node::fork_remediation: Fork detected and resolved: b929add4f74bfad1 wins over 57e389b4df85519f (17.61 vs 10.54)
+15:23:29
+2026-01-18T15:23:29.223118Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 57e389b4df85519f, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223130Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over 4011f46833ba88cf (10.95 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223139Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4011f46833ba88cf, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223150Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 4011f46833ba88cf (1.00 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223158Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4011f46833ba88cf, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223168Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over 4011f46833ba88cf (14.32 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223209Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4011f46833ba88cf, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223220Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0c9857bb00d916a0 wins over 4011f46833ba88cf (17.15 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223230Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4011f46833ba88cf, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223240Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a543bf49842cacf wins over 4011f46833ba88cf (1.00 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223248Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4011f46833ba88cf, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223258Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 17e139acd7e29032 wins over 4011f46833ba88cf (1.00 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223266Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4011f46833ba88cf, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223280Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0c9857bb00d916a0 wins over 42e15c1124db37d7 (17.15 vs 10.95)
+15:23:29
+2026-01-18T15:23:29.223288Z  INFO rinku_node::state: Cannot prune finalized node 42e15c1124db37d7
+15:23:29
+2026-01-18T15:23:29.223298Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over 57e389b4df85519f (10.95 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223307Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 57e389b4df85519f, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223319Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0c9857bb00d916a0 wins over genesis (17.15 vs 1.00)
+15:23:29
+2026-01-18T15:23:29.223327Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:23:29
+2026-01-18T15:23:29.223339Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 57e389b4df85519f (1.00 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223347Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 57e389b4df85519f, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223363Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over 57e389b4df85519f (14.32 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223371Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 57e389b4df85519f, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223381Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0c9857bb00d916a0 wins over 4a543bf49842cacf (17.15 vs 1.00)
+15:23:29
+2026-01-18T15:23:29.223389Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:23:29
+2026-01-18T15:23:29.223398Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0c9857bb00d916a0 wins over 17e139acd7e29032 (17.15 vs 1.00)
+15:23:29
+2026-01-18T15:23:29.223415Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:23:29
+2026-01-18T15:23:29.223424Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 0c9857bb00d916a0 wins over 57e389b4df85519f (17.15 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223432Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 57e389b4df85519f, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223445Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a543bf49842cacf wins over 57e389b4df85519f (1.00 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223453Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 57e389b4df85519f, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223464Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 17e139acd7e29032 wins over 57e389b4df85519f (1.00 vs 0.00)
+15:23:29
+2026-01-18T15:23:29.223472Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 57e389b4df85519f, reverted account balances
+15:23:29
+2026-01-18T15:23:29.223493Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 37, Resolved: 106, Pruned TXs: 14, Double-spends: 0
+15:23:31
+2026-01-18T15:23:31.314094Z  INFO rinku_node::api: Sync delta request: checkpoint=32, offset=0, limit=500
+15:23:31
+2026-01-18T15:23:31.314143Z  INFO rinku_node::api: Returning 5 of 5 transactions with 4 account nonces (offset=0, has_more=false)
+15:23:32
+2026-01-18T15:23:32.133021Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:23:32
+2026-01-18T15:23:32.133098Z  INFO rinku_node::checkpoint: Created checkpoint 850fafd423b3a3d8 at height 33 (3 txs finalized, 3.932411 RKU emitted)
+15:23:35
+2026-01-18T15:23:35.535558Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 104 vs 100), requesting delta sync...
+15:23:35
+2026-01-18T15:23:35.638547Z  WARN rinku_node::state: Transaction rejected: insufficient balance. Have 1.000000, need 4.001000 (amount: 4.000000, gas: 0.001000)
+15:23:35
+2026-01-18T15:23:35.638650Z  WARN rinku_node::gossip: Failed to add gossiped tx acaf2ef8fa7ed274a76f2348a7ec283d5a1f32328cd0548f86e0ddcf19ff2b1a: Insufficient balance: have 1.000000, need 4.001000
+15:23:35
+2026-01-18T15:23:35.710833Z  INFO rinku_node::gossip: Sync page: received 7/7 transactions, 7 account nonces (offset=0, has_more=false)
+15:23:35
+2026-01-18T15:23:35.710877Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+15:23:35
+2026-01-18T15:23:35.710968Z  INFO rinku_node::gossip: Delta sync complete: 5 added, 0 failed
+15:23:35
+2026-01-18T15:23:35.885630Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 1 peers
+15:23:41
+2026-01-18T15:23:41.625707Z  INFO rinku_node::api: Sync delta request: checkpoint=33, offset=0, limit=500
+15:23:41
+2026-01-18T15:23:41.625760Z  INFO rinku_node::api: Returning 9 of 9 transactions with 7 account nonces (offset=0, has_more=false)
+15:23:51
+2026-01-18T15:23:51.627787Z  INFO rinku_node::api: Sync delta request: checkpoint=33, offset=0, limit=500
+15:23:51
+2026-01-18T15:23:51.627824Z  INFO rinku_node::api: Returning 9 of 9 transactions with 7 account nonces (offset=0, has_more=false)
+15:23:59
+2026-01-18T15:23:59.224191Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over 812a99619f9182da (10.95 vs 1.00)
+15:23:59
+2026-01-18T15:23:59.224333Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 812a99619f9182da, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224353Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 812a99619f9182da (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224363Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 812a99619f9182da, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224375Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 79eb3d583fe669e1 wins over 812a99619f9182da (14.11 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224384Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 812a99619f9182da, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224394Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over 812a99619f9182da (14.32 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224402Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 812a99619f9182da, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224413Z  INFO rinku_node::fork_remediation: Fork detected and resolved: cc68611ade6f17f7 wins over 812a99619f9182da (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224421Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 812a99619f9182da, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224431Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a543bf49842cacf wins over 812a99619f9182da (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224439Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 812a99619f9182da, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224450Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 17e139acd7e29032 wins over 812a99619f9182da (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224458Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 812a99619f9182da, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224469Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a2ac5f22d712b18 wins over 812a99619f9182da (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224477Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 812a99619f9182da, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224488Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over 0a599a53a77f1dcc (10.95 vs 1.00)
+15:23:59
+2026-01-18T15:23:59.224543Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 0a599a53a77f1dcc, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224555Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 0a599a53a77f1dcc (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224563Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 0a599a53a77f1dcc, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224574Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 79eb3d583fe669e1 wins over 0a599a53a77f1dcc (14.11 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224582Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 0a599a53a77f1dcc, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224592Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over 0a599a53a77f1dcc (14.32 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224601Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 0a599a53a77f1dcc, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224620Z  INFO rinku_node::fork_remediation: Fork detected and resolved: cc68611ade6f17f7 wins over 0a599a53a77f1dcc (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224629Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 0a599a53a77f1dcc, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224639Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a543bf49842cacf wins over 0a599a53a77f1dcc (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224647Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 0a599a53a77f1dcc, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224657Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 17e139acd7e29032 wins over 0a599a53a77f1dcc (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224665Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 0a599a53a77f1dcc, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224675Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a2ac5f22d712b18 wins over 0a599a53a77f1dcc (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224683Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 0a599a53a77f1dcc, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224699Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over cc68611ade6f17f7 (10.95 vs 1.00)
+15:23:59
+2026-01-18T15:23:59.224749Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at cc68611ade6f17f7, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224764Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over 4a2ac5f22d712b18 (10.95 vs 1.00)
+15:23:59
+2026-01-18T15:23:59.224859Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 4a2ac5f22d712b18, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224879Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 79eb3d583fe669e1 wins over genesis (14.11 vs 1.00)
+15:23:59
+2026-01-18T15:23:59.224892Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:23:59
+2026-01-18T15:23:59.224903Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over cc68611ade6f17f7 (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224912Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at cc68611ade6f17f7, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224931Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 4a2ac5f22d712b18 (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224939Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4a2ac5f22d712b18, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224954Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 79eb3d583fe669e1 wins over cc68611ade6f17f7 (14.11 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.224962Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at cc68611ade6f17f7, reverted account balances
+15:23:59
+2026-01-18T15:23:59.224973Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 79eb3d583fe669e1 wins over 4a543bf49842cacf (14.11 vs 1.00)
+15:23:59
+2026-01-18T15:23:59.224982Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:23:59
+2026-01-18T15:23:59.224992Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 79eb3d583fe669e1 wins over 17e139acd7e29032 (14.11 vs 1.00)
+15:23:59
+2026-01-18T15:23:59.224999Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:23:59
+2026-01-18T15:23:59.225008Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 79eb3d583fe669e1 wins over 4a2ac5f22d712b18 (14.11 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.225016Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4a2ac5f22d712b18, reverted account balances
+15:23:59
+2026-01-18T15:23:59.225026Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over cc68611ade6f17f7 (14.32 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.225034Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at cc68611ade6f17f7, reverted account balances
+15:23:59
+2026-01-18T15:23:59.225047Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over 4a2ac5f22d712b18 (14.32 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.225055Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4a2ac5f22d712b18, reverted account balances
+15:23:59
+2026-01-18T15:23:59.225073Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a543bf49842cacf wins over cc68611ade6f17f7 (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.225082Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at cc68611ade6f17f7, reverted account balances
+15:23:59
+2026-01-18T15:23:59.225092Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 17e139acd7e29032 wins over cc68611ade6f17f7 (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.225277Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at cc68611ade6f17f7, reverted account balances
+15:23:59
+2026-01-18T15:23:59.225503Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a543bf49842cacf wins over 4a2ac5f22d712b18 (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.225567Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4a2ac5f22d712b18, reverted account balances
+15:23:59
+2026-01-18T15:23:59.225778Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 17e139acd7e29032 wins over 4a2ac5f22d712b18 (1.00 vs 0.00)
+15:23:59
+2026-01-18T15:23:59.225838Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4a2ac5f22d712b18, reverted account balances
+15:23:59
+2026-01-18T15:23:59.226039Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 39, Resolved: 137, Pruned TXs: 18, Double-spends: 0
+15:24:02
+2026-01-18T15:24:02.271931Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:24:02
+2026-01-18T15:24:02.272037Z  INFO rinku_node::checkpoint: Created checkpoint 52da1806b4d1311c at height 34 (2 txs finalized, 3.932411 RKU emitted)
+15:24:03
+2026-01-18T15:24:03.818262Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 13, got 14
+15:24:03
+2026-01-18T15:24:03.818311Z  WARN rinku_node::gossip: Failed to add gossiped tx 31194def99b6e7b4c784c288e9826f73f1f95e4e48cd6e9e5d59af4945d4ba34: Invalid nonce: expected 13, got 14
+15:24:03
+2026-01-18T15:24:03.930033Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 0, got 1
+15:24:03
+2026-01-18T15:24:03.930076Z  WARN rinku_node::gossip: Failed to add gossiped tx 3f6d2f28544fdd6b4908cef8faab1b1e1936e2170956525e3ef75187ea671459: Invalid nonce: expected 0, got 1
+15:24:04
+2026-01-18T15:24:04.144306Z  WARN rinku_node::state: Transaction rejected: insufficient balance. Have 0.000000, need 3.001000 (amount: 3.000000, gas: 0.001000)
+15:24:04
+2026-01-18T15:24:04.144363Z  WARN rinku_node::gossip: Failed to add gossiped tx 8fcdd2b4a67a97bb1c7202005cfaa8d0f79b296a5c9ad7151deccfe44d85157e: Insufficient balance: have 0.000000, need 3.001000
+15:24:04
+2026-01-18T15:24:04.368214Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 11, got 12
+15:24:04
+2026-01-18T15:24:04.368250Z  WARN rinku_node::gossip: Failed to add gossiped tx 8574791bad2461b8a248bf195500a311f969420956b1c23ae2267c652b4cf721: Invalid nonce: expected 11, got 12
+15:24:05
+2026-01-18T15:24:05.536687Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 108 vs 103), requesting delta sync...
+15:24:05
+2026-01-18T15:24:05.713855Z  INFO rinku_node::gossip: Sync page: received 6/6 transactions, 6 account nonces (offset=0, has_more=false)
+15:24:05
+2026-01-18T15:24:05.713902Z  INFO rinku_node::gossip: Applied 6 account nonces from peer
+15:24:05
+2026-01-18T15:24:05.886534Z  INFO rinku_node::gossip: Propagating 2 pending transactions to 1 peers
+15:24:15
+2026-01-18T15:24:15.544227Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 106 vs 103), requesting delta sync...
+15:24:15
+2026-01-18T15:24:15.671401Z  INFO rinku_node::gossip: Sync page: received 4/4 transactions, 4 account nonces (offset=0, has_more=false)
+15:24:15
+2026-01-18T15:24:15.671497Z  INFO rinku_node::gossip: Applied 4 account nonces from peer
+15:24:25
+2026-01-18T15:24:25.491128Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 106 vs 103), requesting delta sync...
+15:24:25
+2026-01-18T15:24:25.629590Z  INFO rinku_node::gossip: Sync page: received 4/4 transactions, 4 account nonces (offset=0, has_more=false)
+15:24:25
+2026-01-18T15:24:25.629683Z  INFO rinku_node::gossip: Applied 4 account nonces from peer
+15:24:29
+2026-01-18T15:24:29.227392Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 42e15c1124db37d7 wins over ebb42c54c78be8a2 (10.95 vs 1.00)
+15:24:29
+2026-01-18T15:24:29.227435Z  INFO rinku_node::state: Cannot prune finalized node ebb42c54c78be8a2
+15:24:29
+2026-01-18T15:24:29.227457Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 25563bf21bc2e739 wins over ebb42c54c78be8a2 (14.32 vs 1.00)
+15:24:29
+2026-01-18T15:24:29.227466Z  INFO rinku_node::state: Cannot prune finalized node ebb42c54c78be8a2
+15:24:29
+2026-01-18T15:24:29.227477Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 00ab909da073b76e wins over ebb42c54c78be8a2 (17.12 vs 1.00)
+15:24:29
+2026-01-18T15:24:29.227485Z  INFO rinku_node::state: Cannot prune finalized node ebb42c54c78be8a2
+15:24:29
+2026-01-18T15:24:29.227496Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 6d3bb9f60ec878e8 wins over ebb42c54c78be8a2 (11.31 vs 1.00)
+15:24:29
+2026-01-18T15:24:29.227503Z  INFO rinku_node::state: Cannot prune finalized node ebb42c54c78be8a2
+15:24:29
+2026-01-18T15:24:29.227520Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 00ab909da073b76e wins over 42e15c1124db37d7 (17.12 vs 10.95)
+15:24:29
+2026-01-18T15:24:29.227527Z  INFO rinku_node::state: Cannot prune finalized node 42e15c1124db37d7
+15:24:29
+2026-01-18T15:24:29.227544Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 00ab909da073b76e wins over genesis (17.12 vs 1.00)
+15:24:29
+2026-01-18T15:24:29.227551Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:24:29
+2026-01-18T15:24:29.227562Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 6d3bb9f60ec878e8 wins over genesis (11.31 vs 1.00)
+15:24:29
+2026-01-18T15:24:29.227569Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:24:29
+2026-01-18T15:24:29.227594Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 00ab909da073b76e wins over 6d3bb9f60ec878e8 (17.12 vs 11.31)
+15:24:29
+2026-01-18T15:24:29.227681Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 6d3bb9f60ec878e8, reverted account balances
+15:24:29
+2026-01-18T15:24:29.227697Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 00ab909da073b76e wins over 4a543bf49842cacf (17.12 vs 1.00)
+15:24:29
+2026-01-18T15:24:29.227705Z  INFO rinku_node::state: Cannot prune finalized node 4a543bf49842cacf
+15:24:29
+2026-01-18T15:24:29.227717Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 00ab909da073b76e wins over 17e139acd7e29032 (17.12 vs 1.00)
+15:24:29
+2026-01-18T15:24:29.227724Z  INFO rinku_node::state: Cannot prune finalized node 17e139acd7e29032
+15:24:29
+2026-01-18T15:24:29.227734Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4a543bf49842cacf wins over 6d3bb9f60ec878e8 (1.00 vs 0.00)
+15:24:29
+2026-01-18T15:24:29.227743Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 6d3bb9f60ec878e8, reverted account balances
+15:24:29
+2026-01-18T15:24:29.227753Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 17e139acd7e29032 wins over 6d3bb9f60ec878e8 (1.00 vs 0.00)
+15:24:29
+2026-01-18T15:24:29.227761Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 6d3bb9f60ec878e8, reverted account balances
+15:24:29
+2026-01-18T15:24:29.227776Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 42, Resolved: 149, Pruned TXs: 19, Double-spends: 0
+15:24:32
+2026-01-18T15:24:32.422987Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:24:32
+2026-01-18T15:24:32.423085Z  INFO rinku_node::checkpoint: Created checkpoint e157a843a2504f83 at height 35 (1 txs finalized, 3.932411 RKU emitted)
+15:24:35
+2026-01-18T15:24:35.111660Z  WARN rinku_node::state: Transaction rejected: insufficient balance. Have 0.000000, need 4.001000 (amount: 4.000000, gas: 0.001000)
+15:24:35
+2026-01-18T15:24:35.111708Z  WARN rinku_node::gossip: Failed to add gossiped tx a00ddfe0c07d27b1c06b063722c5f67bf156cc14b962f3f2694922d71fff7d55: Insufficient balance: have 0.000000, need 4.001000
+15:24:35
+2026-01-18T15:24:35.541104Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 113 vs 103), requesting delta sync...
+15:24:35
+2026-01-18T15:24:35.624540Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 3, got 4
+15:24:35
+2026-01-18T15:24:35.624614Z  WARN rinku_node::gossip: Failed to add gossiped tx 89f39946b93015695d339f0da7b17dfc5374300168c1703832bc8fa6ef4682c1: Invalid nonce: expected 3, got 4
+15:24:35
+2026-01-18T15:24:35.695865Z  INFO rinku_node::gossip: Sync page: received 7/7 transactions, 7 account nonces (offset=0, has_more=false)
+15:24:35
+2026-01-18T15:24:35.695906Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+15:24:35
+2026-01-18T15:24:35.695967Z  INFO rinku_node::gossip: Delta sync complete: 0 added, 4 failed
+15:24:35
+2026-01-18T15:24:35.695980Z  WARN rinku_node::gossip: Delta sync had 4 failures vs 0 added - forcing snapshot recovery
+15:24:35
+2026-01-18T15:24:35.696141Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 103 local transactions to https://rinkuchan.com before snapshot sync
+15:24:35
+2026-01-18T15:24:35.786805Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 14, got 13
+15:24:35
+2026-01-18T15:24:35.787027Z  WARN rinku_node::gossip: Failed to add gossiped tx bd678f7d5318f5c29104aab88169c573c6d018352144a88cbfe249746b39c06c: Invalid nonce: expected 14, got 13
+15:24:35
+2026-01-18T15:24:35.960687Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 3
+15:24:35
+2026-01-18T15:24:35.960761Z  WARN rinku_node::gossip: Failed to add gossiped tx 29c10e1589aee28492bb66e9e02d19ca53aaf1aaa66fe8e5866697db6d64f36b: Invalid nonce: expected 4, got 3
+15:24:36
+2026-01-18T15:24:36.137881Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 5, got 4
+15:24:36
+2026-01-18T15:24:36.137940Z  WARN rinku_node::gossip: Failed to add gossiped tx 74712af0745199cbe8bbe0e5f99d458cf09ca855f54222a25d63d92148f9d54b: Invalid nonce: expected 5, got 4
+15:24:40
+2026-01-18T15:24:40.363316Z  INFO rinku_node::api: Snapshot sync request received
+15:24:40
+2026-01-18T15:24:40.363513Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 35 checkpoints, 103 dag txs
+15:24:52
+2026-01-18T15:24:52.588312Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 101 transactions to peer (0 failed)
+15:24:52
+2026-01-18T15:24:52.673418Z  WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinkuchan.com to fix state divergence
+15:24:52
+2026-01-18T15:24:52.761255Z  WARN rinku_node::gossip: RECOVERY: Received snapshot: 15 accounts, 35 checkpoints, 113 dag txs
+15:24:52
+2026-01-18T15:24:52.761380Z  WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+15:24:52
+2026-01-18T15:24:52.761575Z  WARN rinku_node::state: RECOVERY MODE: Force applying snapshot (15 accounts, 35 checkpoints) to fix state divergence
+15:24:52
+2026-01-18T15:24:52.761640Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 35 checkpoints, 113 dag txs
+15:24:52
+2026-01-18T15:24:52.764004Z  INFO rinku_node::state: Snapshot applied: 113 DAG transactions, 0 validators, 35 checkpoints
+15:24:52
+2026-01-18T15:24:52.764423Z  WARN rinku_node::gossip: RECOVERY: Force snapshot sync complete - applied 113 DAG transactions
+15:24:52
+2026-01-18T15:24:52.939353Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 1 peers
+15:24:59
+2026-01-18T15:24:59.230070Z  INFO rinku_node::fork_remediation: Fork detected and resolved: bd678f7d5318f5c2 wins over genesis (12.33 vs 1.00)
+15:24:59
+2026-01-18T15:24:59.230114Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:24:59
+2026-01-18T15:24:59.230149Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 89f39946b9301569 wins over genesis (11.66 vs 1.00)
+15:24:59
+2026-01-18T15:24:59.230158Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:24:59
+2026-01-18T15:24:59.230181Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 871af9d39b867d7d wins over genesis (14.14 vs 1.00)
+15:24:59
+2026-01-18T15:24:59.230188Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:24:59
+2026-01-18T15:24:59.230207Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 74712af0745199cb wins over genesis (12.37 vs 1.00)
+15:24:59
+2026-01-18T15:24:59.230214Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:24:59
+2026-01-18T15:24:59.230227Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 29c10e1589aee284 wins over genesis (11.45 vs 1.00)
+15:24:59
+2026-01-18T15:24:59.230235Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:24:59
+2026-01-18T15:24:59.230248Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a00ddfe0c07d27b1 wins over genesis (12.17 vs 1.00)
+15:24:59
+2026-01-18T15:24:59.230255Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:24:59
+2026-01-18T15:24:59.230281Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 57, Resolved: 155, Pruned TXs: 19, Double-spends: 0
+15:25:00
+2026-01-18T15:25:00.689818Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 21, got 18
+15:25:00
+2026-01-18T15:25:00.689856Z  WARN rinku_node::gossip: Failed to add gossiped tx 04de3d895897aa4fb5d076bb7cf547c34a32329a1eb77ed0f288422cd561100a: Invalid nonce: expected 21, got 18
+15:25:02
+2026-01-18T15:25:02.567838Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:25:02
+2026-01-18T15:25:02.568191Z  INFO rinku_node::checkpoint: Created checkpoint 3a1d273fd3390aa1 at height 36 (113 txs finalized, 3.932411 RKU emitted)
+15:25:04
+2026-01-18T15:25:04.089858Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 21, got 20
+15:25:04
+2026-01-18T15:25:04.089897Z  WARN rinku_node::gossip: Failed to add gossiped tx 01bce0a0a255e82fcb28cb23372a6e1c43a027ad27ced2ad8d30abb4828ffeb4: Invalid nonce: expected 21, got 20
+15:25:05
+2026-01-18T15:25:05.547474Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 119 vs 114), requesting delta sync...
+15:25:05
+2026-01-18T15:25:05.657070Z  INFO rinku_node::api: Snapshot sync request received
+15:25:05
+2026-01-18T15:25:05.657346Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 36 checkpoints, 114 dag txs
+15:25:05
+2026-01-18T15:25:05.735436Z  INFO rinku_node::gossip: Sync page: received 6/6 transactions, 6 account nonces (offset=0, has_more=false)
+15:25:05
+2026-01-18T15:25:05.735577Z  INFO rinku_node::gossip: Applied 6 account nonces from peer
+15:25:05
+2026-01-18T15:25:05.735930Z  INFO rinku_node::gossip: Delta sync complete: 6 added, 0 failed
+15:25:29
+2026-01-18T15:25:29.231940Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 74712af0745199cb wins over 080003577db74a71 (12.37 vs 1.00)
+15:25:29
+2026-01-18T15:25:29.232056Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 080003577db74a71, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232070Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 6a0ce255cfb7de3f wins over 080003577db74a71 (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232076Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 080003577db74a71, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232084Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 080003577db74a71 (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232089Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 080003577db74a71, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232100Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 74712af0745199cb wins over df2bc64dfb9359cf (12.37 vs 1.00)
+15:25:29
+2026-01-18T15:25:29.232134Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at df2bc64dfb9359cf, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232143Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 6a0ce255cfb7de3f wins over df2bc64dfb9359cf (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232148Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at df2bc64dfb9359cf, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232154Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over df2bc64dfb9359cf (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232160Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at df2bc64dfb9359cf, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232169Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 74712af0745199cb wins over c48208420ee4c47b (12.37 vs 1.00)
+15:25:29
+2026-01-18T15:25:29.232204Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at c48208420ee4c47b, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232212Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 6a0ce255cfb7de3f wins over c48208420ee4c47b (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232217Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at c48208420ee4c47b, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232223Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over c48208420ee4c47b (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232228Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at c48208420ee4c47b, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232235Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 74712af0745199cb wins over 772d0fd0fbc617f1 (12.37 vs 1.00)
+15:25:29
+2026-01-18T15:25:29.232270Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 772d0fd0fbc617f1, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232278Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 6a0ce255cfb7de3f wins over 772d0fd0fbc617f1 (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232283Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 772d0fd0fbc617f1, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232289Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 772d0fd0fbc617f1 (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232294Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 772d0fd0fbc617f1, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232300Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 74712af0745199cb wins over 479bf5c7b8f5c2a7 (12.37 vs 1.00)
+15:25:29
+2026-01-18T15:25:29.232332Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 479bf5c7b8f5c2a7, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232431Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 6a0ce255cfb7de3f wins over 479bf5c7b8f5c2a7 (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232436Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 479bf5c7b8f5c2a7, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232442Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 479bf5c7b8f5c2a7 (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232446Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 479bf5c7b8f5c2a7, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232452Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 74712af0745199cb wins over 6a0ce255cfb7de3f (12.37 vs 1.00)
+15:25:29
+2026-01-18T15:25:29.232492Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 6a0ce255cfb7de3f, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232500Z  INFO rinku_node::fork_remediation: Fork detected and resolved: genesis wins over 6a0ce255cfb7de3f (1.00 vs 0.00)
+15:25:29
+2026-01-18T15:25:29.232505Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 6a0ce255cfb7de3f, reverted account balances
+15:25:29
+2026-01-18T15:25:29.232518Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 57, Resolved: 172, Pruned TXs: 25, Double-spends: 0
+15:25:35
+2026-01-18T15:25:35.494380Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 124 vs 114), requesting delta sync...
+15:25:35
+2026-01-18T15:25:35.643678Z  INFO rinku_node::gossip: Sync page: received 11/11 transactions, 10 account nonces (offset=0, has_more=false)
+15:25:35
+2026-01-18T15:25:35.643794Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+15:25:35
+2026-01-18T15:25:35.644074Z  INFO rinku_node::gossip: Delta sync complete: 0 added, 7 failed
+15:25:35
+2026-01-18T15:25:35.644200Z  WARN rinku_node::gossip: Delta sync had 7 failures vs 0 added - forcing snapshot recovery
+15:25:35
+2026-01-18T15:25:35.644501Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 114 local transactions to https://rinkuchan.com before snapshot sync
+15:25:44
+2026-01-18T15:25:44.854949Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 3, got 2
+15:25:44
+2026-01-18T15:25:44.855017Z  WARN rinku_node::gossip: Failed to add gossiped tx 9ad930ff2abdf0d21bd6aca0554c7379d182ef85acfe7459af9fa4c29166171c: Invalid nonce: expected 3, got 2
+15:25:45
+2026-01-18T15:25:45.029688Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 15, got 14
+15:25:45
+2026-01-18T15:25:45.029765Z  WARN rinku_node::gossip: Failed to add gossiped tx ccc58877cc10a24eb913d37b2d83715ea3cd0760a87b66bcf9f5d0604bcc9ddf: Invalid nonce: expected 15, got 14
+15:25:45
+2026-01-18T15:25:45.153588Z  WARN rinku_node::state: Transaction rejected: insufficient balance. Have 0.000000, need 5.001000 (amount: 5.000000, gas: 0.001000)
+15:25:45
+2026-01-18T15:25:45.153685Z  WARN rinku_node::gossip: Failed to add gossiped tx 558ba1d9718a014b6cbe9e688ee52bdc2e2eba2e1139665a4bb30286f4b599b9: Insufficient balance: have 0.000000, need 5.001000
+15:25:45
+2026-01-18T15:25:45.322602Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1, got 0
+15:25:45
+2026-01-18T15:25:45.322678Z  WARN rinku_node::gossip: Failed to add gossiped tx fda2c6ac8b9ee137121e8e808981291b5576f5110345f3a4bddf82e0d53d3499: Invalid nonce: expected 1, got 0
+15:25:45
+2026-01-18T15:25:45.512841Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 5, got 4
+15:25:45
+2026-01-18T15:25:45.512919Z  WARN rinku_node::gossip: Failed to add gossiped tx a35f5a939248b742a68aa69213b906cf1a1262d4b5dd4367a8e5668ecfb8f96f: Invalid nonce: expected 5, got 4
+15:25:45
+2026-01-18T15:25:45.693675Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 6, got 5
+15:25:45
+2026-01-18T15:25:45.693750Z  WARN rinku_node::gossip: Failed to add gossiped tx 6e816a0180f8da7660d30ffda331bd851e7f0d117cd8d8263a557593b81db60b: Invalid nonce: expected 6, got 5
+15:25:53
+2026-01-18T15:25:53.878197Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 112 transactions to peer (0 failed)
+15:25:53
+2026-01-18T15:25:53.972759Z  WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinkuchan.com to fix state divergence
+15:25:54
+2026-01-18T15:25:54.053300Z  WARN rinku_node::gossip: RECOVERY: Received snapshot: 16 accounts, 37 checkpoints, 124 dag txs
+15:25:54
+2026-01-18T15:25:54.053488Z  WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+15:25:54
+2026-01-18T15:25:54.053703Z  WARN rinku_node::state: RECOVERY MODE: Force applying snapshot (16 accounts, 37 checkpoints) to fix state divergence
+15:25:54
+2026-01-18T15:25:54.053758Z  INFO rinku_node::state: Applying sync snapshot: 16 accounts, 37 checkpoints, 124 dag txs
+15:25:54
+2026-01-18T15:25:54.056174Z  INFO rinku_node::state: Snapshot applied: 124 DAG transactions, 0 validators, 37 checkpoints
+15:25:54
+2026-01-18T15:25:54.056576Z  WARN rinku_node::gossip: RECOVERY: Force snapshot sync complete - applied 124 DAG transactions
+15:25:55
+2026-01-18T15:25:55.274457Z  INFO rinku_node::api: Sync delta request: checkpoint=37, offset=0, limit=500
+15:25:55
+2026-01-18T15:25:55.274539Z  INFO rinku_node::api: Returning 124 of 124 transactions with 16 account nonces (offset=0, has_more=false)
+15:25:59
+2026-01-18T15:25:59.233681Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a35f5a939248b742 wins over genesis (12.25 vs 1.00)
+15:25:59
+2026-01-18T15:25:59.233726Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:25:59
+2026-01-18T15:25:59.233773Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 6e816a0180f8da76 wins over genesis (11.66 vs 1.00)
+15:25:59
+2026-01-18T15:25:59.233782Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:25:59
+2026-01-18T15:25:59.233793Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 558ba1d9718a014b wins over genesis (9.75 vs 1.00)
+15:25:59
+2026-01-18T15:25:59.233801Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:25:59
+2026-01-18T15:25:59.233811Z  INFO rinku_node::fork_remediation: Fork detected and resolved: ccc58877cc10a24e wins over genesis (12.33 vs 1.00)
+15:25:59
+2026-01-18T15:25:59.233818Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:25:59
+2026-01-18T15:25:59.233826Z  INFO rinku_node::fork_remediation: Fork detected and resolved: fda2c6ac8b9ee137 wins over genesis (11.92 vs 1.00)
+15:25:59
+2026-01-18T15:25:59.233833Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:25:59
+2026-01-18T15:25:59.233846Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 9ad930ff2abdf0d2 wins over genesis (11.87 vs 1.00)
+15:25:59
+2026-01-18T15:25:59.233853Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:25:59
+2026-01-18T15:25:59.233920Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 72, Resolved: 178, Pruned TXs: 25, Double-spends: 0
+15:26:02
+2026-01-18T15:26:02.739598Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:26:02
+2026-01-18T15:26:02.740073Z  INFO rinku_node::checkpoint: Created checkpoint 9616c0fd27f75417 at height 38 (124 txs finalized, 3.932411 RKU emitted)
+15:26:05
+2026-01-18T15:26:05.530928Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 130 vs 129), requesting delta sync...
+15:26:05
+2026-01-18T15:26:05.705679Z  INFO rinku_node::gossip: Sync page: received 6/6 transactions, 6 account nonces (offset=0, has_more=false)
+15:26:05
+2026-01-18T15:26:05.705814Z  INFO rinku_node::gossip: Applied 6 account nonces from peer
+15:26:05
+2026-01-18T15:26:05.876269Z  INFO rinku_node::gossip: Propagating 6 pending transactions to 1 peers
+15:26:05
+2026-01-18T15:26:05.978731Z  INFO rinku_node::api: Snapshot sync request received
+15:26:05
+2026-01-18T15:26:05.979043Z  INFO rinku_node::api: Snapshot sync response: 16 accounts, 0 validators, 38 checkpoints, 131 dag txs
+15:26:29
+2026-01-18T15:26:29.234333Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 4f0a1be46801e395 wins over genesis (12.25 vs 1.00)
+15:26:29
+2026-01-18T15:26:29.234377Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:26:29
+2026-01-18T15:26:29.234415Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a2673b20f854fe2f wins over 4f0a1be46801e395 (19.80 vs 12.25)
+15:26:29
+2026-01-18T15:26:29.234535Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 4f0a1be46801e395, reverted account balances
+15:26:29
+2026-01-18T15:26:29.234562Z  INFO rinku_node::fork_remediation: Fork detected and resolved: fda2c6ac8b9ee137 wins over 4f0a1be46801e395 (11.92 vs 0.00)
+15:26:29
+2026-01-18T15:26:29.234573Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 4f0a1be46801e395, reverted account balances
+15:26:29
+2026-01-18T15:26:29.234586Z  INFO rinku_node::fork_remediation: Fork detected and resolved: d353afe7afe6531b wins over genesis (14.25 vs 1.00)
+15:26:29
+2026-01-18T15:26:29.234594Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:26:29
+2026-01-18T15:26:29.234624Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 7d2e738fae604240 wins over genesis (11.96 vs 1.00)
+15:26:29
+2026-01-18T15:26:29.234632Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:26:29
+2026-01-18T15:26:29.234642Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 9f305acb83edc233 wins over genesis (12.81 vs 1.00)
+15:26:29
+2026-01-18T15:26:29.234649Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:26:29
+2026-01-18T15:26:29.234658Z  INFO rinku_node::fork_remediation: Fork detected and resolved: 19905e82af4aa723 wins over genesis (11.66 vs 1.00)
+15:26:29
+2026-01-18T15:26:29.234665Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:26:29
+2026-01-18T15:26:29.234674Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a2673b20f854fe2f wins over genesis (19.80 vs 1.00)
+15:26:29
+2026-01-18T15:26:29.234681Z  INFO rinku_node::state: Cannot prune finalized node genesis
+15:26:29
+2026-01-18T15:26:29.234699Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a2673b20f854fe2f wins over 7d2e738fae604240 (19.80 vs 11.96)
+15:26:29
+2026-01-18T15:26:29.234766Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 7d2e738fae604240, reverted account balances
+15:26:29
+2026-01-18T15:26:29.234779Z  INFO rinku_node::fork_remediation: Fork detected and resolved: fda2c6ac8b9ee137 wins over 7d2e738fae604240 (11.92 vs 0.00)
+15:26:29
+2026-01-18T15:26:29.234787Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 7d2e738fae604240, reverted account balances
+15:26:29
+2026-01-18T15:26:29.234801Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a2673b20f854fe2f wins over 9f305acb83edc233 (19.80 vs 12.81)
+15:26:29
+2026-01-18T15:26:29.234862Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 9f305acb83edc233, reverted account balances
+15:26:29
+2026-01-18T15:26:29.234875Z  INFO rinku_node::fork_remediation: Fork detected and resolved: fda2c6ac8b9ee137 wins over 9f305acb83edc233 (11.92 vs 0.00)
+15:26:29
+2026-01-18T15:26:29.234883Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 9f305acb83edc233, reverted account balances
+15:26:29
+2026-01-18T15:26:29.234893Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a2673b20f854fe2f wins over 19905e82af4aa723 (19.80 vs 11.66)
+15:26:29
+2026-01-18T15:26:29.234952Z  INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 19905e82af4aa723, reverted account balances
+15:26:29
+2026-01-18T15:26:29.234964Z  INFO rinku_node::fork_remediation: Fork detected and resolved: fda2c6ac8b9ee137 wins over 19905e82af4aa723 (11.92 vs 0.00)
+15:26:29
+2026-01-18T15:26:29.234972Z  INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 19905e82af4aa723, reverted account balances
+15:26:29
+2026-01-18T15:26:29.234983Z  INFO rinku_node::fork_remediation: Fork detected and resolved: a2673b20f854fe2f wins over fda2c6ac8b9ee137 (19.80 vs 11.92)
+15:26:29
+2026-01-18T15:26:29.234990Z  INFO rinku_node::state: Cannot prune finalized node fda2c6ac8b9ee137
+15:26:29
+2026-01-18T15:26:29.235003Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 84, Resolved: 193, Pruned TXs: 29, Double-spends: 0
+15:26:32
+2026-01-18T15:26:32.920414Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:26:32
+2026-01-18T15:26:32.920550Z  INFO rinku_node::checkpoint: Created checkpoint aff969c2689f9ea8 at height 39 (2 txs finalized, 3.932411 RKU emitted)
+15:26:35
+2026-01-18T15:26:35.538102Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 133 vs 127), requesting delta sync...
+15:26:35
+2026-01-18T15:26:35.714875Z  INFO rinku_node::gossip: Sync page: received 7/7 transactions, 7 account nonces (offset=0, has_more=false)
+15:26:35
+2026-01-18T15:26:35.715117Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+15:26:35
+2026-01-18T15:26:35.715456Z  INFO rinku_node::gossip: Delta sync complete: 7 added, 0 failed
+15:26:50
+2026-01-18T15:26:50.702156Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 23, got 21
+15:26:50
+2026-01-18T15:26:50.702192Z  WARN rinku_node::gossip: Failed to add gossiped tx 5935d2607eeb0b9859405b7f4ad31df7a6e3b9fa6550bd7fdee70cabfc8c3a62: Invalid nonce: expected 23, got 21
+15:26:59
+2026-01-18T15:26:59.236290Z  INFO rinku_node::fork_remediation: [ForkRemediation] Active: 84, Resolved: 193, Pruned TXs: 29, Double-spends: 0
+15:27:03
+2026-01-18T15:27:03.107684Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+15:27:03
+2026-01-18T15:27:03.107839Z  INFO rinku_node::checkpoint: Created checkpoint 778451112c8959a0 at height 40 (7 txs finalized, 3.932411 RKU emitted)
+15:27:03
+2026-01-18T15:27:03.894845Z  INFO rinku_node::api: Snapshot sync request received
+15:27:03
+2026-01-18T15:27:03.895286Z  INFO rinku_node::api: Snapshot sync response: 16 accoun

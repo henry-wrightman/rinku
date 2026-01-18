@@ -45,7 +45,8 @@ Read-only endpoints (`GET /api/staking/:address`, `GET /api/rewards/:address`, `
 
 ### Technical Implementations
 - **Core Library:** Shared library for types, cryptography (Web Crypto API), encoding, Merkle trees, DAG structures, and weight calculation.
-- **Fork Remediation Service:** Nonce-based double-spend detection, weight-based conflict resolution, and branch pruning.
+- **Fork Remediation Service:** Double-spend detection only. Multiple DAG tips are treated as healthy concurrent branches (not forks). Checkpointing naturally merges tips into finalized state. Only actual conflicts (same account + same nonce) trigger branch pruning.
+- **Pre-Sync Flush:** Before snapshot sync, nodes broadcast local transactions to peers to prevent transaction loss during state replacement.
 - **API Rate Limiting:** Tiered rate limiting for various endpoints.
 - **Prometheus Metrics:** `/metrics` endpoint for network monitoring.
 - **Proof Verification API:** `POST /api/verify-proof` for decoding and verifying self-contained proof URLs.

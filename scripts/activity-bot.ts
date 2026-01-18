@@ -4,13 +4,13 @@ const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3002";
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "200"); // Reduced from 2000 for higher throughput
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "100");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "20000"); // Reduced from 2000 for higher throughput
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "1000");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "50"); // Increased from 30
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "10"); // Increased from 30
 const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "30"); // Increased from 20
-const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.9"); // Prefer batch (was 0.6)
+const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.6"); // Prefer batch (was 0.6)
 const CONTRACT_INTERVAL_MS = parseInt(
   process.env.CONTRACT_INTERVAL || "120000",
 );
@@ -713,7 +713,10 @@ async function claimRewards(): Promise<void> {
     );
 
     if (res.ok) {
-      const result = (await res.json()) as { success: boolean; claimedAmount: number };
+      const result = (await res.json()) as {
+        success: boolean;
+        claimedAmount: number;
+      };
       if (result.success) {
         totalRewardsClaimed += result.claimedAmount || 0;
         log(

@@ -1,0 +1,104 @@
+2026-01-18 11:11:05.44
+c1551785
+User
+2026-01-18T16:11:05.449021Z INFO rinku_node::api: Snapshot sync response: 41 accounts, 0 validators, 164 checkpoints, 822 dag txs
+2026-01-18 11:11:08.31
+c1551785
+User
+2026-01-18T16:11:08.313963Z INFO rinku_node::api: Broadcast 16 transactions to peers
+2026-01-18 11:11:09.53
+c1551785
+User
+2026-01-18T16:11:09.531190Z INFO rinku_node::gossip: Propagating 16 pending transactions to 1 peers
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.496562Z INFO rinku_node::fork_remediation: Fork detected and resolved: 3f6bf82463a6b992 wins over 357cec224a3f4207 (18.47 vs 11.96)
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497151Z INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 357cec224a3f4207, reverted account balances
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497125Z INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 357cec224a3f4207, reverted account balances
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497138Z INFO rinku_node::fork_remediation: Fork detected and resolved: af22f3e2d58d37d2 wins over 357cec224a3f4207 (16.16 vs 0.00)
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497148Z INFO rinku_node::fork_remediation: Fork detected and resolved: 0a855f1ccb16cc65 wins over 357cec224a3f4207 (21.16 vs 0.00)
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497099Z INFO rinku_node::fork_remediation: Fork detected and resolved: 8ee86d42d21ec0da wins over 357cec224a3f4207 (16.28 vs 0.00)
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497143Z INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 357cec224a3f4207, reverted account balances
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497134Z INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 357cec224a3f4207, reverted account balances
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497207Z INFO rinku_node::fork_remediation: [ForkRemediation] Active: 755, Resolved: 840, Pruned TXs: 195, Double-spends: 0
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497104Z INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 357cec224a3f4207, reverted account balances
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497066Z INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 357cec224a3f4207, reverted account balances
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497155Z INFO rinku_node::fork_remediation: Fork detected and resolved: 5b6e5cea5e65d8ed wins over 357cec224a3f4207 (16.37 vs 0.00)
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497081Z INFO rinku_node::fork_remediation: Fork detected and resolved: 37400f01f23cdc4e wins over 357cec224a3f4207 (15.68 vs 0.00)
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497130Z INFO rinku_node::fork_remediation: Fork detected and resolved: 6417bdc46e33ca13 wins over 357cec224a3f4207 (14.14 vs 0.00)
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497084Z INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 357cec224a3f4207, reverted account balances
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497159Z INFO rinku_node::state: Pruned 0 transactions from losing branch starting at 357cec224a3f4207, reverted account balances
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497118Z INFO rinku_node::fork_remediation: Fork detected and resolved: 633c5d14b2c6f8a0 wins over 357cec224a3f4207 (16.34 vs 0.00)
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497029Z INFO rinku_node::state: Pruned 1 transactions from losing branch starting at 357cec224a3f4207, reverted account balances
+2026-01-18 11:11:10.49
+c1551785
+User
+2026-01-18T16:11:10.497060Z INFO rinku_node::fork_remediation: Fork detected and resolved: b903376e5bc773d7 wins over 357cec224a3f4207 (17.80 vs 0.00)
+2026-01-18 11:11:13.58
+c1551785
+User
+2026-01-18T16:11:13.589195Z INFO rinku_node::checkpoint: Created checkpoint 0331a92e5b3c5dd8 at height 165 (15 txs finalized, 3.932411 RKU emitted)
+2026-01-18 11:11:13.58
+c1551785
+User
+2026-01-18T16:11:13.589151Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-18 11:11:14.41
+c1551785
+User
+2026-01-18T16:11:14.414655Z INFO rinku_node::api: Transaction 724c52192ec2bff5 broadcast to peers
+2026-01-18 11:11:14.68
+c1551785
+User
+2026-01-18T16:11:14.688243Z INFO rinku_node::api: Transaction 9c4ed964f1a8772d broadcast to peers
