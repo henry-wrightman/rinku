@@ -1039,8 +1039,12 @@ impl NodeState {
         // CRITICAL FIX: Server-side tip injection
         // If client-provided parents don't exist in DAG, substitute with actual tips
         // This prevents tip explosion when clients reference pruned/missing transactions
-        let (tx_weight, normalized_parents) = {
+        let (tx_weight, normalized_parents, prev_account_tx) = {
             let state = self.inner.read().await;
+            
+            // Get the account's current last_tx_hash for chain linking
+            let prev_tx = state.accounts.get(&tx.tx.from)
+                .and_then(|a| a.last_tx_hash.clone());
             
             let weight = if let Some(account) = state.accounts.get(&tx.tx.from) {
                 calculate_account_weight(account, now_secs)
@@ -1073,12 +1077,18 @@ impl NodeState {
                 valid_parents
             };
             
-            (weight, final_parents)
+            (weight, final_parents, prev_tx)
         };
 
+        // Create a modified transaction with prev_account_tx set for chain linking
+        let mut tx_with_chain = tx.clone();
+        if tx_with_chain.tx.prev_account_tx.is_none() {
+            tx_with_chain.tx.prev_account_tx = prev_account_tx;
+        }
+
         let node = rinku_core::types::DagNode {
-            hash: tx.hash.clone(),
-            tx: tx.clone(),
+            hash: tx_with_chain.hash.clone(),
+            tx: tx_with_chain.clone(),
             parents: normalized_parents.clone(),
             children: Vec::new(),
             weight: tx_weight,
