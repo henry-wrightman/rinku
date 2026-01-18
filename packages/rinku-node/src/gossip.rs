@@ -798,24 +798,68 @@ impl GossipService {
                 break;
             }
             
-            for tx in transactions {
-                // Check if we already have this tx
-                let is_known = {
-                    let inner = self.inner.read().await;
-                    inner.known_txs.contains(&tx.hash)
-                };
-                
-                if !is_known {
-                    if let Err(e) = self.state.add_transaction(tx.clone()).await {
-                        debug!("Failed to add synced tx {}: {}", tx.hash, e);
-                        result.failed += 1;
-                    } else {
-                        let mut inner = self.inner.write().await;
-                        inner.known_txs.insert(tx.hash.clone());
-                        inner.stats.txs_received += 1;
-                        result.added += 1;
+            // TRUST MODEL: Delta sync trusts the peer to provide valid transactions.
+            // This is consistent with snapshot sync which also trusts peer state.
+            // For adversarial environments, use checkpoint verification or peer allowlists.
+            // 
+            // Collect transactions that need to be processed
+            // Filter out already-known transactions
+            let mut pending: Vec<SignedTransaction> = Vec::new();
+            {
+                let inner = self.inner.read().await;
+                for tx in transactions {
+                    if !inner.known_txs.contains(&tx.hash) {
+                        pending.push(tx);
                     }
                 }
+            }
+            
+            // Process with retry loop for parent ordering issues
+            // Parents may arrive before children, so retry deferred txs
+            let mut retries = 0;
+            const MAX_RETRIES: usize = 3;
+            
+            while !pending.is_empty() && retries < MAX_RETRIES {
+                let mut deferred: Vec<SignedTransaction> = Vec::new();
+                let pending_count = pending.len();
+                
+                for tx in pending.drain(..) {
+                    match self.state.add_transaction_dag_only(tx.clone()).await {
+                        Ok(()) => {
+                            let mut inner = self.inner.write().await;
+                            inner.known_txs.insert(tx.hash.clone());
+                            inner.stats.txs_received += 1;
+                            result.added += 1;
+                        }
+                        Err(e) => {
+                            let err_msg = e.to_string();
+                            if err_msg.contains("Parent") && err_msg.contains("not found") {
+                                // Defer for retry - parent might arrive later
+                                deferred.push(tx);
+                            } else {
+                                debug!("Failed to add synced tx {}: {}", tx.hash, e);
+                                result.failed += 1;
+                            }
+                        }
+                    }
+                }
+                
+                if deferred.is_empty() {
+                    break;
+                }
+                
+                // If no progress was made (all txs deferred again), stop retrying
+                if deferred.len() == pending_count {
+                    retries += 1;
+                }
+                
+                pending = deferred;
+            }
+            
+            // Any remaining deferred txs are failures (parents never arrived)
+            if !pending.is_empty() {
+                debug!("Delta sync: {} transactions deferred (missing parents)", pending.len());
+                result.failed += pending.len();
             }
             
             if !has_more {

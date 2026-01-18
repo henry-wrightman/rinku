@@ -54,6 +54,17 @@ Read-only endpoints (`GET /api/staking/:address`, `GET /api/rewards/:address`, `
 ### Multi-Node Consensus Model
 Consensus is maintained across nodes by ensuring critical metrics like checkpoint Merkle roots and account balances match. Fork prevention mechanisms involve validating peer checkpoints before adoption, and automatic fork recovery triggers after consistent mismatches, involving snapshot retrieval and state replacement.
 
+### Sync Trust Model
+**Snapshot Sync**: Replaces entire local state with peer state. Trusts peer completely. Used for initial sync or recovery.
+**Delta Sync**: Fetches transactions since last checkpoint. Uses `add_transaction_dag_only()` which skips nonce validation (since account nonces are synced first) but verifies DAG parent existence.
+
+Both sync methods trust the connected peer. For adversarial environments:
+- Use checkpoint verification (BLS aggregate signatures)
+- Implement peer allowlists
+- Use stake-weighted trust for peer selection
+
+**Normal gossip** for new transactions uses full validation including nonce/balance checks.
+
 ### Trust Bootstrap System
 A hybrid trust model combines genesis validators and stake-weighted verification. Environment variables configure genesis validators, quorum thresholds, and weak subjectivity checkpoints for fast bootstrapping. Testnet mode operates without genesis validators, performing only BLS format validation.
 

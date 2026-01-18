@@ -1193,6 +1193,58 @@ impl NodeState {
         Ok(())
     }
 
+    /// Add transaction to DAG only - for sync operations where state is already correct
+    /// This skips nonce/balance validation since the transaction was already validated by the peer
+    /// and accounts already have correct state from the snapshot.
+    /// 
+    /// TRUST MODEL: This method assumes the peer is trusted and transactions are valid.
+    /// Parents must exist or be "genesis" - if parents are missing, the transaction is rejected.
+    pub async fn add_transaction_dag_only(&self, tx: SignedTransaction) -> Result<()> {
+        // Normalize parent URLs to just hashes
+        let normalized_parents: Vec<String> = tx
+            .tx
+            .parents
+            .iter()
+            .map(|p| {
+                if p.starts_with("rinku://tx/h/") {
+                    p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+                } else if p.starts_with("rinku://tx/") {
+                    p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+                } else {
+                    p.clone()
+                }
+            })
+            .collect();
+
+        let mut state = self.inner.write().await;
+        
+        // Check if already exists
+        if state.dag.get_node(&tx.hash).is_some() {
+            return Ok(()); // Already have this transaction
+        }
+        
+        // Verify all parents exist - reject if any parent is missing
+        // This ensures DAG integrity is preserved
+        for p in &normalized_parents {
+            if p != "genesis" && state.dag.get_node(p).is_none() {
+                anyhow::bail!("Parent {} not found for tx {}", p, &tx.hash);
+            }
+        }
+
+        let node = rinku_core::types::DagNode {
+            hash: tx.hash.clone(),
+            tx: tx.clone(),
+            parents: normalized_parents,
+            children: Vec::new(),
+            weight: 1.0, // Default weight for synced transactions
+            finalized: false,
+            checkpoint_height: None,
+        };
+
+        state.dag.add_node(node)?;
+        Ok(())
+    }
+
     /// Batch add transactions - optimized for high throughput
     pub async fn add_transactions_batch(&self, txs: Vec<SignedTransaction>) -> Vec<Result<()>> {
         // PHASE 0: Pre-validate all transactions BEFORE any state mutations
@@ -1618,7 +1670,9 @@ impl NodeState {
     ) -> Vec<SignedTransaction> {
         let state = self.inner.read().await;
 
-        // Return only current DAG transactions (not full history)
+        // Return current DAG transactions for sync
+        // Include ALL transactions currently in the DAG
+        // Preserve DAG topological order - don't sort, as that could break parent-child relationships
         state
             .dag
             .get_all_nodes()
@@ -1627,9 +1681,10 @@ impl NodeState {
                 if !missing_hashes.is_empty() {
                     missing_hashes.contains(&n.hash)
                 } else {
-                    // Include unfinalized transactions OR from checkpoints after from_checkpoint
+                    // Include unfinalized transactions OR from checkpoints at/after from_checkpoint
+                    // Use >= to include transactions AT the requested checkpoint (not just after)
                     n.checkpoint_height
-                        .map(|h| h > from_checkpoint)
+                        .map(|h| h >= from_checkpoint)
                         .unwrap_or(true)
                 }
             })
@@ -1642,12 +1697,13 @@ impl NodeState {
     pub async fn get_sync_snapshot(&self) -> SyncSnapshot {
         let state = self.inner.read().await;
 
-        // Get recent DAG transactions (only unfinalized ones for sync)
+        // Get ALL current DAG transactions for sync (including finalized ones)
+        // Peers need all transactions that are still in our DAG window
+        // Preserve DAG topological order - don't sort, as that could break parent-child relationships
         let dag_txs: Vec<SignedTransaction> = state
             .dag
             .get_all_nodes()
             .into_iter()
-            .filter(|n| !n.finalized)
             .map(|n| n.tx.clone())
             .collect();
 
