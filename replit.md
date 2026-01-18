@@ -31,15 +31,6 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Self-Contained Proof System (v5 - MerkleSumTree Multi-Proof):** Fully offline-verifiable transaction proofs with chain identity binding.
 - **ZK Privacy Layer:** Optional privacy-preserving proofs using Groth16 ZK-SNARKs for transactions.
 - **Protocol Versioning & Upgrades:** Semantic versioning, feature flags, upgrade proposals, and peer compatibility checks.
-- **Per-Account Transaction Chains:** Each transaction includes `prev_account_tx` (hash pointer to previous account tx) enabling lightweight history tracking (~32 bytes per tx overhead) without archival nodes. Accounts track `last_tx_hash` for chain head. API endpoint `/api/account/:address/history` reconstructs history by crawling the chain.
-- **Distributed Wallet History Protocol:** Eliminates need for archival nodes by distributing history across wallet owners. Each wallet stores and serves its own transaction chain via gossip protocol. Key components:
-  - `WalletChain` / `WalletChainEntry` types for compact, portable history export (~100-200 bytes per entry)
-  - Gossip messages: `HistoryRequest`, `HistoryResponse`, `HistoryAnnouncement` for peer-to-peer history sharing
-  - API endpoint `/api/account/:address/chain` for wallet chain export
-  - `verify_chain_links()` utility for cryptographic chain integrity validation
-  - Nodes respond to history requests for transactions they have locally (recent DAG + checkpoints)
-  - Self-provable proof URLs enable offline verification of any transaction in the chain
-  - **Sharded Storage Model (Production):** History is sharded by wallet ownership, not replicated across all nodes. Each node stores only its own wallet chains + recent DAG buffer. Non-local history is discoverable via gossip requests to peers/wallet owners. This keeps node storage O(1) per node regardless of network size. Development mode may use full persistence for convenience.
 
 ### Transaction Validation & Security
 All transactions undergo comprehensive validation, including account existence, balance, nonce, and gas fee checks. Production APIs (`/api/tx`, `/api/tx/batch`) enforce full validation with pre-validation checks (balance + gas) before any state mutations.

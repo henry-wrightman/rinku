@@ -37,12 +37,6 @@ pub struct Transaction {
         skip_serializing_if = "Option::is_none"
     )]
     pub signature: Option<String>,
-    /// Previous transaction hash from the same account (for per-account chain)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prev_account_tx: Option<String>,
-    /// Self-provable proof URL for the previous account transaction (enables offline crawling)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prev_account_proof_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,12 +61,6 @@ pub struct Account {
     pub unbonding: f64,
     #[serde(default)]
     pub unbonding_release: Option<u64>,
-    /// Hash of the most recent transaction from this account (for per-account chain)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_tx_hash: Option<String>,
-    /// Self-provable proof URL for the most recent transaction (enables offline history crawling)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_tx_proof_url: Option<String>,
 }
 
 impl Account {
@@ -85,8 +73,6 @@ impl Account {
             staked: 0.0,
             unbonding: 0.0,
             unbonding_release: None,
-            last_tx_hash: None,
-            last_tx_proof_url: None,
         }
     }
 }
@@ -216,99 +202,3 @@ impl Default for TokenomicsConfig {
 
 pub type AccountMap = HashMap<String, Account>;
 pub type TransactionMap = HashMap<String, SignedTransaction>;
-
-/// A compact entry in a wallet's transaction chain for distributed history sharing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WalletChainEntry {
-    pub hash: String,
-    pub to: String,
-    pub amount: f64,
-    pub fee: f64,
-    pub nonce: u64,
-    pub timestamp: u64,
-    pub signature: String,
-    #[serde(default)]
-    pub kind: Option<TransactionKind>,
-    /// Previous transaction hash in this account's chain
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prev_tx: Option<String>,
-    /// Self-provable proof URL (rinku://sp/...) for offline verification
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub proof_url: Option<String>,
-    /// Checkpoint height where this tx was finalized (for verification)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkpoint_height: Option<u64>,
-}
-
-/// A wallet's complete transaction chain for distributed history sharing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WalletChain {
-    /// The wallet address this chain belongs to
-    pub address: String,
-    /// Chain entries ordered from newest to oldest
-    pub entries: Vec<WalletChainEntry>,
-    /// Hash of the most recent transaction (chain head)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub head_tx: Option<String>,
-    /// Current account nonce (for validation)
-    pub nonce: u64,
-    /// Timestamp when this chain was exported
-    pub exported_at: u64,
-    /// Node/wallet that exported this chain (for attribution)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exported_by: Option<String>,
-}
-
-impl WalletChain {
-    pub fn new(address: String, nonce: u64) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        Self {
-            address,
-            entries: Vec::new(),
-            head_tx: None,
-            nonce,
-            exported_at: now,
-            exported_by: None,
-        }
-    }
-
-    /// Verify that the chain is internally consistent (prev_tx pointers form a valid chain)
-    pub fn verify_chain_links(&self) -> bool {
-        if self.entries.is_empty() {
-            return true;
-        }
-        
-        // Check that head_tx matches first entry
-        if let Some(ref head) = self.head_tx {
-            if self.entries.first().map(|e| &e.hash) != Some(head) {
-                return false;
-            }
-        }
-        
-        // Verify chain links: each entry's prev_tx should match next entry's hash
-        for i in 0..self.entries.len() - 1 {
-            let current = &self.entries[i];
-            let next = &self.entries[i + 1];
-            if current.prev_tx.as_ref() != Some(&next.hash) {
-                return false;
-            }
-        }
-        
-        // Last entry should have prev_tx = None (genesis) or point to unknown older tx
-        true
-    }
-
-    /// Get the number of transactions in this chain
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}

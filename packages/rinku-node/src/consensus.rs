@@ -30,8 +30,6 @@ impl ConsensusService {
             gas_price: tx.tx.gas_price,
             data: tx.tx.data.clone(),
             signature: None,
-            prev_account_tx: tx.tx.prev_account_tx.clone(),
-            prev_account_proof_url: tx.tx.prev_account_proof_url.clone(),
         };
 
         let tx_json = serde_json::to_string(&tx_for_hash)?;
@@ -136,8 +134,6 @@ mod tests {
             gas_price,
             data: None,
             signature: None,
-            prev_account_tx: None,
-            prev_account_proof_url: None,
         };
         let tx_json = serde_json::to_string(&tx).unwrap();
         let hash = sha256_hex(&tx_json);

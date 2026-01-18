@@ -3,8 +3,6 @@ export interface AccountState {
   balance: number;
   nonce: number;
   firstTxTimestamp: number;
-  lastTxHash?: string;  // Hash of the most recent transaction from this account
-  lastTxProofUrl?: string;  // Self-provable proof URL for the most recent transaction
 }
 
 /** Transaction kind - distinguishes protocol transactions from user transactions */
@@ -20,8 +18,6 @@ export interface Transaction {
   sig: string;
   ts: number;
   kind?: TransactionKind;  // Default: 'transfer' - other kinds for staking, rewards, contracts, etc.
-  prevAccountTx?: string;  // Hash of this account's previous transaction (for per-account chain)
-  prevAccountProofUrl?: string;  // Self-provable proof URL for previous tx (enables offline history crawling)
 }
 
 // ============================================
@@ -454,61 +450,4 @@ export interface CheckpointVerification {
   signatureCount: number;
   validatorWeightPercent: number;
   errors: string[];
-}
-
-// ============================================
-// Distributed Wallet History Types
-// ============================================
-
-/** A compact entry in a wallet's transaction chain for distributed history sharing */
-export interface WalletChainEntry {
-  hash: string;
-  to: string;
-  amount: number;
-  fee: number;
-  nonce: number;
-  timestamp: number;
-  signature: string;
-  kind?: TransactionKind;
-  prevTx?: string;  // Previous transaction hash in this account's chain
-  proofUrl?: string;  // Self-provable proof URL for offline verification
-  checkpointHeight?: number;  // Checkpoint height where this tx was finalized
-}
-
-/** A wallet's complete transaction chain for distributed history sharing */
-export interface WalletChain {
-  address: string;  // The wallet address this chain belongs to
-  entries: WalletChainEntry[];  // Chain entries ordered from newest to oldest
-  headTx?: string;  // Hash of the most recent transaction (chain head)
-  nonce: number;  // Current account nonce (for validation)
-  exportedAt: number;  // Timestamp when this chain was exported
-  exportedBy?: string;  // Node/wallet that exported this chain
-}
-
-/** History request message for distributed history protocol */
-export interface HistoryRequest {
-  type: 'history_request';
-  address: string;  // Address whose history is being requested
-  fromTx?: string;  // Optional: start from this tx hash (for pagination)
-  limit?: number;  // Maximum number of entries to return
-  requestId: string;  // Request ID for matching responses
-  senderUrl?: string;
-}
-
-/** History response message for distributed history protocol */
-export interface HistoryResponse {
-  type: 'history_response';
-  chain?: WalletChain;  // The wallet chain (null if not found)
-  requestId: string;  // Request ID this response is for
-  isComplete: boolean;  // Whether this node has the complete chain
-  error?: string;  // Error message if request failed
-  senderUrl?: string;
-}
-
-/** History announcement message - for discovery */
-export interface HistoryAnnouncement {
-  type: 'history_announcement';
-  addresses: string[];  // Addresses this node has history for
-  nodeId: string;  // Node ID for routing
-  senderUrl?: string;
 }

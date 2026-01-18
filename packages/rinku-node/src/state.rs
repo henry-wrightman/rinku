@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rinku_core::{
     dag::Dag,
-    types::{Account, Checkpoint, SignedTransaction, Validator, WalletChain, WalletChainEntry},
+    types::{Account, Checkpoint, SignedTransaction, Validator},
     weight::calculate_account_weight,
 };
 use serde::{Deserialize, Serialize};
@@ -218,8 +218,6 @@ impl NodeState {
                         staked: 0.0,
                         unbonding: 0.0,
                         unbonding_release: None,
-                        last_tx_hash: None,
-                        last_tx_proof_url: None,
                     },
                 );
                 info!("Faucet account initialized with {} RKU", faucet_balance);
@@ -241,8 +239,6 @@ impl NodeState {
                         gas_price: Some(0.0),
                         data: None,
                         signature: Some("genesis-signature".to_string()),
-                        prev_account_tx: None,
-                        prev_account_proof_url: None,
                     },
                     hash: genesis_hash.clone(),
                     signature: "genesis-signature".to_string(),
@@ -511,70 +507,6 @@ impl NodeState {
     pub async fn get_account(&self, address: &str) -> Option<Account> {
         let state = self.inner.read().await;
         state.accounts.get(address).cloned()
-    }
-
-    /// Build a wallet chain for distributed history sharing
-    /// Returns None if account doesn't exist or has no transactions
-    pub async fn build_wallet_chain(&self, address: &str, from_tx: Option<String>, limit: usize) -> Option<WalletChain> {
-        let state = self.inner.read().await;
-        
-        let account = state.accounts.get(address)?;
-        
-        // Start from specified tx or account's last tx
-        let start_hash = from_tx.or_else(|| account.last_tx_hash.clone())?;
-        
-        let mut chain = WalletChain::new(address.to_string(), account.nonce);
-        chain.head_tx = Some(start_hash.clone());
-        chain.exported_by = std::env::var("PUBLIC_URL").ok();
-        
-        let mut current_hash = Some(start_hash);
-        
-        while let Some(ref hash) = current_hash {
-            if chain.entries.len() >= limit {
-                break;
-            }
-            
-            if let Some(node) = state.dag.get_node(hash) {
-                // Verify this tx belongs to the requested address
-                if node.tx.tx.from != address {
-                    break;
-                }
-                
-                // Get finalization info for proof URL
-                let checkpoint_height = node.checkpoint_height;
-                let proof_url = if node.finalized {
-                    // Could generate proof URL here, but for now just indicate finalization
-                    node.tx.tx.prev_account_proof_url.clone()
-                } else {
-                    None
-                };
-                
-                chain.entries.push(WalletChainEntry {
-                    hash: node.tx.hash.clone(),
-                    to: node.tx.tx.to.clone(),
-                    amount: node.tx.tx.amount,
-                    fee: node.tx.tx.gas_price.unwrap_or(0.0),
-                    nonce: node.tx.tx.nonce,
-                    timestamp: node.tx.tx.timestamp,
-                    signature: node.tx.signature.clone(),
-                    kind: node.tx.tx.kind,
-                    prev_tx: node.tx.tx.prev_account_tx.clone(),
-                    proof_url,
-                    checkpoint_height,
-                });
-                
-                current_hash = node.tx.tx.prev_account_tx.clone();
-            } else {
-                // Transaction not in DAG (pruned)
-                break;
-            }
-        }
-        
-        if chain.entries.is_empty() {
-            None
-        } else {
-            Some(chain)
-        }
     }
 
     pub async fn get_account_nonce(&self, address: &str) -> u64 {
@@ -1039,12 +971,8 @@ impl NodeState {
         // CRITICAL FIX: Server-side tip injection
         // If client-provided parents don't exist in DAG, substitute with actual tips
         // This prevents tip explosion when clients reference pruned/missing transactions
-        let (tx_weight, normalized_parents, prev_account_tx) = {
+        let (tx_weight, normalized_parents) = {
             let state = self.inner.read().await;
-            
-            // Get the account's current last_tx_hash for chain linking
-            let prev_tx = state.accounts.get(&tx.tx.from)
-                .and_then(|a| a.last_tx_hash.clone());
             
             let weight = if let Some(account) = state.accounts.get(&tx.tx.from) {
                 calculate_account_weight(account, now_secs)
@@ -1077,18 +1005,12 @@ impl NodeState {
                 valid_parents
             };
             
-            (weight, final_parents, prev_tx)
+            (weight, final_parents)
         };
 
-        // Create a modified transaction with prev_account_tx set for chain linking
-        let mut tx_with_chain = tx.clone();
-        if tx_with_chain.tx.prev_account_tx.is_none() {
-            tx_with_chain.tx.prev_account_tx = prev_account_tx;
-        }
-
         let node = rinku_core::types::DagNode {
-            hash: tx_with_chain.hash.clone(),
-            tx: tx_with_chain.clone(),
+            hash: tx.hash.clone(),
+            tx: tx.clone(),
             parents: normalized_parents.clone(),
             children: Vec::new(),
             weight: tx_weight,
@@ -1125,8 +1047,6 @@ impl NodeState {
                 from_account.balance -= tx.tx.amount + gas_fee;
             }
             from_account.nonce = tx.tx.nonce + 1;
-            // Update account chain pointer (proof URL set after finalization)
-            from_account.last_tx_hash = Some(tx.hash.clone());
         }
 
         // For stake/unstake/claim: don't transfer to recipient (amount is handled by rewards/staking)
@@ -1513,8 +1433,6 @@ impl NodeState {
                         from_account.balance -= tx.tx.amount + gas_fee;
                     }
                     from_account.nonce = tx.tx.nonce + 1;
-                    // Update account chain pointer (proof URL set after finalization)
-                    from_account.last_tx_hash = Some(tx.hash.clone());
                 }
 
                 // For stake/unstake/claim: don't transfer to recipient (amount is handled by rewards/staking)
@@ -1949,8 +1867,6 @@ impl NodeState {
                 gas_limit: None,
                 data: None,
                 signature: None,
-                prev_account_tx: None,
-                prev_account_proof_url: None,
             },
             hash: genesis_hash.clone(),
             signature: "genesis".to_string(),

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rinku_core::types::{Account, Checkpoint, SignedTransaction, WalletChain};
+use rinku_core::types::{Account, Checkpoint, SignedTransaction};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -167,45 +167,6 @@ pub enum GossipMessage {
     SyncResponse {
         transactions: Vec<SignedTransaction>,
         checkpoint_height: u64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        sender_url: Option<String>,
-    },
-    /// Request a wallet's transaction history from the network
-    HistoryRequest {
-        /// Address whose history is being requested
-        address: String,
-        /// Optional: start from this tx hash (for pagination)
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        from_tx: Option<String>,
-        /// Maximum number of entries to return
-        #[serde(default)]
-        limit: Option<u32>,
-        /// Request ID for matching responses
-        request_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        sender_url: Option<String>,
-    },
-    /// Response containing a wallet's transaction chain
-    HistoryResponse {
-        /// The wallet chain (empty if not found/not available)
-        chain: Option<WalletChain>,
-        /// Request ID this response is for
-        request_id: String,
-        /// Whether this node has the complete chain or partial
-        #[serde(default)]
-        is_complete: bool,
-        /// Error message if request failed
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        sender_url: Option<String>,
-    },
-    /// Announce that this node has history for certain addresses (for discovery)
-    HistoryAnnouncement {
-        /// Addresses this node has history for
-        addresses: Vec<String>,
-        /// Node ID for routing
-        node_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
     },
@@ -1192,37 +1153,6 @@ impl GossipService {
             GossipMessage::CheckpointSignature { .. } => {
                 Ok(None)
             }
-
-            GossipMessage::HistoryRequest {
-                address,
-                from_tx,
-                limit,
-                request_id,
-                ..
-            } => {
-                // Build wallet chain from local state
-                let chain = self.state.build_wallet_chain(&address, from_tx, limit.unwrap_or(100) as usize).await;
-                let is_complete = chain.as_ref().map(|c| c.entries.last().map(|e| e.prev_tx.is_none()).unwrap_or(true)).unwrap_or(false);
-                
-                Ok(Some(GossipMessage::HistoryResponse {
-                    chain,
-                    request_id,
-                    is_complete,
-                    error: None,
-                    sender_url: std::env::var("PUBLIC_URL").ok(),
-                }))
-            }
-
-            GossipMessage::HistoryResponse { .. } => {
-                // Response is handled by the requester, no action needed here
-                Ok(None)
-            }
-
-            GossipMessage::HistoryAnnouncement { .. } => {
-                // Could track which peers have which addresses' history for routing
-                // For now, just acknowledge
-                Ok(None)
-            }
         }
     }
 
@@ -1426,64 +1356,6 @@ impl GossipService {
             GossipMessage::ConflictResolution { sender_url, .. } => sender_url.clone(),
             GossipMessage::SyncRequest { sender_url, .. } => sender_url.clone(),
             GossipMessage::SyncResponse { sender_url, .. } => sender_url.clone(),
-            GossipMessage::HistoryRequest { sender_url, .. } => sender_url.clone(),
-            GossipMessage::HistoryResponse { sender_url, .. } => sender_url.clone(),
-            GossipMessage::HistoryAnnouncement { sender_url, .. } => sender_url.clone(),
-        }
-    }
-
-    /// Request history for an address from peers
-    pub async fn request_history(&self, address: &str, limit: Option<u32>) -> Option<WalletChain> {
-        let request_id = format!("{:016x}", rand::random::<u64>());
-        let message = GossipMessage::HistoryRequest {
-            address: address.to_string(),
-            from_tx: None,
-            limit,
-            request_id: request_id.clone(),
-            sender_url: std::env::var("PUBLIC_URL").ok(),
-        };
-
-        let inner = self.inner.read().await;
-        let peers: Vec<String> = inner.peers.keys().cloned().collect();
-        drop(inner);
-
-        // Try each peer until we get a verified response
-        for peer in peers {
-            if let Ok(response) = self.send_and_wait(&peer, message.clone()).await {
-                if let GossipMessage::HistoryResponse { chain, request_id: resp_id, .. } = response {
-                    if resp_id == request_id {
-                        if let Some(ref c) = chain {
-                            // Verify chain integrity before accepting
-                            if c.verify_chain_links() && c.address == address {
-                                return chain;
-                            } else {
-                                warn!("Received invalid wallet chain from peer {}: chain verification failed", peer);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    async fn send_and_wait(&self, peer: &str, message: GossipMessage) -> Result<GossipMessage> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()?;
-
-        let url = format!("{}/api/gossip", peer.trim_end_matches('/'));
-        let response = client
-            .post(&url)
-            .json(&message)
-            .send()
-            .await?;
-
-        if response.status().is_success() {
-            let resp: GossipMessage = response.json().await?;
-            Ok(resp)
-        } else {
-            anyhow::bail!("Request failed with status: {}", response.status())
         }
     }
 }

@@ -1,11 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { PageHeader } from "./components/PageHeader";
-import type {
-  TransactionKind,
-  WalletChain,
-  WalletChainEntry,
-} from "@rinku/core";
+import type { TransactionKind } from "@rinku/core";
 
 interface AccountData {
   fingerprint: string;
@@ -43,12 +39,6 @@ interface RewardsSummary {
   pendingRewards: number;
 }
 
-interface ChainResponse {
-  chain: WalletChain;
-  isComplete: boolean;
-  entryCount: number;
-}
-
 function AccountPage() {
   const { address } = useParams<{ address: string }>();
   const [account, setAccount] = useState<AccountData | null>(null);
@@ -58,12 +48,6 @@ function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const [walletChain, setWalletChain] = useState<WalletChain | null>(null);
-  const [chainLoading, setChainLoading] = useState(false);
-  const [chainError, setChainError] = useState<string | null>(null);
-  const [isChainComplete, setIsChainComplete] = useState(false);
-  const [showChainPanel, setShowChainPanel] = useState(false);
 
   useEffect(() => {
     if (!address) {
@@ -141,24 +125,15 @@ function AccountPage() {
     return `${s.slice(0, len)}...`;
   };
 
-  const formatTxKind = (
-    kind?: TransactionKind,
-  ): { label: string; color: string } => {
+  const formatTxKind = (kind?: TransactionKind): { label: string; color: string } => {
     switch (kind) {
-      case "stake":
-        return { label: "stake", color: "#a3be8c" };
-      case "unstake":
-        return { label: "unstake", color: "#ebcb8b" };
-      case "claim_rewards":
-        return { label: "claim", color: "#b48ead" };
-      case "contract":
-        return { label: "contract", color: "#88c0d0" };
-      case "consolidation":
-        return { label: "consolidate", color: "#81a1c1" };
-      case "reward":
-        return { label: "reward", color: "#b48ead" };
-      default:
-        return { label: "transfer", color: "#d8dee9" };
+      case 'stake': return { label: 'stake', color: '#a3be8c' };
+      case 'unstake': return { label: 'unstake', color: '#ebcb8b' };
+      case 'claim_rewards': return { label: 'claim', color: '#b48ead' };
+      case 'contract': return { label: 'contract', color: '#88c0d0' };
+      case 'consolidation': return { label: 'consolidate', color: '#81a1c1' };
+      case 'reward': return { label: 'reward', color: '#b48ead' };
+      default: return { label: 'transfer', color: '#d8dee9' };
     }
   };
 
@@ -168,67 +143,6 @@ function AccountPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  };
-
-  const crawlWalletChain = async () => {
-    if (!address) return;
-
-    setChainLoading(true);
-    setChainError(null);
-    setShowChainPanel(true);
-
-    try {
-      const res = await fetch(`/api/account/${address}/chain?limit=100`);
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to fetch wallet chain");
-      }
-      const data: ChainResponse = await res.json();
-      setWalletChain(data.chain);
-      setIsChainComplete(data.isComplete);
-    } catch (e: any) {
-      setChainError(e.message || "Failed to crawl wallet chain");
-    } finally {
-      setChainLoading(false);
-    }
-  };
-
-  const loadMoreChain = async () => {
-    if (!address || !walletChain?.entries.length) return;
-
-    const lastEntry = walletChain.entries[walletChain.entries.length - 1];
-    if (!lastEntry.prevTx) return;
-
-    setChainLoading(true);
-    try {
-      const res = await fetch(
-        `/api/account/${address}/chain?limit=100&from_tx=${lastEntry.prevTx}`,
-      );
-      if (!res.ok) throw new Error("Failed to load more");
-      const data: ChainResponse = await res.json();
-      setWalletChain({
-        ...walletChain,
-        entries: [...walletChain.entries, ...data.chain.entries],
-      });
-      setIsChainComplete(data.isComplete);
-    } catch (e: any) {
-      setChainError(e.message);
-    } finally {
-      setChainLoading(false);
-    }
-  };
-
-  const exportChainJson = () => {
-    if (!walletChain) return;
-    const blob = new Blob([JSON.stringify(walletChain, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `wallet-chain-${address?.slice(0, 8)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   if (loading) {
@@ -340,9 +254,7 @@ function AccountPage() {
               </div>
               <div className="meta-row">
                 <span className="label">witness rewards</span>
-                <span className="value">
-                  {rewards.witnessRewards.toFixed(2)}
-                </span>
+                <span className="value">{rewards.witnessRewards.toFixed(2)}</span>
               </div>
               <div className="meta-row">
                 <span className="label">total earned</span>
@@ -362,135 +274,6 @@ function AccountPage() {
           </div>
         )}
 
-        <div style={{ marginTop: 24, marginBottom: 16 }}>
-          <button
-            className="crawl-btn"
-            onClick={crawlWalletChain}
-            disabled={chainLoading}
-          >
-            {chainLoading ? "crawling..." : "crawl wallet chain"}
-          </button>
-          <span className="crawl-hint">
-            reconstruct history from the network
-          </span>
-        </div>
-
-        {showChainPanel && (
-          <div className="chain-panel">
-            <div className="chain-panel-header">
-              <h3>
-                wallet chain{" "}
-                {walletChain ? `(${walletChain.entries.length} entries)` : ""}
-              </h3>
-              <div>
-                {walletChain && (
-                  <button
-                    className="btn-small"
-                    onClick={exportChainJson}
-                    style={{ marginRight: 8, fontSize: 11 }}
-                  >
-                    export JSON
-                  </button>
-                )}
-                <button
-                  className="btn-small"
-                  onClick={() => setShowChainPanel(false)}
-                  style={{ fontSize: 11 }}
-                >
-                  close
-                </button>
-              </div>
-            </div>
-
-            {chainError && (
-              <div style={{ color: "#bf616a", marginBottom: 12 }}>
-                {chainError}
-              </div>
-            )}
-
-            {chainLoading && !walletChain && (
-              <div className="chain-panel-meta">
-                crawling chain from node...
-              </div>
-            )}
-
-            {walletChain && (
-              <>
-                <div className="chain-panel-meta">
-                  <span>
-                    exported at:{" "}
-                    {new Date(walletChain.exportedAt).toLocaleString()}
-                  </span>
-                  {walletChain.exportedBy && (
-                    <span style={{ marginLeft: 12 }}>
-                      by: {truncate(walletChain.exportedBy, 24)}
-                    </span>
-                  )}
-                  <span
-                    style={{
-                      marginLeft: 12,
-                      color: isChainComplete ? "#a3be8c" : "#ebcb8b",
-                    }}
-                  >
-                    {isChainComplete ? "✓ complete" : "⋯ partial"}
-                  </span>
-                </div>
-
-                <div style={{ maxHeight: 300, overflowY: "auto" }}>
-                  {walletChain.entries.map((entry, i) => (
-                    <div key={entry.hash} className="chain-entry">
-                      <div className="chain-entry-left">
-                        <span className="chain-entry-nonce">
-                          #{entry.nonce}
-                        </span>
-                        <Link
-                          to={`/tx/h/${entry.hash}`}
-                          className="chain-entry-hash"
-                        >
-                          {truncate(entry.hash, 12)}
-                        </Link>
-                        <span className="chain-entry-arrow">→</span>
-                        <span className="chain-entry-to">
-                          {truncate(entry.to, 10)}
-                        </span>
-                      </div>
-                      <div className="chain-entry-right">
-                        <span className="chain-entry-amount">
-                          {entry.amount} RKU
-                        </span>
-                        {entry.proofUrl && (
-                          <span
-                            className="chain-entry-proof"
-                            title={entry.proofUrl}
-                          >
-                            ✓ proof
-                          </span>
-                        )}
-                        {entry.checkpointHeight && (
-                          <span className="chain-entry-checkpoint">
-                            cp:{entry.checkpointHeight}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {!isChainComplete && walletChain.entries.length > 0 && (
-                  <button
-                    className="btn-small"
-                    onClick={loadMoreChain}
-                    disabled={chainLoading}
-                    style={{ marginTop: 12, width: "100%" }}
-                  >
-                    {chainLoading ? "loading..." : "load more"}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
         <div className="tx-parents" style={{ marginTop: 24 }}>
           <h3>
             transaction history ({transactions.length} indexed of{" "}
@@ -505,7 +288,7 @@ function AccountPage() {
               {transactions.slice(0, 20).map((tx, i) => {
                 const isIncoming = tx.to === address;
                 const txType = formatTxKind(tx.kind);
-                const isSpecialTx = tx.kind && tx.kind !== "transfer";
+                const isSpecialTx = tx.kind && tx.kind !== 'transfer';
                 return (
                   <Link
                     key={i}
@@ -514,25 +297,13 @@ function AccountPage() {
                   >
                     <span
                       className="index"
-                      style={{
-                        color: isSpecialTx
-                          ? txType.color
-                          : isIncoming
-                            ? "#a3be8c"
-                            : "#bf616a",
-                      }}
+                      style={{ color: isSpecialTx ? txType.color : (isIncoming ? "#a3be8c" : "#bf616a") }}
                     >
-                      {isSpecialTx
-                        ? txType.label.charAt(0).toUpperCase()
-                        : isIncoming
-                          ? "+"
-                          : "-"}
+                      {isSpecialTx ? txType.label.charAt(0).toUpperCase() : (isIncoming ? "+" : "-")}
                     </span>
                     <span className="parent-info">
                       {isSpecialTx ? (
-                        <span style={{ color: txType.color }}>
-                          {txType.label}
-                        </span>
+                        <span style={{ color: txType.color }}>{txType.label}</span>
                       ) : isIncoming ? (
                         <>
                           from{" "}
@@ -546,20 +317,10 @@ function AccountPage() {
                     </span>
                     <span
                       className="parent-amount"
-                      style={{
-                        color: isSpecialTx
-                          ? txType.color
-                          : isIncoming
-                            ? "#a3be8c"
-                            : "#bf616a",
-                      }}
+                      style={{ color: isSpecialTx ? txType.color : (isIncoming ? "#a3be8c" : "#bf616a") }}
                     >
-                      {isSpecialTx ? "" : isIncoming ? "+" : "-"}
-                      {tx.amount > 0
-                        ? `${tx.amount} RKU`
-                        : isSpecialTx
-                          ? ""
-                          : "0 RKU"}
+                      {isSpecialTx ? "" : (isIncoming ? "+" : "-")}
+                      {tx.amount > 0 ? `${tx.amount} RKU` : (isSpecialTx ? "" : "0 RKU")}
                     </span>
                   </Link>
                 );

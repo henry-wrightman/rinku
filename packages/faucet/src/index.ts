@@ -125,7 +125,7 @@ async function main() {
         to: address,
         amount: FAUCET_AMOUNT,
         fee: 0,
-        nonce: faucetAccount.nonce || 0,
+        nonce: (faucetAccount.nonce || 0) + 1,
         tipUrls,
         sig: 'faucet-signature',
         ts: now,

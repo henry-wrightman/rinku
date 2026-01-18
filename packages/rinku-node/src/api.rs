@@ -100,10 +100,6 @@ struct TxInner {
     hash: String,
     #[serde(default)]
     kind: Option<rinku_core::types::TransactionKind>,
-    #[serde(default)]
-    prev_account_tx: Option<String>,
-    #[serde(default)]
-    prev_account_proof_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -553,24 +549,6 @@ async fn post_gossip(
                     &checkpoint_id[..16.min(checkpoint_id.len())], 
                     &validator_address[..16.min(validator_address.len())]);
             }
-            GossipMessage::HistoryRequest { address, request_id, limit, from_tx, .. } => {
-                info!("Gossip: history request for {} (id: {})", address, request_id);
-                let chain = state.build_wallet_chain(&address, from_tx.clone(), limit.unwrap_or(100) as usize).await;
-                let is_complete = chain.as_ref().map(|c| c.entries.last().map(|e| e.prev_tx.is_none()).unwrap_or(true)).unwrap_or(false);
-                return Json(serde_json::json!({
-                    "type": "history_response",
-                    "chain": chain,
-                    "request_id": request_id,
-                    "is_complete": is_complete,
-                    "error": serde_json::Value::Null
-                })).into_response();
-            }
-            GossipMessage::HistoryResponse { .. } => {
-                info!("Gossip: received history response (handled by requester)");
-            }
-            GossipMessage::HistoryAnnouncement { addresses, node_id, .. } => {
-                info!("Gossip: node {} announced history for {} addresses", node_id, addresses.len());
-            }
         }
     }
 
@@ -764,9 +742,6 @@ async fn handle_faucet_request(
         .collect();
 
     let faucet_account = state.get_account("faucet").await;
-    // Get previous account tx for account chain (before consuming faucet_account)
-    let prev_tx = faucet_account.as_ref().and_then(|a| a.last_tx_hash.clone());
-    let prev_proof = faucet_account.as_ref().and_then(|a| a.last_tx_proof_url.clone());
     // Use current nonce (not +1) - add_transaction will increment it
     let nonce = faucet_account.map(|a| a.nonce).unwrap_or(0);
 
@@ -782,8 +757,6 @@ async fn handle_faucet_request(
         gas_price: Some(0.0),
         data: None,
         signature: None,
-        prev_account_tx: prev_tx,
-        prev_account_proof_url: prev_proof,
     };
 
     let tx = rinku_core::types::SignedTransaction {
@@ -901,134 +874,6 @@ async fn get_account(
     }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AccountHistoryTx {
-    hash: String,
-    from: String,
-    to: String,
-    amount: f64,
-    fee: f64,
-    nonce: u64,
-    timestamp: u64,
-    finalized: bool,
-    prev_account_tx: Option<String>,
-    prev_account_proof_url: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AccountHistoryResponse {
-    address: String,
-    transactions: Vec<AccountHistoryTx>,
-    total_found: usize,
-    has_more: bool,
-    oldest_tx_hash: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct AccountHistoryQuery {
-    limit: Option<usize>,
-    from_hash: Option<String>,
-}
-
-async fn get_account_history(
-    State(state): State<NodeState>,
-    Path(address): Path<String>,
-    Query(query): Query<AccountHistoryQuery>,
-) -> Result<Json<AccountHistoryResponse>, ApiError> {
-    let limit = query.limit.unwrap_or(50).min(100);
-    
-    let account = state.get_account(&address).await
-        .ok_or_else(|| ApiError::not_found("Account not found"))?;
-    
-    let mut transactions = Vec::new();
-    let start_hash = query.from_hash.clone().or(account.last_tx_hash);
-    let mut current_hash: Option<String> = start_hash.clone();
-    
-    if let Some(ref from_hash) = query.from_hash {
-        if let Some(tx) = state.get_transaction(from_hash).await {
-            if tx.tx.from != address {
-                return Err(ApiError::bad_request(format!(
-                    "Transaction {} does not belong to account {}",
-                    from_hash, address
-                )));
-            }
-        } else {
-            return Err(ApiError::not_found(format!("Transaction {} not found", from_hash)));
-        }
-    }
-    
-    while let Some(ref hash) = current_hash {
-        if transactions.len() >= limit {
-            break;
-        }
-        
-        if let Some(tx) = state.get_transaction(hash).await {
-            if tx.tx.from != address {
-                break;
-            }
-            
-            let finalized = state.is_finalized(hash).await;
-            let next_hash = tx.tx.prev_account_tx.clone();
-            transactions.push(AccountHistoryTx {
-                hash: tx.hash.clone(),
-                from: tx.tx.from.clone(),
-                to: tx.tx.to.clone(),
-                amount: tx.tx.amount,
-                fee: tx.tx.gas_price.unwrap_or(0.0),
-                nonce: tx.tx.nonce,
-                timestamp: tx.tx.timestamp,
-                finalized,
-                prev_account_tx: tx.tx.prev_account_tx.clone(),
-                prev_account_proof_url: tx.tx.prev_account_proof_url.clone(),
-            });
-            current_hash = next_hash;
-        } else {
-            current_hash = None;
-        }
-    }
-    
-    let has_more = current_hash.is_some();
-    let oldest_tx_hash = transactions.last().and_then(|t| t.prev_account_tx.clone());
-    let total_found = transactions.len();
-    
-    Ok(Json(AccountHistoryResponse {
-        address,
-        transactions,
-        total_found,
-        has_more,
-        oldest_tx_hash,
-    }))
-}
-
-#[derive(Deserialize)]
-struct WalletChainQuery {
-    limit: Option<usize>,
-    from_tx: Option<String>,
-}
-
-async fn get_wallet_chain(
-    State(state): State<NodeState>,
-    Path(address): Path<String>,
-    Query(query): Query<WalletChainQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let limit = query.limit.unwrap_or(100).min(500);
-    
-    let chain = state.build_wallet_chain(&address, query.from_tx, limit).await
-        .ok_or_else(|| ApiError::not_found("Account not found or has no transactions"))?;
-    
-    let is_complete = chain.entries.last()
-        .map(|e| e.prev_tx.is_none())
-        .unwrap_or(true);
-    
-    Ok(Json(serde_json::json!({
-        "chain": chain,
-        "isComplete": is_complete,
-        "entryCount": chain.entries.len()
-    })))
-}
-
 async fn submit_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<SubmitTxRequest>,
@@ -1047,8 +892,6 @@ async fn submit_transaction(
             gas_price: Some(inner.fee),
             data: None,
             signature: Some(inner.sig.clone()),
-            prev_account_tx: inner.prev_account_tx.clone(),
-            prev_account_proof_url: inner.prev_account_proof_url.clone(),
         },
         hash: inner.hash.clone(),
         signature: inner.sig.clone(),
@@ -1105,8 +948,6 @@ async fn submit_batch_transaction(
                     gas_price: Some(inner.fee),
                     data: None,
                     signature: Some(inner.sig.clone()),
-                    prev_account_tx: inner.prev_account_tx,
-                    prev_account_proof_url: inner.prev_account_proof_url,
                 },
                 hash: inner.hash,
                 signature: inner.sig,
@@ -2315,8 +2156,6 @@ pub async fn start_api_server(
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/account/:address", get(get_account))
-        .route("/api/account/:address/history", get(get_account_history))
-        .route("/api/account/:address/chain", get(get_wallet_chain))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))

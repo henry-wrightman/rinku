@@ -91,10 +91,6 @@ function verify(proofUrl):
   return true
 ```
 
-
-
-     
-
 ### 3.4 Data Availability
 
 **Important clarification:** Self-provable URLs guarantee **verification** without infrastructure, but not **discovery**. The URL must reach the verifier through some sort of transport, such as:
@@ -108,7 +104,6 @@ function verify(proofUrl):
 rinku is a DAG-based distributed network where:
 
 * **Shared DAG structure** - Transactions reference 1-2 recent global **tip** transactions (the latest unconfirmed transactions across the network), weaving all network activity into a unified DAG
-* **Account Transaction Chains:** - Each transaction includes a `prev_account_tx` field (\~32 bytes) referencing the sender's previous transaction hash, forming a backward-linked chain per wallet
 * **Nonce-based ordering** - Each account maintains the _classic_ sequential nonce to prevent replay attacks & establish per-account ordering
 * **Weight-based consensus** - Conflicts are resolved by cumulative weight (based on account age & stake), ensuring Sybil resistance
 
@@ -134,10 +129,7 @@ Different use cases require different security/size tradeoffs:
 
 ```
 rinku://tx/{payload}
-
 ```
-
-      
 
 ### Profile B: Full Finality (~3,000 - 10,000 characters)
 
@@ -147,10 +139,7 @@ rinku://tx/{payload}
 
 ```
 rinku://txp/{payload}
-
 ```
-
-     
 
 ### Profile C: Self-Contained (~1,600 - 2,800 characters)
 
@@ -160,10 +149,7 @@ rinku://txp/{payload}
 
 ```
 rinku://sp/{payload}
-
 ```
-
-     
 
 ## 5. Size Analysis
 
@@ -211,8 +197,6 @@ Rinku flow:
 ```
 User -> Receive URL -> Verify Locally
 ```
-
-
 
 ### 7.2 Portable Proofs
 
@@ -271,8 +255,6 @@ The core innovation is architectural: treating URLs as the canonical proof objec
 ```
 rinku://{profile}/{base64url(deflate(json))}
 ```
-
- 
 
 Profiles:
 
