@@ -1,8 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import type { DAGNode } from "../types";
+import type { DAGNode, TransactionKind } from "../types";
 import { truncate, timeAgo } from "../utils";
 import { Pagination } from "./Pagination";
+
+const formatTxKind = (kind?: TransactionKind): { label: string; color: string } => {
+  switch (kind) {
+    case 'stake': return { label: 'stake', color: '#a3be8c' };
+    case 'unstake': return { label: 'unstake', color: '#ebcb8b' };
+    case 'claim_rewards': return { label: 'claim', color: '#b48ead' };
+    case 'contract': return { label: 'contract', color: '#88c0d0' };
+    case 'consolidation': return { label: 'consolidate', color: '#81a1c1' };
+    case 'reward': return { label: 'reward', color: '#b48ead' };
+    default: return { label: 'transfer', color: '#d8dee9' };
+  }
+};
 
 interface ProofState {
   loading: boolean;
@@ -109,6 +121,10 @@ export function DAGTab({
             )}
           </div>
           <div className="meta">
+            <span className="tx-kind-label" style={{ color: formatTxKind(node.kind).color }}>
+              {formatTxKind(node.kind).label}
+            </span>
+            {" · "}
             {node.from === "genesis" ? "genesis" : truncate(node.from, 6)} →{" "}
             {truncate(node.to, 6)} · {timeAgo(node.ts)} · refs{" "}
             {node.parentCount} parent(s) ·{" "}

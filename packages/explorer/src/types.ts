@@ -5,6 +5,8 @@ export interface Account {
   firstTxTimestamp: number;
 }
 
+export type TransactionKind = 'transfer' | 'stake' | 'unstake' | 'claim_rewards' | 'contract' | 'consolidation' | 'reward';
+
 export interface DAGNode {
   hash: string;
   from: string;
@@ -16,6 +18,7 @@ export interface DAGNode {
   url: string;
   weight: number;
   confirmed: boolean;
+  kind?: TransactionKind;
 }
 
 export interface State {
