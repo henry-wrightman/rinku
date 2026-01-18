@@ -31,6 +31,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Self-Contained Proof System (v5 - MerkleSumTree Multi-Proof):** Fully offline-verifiable transaction proofs with chain identity binding.
 - **ZK Privacy Layer:** Optional privacy-preserving proofs using Groth16 ZK-SNARKs for transactions.
 - **Protocol Versioning & Upgrades:** Semantic versioning, feature flags, upgrade proposals, and peer compatibility checks.
+- **Per-Account Transaction Chains:** Each transaction includes `prev_account_tx` (hash pointer to previous account tx) enabling lightweight history tracking (~32 bytes per tx overhead) without archival nodes. Accounts track `last_tx_hash` for chain head. API endpoint `/api/account/:address/history` reconstructs history by crawling the chain.
 
 ### Transaction Validation & Security
 All transactions undergo comprehensive validation, including account existence, balance, nonce, and gas fee checks. Production APIs (`/api/tx`, `/api/tx/batch`) enforce full validation with pre-validation checks (balance + gas) before any state mutations.
