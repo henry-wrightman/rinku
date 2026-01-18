@@ -101,39 +101,24 @@ function TransactionPage() {
     return `${s.slice(0, len)}...`;
   };
 
-  const getTxKindClass = (kind?: TransactionKind): string => {
+  const formatTxKind = (
+    kind?: TransactionKind,
+  ): { label: string; color: string } => {
     switch (kind) {
       case "stake":
-        return "text-success";
+        return { label: "stake", color: "#a3be8c" };
       case "unstake":
-        return "text-warning";
+        return { label: "unstake", color: "#ebcb8b" };
       case "claim_rewards":
-      case "reward":
-        return "text-accent";
+        return { label: "claim rewards", color: "#b48ead" };
       case "contract":
+        return { label: "contract call", color: "#88c0d0" };
       case "consolidation":
-        return "text-accent";
-      default:
-        return "";
-    }
-  };
-
-  const getTxKindLabel = (kind?: TransactionKind): string => {
-    switch (kind) {
-      case "stake":
-        return "stake";
-      case "unstake":
-        return "unstake";
-      case "claim_rewards":
-        return "claim rewards";
-      case "contract":
-        return "contract call";
-      case "consolidation":
-        return "consolidation";
+        return { label: "consolidation", color: "#81a1c1" };
       case "reward":
-        return "reward";
+        return { label: "reward", color: "#b48ead" };
       default:
-        return "transfer";
+        return { label: "transfer", color: "#d8dee9" };
     }
   };
 
@@ -194,7 +179,10 @@ function TransactionPage() {
         <div className="tx-amount">
           {tx.amount.toLocaleString()} <span className="unit">RKU</span>
           {(tx.fee ?? 0) > 0 && (
-            <span className="tx-fee-inline">
+            <span
+              className="fee"
+              style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}
+            >
               (+{tx.fee?.toFixed(5)} fee)
             </span>
           )}
@@ -219,8 +207,11 @@ function TransactionPage() {
         <div className="tx-meta">
           <div className="meta-row">
             <span className="label">type</span>
-            <span className={`value ${getTxKindClass(tx.kind)}`}>
-              {getTxKindLabel(tx.kind)}
+            <span
+              className="value"
+              style={{ color: formatTxKind(tx.kind).color }}
+            >
+              {formatTxKind(tx.kind).label}
             </span>
           </div>
           <div className="meta-row">
@@ -233,7 +224,10 @@ function TransactionPage() {
           </div>
           <div className="meta-row">
             <span className="label">gas fee</span>
-            <span className={`value ${(tx.fee ?? 0) > 0 ? "text-warning" : ""}`}>
+            <span
+              className="value"
+              style={{ color: (tx.fee ?? 0) > 0 ? "#ebcb8b" : undefined }}
+            >
               {tx.fee ?? 0}
             </span>
           </div>
@@ -286,32 +280,75 @@ function TransactionPage() {
         </div>
 
         {tx.hash ? (
-          <div className="tx-proof-section">
-            <h3>self-provable url</h3>
+          <div
+            className="tx-proof"
+            style={{
+              marginTop: 24,
+              padding: 16,
+              background: "rgba(136, 192, 208, 0.1)",
+              borderRadius: 8,
+              border: "1px solid rgba(136, 192, 208, 0.3)",
+              marginBottom: 20,
+            }}
+          >
+            <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>
+              self-provable url
+            </h3>
             {proof.loading ? (
-              <div className="text-muted">loading proof...</div>
+              <div style={{ color: "#d8dee9", opacity: 0.7 }}>
+                loading proof...
+              </div>
             ) : proof.proofUrl ? (
               <>
-                <div className="proof-url-box">{proof.proofUrl}</div>
-                <div className="proof-actions">
+                <div
+                  style={{
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    wordBreak: "break-all",
+                    background: "rgba(0,0,0,0.2)",
+                    padding: 12,
+                    borderRadius: 4,
+                    marginBottom: 12,
+                    maxHeight: 100,
+                    overflow: "auto",
+                  }}
+                >
+                  {proof.proofUrl}
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
                   <button
                     className={`btn-proof ${proofCopied ? "btn-proof-success" : ""}`}
                     onClick={copyProofUrl}
                   >
                     {proofCopied ? "copied!" : "copy proof url"}
                   </button>
-                  <span className="proof-meta">
+                  <span
+                    style={{ fontSize: 12, color: "#d8dee9", opacity: 0.7 }}
+                  >
                     {proof.sizeBytes} bytes
-                    {proof.qrViable && " · QR viable"}
                   </span>
                 </div>
-                <p className="proof-description">
+                <p
+                  style={{
+                    fontSize: 12,
+                    marginTop: 12,
+                    opacity: 0.8,
+                    color: "#d8dee9",
+                  }}
+                >
                   this proof is completely self-contained. anyone can verify
                   this transaction offline using only the url above.
                 </p>
               </>
             ) : (
-              <div className="text-warning" style={{ opacity: 0.8 }}>
+              <div style={{ color: "#ebcb8b", opacity: 0.8 }}>
                 {proof.error || "awaiting finalization..."}
               </div>
             )}
