@@ -408,6 +408,60 @@ impl GossipService {
         Ok(())
     }
 
+    /// Force bootstrap from peer - used for recovery when delta sync fails due to state divergence
+    /// This forces the snapshot to be applied even if checkpoint counts are equal
+    async fn bootstrap_from_peer_force(&self, peer: &str) -> Result<()> {
+        let client = reqwest::Client::new();
+        let url = format!("{}/api/sync/snapshot", peer);
+        
+        warn!("RECOVERY: Forcing snapshot sync from peer {} to fix state divergence", peer);
+        
+        let response = client
+            .get(&url)
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+        
+        if !response.status().is_success() {
+            anyhow::bail!("Snapshot sync request failed with status {}", response.status());
+        }
+        
+        let snapshot_response: SnapshotSyncResponse = response.json().await?;
+        
+        warn!(
+            "RECOVERY: Received snapshot: {} accounts, {} checkpoints, {} dag txs",
+            snapshot_response.accounts.len(),
+            snapshot_response.checkpoints.len(),
+            snapshot_response.dag_transactions.len()
+        );
+
+        // Weak subjectivity check (same as regular bootstrap)
+        if !self.trust_verifier.has_genesis_validators() {
+            warn!("TESTNET MODE: Accepting snapshot without verification");
+        }
+
+        let snapshot = SyncSnapshot {
+            accounts: snapshot_response.accounts,
+            validators: snapshot_response.validators,
+            checkpoints: snapshot_response.checkpoints,
+            gas_price: snapshot_response.gas_price,
+            total_supply: snapshot_response.total_supply,
+            genesis_time: snapshot_response.genesis_time,
+            dag_transactions: snapshot_response.dag_transactions,
+            total_transactions: snapshot_response.total_transactions,
+        };
+
+        // Use force apply to bypass checkpoint count check
+        let added = self.state.apply_sync_snapshot_force(snapshot).await?;
+        
+        warn!("RECOVERY: Force snapshot sync complete - applied {} DAG transactions", added);
+
+        let mut inner = self.inner.write().await;
+        inner.stats.sync_requests += 1;
+        
+        Ok(())
+    }
+
     async fn gossip_round(&self) {
         let peers: Vec<String> = {
             let inner = self.inner.read().await;
@@ -649,14 +703,15 @@ impl GossipService {
                             let result = self.sync_from_peer(peer, local_checkpoint).await;
                             match result {
                                 Ok(sync_result) => {
-                                    // If delta sync had too many failures, try snapshot sync
+                                    // If delta sync had too many failures, force snapshot sync to fix state divergence
+                                    // This bypasses the checkpoint count check since the issue is nonce/balance mismatch
                                     if sync_result.failed > 0 && sync_result.failed > sync_result.added * 2 {
                                         warn!(
-                                            "Delta sync had {} failures vs {} added, falling back to snapshot sync",
+                                            "Delta sync had {} failures vs {} added - state divergence detected, forcing snapshot recovery",
                                             sync_result.failed, sync_result.added
                                         );
-                                        if let Err(e) = self.bootstrap_from_peer(peer, local_checkpoint).await {
-                                            warn!("Snapshot sync from {} failed: {}", peer, e);
+                                        if let Err(e) = self.bootstrap_from_peer_force(peer).await {
+                                            warn!("RECOVERY: Force snapshot sync from {} failed: {}", peer, e);
                                         }
                                     }
                                 }

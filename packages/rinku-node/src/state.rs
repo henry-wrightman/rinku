@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::NodeConfig;
 use crate::emission::EmissionService;
@@ -1635,19 +1635,37 @@ impl NodeState {
 
     /// Apply a snapshot from a peer during sync
     /// This replaces local state with the peer's state (used for initial sync)
+    /// Use force=true to apply even when checkpoint counts are equal (for recovery)
     pub async fn apply_sync_snapshot(&self, snapshot: SyncSnapshot) -> Result<usize> {
+        self.apply_sync_snapshot_inner(snapshot, false).await
+    }
+
+    /// Force apply a snapshot (used for recovery when delta sync fails)
+    pub async fn apply_sync_snapshot_force(&self, snapshot: SyncSnapshot) -> Result<usize> {
+        self.apply_sync_snapshot_inner(snapshot, true).await
+    }
+
+    async fn apply_sync_snapshot_inner(&self, snapshot: SyncSnapshot, force: bool) -> Result<usize> {
         let mut state = self.inner.write().await;
 
         // Only apply if peer has more checkpoints (more finalized history)
+        // OR if force=true (recovery mode - delta sync failed, need fresh state)
         let local_checkpoint_count = state.checkpoints.len();
         let peer_checkpoint_count = snapshot.checkpoints.len();
 
-        if peer_checkpoint_count <= local_checkpoint_count && local_checkpoint_count > 0 {
+        if !force && peer_checkpoint_count <= local_checkpoint_count && local_checkpoint_count > 0 {
             info!(
                 "Skipping snapshot apply: local has {} checkpoints, peer has {}",
                 local_checkpoint_count, peer_checkpoint_count
             );
             return Ok(0);
+        }
+        
+        if force {
+            warn!(
+                "RECOVERY MODE: Force applying snapshot ({} accounts, {} checkpoints) to fix state divergence",
+                snapshot.accounts.len(), peer_checkpoint_count
+            );
         }
 
         info!(

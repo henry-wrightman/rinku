@@ -1,0 +1,88 @@
+enrywrightman@Henrys-MacBook-Pro-2 rinku % npx ts-node scripts/validate-multi-node.ts https://rinkuchan.com https://rinku-node.fly.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 2
+    Node 1: https://rinkuchan.com
+    Node 2: https://rinku-node.fly.dev
+  Started: 2026-01-18T02:52:05.795Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinkuchan.com (207ms)
+  ✓ Node 2 reachable: https://rinku-node.fly.dev (193ms)
+  ✓ Minimum nodes online: 2/2 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS (Critical for consensus)
+======================================================================
+  Checkpoint heights: 31-32 (diff: 1)
+  ✓ Checkpoint height sync: All nodes within 5 checkpoints (acceptable sync lag)
+
+  Comparing checkpoint merkle roots at common height 31...
+    Node 1 @ height 31: fa8e2bfc97015efe...
+    Node 2 @ height 31: fa8e2bfc97015efe...
+  ✓ Checkpoint merkle root consensus: All nodes agree at height 31: fa8e2bfc97015efe...
+  ✓ Checkpoint hash consensus: All nodes agree: ...
+
+======================================================================
+  3. DAG STATE COMPARISON (Informational - varies by pruning)
+======================================================================
+
+  DAG Sizes (unfinalized transactions - expected to vary):
+    Node 1: 286 transactions
+    Node 2: 65 transactions
+  ℹ DAG size variance: 77.3% (65 - 286 txs) - Expected due to pruning
+  ℹ DAG merkle roots: 2 different (expected - DAG changes constantly)
+
+  Tip Counts:
+    Node 1: 2 tips
+    Node 2: 2 tips
+
+======================================================================
+  4. DAG TRANSACTION COUNTS (Informational - varies by pruning)
+======================================================================
+  Note: DAG transactions differ due to pruning after checkpoints.
+  This is expected behavior with snapshot-based sync.
+
+  Node 1: ~286 DAG transactions
+  Node 2: ~65 DAG transactions
+
+  ℹ DAG transaction differences are expected - transactions are pruned after finalization.
+
+======================================================================
+  5. ACCOUNT BALANCE CONSISTENCY
+======================================================================
+  Node 1: 6 accounts
+  Node 2: 6 accounts
+  ✓ Account balance consistency: All 1 accounts match across nodes
+
+======================================================================
+  6. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 7
+  Passed: 7
+  Failed: 0
+  Success Rate: 100.0%
+
+======================================================================
+  KEY CONSENSUS METRICS:
+    - Checkpoint merkle roots at same height MUST match
+    - Account balances MUST match
+    - DAG size/transactions will differ (expected due to pruning)
+======================================================================
+  ALL NODES IN CONSENSUS - NETWORK IS HEALTHY
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % 
