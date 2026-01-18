@@ -308,6 +308,7 @@ struct SyncStatusResponse {
     total_stake: f64,
     uptime_seconds: u64,
     is_syncing: bool,
+    faucet_balance: f64,
 }
 
 #[derive(Serialize)]
@@ -416,6 +417,7 @@ async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusRespo
     let uptime_seconds = state.get_uptime_seconds().await;
     let merkle_root = state.get_dag_merkle_root().await;
     let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| "unknown".to_string());
+    let faucet_balance = state.get_faucet_balance().await;
 
     Json(SyncStatusResponse {
         node_id,
@@ -429,6 +431,7 @@ async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusRespo
         total_stake,
         uptime_seconds,
         is_syncing: false,
+        faucet_balance,
     })
 }
 

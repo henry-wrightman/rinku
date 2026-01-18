@@ -69,6 +69,8 @@ struct PeerSyncStatus {
     tips: Vec<String>,
     #[allow(dead_code)]
     merkle_root: Option<String>,
+    #[serde(default)]
+    faucet_balance: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -739,6 +741,31 @@ impl GossipService {
                                 Err(e) => {
                                     warn!("Sync from {} failed: {}", peer, e);
                                 }
+                            }
+                        }
+                    } else if status.checkpoint_height == local_checkpoint && status.faucet_balance > 0.0 {
+                        // ACCOUNT STATE VERIFICATION: Even when checkpoints match, account balances may differ
+                        // This can happen if earlier checkpoints diverged but later ones converged
+                        // Compare faucet balance as a proxy for overall account state consistency
+                        let local_faucet_balance = self.state.get_faucet_balance().await;
+                        let balance_diff = (status.faucet_balance - local_faucet_balance).abs();
+                        
+                        // If faucet balances differ by more than 1.0 RKU, we have state divergence
+                        // Force a snapshot sync from the peer with the higher faucet balance (more conservative)
+                        if balance_diff > 1.0 {
+                            warn!(
+                                "[StateVerification] Faucet balance mismatch with peer {}: local={:.2}, peer={:.2}, diff={:.2}",
+                                peer, local_faucet_balance, status.faucet_balance, balance_diff
+                            );
+                            
+                            // Sync from peer with higher faucet balance (they have less distributed funds = more conservative)
+                            if status.faucet_balance > local_faucet_balance {
+                                warn!("[StateVerification] Peer has higher faucet balance - forcing snapshot sync to fix state divergence");
+                                if let Err(e) = self.bootstrap_from_peer_force(peer).await {
+                                    warn!("RECOVERY: Force snapshot sync from {} failed: {}", peer, e);
+                                }
+                            } else {
+                                info!("[StateVerification] We have higher faucet balance - peer should sync from us");
                             }
                         }
                     }

@@ -675,6 +675,11 @@ impl NodeState {
         state.validators.values().map(|v| v.stake).sum()
     }
 
+    pub async fn get_faucet_balance(&self) -> f64 {
+        let state = self.inner.read().await;
+        state.accounts.get("faucet").map(|a| a.balance).unwrap_or(0.0)
+    }
+
     /// Get staking info for a specific validator address (for TUI display)
     pub async fn get_validator_staking_info(&self, address: &str) -> (f64, f64, f64, bool) {
         let rewards = self.rewards.read().await;
