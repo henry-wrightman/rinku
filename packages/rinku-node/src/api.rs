@@ -100,6 +100,10 @@ struct TxInner {
     hash: String,
     #[serde(default)]
     kind: Option<rinku_core::types::TransactionKind>,
+    #[serde(default)]
+    prev_account_tx: Option<String>,
+    #[serde(default)]
+    prev_account_proof_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -742,6 +746,9 @@ async fn handle_faucet_request(
         .collect();
 
     let faucet_account = state.get_account("faucet").await;
+    // Get previous account tx for account chain (before consuming faucet_account)
+    let prev_tx = faucet_account.as_ref().and_then(|a| a.last_tx_hash.clone());
+    let prev_proof = faucet_account.as_ref().and_then(|a| a.last_tx_proof_url.clone());
     // Use current nonce (not +1) - add_transaction will increment it
     let nonce = faucet_account.map(|a| a.nonce).unwrap_or(0);
 
@@ -757,6 +764,8 @@ async fn handle_faucet_request(
         gas_price: Some(0.0),
         data: None,
         signature: None,
+        prev_account_tx: prev_tx,
+        prev_account_proof_url: prev_proof,
     };
 
     let tx = rinku_core::types::SignedTransaction {
@@ -892,6 +901,8 @@ async fn submit_transaction(
             gas_price: Some(inner.fee),
             data: None,
             signature: Some(inner.sig.clone()),
+            prev_account_tx: inner.prev_account_tx.clone(),
+            prev_account_proof_url: inner.prev_account_proof_url.clone(),
         },
         hash: inner.hash.clone(),
         signature: inner.sig.clone(),
@@ -948,6 +959,8 @@ async fn submit_batch_transaction(
                     gas_price: Some(inner.fee),
                     data: None,
                     signature: Some(inner.sig.clone()),
+                    prev_account_tx: inner.prev_account_tx,
+                    prev_account_proof_url: inner.prev_account_proof_url,
                 },
                 hash: inner.hash,
                 signature: inner.sig,

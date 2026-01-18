@@ -37,6 +37,12 @@ pub struct Transaction {
         skip_serializing_if = "Option::is_none"
     )]
     pub signature: Option<String>,
+    /// Previous transaction hash from the same account (for per-account chain)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_account_tx: Option<String>,
+    /// Self-provable proof URL for the previous account transaction (enables offline crawling)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_account_proof_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +67,12 @@ pub struct Account {
     pub unbonding: f64,
     #[serde(default)]
     pub unbonding_release: Option<u64>,
+    /// Hash of the most recent transaction from this account (for per-account chain)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_tx_hash: Option<String>,
+    /// Self-provable proof URL for the most recent transaction (enables offline history crawling)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_tx_proof_url: Option<String>,
 }
 
 impl Account {
@@ -73,6 +85,8 @@ impl Account {
             staked: 0.0,
             unbonding: 0.0,
             unbonding_release: None,
+            last_tx_hash: None,
+            last_tx_proof_url: None,
         }
     }
 }

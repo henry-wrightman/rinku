@@ -218,6 +218,8 @@ impl NodeState {
                         staked: 0.0,
                         unbonding: 0.0,
                         unbonding_release: None,
+                        last_tx_hash: None,
+                        last_tx_proof_url: None,
                     },
                 );
                 info!("Faucet account initialized with {} RKU", faucet_balance);
@@ -239,6 +241,8 @@ impl NodeState {
                         gas_price: Some(0.0),
                         data: None,
                         signature: Some("genesis-signature".to_string()),
+                        prev_account_tx: None,
+                        prev_account_proof_url: None,
                     },
                     hash: genesis_hash.clone(),
                     signature: "genesis-signature".to_string(),
@@ -1867,6 +1871,8 @@ impl NodeState {
                 gas_limit: None,
                 data: None,
                 signature: None,
+                prev_account_tx: None,
+                prev_account_proof_url: None,
             },
             hash: genesis_hash.clone(),
             signature: "genesis".to_string(),
