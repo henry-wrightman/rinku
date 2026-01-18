@@ -407,7 +407,7 @@ function AccountPage() {
                     <div key={entry.hash} className="chain-entry">
                       <div className="chain-entry-left">
                         <span className="chain-entry-nonce">#{entry.nonce}</span>
-                        <Link to={`/tx/${entry.hash}`} className="chain-entry-hash">
+                        <Link to={`/tx/h/${entry.hash}`} className="chain-entry-hash">
                           {truncate(entry.hash, 12)}
                         </Link>
                         <span className="chain-entry-arrow">→</span>
