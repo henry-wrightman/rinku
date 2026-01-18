@@ -1447,12 +1447,19 @@ impl GossipService {
         let peers: Vec<String> = inner.peers.keys().cloned().collect();
         drop(inner);
 
-        // Try each peer until we get a response
+        // Try each peer until we get a verified response
         for peer in peers {
             if let Ok(response) = self.send_and_wait(&peer, message.clone()).await {
                 if let GossipMessage::HistoryResponse { chain, request_id: resp_id, .. } = response {
-                    if resp_id == request_id && chain.is_some() {
-                        return chain;
+                    if resp_id == request_id {
+                        if let Some(ref c) = chain {
+                            // Verify chain integrity before accepting
+                            if c.verify_chain_links() && c.address == address {
+                                return chain;
+                            } else {
+                                warn!("Received invalid wallet chain from peer {}: chain verification failed", peer);
+                            }
+                        }
                     }
                 }
             }
