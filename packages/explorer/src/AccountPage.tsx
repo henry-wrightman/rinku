@@ -345,33 +345,21 @@ function AccountPage() {
 
         <div style={{ marginTop: 24, marginBottom: 16 }}>
           <button 
-            className="btn-small" 
+            className="crawl-btn" 
             onClick={crawlWalletChain}
             disabled={chainLoading}
-            style={{ 
-              background: '#2e3440', 
-              border: '1px solid #4c566a',
-              padding: '8px 16px',
-              cursor: chainLoading ? 'wait' : 'pointer'
-            }}
           >
             {chainLoading ? 'crawling...' : 'crawl wallet chain'}
           </button>
-          <span style={{ marginLeft: 12, color: '#616e88', fontSize: 12 }}>
+          <span className="crawl-hint">
             reconstruct full history from distributed protocol
           </span>
         </div>
 
         {showChainPanel && (
-          <div style={{ 
-            marginBottom: 24, 
-            padding: 16, 
-            background: '#1a1d23', 
-            border: '1px solid #3b4252',
-            borderRadius: 4
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ margin: 0, color: '#88c0d0' }}>
+          <div className="chain-panel">
+            <div className="chain-panel-header">
+              <h3>
                 wallet chain {walletChain ? `(${walletChain.entries.length} entries)` : ''}
               </h3>
               <div>
@@ -399,12 +387,12 @@ function AccountPage() {
             )}
 
             {chainLoading && !walletChain && (
-              <div style={{ color: '#616e88' }}>crawling chain from node...</div>
+              <div className="chain-panel-meta">crawling chain from node...</div>
             )}
 
             {walletChain && (
               <>
-                <div style={{ marginBottom: 12, fontSize: 12, color: '#616e88' }}>
+                <div className="chain-panel-meta">
                   <span>exported at: {new Date(walletChain.exportedAt).toLocaleString()}</span>
                   {walletChain.exportedBy && (
                     <span style={{ marginLeft: 12 }}>by: {truncate(walletChain.exportedBy, 24)}</span>
@@ -416,32 +404,22 @@ function AccountPage() {
 
                 <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                   {walletChain.entries.map((entry, i) => (
-                    <div 
-                      key={entry.hash} 
-                      style={{ 
-                        padding: '8px 12px', 
-                        borderBottom: '1px solid #2e3440',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        fontSize: 13
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span style={{ color: '#4c566a', fontSize: 11, width: 24 }}>#{entry.nonce}</span>
-                        <Link to={`/tx/${entry.hash}`} style={{ color: '#81a1c1', fontFamily: 'monospace' }}>
+                    <div key={entry.hash} className="chain-entry">
+                      <div className="chain-entry-left">
+                        <span className="chain-entry-nonce">#{entry.nonce}</span>
+                        <Link to={`/tx/${entry.hash}`} className="chain-entry-hash">
                           {truncate(entry.hash, 12)}
                         </Link>
-                        <span style={{ color: '#616e88' }}>→</span>
-                        <span style={{ color: '#d8dee9' }}>{truncate(entry.to, 10)}</span>
+                        <span className="chain-entry-arrow">→</span>
+                        <span className="chain-entry-to">{truncate(entry.to, 10)}</span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span style={{ color: '#a3be8c' }}>{entry.amount} RKU</span>
+                      <div className="chain-entry-right">
+                        <span className="chain-entry-amount">{entry.amount} RKU</span>
                         {entry.proofUrl && (
-                          <span style={{ color: '#88c0d0', fontSize: 10 }} title={entry.proofUrl}>✓ proof</span>
+                          <span className="chain-entry-proof" title={entry.proofUrl}>✓ proof</span>
                         )}
                         {entry.checkpointHeight && (
-                          <span style={{ color: '#b48ead', fontSize: 10 }}>cp:{entry.checkpointHeight}</span>
+                          <span className="chain-entry-checkpoint">cp:{entry.checkpointHeight}</span>
                         )}
                       </div>
                     </div>
