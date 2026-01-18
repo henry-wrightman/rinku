@@ -101,24 +101,41 @@ function TransactionPage() {
     return `${s.slice(0, len)}...`;
   };
 
-  const formatTxKind = (
-    kind?: TransactionKind,
-  ): { label: string; color: string } => {
+  const getTxKindClass = (kind?: TransactionKind): string => {
     switch (kind) {
       case "stake":
-        return { label: "stake", color: "#a3be8c" };
+        return "tx-kind-stake";
       case "unstake":
-        return { label: "unstake", color: "#ebcb8b" };
+        return "tx-kind-unstake";
       case "claim_rewards":
-        return { label: "claim rewards", color: "#b48ead" };
+        return "tx-kind-claim";
       case "contract":
-        return { label: "contract call", color: "#88c0d0" };
+        return "tx-kind-contract";
       case "consolidation":
-        return { label: "consolidation", color: "#81a1c1" };
+        return "tx-kind-consolidation";
       case "reward":
-        return { label: "reward", color: "#b48ead" };
+        return "tx-kind-reward";
       default:
-        return { label: "transfer", color: "#d8dee9" };
+        return "tx-kind-transfer";
+    }
+  };
+
+  const getTxKindLabel = (kind?: TransactionKind): string => {
+    switch (kind) {
+      case "stake":
+        return "stake";
+      case "unstake":
+        return "unstake";
+      case "claim_rewards":
+        return "claim rewards";
+      case "contract":
+        return "contract call";
+      case "consolidation":
+        return "consolidation";
+      case "reward":
+        return "reward";
+      default:
+        return "transfer";
     }
   };
 
@@ -152,11 +169,7 @@ function TransactionPage() {
         <PageHeader />
         <div className="section">
           <div className="error">{error || "Transaction not found"}</div>
-          <Link
-            to="/"
-            className="link"
-            style={{ marginTop: 20, display: "block" }}
-          >
+          <Link to="/" className="back-link">
             ← back to explorer
           </Link>
         </div>
@@ -179,10 +192,7 @@ function TransactionPage() {
         <div className="tx-amount">
           {tx.amount.toLocaleString()} <span className="unit">RKU</span>
           {(tx.fee ?? 0) > 0 && (
-            <span
-              className="fee"
-              style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}
-            >
+            <span className="fee text-warning">
               (+{tx.fee?.toFixed(5)} fee)
             </span>
           )}
@@ -207,11 +217,8 @@ function TransactionPage() {
         <div className="tx-meta">
           <div className="meta-row">
             <span className="label">type</span>
-            <span
-              className="value"
-              style={{ color: formatTxKind(tx.kind).color }}
-            >
-              {formatTxKind(tx.kind).label}
+            <span className={`value ${getTxKindClass(tx.kind)}`}>
+              {getTxKindLabel(tx.kind)}
             </span>
           </div>
           <div className="meta-row">
@@ -224,10 +231,7 @@ function TransactionPage() {
           </div>
           <div className="meta-row">
             <span className="label">gas fee</span>
-            <span
-              className="value"
-              style={{ color: (tx.fee ?? 0) > 0 ? "#ebcb8b" : undefined }}
-            >
+            <span className={`value ${(tx.fee ?? 0) > 0 ? "text-warning" : ""}`}>
               {tx.fee ?? 0}
             </span>
           </div>
@@ -239,7 +243,7 @@ function TransactionPage() {
           )}
           <div className="meta-row">
             <span className="label">signature</span>
-            <span className="value mono" style={{ opacity: tx.sig ? 1 : 0.5 }}>
+            <span className={`value mono ${!tx.sig ? "text-muted" : ""}`}>
               {tx.sig ? truncate(tx.sig, 24) : "(system tx)"}
             </span>
           </div>
@@ -280,75 +284,33 @@ function TransactionPage() {
         </div>
 
         {tx.hash ? (
-          <div
-            className="tx-proof"
-            style={{
-              marginTop: 24,
-              padding: 16,
-              background: "rgba(136, 192, 208, 0.1)",
-              borderRadius: 8,
-              border: "1px solid rgba(136, 192, 208, 0.3)",
-              marginBottom: 20,
-            }}
-          >
-            <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>
-              self-provable url
-            </h3>
+          <div className="tx-proof-section">
+            <h3>self-provable url</h3>
             {proof.loading ? (
-              <div style={{ color: "#d8dee9", opacity: 0.7 }}>
-                loading proof...
-              </div>
+              <div className="text-muted">loading proof...</div>
             ) : proof.proofUrl ? (
               <>
-                <div
-                  style={{
-                    fontFamily: "monospace",
-                    fontSize: 11,
-                    wordBreak: "break-all",
-                    background: "rgba(0,0,0,0.2)",
-                    padding: 12,
-                    borderRadius: 4,
-                    marginBottom: 12,
-                    maxHeight: 100,
-                    overflow: "auto",
-                  }}
-                >
+                <div className="proof-url-box">
                   {proof.proofUrl}
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div className="proof-actions">
                   <button
                     className={`btn-proof ${proofCopied ? "btn-proof-success" : ""}`}
                     onClick={copyProofUrl}
                   >
                     {proofCopied ? "copied!" : "copy proof url"}
                   </button>
-                  <span
-                    style={{ fontSize: 12, color: "#d8dee9", opacity: 0.7 }}
-                  >
+                  <span className="text-muted proof-size">
                     {proof.sizeBytes} bytes
                   </span>
                 </div>
-                <p
-                  style={{
-                    fontSize: 12,
-                    marginTop: 12,
-                    opacity: 0.8,
-                    color: "#d8dee9",
-                  }}
-                >
+                <p className="proof-description">
                   this proof is completely self-contained. anyone can verify
                   this transaction offline using only the url above.
                 </p>
               </>
             ) : (
-              <div style={{ color: "#ebcb8b", opacity: 0.8 }}>
+              <div className="text-warning">
                 {proof.error || "awaiting finalization..."}
               </div>
             )}
@@ -360,18 +322,14 @@ function TransactionPage() {
               it by decoding the payload and verifying the signature and parent
               references.
             </p>
-            <p style={{ marginTop: 8, fontSize: "0.9em", opacity: 0.7 }}>
+            <p className="tx-note-secondary">
               once submitted to the network and finalized, a self-provable url
               will be available for offline verification.
             </p>
           </div>
         )}
 
-        <Link
-          to="/"
-          className="link"
-          style={{ marginTop: 20, display: "block" }}
-        >
+        <Link to="/" className="back-link">
           ← back to explorer
         </Link>
       </div>
