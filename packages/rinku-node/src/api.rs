@@ -925,8 +925,21 @@ async fn get_account_history(
         .ok_or_else(|| ApiError::not_found("Account not found"))?;
     
     let mut transactions = Vec::new();
-    let start_hash = query.from_hash.or(account.last_tx_hash);
-    let mut current_hash: Option<String> = start_hash;
+    let start_hash = query.from_hash.clone().or(account.last_tx_hash);
+    let mut current_hash: Option<String> = start_hash.clone();
+    
+    if let Some(ref from_hash) = query.from_hash {
+        if let Some(tx) = state.get_transaction(from_hash).await {
+            if tx.tx.from != address {
+                return Err(ApiError::bad_request(format!(
+                    "Transaction {} does not belong to account {}",
+                    from_hash, address
+                )));
+            }
+        } else {
+            return Err(ApiError::not_found(format!("Transaction {} not found", from_hash)));
+        }
+    }
     
     while let Some(ref hash) = current_hash {
         if transactions.len() >= limit {
@@ -934,6 +947,10 @@ async fn get_account_history(
         }
         
         if let Some(tx) = state.get_transaction(hash).await {
+            if tx.tx.from != address {
+                break;
+            }
+            
             let finalized = state.is_finalized(hash).await;
             let next_hash = tx.tx.prev_account_tx.clone();
             transactions.push(AccountHistoryTx {
