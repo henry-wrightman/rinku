@@ -1051,6 +1051,8 @@ impl NodeState {
                 from_account.balance -= tx.tx.amount + gas_fee;
             }
             from_account.nonce = tx.tx.nonce + 1;
+            // Update account chain pointer (proof URL set after finalization)
+            from_account.last_tx_hash = Some(tx.hash.clone());
         }
 
         // For stake/unstake/claim: don't transfer to recipient (amount is handled by rewards/staking)
@@ -1437,6 +1439,8 @@ impl NodeState {
                         from_account.balance -= tx.tx.amount + gas_fee;
                     }
                     from_account.nonce = tx.tx.nonce + 1;
+                    // Update account chain pointer (proof URL set after finalization)
+                    from_account.last_tx_hash = Some(tx.hash.clone());
                 }
 
                 // For stake/unstake/claim: don't transfer to recipient (amount is handled by rewards/staking)

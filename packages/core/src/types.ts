@@ -3,6 +3,8 @@ export interface AccountState {
   balance: number;
   nonce: number;
   firstTxTimestamp: number;
+  lastTxHash?: string;  // Hash of the most recent transaction from this account
+  lastTxProofUrl?: string;  // Self-provable proof URL for the most recent transaction
 }
 
 /** Transaction kind - distinguishes protocol transactions from user transactions */
@@ -18,6 +20,8 @@ export interface Transaction {
   sig: string;
   ts: number;
   kind?: TransactionKind;  // Default: 'transfer' - other kinds for staking, rewards, contracts, etc.
+  prevAccountTx?: string;  // Hash of this account's previous transaction (for per-account chain)
+  prevAccountProofUrl?: string;  // Self-provable proof URL for previous tx (enables offline history crawling)
 }
 
 // ============================================

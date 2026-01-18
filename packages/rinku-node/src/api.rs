@@ -883,6 +883,90 @@ async fn get_account(
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountHistoryTx {
+    hash: String,
+    from: String,
+    to: String,
+    amount: f64,
+    fee: f64,
+    nonce: u64,
+    timestamp: u64,
+    finalized: bool,
+    prev_account_tx: Option<String>,
+    prev_account_proof_url: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountHistoryResponse {
+    address: String,
+    transactions: Vec<AccountHistoryTx>,
+    total_found: usize,
+    has_more: bool,
+    oldest_tx_hash: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AccountHistoryQuery {
+    limit: Option<usize>,
+    from_hash: Option<String>,
+}
+
+async fn get_account_history(
+    State(state): State<NodeState>,
+    Path(address): Path<String>,
+    Query(query): Query<AccountHistoryQuery>,
+) -> Result<Json<AccountHistoryResponse>, ApiError> {
+    let limit = query.limit.unwrap_or(50).min(100);
+    
+    let account = state.get_account(&address).await
+        .ok_or_else(|| ApiError::not_found("Account not found"))?;
+    
+    let mut transactions = Vec::new();
+    let start_hash = query.from_hash.or(account.last_tx_hash);
+    let mut current_hash: Option<String> = start_hash;
+    
+    while let Some(ref hash) = current_hash {
+        if transactions.len() >= limit {
+            break;
+        }
+        
+        if let Some(tx) = state.get_transaction(hash).await {
+            let finalized = state.is_finalized(hash).await;
+            let next_hash = tx.tx.prev_account_tx.clone();
+            transactions.push(AccountHistoryTx {
+                hash: tx.hash.clone(),
+                from: tx.tx.from.clone(),
+                to: tx.tx.to.clone(),
+                amount: tx.tx.amount,
+                fee: tx.tx.gas_price.unwrap_or(0.0),
+                nonce: tx.tx.nonce,
+                timestamp: tx.tx.timestamp,
+                finalized,
+                prev_account_tx: tx.tx.prev_account_tx.clone(),
+                prev_account_proof_url: tx.tx.prev_account_proof_url.clone(),
+            });
+            current_hash = next_hash;
+        } else {
+            current_hash = None;
+        }
+    }
+    
+    let has_more = current_hash.is_some();
+    let oldest_tx_hash = transactions.last().and_then(|t| t.prev_account_tx.clone());
+    let total_found = transactions.len();
+    
+    Ok(Json(AccountHistoryResponse {
+        address,
+        transactions,
+        total_found,
+        has_more,
+        oldest_tx_hash,
+    }))
+}
+
 async fn submit_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<SubmitTxRequest>,
@@ -2169,6 +2253,7 @@ pub async fn start_api_server(
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/account/:address", get(get_account))
+        .route("/api/account/:address/history", get(get_account_history))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))
