@@ -849,6 +849,153 @@ body.light .btn-proof-verify:hover {
   background: #6b8fb0;
 }
 
+.tx-proof-section {
+  margin-top: 24px;
+  padding: 16px;
+  background: rgba(136, 192, 208, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(136, 192, 208, 0.3);
+  margin-bottom: 20px;
+}
+
+body.light .tx-proof-section {
+  background: rgba(94, 129, 172, 0.08);
+  border-color: rgba(94, 129, 172, 0.25);
+}
+
+.tx-proof-section h3 {
+  margin: 0 0 12px 0;
+  color: #88c0d0;
+}
+
+body.light .tx-proof-section h3 {
+  color: #5e81ac;
+}
+
+.proof-url-box {
+  font-family: monospace;
+  font-size: 11px;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  max-height: 100px;
+  overflow: auto;
+}
+
+body.light .proof-url-box {
+  background: rgba(46, 52, 64, 0.06);
+  color: #4c566a;
+}
+
+.proof-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.text-muted {
+  color: #d8dee9;
+  opacity: 0.7;
+}
+
+body.light .text-muted {
+  color: #7b88a1;
+  opacity: 1;
+}
+
+.text-warning {
+  color: #ebcb8b;
+}
+
+body.light .text-warning {
+  color: #c9a227;
+}
+
+.text-success {
+  color: #a3be8c;
+}
+
+body.light .text-success {
+  color: #4c946c;
+}
+
+.text-error {
+  color: #bf616a;
+}
+
+body.light .text-error {
+  color: #c24a52;
+}
+
+.text-accent {
+  color: #88c0d0;
+}
+
+body.light .text-accent {
+  color: #5e81ac;
+}
+
+.tx-fee-inline {
+  color: #ebcb8b;
+  margin-left: 8px;
+  font-size: 0.7em;
+}
+
+body.light .tx-fee-inline {
+  color: #c9a227;
+}
+
+.status-finalized {
+  color: #a3be8c;
+}
+
+body.light .status-finalized {
+  color: #4c946c;
+}
+
+.status-pending {
+  color: #ebcb8b;
+}
+
+body.light .status-pending {
+  color: #c9a227;
+}
+
+.proof-description {
+  font-size: 12px;
+  margin-top: 12px;
+  opacity: 0.8;
+  color: #d8dee9;
+}
+
+body.light .proof-description {
+  color: #5e6b82;
+  opacity: 1;
+}
+
+.proof-meta {
+  font-size: 12px;
+  color: #d8dee9;
+  opacity: 0.7;
+}
+
+body.light .proof-meta {
+  color: #7b88a1;
+  opacity: 1;
+}
+
+.info-text {
+  color: #888;
+  font-size: 0.9em;
+}
+
+body.light .info-text {
+  color: #7b88a1;
+}
+
 body.light .whitepaper-link {
   color: #7b88a1;
 }

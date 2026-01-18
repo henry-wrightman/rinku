@@ -176,7 +176,7 @@ function HashTransactionPage() {
               </div>
               <div className="meta-row">
                 <span className="label">status</span>
-                <span className="value" style={{ color: "#a3be8c" }}>
+                <span className="value status-finalized">
                   finalized & pruned
                 </span>
               </div>
@@ -206,7 +206,7 @@ function HashTransactionPage() {
                 can verify it offline using the{" "}
                 <Link
                   to={{ pathname: "/", search: "?tab=verify" }}
-                  style={{ color: "#88c0d0" }}
+                  className="text-accent"
                 >
                   verify tab
                 </Link>
@@ -235,12 +235,12 @@ function HashTransactionPage() {
             {error ||
               "Transaction not found (may have been pruned after finalization)"}
           </div>
-          <p style={{ marginTop: 12, color: "#888", fontSize: "0.9em" }}>
+          <p className="info-text" style={{ marginTop: 12 }}>
             If this transaction was pruned, you can still verify it using a
             self-contained proof URL in the{" "}
             <Link
               to={{ pathname: "/", search: "?tab=verify" }}
-              style={{ color: "#88c0d0" }}
+              className="text-accent"
             >
               verify tab
             </Link>
@@ -273,10 +273,7 @@ function HashTransactionPage() {
         <div className="tx-amount">
           {tx.amount.toLocaleString()} <span className="unit">RKU</span>
           {tx.fee > 0 && (
-            <span
-              className="fee"
-              style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}
-            >
+            <span className="tx-fee-inline">
               (+{tx.fee?.toFixed(5)} fee)
             </span>
           )}
@@ -327,10 +324,7 @@ function HashTransactionPage() {
           </div>
           <div className="meta-row">
             <span className="label">gas fee</span>
-            <span
-              className="value"
-              style={{ color: tx.fee > 0 ? "#ebcb8b" : undefined }}
-            >
+            <span className={`value ${tx.fee > 0 ? "text-warning" : ""}`}>
               {tx.fee}
             </span>
           </div>
@@ -341,8 +335,7 @@ function HashTransactionPage() {
           <div className="meta-row">
             <span className="label">status</span>
             <span
-              className="value"
-              style={{ color: tx.finalized ? "#a3be8c" : "#ebcb8b" }}
+              className={`value ${tx.finalized ? "status-finalized" : "status-pending"}`}
             >
               {tx.finalized ? "finalized" : "pending"}
             </span>
@@ -366,50 +359,15 @@ function HashTransactionPage() {
         </div>
 
         {(tx.finalized || tx.finality) && (
-          <div
-            className="tx-proof"
-            style={{
-              marginTop: 24,
-              padding: 20,
-              background: "rgba(136, 192, 208, 0.1)",
-              borderRadius: 8,
-              border: "1px solid rgba(136, 192, 208, 0.3)",
-              marginBottom: 20,
-            }}
-          >
-            <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>
-              self-provable url
-            </h3>
+          <div className="tx-proof-section" style={{ padding: 20 }}>
+            <h3>self-provable url</h3>
 
             {proofLoading ? (
-              <div style={{ color: "#d8dee9", opacity: 0.7 }}>
-                loading proof...
-              </div>
+              <div className="text-muted">loading proof...</div>
             ) : proofData?.proofUrl ? (
               <>
-                <div
-                  style={{
-                    fontFamily: "monospace",
-                    fontSize: 11,
-                    wordBreak: "break-all",
-                    background: "rgba(0,0,0,0.2)",
-                    padding: 12,
-                    borderRadius: 4,
-                    marginBottom: 12,
-                    maxHeight: 100,
-                    overflow: "auto",
-                  }}
-                >
-                  {proofData.proofUrl}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div className="proof-url-box">{proofData.proofUrl}</div>
+                <div className="proof-actions">
                   <button
                     className={`btn-proof ${proofCopied ? "btn-proof-success" : ""}`}
                     onClick={copyProof}
@@ -422,31 +380,22 @@ function HashTransactionPage() {
                   >
                     verify
                   </Link>
-                  <span
-                    style={{ fontSize: 12, color: "#d8dee9", opacity: 0.7 }}
-                  >
+                  <span className="proof-meta">
                     {proofData.proofSizeBytes?.toLocaleString()} bytes
                     {proofData.qrViable && " · QR viable"}
                   </span>
                 </div>
-                <p
-                  style={{
-                    fontSize: 12,
-                    marginTop: 12,
-                    opacity: 0.8,
-                    color: "#d8dee9",
-                  }}
-                >
+                <p className="proof-description">
                   this proof is completely self-contained. anyone can verify
                   this transaction offline using only the url above.
                 </p>
               </>
             ) : proofData?.error ? (
-              <div style={{ color: "#bf616a", opacity: 0.8 }}>
+              <div className="text-error" style={{ opacity: 0.8 }}>
                 {proofData.error}
               </div>
             ) : (
-              <div style={{ color: "#ebcb8b", opacity: 0.8 }}>
+              <div className="text-warning" style={{ opacity: 0.8 }}>
                 awaiting finalization...
               </div>
             )}
