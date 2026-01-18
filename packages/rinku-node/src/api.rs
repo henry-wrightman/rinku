@@ -370,6 +370,7 @@ struct SyncTxQuery {
 #[serde(rename_all = "camelCase")]
 struct SyncDeltaResponse {
     transactions: Vec<rinku_core::types::SignedTransaction>,
+    account_nonces: std::collections::HashMap<String, u64>,
     total: usize,
     offset: usize,
     limit: usize,
@@ -653,11 +654,21 @@ async fn get_sync_transactions(
     let returned = transactions.len();
     let has_more = offset + returned < total;
     
-    info!("Returning {} of {} transactions (offset={}, has_more={})", 
-          returned, total, offset, has_more);
+    // Collect current nonces for all unique senders in these transactions
+    let mut account_nonces = std::collections::HashMap::new();
+    for tx in &transactions {
+        if !account_nonces.contains_key(&tx.tx.from) {
+            let nonce = state.get_account_nonce(&tx.tx.from).await;
+            account_nonces.insert(tx.tx.from.clone(), nonce);
+        }
+    }
+    
+    info!("Returning {} of {} transactions with {} account nonces (offset={}, has_more={})", 
+          returned, total, account_nonces.len(), offset, has_more);
     
     Json(SyncDeltaResponse {
         transactions,
+        account_nonces,
         total,
         offset,
         limit,

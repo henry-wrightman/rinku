@@ -497,6 +497,36 @@ impl NodeState {
         state.accounts.get(address).cloned()
     }
 
+    pub async fn get_account_nonce(&self, address: &str) -> u64 {
+        let state = self.inner.read().await;
+        state.accounts.get(address).map(|a| a.nonce).unwrap_or(0)
+    }
+
+    /// Sync account nonce from peer during delta sync.
+    /// Only updates if the peer's nonce is greater (prevents regression).
+    pub async fn sync_account_nonce(&self, address: &str, peer_nonce: u64) {
+        let mut state = self.inner.write().await;
+        if let Some(account) = state.accounts.get_mut(address) {
+            if peer_nonce > account.nonce {
+                tracing::debug!(
+                    "Syncing nonce for {}: {} -> {}",
+                    address, account.nonce, peer_nonce
+                );
+                account.nonce = peer_nonce;
+            }
+        } else {
+            // Create account if it doesn't exist with the peer's nonce
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            let mut account = Account::new(address.to_string(), now);
+            account.nonce = peer_nonce;
+            state.accounts.insert(address.to_string(), account);
+            tracing::debug!("Created account {} with nonce {}", address, peer_nonce);
+        }
+    }
+
     /// Update account's staked amount (syncs with RewardsService)
     pub async fn update_account_staked(&self, address: &str, staked_amount: f64, staked_at: Option<u64>) {
         let mut state = self.inner.write().await;
