@@ -176,7 +176,7 @@ function HashTransactionPage() {
               </div>
               <div className="meta-row">
                 <span className="label">status</span>
-                <span className="value status-finalized">
+                <span className="value" style={{ color: "#a3be8c" }}>
                   finalized & pruned
                 </span>
               </div>
@@ -195,18 +195,18 @@ function HashTransactionPage() {
                 <span className="value">{formatTime(prunedInfo.prunedAt)}</span>
               </div>
             </div>
-            <div className="tx-note">
+            <div className="tx-note" style={{ marginTop: 16 }}>
               <p>
                 Pruned transactions are still part of the permanent ledger. The
                 checkpoint contains a Merkle root that cryptographically proves
                 this transaction existed.
               </p>
-              <p className="tx-note-secondary">
+              <p style={{ marginTop: 12 }}>
                 If you have a self-contained proof URL for this transaction, you
                 can verify it offline using the{" "}
                 <Link
                   to={{ pathname: "/", search: "?tab=verify" }}
-                  className="link-accent"
+                  style={{ color: "#88c0d0" }}
                 >
                   verify tab
                 </Link>
@@ -214,7 +214,11 @@ function HashTransactionPage() {
               </p>
             </div>
           </div>
-          <Link to="/" className="back-link">
+          <Link
+            to="/"
+            className="link"
+            style={{ marginTop: 20, display: "block" }}
+          >
             ← back to explorer
           </Link>
         </div>
@@ -231,18 +235,22 @@ function HashTransactionPage() {
             {error ||
               "Transaction not found (may have been pruned after finalization)"}
           </div>
-          <p className="text-muted tx-note-secondary">
+          <p style={{ marginTop: 12, color: "#888", fontSize: "0.9em" }}>
             If this transaction was pruned, you can still verify it using a
             self-contained proof URL in the{" "}
             <Link
               to={{ pathname: "/", search: "?tab=verify" }}
-              className="link-accent"
+              style={{ color: "#88c0d0" }}
             >
               verify tab
             </Link>
             .
           </p>
-          <Link to="/" className="back-link">
+          <Link
+            to="/"
+            className="link"
+            style={{ marginTop: 20, display: "block" }}
+          >
             ← back to explorer
           </Link>
         </div>
@@ -265,7 +273,10 @@ function HashTransactionPage() {
         <div className="tx-amount">
           {tx.amount.toLocaleString()} <span className="unit">RKU</span>
           {tx.fee > 0 && (
-            <span className="fee text-warning">
+            <span
+              className="fee"
+              style={{ color: "#ebcb8b", marginLeft: 8, fontSize: "0.7em" }}
+            >
               (+{tx.fee?.toFixed(5)} fee)
             </span>
           )}
@@ -280,7 +291,8 @@ function HashTransactionPage() {
                   ? "#"
                   : `/account/${tx.from}`
               }
-              className="value address-link"
+              className="value"
+              style={{ textDecoration: "none", color: "inherit" }}
             >
               {tx.from === "genesis" || tx.from === "faucet"
                 ? tx.from
@@ -292,7 +304,8 @@ function HashTransactionPage() {
             <span className="label">to</span>
             <Link
               to={`/account/${tx.to}`}
-              className="value address-link"
+              className="value"
+              style={{ textDecoration: "none", color: "inherit" }}
             >
               {truncate(tx.to, 20)}
             </Link>
@@ -314,7 +327,10 @@ function HashTransactionPage() {
           </div>
           <div className="meta-row">
             <span className="label">gas fee</span>
-            <span className={`value ${tx.fee > 0 ? "text-warning" : ""}`}>
+            <span
+              className="value"
+              style={{ color: tx.fee > 0 ? "#ebcb8b" : undefined }}
+            >
               {tx.fee}
             </span>
           </div>
@@ -324,13 +340,16 @@ function HashTransactionPage() {
           </div>
           <div className="meta-row">
             <span className="label">status</span>
-            <span className={`value ${tx.finalized ? "status-finalized" : "status-pending"}`}>
+            <span
+              className="value"
+              style={{ color: tx.finalized ? "#a3be8c" : "#ebcb8b" }}
+            >
               {tx.finalized ? "finalized" : "pending"}
             </span>
           </div>
           <div className="meta-row">
             <span className="label">signature</span>
-            <span className={`value mono ${!tx.sig ? "text-muted" : ""}`}>
+            <span className="value mono" style={{ opacity: tx.sig ? 1 : 0.5 }}>
               {tx.sig ? truncate(tx.sig, 24) : "(system tx)"}
             </span>
           </div>
@@ -347,16 +366,28 @@ function HashTransactionPage() {
         </div>
 
         {(tx.finalized || tx.finality) && (
-          <div className="tx-proof-section">
-            <h3>self-provable url</h3>
+          <div
+            className="tx-proof"
+            style={{
+              marginTop: 24,
+              padding: 20,
+              background: "rgba(136, 192, 208, 0.1)",
+              borderRadius: 8,
+              border: "1px solid rgba(136, 192, 208, 0.3)",
+              marginBottom: 20,
+            }}
+          >
+            <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>
+              self-provable url
+            </h3>
 
             {proofLoading ? (
-              <div className="text-muted">loading proof...</div>
+              <div style={{ color: "#d8dee9", opacity: 0.7 }}>
+                loading proof...
+              </div>
             ) : proofData?.proofUrl ? (
               <>
-                <div className="proof-url-box">
-                  {proofData.proofUrl}
-                </div>
+                <div className="proof-url-box">{proofData.proofUrl}</div>
                 <div className="proof-actions">
                   <button
                     className={`btn-proof ${proofCopied ? "btn-proof-success" : ""}`}
@@ -366,19 +397,27 @@ function HashTransactionPage() {
                   </button>
                   <Link
                     to={{ pathname: "/", search: "?tab=verify" }}
-                    className="btn-proof-verify"
+                    className="btn-proof btn-proof-verify"
                   >
                     verify
                   </Link>
-                  <span className="text-muted proof-size">
+                  <span className="proof-meta">
                     {proofData.proofSizeBytes?.toLocaleString()} bytes
                   </span>
                 </div>
+                <p className="proof-description">
+                  this proof is completely self-contained. anyone can verify
+                  this transaction offline using only the url above.
+                </p>
               </>
             ) : proofData?.error ? (
-              <div className="text-error">{proofData.error}</div>
+              <div style={{ color: "#bf616a", opacity: 0.8 }}>
+                {proofData.error}
+              </div>
             ) : (
-              <div className="text-warning">awaiting finalization...</div>
+              <div style={{ color: "#ebcb8b", opacity: 0.8 }}>
+                awaiting finalization...
+              </div>
             )}
           </div>
         )}
@@ -399,7 +438,11 @@ function HashTransactionPage() {
           )}
         </div>
 
-        <Link to="/" className="back-link">
+        <Link
+          to="/"
+          className="link"
+          style={{ marginTop: 20, display: "block" }}
+        >
           ← back to explorer
         </Link>
       </div>
