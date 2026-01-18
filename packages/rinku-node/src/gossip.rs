@@ -95,6 +95,18 @@ struct SnapshotSyncResponse {
     dag_transactions: Vec<SignedTransaction>,
     total_transactions: u64,
     checkpoint_height: u64,
+    #[serde(default)]
+    contracts: HashMap<String, crate::contracts::ContractState>,
+    #[serde(default)]
+    rewards_snapshot: Option<crate::rewards::RewardsSnapshot>,
+    #[serde(default)]
+    emission_snapshot: Option<crate::emission::EmissionSnapshot>,
+    #[serde(default)]
+    slashing_snapshot: Option<crate::slashing::SlashingSnapshot>,
+    #[serde(default)]
+    total_burned: f64,
+    #[serde(default)]
+    total_to_validators: f64,
 }
 
 #[derive(Debug, Default)]
@@ -404,6 +416,12 @@ impl GossipService {
             genesis_time: snapshot_response.genesis_time,
             dag_transactions: snapshot_response.dag_transactions,
             total_transactions: snapshot_response.total_transactions,
+            contracts: snapshot_response.contracts,
+            rewards_snapshot: snapshot_response.rewards_snapshot,
+            emission_snapshot: snapshot_response.emission_snapshot,
+            slashing_snapshot: snapshot_response.slashing_snapshot,
+            total_burned: snapshot_response.total_burned,
+            total_to_validators: snapshot_response.total_to_validators,
         };
 
         let added = self.state.apply_sync_snapshot(snapshot).await?;
@@ -461,6 +479,12 @@ impl GossipService {
             genesis_time: snapshot_response.genesis_time,
             dag_transactions: snapshot_response.dag_transactions,
             total_transactions: snapshot_response.total_transactions,
+            contracts: snapshot_response.contracts,
+            rewards_snapshot: snapshot_response.rewards_snapshot,
+            emission_snapshot: snapshot_response.emission_snapshot,
+            slashing_snapshot: snapshot_response.slashing_snapshot,
+            total_burned: snapshot_response.total_burned,
+            total_to_validators: snapshot_response.total_to_validators,
         };
 
         // Use force apply to bypass checkpoint count check

@@ -398,6 +398,15 @@ struct SnapshotSyncResponse {
     dag_transactions: Vec<rinku_core::types::SignedTransaction>,
     total_transactions: u64,
     checkpoint_height: u64,
+    contracts: std::collections::HashMap<String, crate::contracts::ContractState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rewards_snapshot: Option<crate::rewards::RewardsSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    emission_snapshot: Option<crate::emission::EmissionSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slashing_snapshot: Option<crate::slashing::SlashingSnapshot>,
+    total_burned: f64,
+    total_to_validators: f64,
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -591,6 +600,12 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncR
         dag_transactions: snapshot.dag_transactions,
         total_transactions: snapshot.total_transactions,
         checkpoint_height,
+        contracts: snapshot.contracts,
+        rewards_snapshot: snapshot.rewards_snapshot,
+        emission_snapshot: snapshot.emission_snapshot,
+        slashing_snapshot: snapshot.slashing_snapshot,
+        total_burned: snapshot.total_burned,
+        total_to_validators: snapshot.total_to_validators,
     })
 }
 

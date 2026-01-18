@@ -56,8 +56,19 @@ Read-only endpoints (`GET /api/staking/:address`, `GET /api/rewards/:address`, `
 Consensus is maintained across nodes by ensuring critical metrics like checkpoint Merkle roots and account balances match. Fork prevention mechanisms involve validating peer checkpoints before adoption, and automatic fork recovery triggers after consistent mismatches, involving snapshot retrieval and state replacement.
 
 ### Sync Trust Model
-**Snapshot Sync**: Replaces entire local state with peer state. Trusts peer completely. Used for initial sync or recovery.
+**Snapshot Sync**: Replaces entire local state with peer state. Trusts peer completely. Used for initial sync or recovery. Includes complete state:
+- Accounts (balances, nonces, stakes)
+- Validators
+- Checkpoints
+- Smart contracts (code + state)
+- Rewards service (staking positions, pending rewards)
+- Emission service (total emitted, burned)
+- Slashing service (slash history, unbonding queue)
+- Gas tracking (total_burned, total_to_validators)
+
 **Delta Sync**: Fetches transactions since last checkpoint. Uses `add_transaction_dag_only()` which skips nonce validation (since account nonces are synced first) but verifies DAG parent existence.
+
+**Account State Verification**: During periodic sync, nodes compare faucet balances. If checkpoints match but balances diverge by more than 1.0 RKU, the node with lower faucet balance triggers a force snapshot sync from the peer with higher balance.
 
 Both sync methods trust the connected peer. For adversarial environments:
 - Use checkpoint verification (BLS aggregate signatures)

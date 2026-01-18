@@ -29,6 +29,18 @@ pub struct SyncSnapshot {
     pub genesis_time: u64,
     pub dag_transactions: Vec<SignedTransaction>,
     pub total_transactions: u64,
+    #[serde(default)]
+    pub contracts: HashMap<String, crate::contracts::ContractState>,
+    #[serde(default)]
+    pub rewards_snapshot: Option<crate::rewards::RewardsSnapshot>,
+    #[serde(default)]
+    pub emission_snapshot: Option<crate::emission::EmissionSnapshot>,
+    #[serde(default)]
+    pub slashing_snapshot: Option<crate::slashing::SlashingSnapshot>,
+    #[serde(default)]
+    pub total_burned: f64,
+    #[serde(default)]
+    pub total_to_validators: f64,
 }
 
 pub struct DagNodeInfo {
@@ -1724,6 +1736,33 @@ impl NodeState {
             .map(|n| n.tx.clone())
             .collect();
 
+        // Get contracts from state
+        let contracts = state.contracts.clone();
+        let total_burned = state.total_burned;
+        let total_to_validators = state.total_to_validators;
+        
+        // Release state lock before acquiring service locks
+        drop(state);
+
+        // Get service snapshots
+        let rewards_snapshot = {
+            let rewards = self.rewards.read().await;
+            Some(rewards.to_json())
+        };
+        
+        let emission_snapshot = {
+            let emission = self.emission.read().await;
+            Some(emission.to_json())
+        };
+        
+        let slashing_snapshot = {
+            let slashing = self.slashing.read().await;
+            Some(slashing.to_json())
+        };
+
+        // Re-acquire state lock to get the rest
+        let state = self.inner.read().await;
+
         SyncSnapshot {
             accounts: state.accounts.clone(),
             validators: state.validators.clone(),
@@ -1733,6 +1772,12 @@ impl NodeState {
             genesis_time: state.genesis_time,
             dag_transactions: dag_txs,
             total_transactions: state.total_transactions,
+            contracts,
+            rewards_snapshot,
+            emission_snapshot,
+            slashing_snapshot,
+            total_burned,
+            total_to_validators,
         }
     }
 
@@ -1786,6 +1831,16 @@ impl NodeState {
         state.total_supply = snapshot.total_supply;
         state.genesis_time = snapshot.genesis_time;
         state.total_transactions = snapshot.total_transactions;
+        
+        // Apply contracts state
+        state.contracts = snapshot.contracts;
+        state.total_burned = snapshot.total_burned;
+        state.total_to_validators = snapshot.total_to_validators;
+        
+        // Store service snapshots for application after releasing state lock
+        let rewards_to_apply = snapshot.rewards_snapshot;
+        let emission_to_apply = snapshot.emission_snapshot;
+        let slashing_to_apply = snapshot.slashing_snapshot;
 
         // Update checkpoint timestamp from latest checkpoint
         // Note: checkpoint.timestamp is in seconds, convert to milliseconds
@@ -1953,11 +2008,35 @@ impl NodeState {
             }
         }
 
+        let validator_count = state.validators.len();
+        let checkpoint_count = state.checkpoints.len();
+        let contract_count = state.contracts.len();
+        
+        // Release state lock before acquiring service locks
+        drop(state);
+        
+        // Apply service snapshots if provided
+        if let Some(rewards_snap) = rewards_to_apply {
+            let mut rewards = self.rewards.write().await;
+            *rewards = crate::rewards::RewardsService::from_json(rewards_snap);
+            info!("Applied rewards snapshot");
+        }
+        
+        if let Some(emission_snap) = emission_to_apply {
+            let mut emission = self.emission.write().await;
+            *emission = crate::emission::EmissionService::from_json(emission_snap);
+            info!("Applied emission snapshot");
+        }
+        
+        if let Some(slashing_snap) = slashing_to_apply {
+            let mut slashing = self.slashing.write().await;
+            *slashing = crate::slashing::SlashingService::from_json(slashing_snap);
+            info!("Applied slashing snapshot");
+        }
+
         info!(
-            "Snapshot applied: {} DAG transactions, {} validators, {} checkpoints",
-            added,
-            state.validators.len(),
-            state.checkpoints.len()
+            "Snapshot applied: {} DAG txs, {} validators, {} checkpoints, {} contracts",
+            added, validator_count, checkpoint_count, contract_count
         );
         Ok(added)
     }
