@@ -177,6 +177,7 @@ pub struct GossipServiceInner {
     pub stats: GossipStats,
     pub round_counter: u64,
     pub last_peer_refresh: u64,
+    pub sync_in_flight: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -230,6 +231,7 @@ impl GossipService {
                 stats: GossipStats::default(),
                 round_counter: 0,
                 last_peer_refresh: now,
+                sync_in_flight: false,
             })),
             node_id,
             interval_ms,
@@ -678,36 +680,38 @@ impl GossipService {
                         || status.dag_size > local_dag_size;
 
                     if needs_sync {
-                        // If we're significantly behind on checkpoints (3+ behind), 
-                        // use full snapshot sync to get account state
+                        // SYNC STRATEGY: Always use snapshot sync when behind on checkpoints
+                        // Delta sync only transfers transactions, NOT account state (nonces/balances)
+                        // This causes validation failures when nonces don't match
+                        // Snapshot sync is more reliable and includes complete derived state
                         let checkpoint_gap = status.checkpoint_height.saturating_sub(local_checkpoint);
                         
-                        if checkpoint_gap >= 3 {
+                        if checkpoint_gap >= 1 {
+                            // Any checkpoint gap means we're missing finalized state
+                            // Use snapshot sync to get complete account state including nonces
                             info!(
-                                "Peer {} is {} checkpoints ahead (cp: {} vs {}), requesting snapshot sync...",
+                                "Peer {} is {} checkpoint(s) ahead (cp: {} vs {}), requesting snapshot sync...",
                                 peer, checkpoint_gap, status.checkpoint_height, local_checkpoint
                             );
                             
-                            // Use full snapshot sync to get complete state including account nonces
                             if let Err(e) = self.bootstrap_from_peer(peer, local_checkpoint).await {
                                 warn!("Snapshot sync from {} failed: {}", peer, e);
                             }
-                        } else {
+                        } else if status.dag_size > local_dag_size {
+                            // Same checkpoint height but peer has more unfinalized DAG transactions
+                            // Try delta sync for just the recent transactions
                             info!(
-                                "Peer {} has more data (cp: {} vs {}, dag: {} vs {}), requesting delta sync...",
-                                peer, status.checkpoint_height, local_checkpoint, 
-                                status.dag_size, local_dag_size
+                                "Peer {} has more DAG data (dag: {} vs {}), requesting delta sync...",
+                                peer, status.dag_size, local_dag_size
                             );
                             
-                            // Request missing transactions via delta sync
                             let result = self.sync_from_peer(peer, local_checkpoint).await;
                             match result {
                                 Ok(sync_result) => {
-                                    // If delta sync had too many failures, force snapshot sync to fix state divergence
-                                    // This bypasses the checkpoint count check since the issue is nonce/balance mismatch
-                                    if sync_result.failed > 0 && sync_result.failed > sync_result.added * 2 {
+                                    // If delta sync had failures, force snapshot to fix state divergence
+                                    if sync_result.failed > 0 && sync_result.failed > sync_result.added {
                                         warn!(
-                                            "Delta sync had {} failures vs {} added - state divergence detected, forcing snapshot recovery",
+                                            "Delta sync had {} failures vs {} added - forcing snapshot recovery",
                                             sync_result.failed, sync_result.added
                                         );
                                         if let Err(e) = self.bootstrap_from_peer_force(peer).await {
@@ -888,9 +892,52 @@ impl GossipService {
 
             GossipMessage::TipAnnouncement {
                 dag_size,
+                sender_url,
                 ..
             } => {
-                debug!("Received tip announcement, peer dag_size: {}", dag_size);
+                // Check if peer has more data than us and trigger sync if needed
+                let (local_dag_size, _, _) = self.state.get_dag_stats().await;
+                
+                if dag_size > local_dag_size + 10 {
+                    // Peer has significantly more DAG data (10+ transactions ahead)
+                    // Check if sync is already in flight to avoid duplicate syncs
+                    let should_sync = {
+                        let mut inner = self.inner.write().await;
+                        if inner.sync_in_flight {
+                            false
+                        } else {
+                            inner.sync_in_flight = true;
+                            true
+                        }
+                    };
+                    
+                    if should_sync {
+                        if let Some(peer_url) = sender_url {
+                            info!(
+                                "TipAnnouncement: peer {} has {} DAG nodes vs our {} - spawning background sync",
+                                peer_url, dag_size, local_dag_size
+                            );
+                            
+                            // Spawn background task to avoid blocking the gossip handler
+                            let gossip_clone = self.clone();
+                            let peer_url_clone = peer_url.clone();
+                            tokio::spawn(async move {
+                                gossip_clone.trigger_sync_from_peer(&peer_url_clone).await;
+                                // Clear the sync_in_flight flag when done
+                                let mut inner = gossip_clone.inner.write().await;
+                                inner.sync_in_flight = false;
+                            });
+                        } else {
+                            // No sender_url, clear the flag
+                            let mut inner = self.inner.write().await;
+                            inner.sync_in_flight = false;
+                        }
+                    } else {
+                        debug!("TipAnnouncement: sync already in flight, skipping");
+                    }
+                } else {
+                    debug!("Received tip announcement, peer dag_size: {} (local: {})", dag_size, local_dag_size);
+                }
                 Ok(None)
             }
 
@@ -978,6 +1025,34 @@ impl GossipService {
         if !inner.known_txs.contains(&tx.hash) {
             inner.known_txs.insert(tx.hash.clone());
             inner.pending_txs.push(tx);
+        }
+    }
+
+    /// Trigger sync from a specific peer (used by TipAnnouncement background task)
+    async fn trigger_sync_from_peer(&self, peer_url: &str) {
+        let local_checkpoint = self.state.get_checkpoint_height().await;
+        
+        match self.fetch_peer_status(peer_url).await {
+            Ok(status) => {
+                let checkpoint_gap = status.checkpoint_height.saturating_sub(local_checkpoint);
+                
+                if checkpoint_gap >= 1 {
+                    // Peer is ahead on checkpoints - use snapshot sync
+                    info!("Background sync: peer {} is {} checkpoint(s) ahead, using snapshot sync", peer_url, checkpoint_gap);
+                    if let Err(e) = self.bootstrap_from_peer(peer_url, local_checkpoint).await {
+                        warn!("Background snapshot sync from {} failed: {}", peer_url, e);
+                    }
+                } else {
+                    // Same checkpoint, just missing DAG transactions - use delta sync
+                    info!("Background sync: peer {} at same checkpoint, using delta sync", peer_url);
+                    if let Err(e) = self.sync_from_peer(peer_url, local_checkpoint).await {
+                        warn!("Background delta sync from {} failed: {}", peer_url, e);
+                    }
+                }
+            }
+            Err(e) => {
+                debug!("Failed to fetch peer status for background sync: {}", e);
+            }
         }
     }
 
