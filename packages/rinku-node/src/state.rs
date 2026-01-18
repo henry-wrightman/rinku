@@ -1581,6 +1581,18 @@ impl NodeState {
         state.dag.get_node(hash).map(|n| n.tx.clone())
     }
     
+    /// Get recent transactions from the DAG (up to limit)
+    /// Used to flush local transactions to peers before snapshot sync
+    pub async fn get_recent_transactions(&self, limit: usize) -> Vec<SignedTransaction> {
+        let state = self.inner.read().await;
+        state.dag
+            .get_all_nodes()
+            .into_iter()
+            .take(limit)
+            .map(|n| n.tx.clone())
+            .collect()
+    }
+    
     /// Get transaction with its weight from the DAG node
     pub async fn get_transaction_with_weight(&self, hash: &str) -> Option<(SignedTransaction, f64)> {
         let state = self.inner.read().await;

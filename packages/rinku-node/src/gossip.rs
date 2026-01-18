@@ -388,6 +388,10 @@ impl GossipService {
             }
         }
 
+        // CRITICAL: Before replacing our DAG, broadcast any pending transactions to the peer
+        // This prevents locally-created transactions from being lost during snapshot sync
+        self.flush_pending_txs_to_peer(peer).await;
+
         // Convert response to SyncSnapshot and apply
         let snapshot = SyncSnapshot {
             accounts: snapshot_response.accounts,
@@ -413,6 +417,10 @@ impl GossipService {
     /// Force bootstrap from peer - used for recovery when delta sync fails due to state divergence
     /// This forces the snapshot to be applied even if checkpoint counts are equal
     async fn bootstrap_from_peer_force(&self, peer: &str) -> Result<()> {
+        // CRITICAL: Before replacing our DAG, broadcast any pending transactions to the peer
+        // This prevents locally-created transactions from being lost during snapshot sync
+        self.flush_pending_txs_to_peer(peer).await;
+        
         let client = reqwest::Client::new();
         let url = format!("{}/api/sync/snapshot", peer);
         
@@ -600,6 +608,13 @@ impl GossipService {
             (txs, peer_addrs)
         };
 
+        if !pending_txs.is_empty() {
+            info!("Propagating {} pending transactions to {} peers", pending_txs.len(), peers.len());
+            if peers.is_empty() {
+                warn!("NO PEERS AVAILABLE - transactions will NOT be propagated!");
+            }
+        }
+
         let public_url = std::env::var("PUBLIC_URL").ok();
         for tx in pending_txs {
             let message = GossipMessage::Transaction {
@@ -610,7 +625,9 @@ impl GossipService {
 
             for peer in &peers {
                 if let Err(e) = self.send_to_peer(peer, &message).await {
-                    debug!("Failed to propagate tx to {}: {}", peer, e);
+                    warn!("Failed to propagate tx {} to {}: {}", &tx.hash[..16.min(tx.hash.len())], peer, e);
+                } else {
+                    debug!("Propagated tx {} to peer {}", &tx.hash[..16.min(tx.hash.len())], peer);
                 }
             }
 
@@ -917,8 +934,11 @@ impl GossipService {
     pub async fn handle_message(&self, message: GossipMessage) -> Result<Option<GossipMessage>> {
         // Centralized reverse peer discovery: extract sender_url from any message type
         let sender_url = Self::extract_sender_url(&message);
-        if let Some(url) = sender_url {
-            self.add_peer(url).await;
+        if let Some(ref url) = sender_url {
+            debug!("Gossip message received with sender_url: {}", url);
+            self.add_peer(url.clone()).await;
+        } else {
+            debug!("Gossip message received WITHOUT sender_url (peer won't be discovered)");
         }
         
         match message {
@@ -1093,6 +1113,56 @@ impl GossipService {
         }
     }
 
+    /// Flush all local transactions to a specific peer before snapshot sync
+    /// This prevents locally-created transactions from being lost when the DAG is replaced
+    async fn flush_pending_txs_to_peer(&self, peer: &str) {
+        // Get all transactions from the local DAG (not just pending_txs queue)
+        let local_txs = self.state.get_recent_transactions(1000).await;
+        
+        if local_txs.is_empty() {
+            return;
+        }
+        
+        info!(
+            "PRE-SYNC FLUSH: Broadcasting {} local transactions to {} before snapshot sync",
+            local_txs.len(),
+            peer
+        );
+        
+        let public_url = std::env::var("PUBLIC_URL").ok();
+        let mut success_count = 0;
+        let mut fail_count = 0;
+        
+        for tx in local_txs {
+            // Skip genesis transactions
+            if tx.hash == "genesis" || tx.tx.from == "genesis" {
+                continue;
+            }
+            
+            let message = GossipMessage::Transaction {
+                hash: tx.hash.clone(),
+                tx: tx.clone(),
+                sender_url: public_url.clone(),
+            };
+            
+            match self.send_to_peer(peer, &message).await {
+                Ok(_) => success_count += 1,
+                Err(e) => {
+                    debug!("Failed to flush tx {} to peer: {}", &tx.hash[..16.min(tx.hash.len())], e);
+                    fail_count += 1;
+                }
+            }
+        }
+        
+        if success_count > 0 || fail_count > 0 {
+            info!(
+                "PRE-SYNC FLUSH: Sent {} transactions to peer ({} failed)",
+                success_count,
+                fail_count
+            );
+        }
+    }
+
     /// Trigger sync from a specific peer (used by TipAnnouncement background task)
     async fn trigger_sync_from_peer(&self, peer_url: &str) {
         let local_checkpoint = self.state.get_checkpoint_height().await;
@@ -1188,6 +1258,7 @@ impl GossipService {
             let own_normalized = own_url.trim_end_matches('/');
             let addr_normalized = address.trim_end_matches('/');
             if own_normalized == addr_normalized {
+                debug!("Skipping self as peer: {}", address);
                 return;
             }
         }
@@ -1199,6 +1270,7 @@ impl GossipService {
 
         let mut inner = self.inner.write().await;
         if !inner.peers.contains_key(&address) {
+            info!("PEER DISCOVERY: Adding new peer {} (total peers: {})", address, inner.peers.len() + 1);
             inner.peers.insert(address.clone(), PeerInfo {
                 address,
                 node_id: String::new(),
@@ -1208,6 +1280,7 @@ impl GossipService {
                 latency_ms: 0,
                 is_healthy: true,
             });
+            inner.stats.peers_discovered += 1;
         }
     }
 
