@@ -101,7 +101,17 @@ export function VerifyProofTab() {
   };
 
   return (
-    <div className="rewards-tab">
+    <div
+      className="tx-proof"
+      style={{
+        marginTop: 24,
+        padding: 20,
+        background: "rgba(136, 192, 208, 0.1)",
+        borderRadius: 8,
+        border: "1px solid rgba(136, 192, 208, 0.3)",
+        marginBottom: 20,
+      }}
+    >
       <div className="section">
         <h3>verify proof URL</h3>
         <p style={{ opacity: 0.7, marginBottom: "1rem", fontSize: "0.9rem" }}>
@@ -132,15 +142,7 @@ export function VerifyProofTab() {
         <button
           onClick={verifyProof}
           disabled={loading}
-          style={{
-            padding: "0.75rem 2rem",
-            backgroundColor: "var(--accent)",
-            color: "#fff",
-            border: "none",
-            borderRadius: "4px",
-            cursor: loading ? "not-allowed" : "pointer",
-            opacity: loading ? 0.7 : 1,
-          }}
+          className="btn-proof btn-proof-verify"
         >
           {loading ? "verifying..." : "verify proof"}
         </button>
