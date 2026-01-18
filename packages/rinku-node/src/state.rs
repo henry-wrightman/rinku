@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rinku_core::{
     dag::Dag,
-    types::{Account, Checkpoint, SignedTransaction, Validator},
+    types::{Account, Checkpoint, SignedTransaction, Validator, WalletChain, WalletChainEntry},
     weight::calculate_account_weight,
 };
 use serde::{Deserialize, Serialize};
@@ -511,6 +511,70 @@ impl NodeState {
     pub async fn get_account(&self, address: &str) -> Option<Account> {
         let state = self.inner.read().await;
         state.accounts.get(address).cloned()
+    }
+
+    /// Build a wallet chain for distributed history sharing
+    /// Returns None if account doesn't exist or has no transactions
+    pub async fn build_wallet_chain(&self, address: &str, from_tx: Option<String>, limit: usize) -> Option<WalletChain> {
+        let state = self.inner.read().await;
+        
+        let account = state.accounts.get(address)?;
+        
+        // Start from specified tx or account's last tx
+        let start_hash = from_tx.or_else(|| account.last_tx_hash.clone())?;
+        
+        let mut chain = WalletChain::new(address.to_string(), account.nonce);
+        chain.head_tx = Some(start_hash.clone());
+        chain.exported_by = std::env::var("PUBLIC_URL").ok();
+        
+        let mut current_hash = Some(start_hash);
+        
+        while let Some(ref hash) = current_hash {
+            if chain.entries.len() >= limit {
+                break;
+            }
+            
+            if let Some(node) = state.dag.get_node(hash) {
+                // Verify this tx belongs to the requested address
+                if node.tx.tx.from != address {
+                    break;
+                }
+                
+                // Get finalization info for proof URL
+                let checkpoint_height = node.checkpoint_height;
+                let proof_url = if node.finalized {
+                    // Could generate proof URL here, but for now just indicate finalization
+                    node.tx.tx.prev_account_proof_url.clone()
+                } else {
+                    None
+                };
+                
+                chain.entries.push(WalletChainEntry {
+                    hash: node.tx.hash.clone(),
+                    to: node.tx.tx.to.clone(),
+                    amount: node.tx.tx.amount,
+                    fee: node.tx.tx.gas_price.unwrap_or(0.0),
+                    nonce: node.tx.tx.nonce,
+                    timestamp: node.tx.tx.timestamp,
+                    signature: node.tx.signature.clone(),
+                    kind: node.tx.tx.kind,
+                    prev_tx: node.tx.tx.prev_account_tx.clone(),
+                    proof_url,
+                    checkpoint_height,
+                });
+                
+                current_hash = node.tx.tx.prev_account_tx.clone();
+            } else {
+                // Transaction not in DAG (pruned)
+                break;
+            }
+        }
+        
+        if chain.entries.is_empty() {
+            None
+        } else {
+            Some(chain)
+        }
     }
 
     pub async fn get_account_nonce(&self, address: &str) -> u64 {

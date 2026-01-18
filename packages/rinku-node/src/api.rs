@@ -553,6 +553,24 @@ async fn post_gossip(
                     &checkpoint_id[..16.min(checkpoint_id.len())], 
                     &validator_address[..16.min(validator_address.len())]);
             }
+            GossipMessage::HistoryRequest { address, request_id, limit, from_tx, .. } => {
+                info!("Gossip: history request for {} (id: {})", address, request_id);
+                let chain = state.build_wallet_chain(&address, from_tx.clone(), limit.unwrap_or(100) as usize).await;
+                let is_complete = chain.as_ref().map(|c| c.entries.last().map(|e| e.prev_tx.is_none()).unwrap_or(true)).unwrap_or(false);
+                return Json(serde_json::json!({
+                    "type": "history_response",
+                    "chain": chain,
+                    "request_id": request_id,
+                    "is_complete": is_complete,
+                    "error": serde_json::Value::Null
+                })).into_response();
+            }
+            GossipMessage::HistoryResponse { .. } => {
+                info!("Gossip: received history response (handled by requester)");
+            }
+            GossipMessage::HistoryAnnouncement { addresses, node_id, .. } => {
+                info!("Gossip: node {} announced history for {} addresses", node_id, addresses.len());
+            }
         }
     }
 
@@ -982,6 +1000,33 @@ async fn get_account_history(
         has_more,
         oldest_tx_hash,
     }))
+}
+
+#[derive(Deserialize)]
+struct WalletChainQuery {
+    limit: Option<usize>,
+    from_tx: Option<String>,
+}
+
+async fn get_wallet_chain(
+    State(state): State<NodeState>,
+    Path(address): Path<String>,
+    Query(query): Query<WalletChainQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let limit = query.limit.unwrap_or(100).min(500);
+    
+    let chain = state.build_wallet_chain(&address, query.from_tx, limit).await
+        .ok_or_else(|| ApiError::not_found("Account not found or has no transactions"))?;
+    
+    let is_complete = chain.entries.last()
+        .map(|e| e.prev_tx.is_none())
+        .unwrap_or(true);
+    
+    Ok(Json(serde_json::json!({
+        "chain": chain,
+        "isComplete": is_complete,
+        "entryCount": chain.entries.len()
+    })))
 }
 
 async fn submit_transaction(
@@ -2271,6 +2316,7 @@ pub async fn start_api_server(
         .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/account/:address", get(get_account))
         .route("/api/account/:address/history", get(get_account_history))
+        .route("/api/account/:address/chain", get(get_wallet_chain))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))
