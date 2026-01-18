@@ -411,16 +411,14 @@ function HashTransactionPage() {
                   }}
                 >
                   <button
-                    className="btn-small"
+                    className={`btn-proof ${proofCopied ? "btn-proof-success" : ""}`}
                     onClick={copyProof}
-                    style={{ background: proofCopied ? "#a3be8c" : "#88c0d0" }}
                   >
                     {proofCopied ? "copied!" : "copy proof url"}
                   </button>
                   <Link
                     to={{ pathname: "/", search: "?tab=verify" }}
-                    className="btn-small"
-                    style={{ textDecoration: "none", background: "#5e81ac" }}
+                    className="btn-proof btn-proof-verify"
                   >
                     verify
                   </Link>

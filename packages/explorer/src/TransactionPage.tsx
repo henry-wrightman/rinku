@@ -312,9 +312,8 @@ function TransactionPage() {
                   }}
                 >
                   <button
-                    className="btn-small"
+                    className={`btn-proof ${proofCopied ? "btn-proof-success" : ""}`}
                     onClick={copyProofUrl}
-                    style={{ background: proofCopied ? "#a3be8c" : "#88c0d0" }}
                   >
                     {proofCopied ? "copied!" : "copy proof url"}
                   </button>

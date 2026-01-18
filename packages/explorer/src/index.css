@@ -789,6 +789,66 @@ body.light .btn-small:hover {
   border-color: #8b5a8b;
 }
 
+.btn-proof {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: none;
+  background: #4c566a;
+  color: #eceff4;
+  transition: background 0.2s;
+}
+
+.btn-proof:hover {
+  background: #5e6a7e;
+}
+
+.btn-proof-success {
+  background: #a3be8c;
+  color: #2e3440;
+}
+
+.btn-proof-success:hover {
+  background: #b5c99a;
+}
+
+body.light .btn-proof {
+  background: #5e81ac;
+  color: #fff;
+}
+
+body.light .btn-proof:hover {
+  background: #4c6d94;
+}
+
+body.light .btn-proof-success {
+  background: #a3be8c;
+  color: #2e3440;
+}
+
+body.light .btn-proof-success:hover {
+  background: #8faa78;
+}
+
+.btn-proof-verify {
+  background: #5e81ac;
+  text-decoration: none;
+}
+
+.btn-proof-verify:hover {
+  background: #5078a0;
+}
+
+body.light .btn-proof-verify {
+  background: #81a1c1;
+}
+
+body.light .btn-proof-verify:hover {
+  background: #6b8fb0;
+}
+
 body.light .whitepaper-link {
   color: #7b88a1;
 }
