@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { PageHeader } from "./components/PageHeader";
-import type { TransactionKind } from "@rinku/core";
+import type { TransactionKind, WalletChain, WalletChainEntry } from "@rinku/core";
 
 interface AccountData {
   fingerprint: string;
@@ -39,6 +39,12 @@ interface RewardsSummary {
   pendingRewards: number;
 }
 
+interface ChainResponse {
+  chain: WalletChain;
+  isComplete: boolean;
+  entryCount: number;
+}
+
 function AccountPage() {
   const { address } = useParams<{ address: string }>();
   const [account, setAccount] = useState<AccountData | null>(null);
@@ -48,6 +54,12 @@ function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  
+  const [walletChain, setWalletChain] = useState<WalletChain | null>(null);
+  const [chainLoading, setChainLoading] = useState(false);
+  const [chainError, setChainError] = useState<string | null>(null);
+  const [isChainComplete, setIsChainComplete] = useState(false);
+  const [showChainPanel, setShowChainPanel] = useState(false);
 
   useEffect(() => {
     if (!address) {
@@ -143,6 +155,63 @@ function AccountPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const crawlWalletChain = async () => {
+    if (!address) return;
+    
+    setChainLoading(true);
+    setChainError(null);
+    setShowChainPanel(true);
+    
+    try {
+      const res = await fetch(`/api/account/${address}/chain?limit=100`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Failed to fetch wallet chain');
+      }
+      const data: ChainResponse = await res.json();
+      setWalletChain(data.chain);
+      setIsChainComplete(data.isComplete);
+    } catch (e: any) {
+      setChainError(e.message || 'Failed to crawl wallet chain');
+    } finally {
+      setChainLoading(false);
+    }
+  };
+
+  const loadMoreChain = async () => {
+    if (!address || !walletChain?.entries.length) return;
+    
+    const lastEntry = walletChain.entries[walletChain.entries.length - 1];
+    if (!lastEntry.prevTx) return;
+    
+    setChainLoading(true);
+    try {
+      const res = await fetch(`/api/account/${address}/chain?limit=100&from_tx=${lastEntry.prevTx}`);
+      if (!res.ok) throw new Error('Failed to load more');
+      const data: ChainResponse = await res.json();
+      setWalletChain({
+        ...walletChain,
+        entries: [...walletChain.entries, ...data.chain.entries],
+      });
+      setIsChainComplete(data.isComplete);
+    } catch (e: any) {
+      setChainError(e.message);
+    } finally {
+      setChainLoading(false);
+    }
+  };
+
+  const exportChainJson = () => {
+    if (!walletChain) return;
+    const blob = new Blob([JSON.stringify(walletChain, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wallet-chain-${address?.slice(0, 8)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   if (loading) {
@@ -271,6 +340,126 @@ function AccountPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 24, marginBottom: 16 }}>
+          <button 
+            className="btn-small" 
+            onClick={crawlWalletChain}
+            disabled={chainLoading}
+            style={{ 
+              background: '#2e3440', 
+              border: '1px solid #4c566a',
+              padding: '8px 16px',
+              cursor: chainLoading ? 'wait' : 'pointer'
+            }}
+          >
+            {chainLoading ? 'crawling...' : 'crawl wallet chain'}
+          </button>
+          <span style={{ marginLeft: 12, color: '#616e88', fontSize: 12 }}>
+            reconstruct full history from distributed protocol
+          </span>
+        </div>
+
+        {showChainPanel && (
+          <div style={{ 
+            marginBottom: 24, 
+            padding: 16, 
+            background: '#1a1d23', 
+            border: '1px solid #3b4252',
+            borderRadius: 4
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0, color: '#88c0d0' }}>
+                wallet chain {walletChain ? `(${walletChain.entries.length} entries)` : ''}
+              </h3>
+              <div>
+                {walletChain && (
+                  <button 
+                    className="btn-small" 
+                    onClick={exportChainJson}
+                    style={{ marginRight: 8, fontSize: 11 }}
+                  >
+                    export JSON
+                  </button>
+                )}
+                <button 
+                  className="btn-small" 
+                  onClick={() => setShowChainPanel(false)}
+                  style={{ fontSize: 11 }}
+                >
+                  close
+                </button>
+              </div>
+            </div>
+
+            {chainError && (
+              <div style={{ color: '#bf616a', marginBottom: 12 }}>{chainError}</div>
+            )}
+
+            {chainLoading && !walletChain && (
+              <div style={{ color: '#616e88' }}>crawling chain from node...</div>
+            )}
+
+            {walletChain && (
+              <>
+                <div style={{ marginBottom: 12, fontSize: 12, color: '#616e88' }}>
+                  <span>exported at: {new Date(walletChain.exportedAt).toLocaleString()}</span>
+                  {walletChain.exportedBy && (
+                    <span style={{ marginLeft: 12 }}>by: {truncate(walletChain.exportedBy, 24)}</span>
+                  )}
+                  <span style={{ marginLeft: 12, color: isChainComplete ? '#a3be8c' : '#ebcb8b' }}>
+                    {isChainComplete ? '✓ complete' : '⋯ partial'}
+                  </span>
+                </div>
+
+                <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                  {walletChain.entries.map((entry, i) => (
+                    <div 
+                      key={entry.hash} 
+                      style={{ 
+                        padding: '8px 12px', 
+                        borderBottom: '1px solid #2e3440',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontSize: 13
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{ color: '#4c566a', fontSize: 11, width: 24 }}>#{entry.nonce}</span>
+                        <Link to={`/tx/${entry.hash}`} style={{ color: '#81a1c1', fontFamily: 'monospace' }}>
+                          {truncate(entry.hash, 12)}
+                        </Link>
+                        <span style={{ color: '#616e88' }}>→</span>
+                        <span style={{ color: '#d8dee9' }}>{truncate(entry.to, 10)}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{ color: '#a3be8c' }}>{entry.amount} RKU</span>
+                        {entry.proofUrl && (
+                          <span style={{ color: '#88c0d0', fontSize: 10 }} title={entry.proofUrl}>✓ proof</span>
+                        )}
+                        {entry.checkpointHeight && (
+                          <span style={{ color: '#b48ead', fontSize: 10 }}>cp:{entry.checkpointHeight}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {!isChainComplete && walletChain.entries.length > 0 && (
+                  <button 
+                    className="btn-small" 
+                    onClick={loadMoreChain}
+                    disabled={chainLoading}
+                    style={{ marginTop: 12, width: '100%' }}
+                  >
+                    {chainLoading ? 'loading...' : 'load more'}
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
 
