@@ -39,6 +39,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
   - `verify_chain_links()` utility for cryptographic chain integrity validation
   - Nodes respond to history requests for transactions they have locally (recent DAG + checkpoints)
   - Self-provable proof URLs enable offline verification of any transaction in the chain
+  - **Sharded Storage Model (Production):** History is sharded by wallet ownership, not replicated across all nodes. Each node stores only its own wallet chains + recent DAG buffer. Non-local history is discoverable via gossip requests to peers/wallet owners. This keeps node storage O(1) per node regardless of network size. Development mode may use full persistence for convenience.
 
 ### Transaction Validation & Security
 All transactions undergo comprehensive validation, including account existence, balance, nonce, and gas fee checks. Production APIs (`/api/tx`, `/api/tx/batch`) enforce full validation with pre-validation checks (balance + gas) before any state mutations.
