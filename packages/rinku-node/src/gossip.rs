@@ -959,8 +959,18 @@ impl GossipService {
                     .unwrap()
                     .as_secs();
 
+                // Get own URL for self-filtering
+                let own_url = std::env::var("PUBLIC_URL").ok();
+                let own_normalized = own_url.as_ref().map(|u| u.trim_end_matches('/').to_string());
+
                 let mut inner = self.inner.write().await;
                 for addr in peers {
+                    // Skip adding self as a peer
+                    let addr_normalized = addr.trim_end_matches('/');
+                    if own_normalized.as_deref() == Some(addr_normalized) {
+                        continue;
+                    }
+                    
                     if !inner.peers.contains_key(&addr) {
                         inner.peers.insert(addr.clone(), PeerInfo {
                             address: addr,
@@ -1129,6 +1139,15 @@ impl GossipService {
     }
 
     pub async fn add_peer(&self, address: String) {
+        // Skip adding self as a peer
+        if let Ok(own_url) = std::env::var("PUBLIC_URL") {
+            let own_normalized = own_url.trim_end_matches('/');
+            let addr_normalized = address.trim_end_matches('/');
+            if own_normalized == addr_normalized {
+                return;
+            }
+        }
+        
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
