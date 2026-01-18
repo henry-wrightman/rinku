@@ -72,6 +72,12 @@ pub struct NetworkStats {
 }
 
 #[derive(Debug, Clone)]
+pub struct StakingConfig {
+    pub min_stake_amount: f64,
+    pub unbonding_period_days: u32,
+}
+
+#[derive(Debug, Clone)]
 pub struct ValidatorStats {
     pub address: Option<String>,
     pub is_validator: bool,
@@ -80,6 +86,7 @@ pub struct ValidatorStats {
     pub total_validators: usize,
     pub total_staked: f64,
     pub unbonding_amount: f64,
+    pub config: StakingConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +154,10 @@ impl App {
                 total_validators: 0,
                 total_staked: 0.0,
                 unbonding_amount: 0.0,
+                config: StakingConfig {
+                    min_stake_amount: 100.0,
+                    unbonding_period_days: 14,
+                },
             },
             dag_stats: DagStats {
                 tip_count: 0,
@@ -264,6 +275,9 @@ impl App {
                 (0.0, 0.0, 0.0, false)
             };
 
+        // Get staking config from node state
+        let (min_stake, unbonding_days) = self.state.get_staking_config().await;
+
         self.validator_stats = ValidatorStats {
             address: validator_address,
             is_validator,
@@ -272,6 +286,10 @@ impl App {
             total_validators: validator_count,
             total_staked,
             unbonding_amount,
+            config: StakingConfig {
+                min_stake_amount: min_stake,
+                unbonding_period_days: unbonding_days,
+            },
         };
 
         self.dag_stats = DagStats {

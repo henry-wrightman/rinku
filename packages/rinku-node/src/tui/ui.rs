@@ -329,11 +329,11 @@ fn draw_validator(frame: &mut Frame, app: &App, area: Rect) {
         )),
         Line::from(""),
         Line::from(Span::styled(
-            "  Minimum stake: 100 RKU",
+            format!("  Minimum stake: {} RKU", app.validator_stats.config.min_stake_amount as u64),
             Style::default().fg(Color::Yellow),
         )),
         Line::from(Span::styled(
-            "  Unbonding period: 14 days",
+            format!("  Unbonding period: {} days", app.validator_stats.config.unbonding_period_days),
             Style::default().fg(Color::Yellow),
         )),
     ];

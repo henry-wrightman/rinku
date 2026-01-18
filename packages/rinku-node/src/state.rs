@@ -660,6 +660,14 @@ impl NodeState {
         (stake_amount, pending_rewards, unbonding, is_validator)
     }
 
+    /// Get staking configuration for display (min stake, unbonding period)
+    pub async fn get_staking_config(&self) -> (f64, u32) {
+        let rewards = self.rewards.read().await;
+        let min_stake = rewards.get_config().min_stake_amount;
+        let unbonding_days = (crate::slashing::UNBONDING_PERIOD_MS / (24 * 60 * 60 * 1000)) as u32;
+        (min_stake, unbonding_days)
+    }
+
     pub async fn get_total_transactions(&self) -> u64 {
         let state = self.inner.read().await;
         state.total_transactions

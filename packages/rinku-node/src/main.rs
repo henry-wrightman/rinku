@@ -49,12 +49,17 @@ async fn main() -> Result<()> {
     if tui_mode {
         #[cfg(feature = "tui")]
         {
-            // TUI mode: redirect logs to stderr so they don't interfere with terminal
+            // TUI mode: write logs to a file to prevent corrupting the TUI display
+            // Logs can be viewed in .rinku-data/tui.log
+            std::fs::create_dir_all(".rinku-data").ok();
+            let file_appender = tracing_appender::rolling::never(".rinku-data", "tui.log");
             tracing_subscriber::registry()
                 .with(tracing_subscriber::EnvFilter::new(
-                    std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".into()),
+                    std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
                 ))
-                .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+                .with(tracing_subscriber::fmt::layer()
+                    .with_writer(file_appender)
+                    .with_ansi(false))
                 .init();
         }
         #[cfg(not(feature = "tui"))]
