@@ -840,7 +840,7 @@ async fn get_account(
 }
 
 async fn submit_transaction(
-    State(state): State<NodeState>,
+    State(api_state): State<ApiState>,
     Json(req): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
     let inner = req.tx;
@@ -851,26 +851,33 @@ async fn submit_transaction(
             amount: inner.amount,
             nonce: inner.nonce,
             timestamp: inner.ts,
-            parents: inner.parents,
-            kind: inner.kind,
+            parents: inner.parents.clone(),
+            kind: inner.kind.clone(),
             gas_limit: None,
             gas_price: Some(inner.fee),
             data: None,
             signature: Some(inner.sig.clone()),
         },
         hash: inner.hash.clone(),
-        signature: inner.sig,
+        signature: inner.sig.clone(),
     };
 
-    match state.add_transaction(tx).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(SubmitTxResponse {
-                success: true,
-                hash: inner.hash,
-                error: None,
-            }),
-        ),
+    match api_state.node_state.add_transaction(tx.clone()).await {
+        Ok(()) => {
+            // Broadcast to peers after successful local add
+            if let Some(ref gossip) = api_state.gossip_service {
+                gossip.broadcast_transaction(tx).await;
+                info!("Transaction {} broadcast to peers", &inner.hash[..16.min(inner.hash.len())]);
+            }
+            (
+                StatusCode::OK,
+                Json(SubmitTxResponse {
+                    success: true,
+                    hash: inner.hash,
+                    error: None,
+                }),
+            )
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(SubmitTxResponse {
@@ -883,7 +890,7 @@ async fn submit_transaction(
 }
 
 async fn submit_batch_transaction(
-    State(state): State<NodeState>,
+    State(api_state): State<ApiState>,
     Json(req): Json<BatchSubmitTxRequest>,
 ) -> Json<BatchSubmitTxResponse> {
     let total = req.transactions.len();
@@ -913,10 +920,27 @@ async fn submit_batch_transaction(
         })
         .collect();
 
+    // Clone txs for broadcasting after successful add
+    let txs_for_broadcast = txs.clone();
+
     // Use optimized batch method - single lock acquisition
-    let results = state.add_transactions_batch(txs).await;
+    let results = api_state.node_state.add_transactions_batch(txs).await;
     let successful = results.iter().filter(|r| r.is_ok()).count();
     let failed = results.len() - successful;
+
+    // Broadcast successful transactions to peers
+    if let Some(ref gossip) = api_state.gossip_service {
+        for (i, result) in results.iter().enumerate() {
+            if result.is_ok() {
+                if let Some(tx) = txs_for_broadcast.get(i) {
+                    gossip.broadcast_transaction(tx.clone()).await;
+                }
+            }
+        }
+        if successful > 0 {
+            info!("Broadcast {} transactions to peers", successful);
+        }
+    }
 
     Json(BatchSubmitTxResponse {
         successful,
@@ -2074,10 +2098,12 @@ pub async fn start_api_server(
         gossip_service,
     };
 
-    // Routes that need ApiState (gossip)
+    // Routes that need ApiState (gossip + transaction submission for broadcasting)
     let gossip_routes = Router::new()
         .route("/api/gossip", post(post_gossip))
         .route("/api/gossip/stats", get(get_gossip_stats))
+        .route("/api/tx", post(submit_transaction))
+        .route("/api/tx/batch", post(submit_batch_transaction))
         .layer(cors.clone())
         .with_state(api_state);
 
@@ -2092,8 +2118,6 @@ pub async fn start_api_server(
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/account/:address", get(get_account))
-        .route("/api/tx", post(submit_transaction))
-        .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))
