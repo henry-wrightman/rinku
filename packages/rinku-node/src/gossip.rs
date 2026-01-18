@@ -95,6 +95,12 @@ struct SnapshotSyncResponse {
     checkpoint_height: u64,
 }
 
+#[derive(Debug, Default)]
+struct DeltaSyncResult {
+    added: usize,
+    failed: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GossipMessage {
@@ -618,15 +624,46 @@ impl GossipService {
                         || status.dag_size > local_dag_size;
 
                     if needs_sync {
-                        info!(
-                            "Peer {} has more data (cp: {} vs {}, dag: {} vs {}), requesting sync...",
-                            peer, status.checkpoint_height, local_checkpoint, 
-                            status.dag_size, local_dag_size
-                        );
+                        // If we're significantly behind on checkpoints (3+ behind), 
+                        // use full snapshot sync to get account state
+                        let checkpoint_gap = status.checkpoint_height.saturating_sub(local_checkpoint);
                         
-                        // Request missing transactions via delta sync
-                        if let Err(e) = self.sync_from_peer(peer, local_checkpoint).await {
-                            warn!("Sync from {} failed: {}", peer, e);
+                        if checkpoint_gap >= 3 {
+                            info!(
+                                "Peer {} is {} checkpoints ahead (cp: {} vs {}), requesting snapshot sync...",
+                                peer, checkpoint_gap, status.checkpoint_height, local_checkpoint
+                            );
+                            
+                            // Use full snapshot sync to get complete state including account nonces
+                            if let Err(e) = self.bootstrap_from_peer(peer, local_checkpoint).await {
+                                warn!("Snapshot sync from {} failed: {}", peer, e);
+                            }
+                        } else {
+                            info!(
+                                "Peer {} has more data (cp: {} vs {}, dag: {} vs {}), requesting delta sync...",
+                                peer, status.checkpoint_height, local_checkpoint, 
+                                status.dag_size, local_dag_size
+                            );
+                            
+                            // Request missing transactions via delta sync
+                            let result = self.sync_from_peer(peer, local_checkpoint).await;
+                            match result {
+                                Ok(sync_result) => {
+                                    // If delta sync had too many failures, try snapshot sync
+                                    if sync_result.failed > 0 && sync_result.failed > sync_result.added * 2 {
+                                        warn!(
+                                            "Delta sync had {} failures vs {} added, falling back to snapshot sync",
+                                            sync_result.failed, sync_result.added
+                                        );
+                                        if let Err(e) = self.bootstrap_from_peer(peer, local_checkpoint).await {
+                                            warn!("Snapshot sync from {} failed: {}", peer, e);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Sync from {} failed: {}", peer, e);
+                                }
+                            }
                         }
                     }
                 }
@@ -641,11 +678,11 @@ impl GossipService {
         }
     }
 
-    async fn sync_from_peer(&self, peer: &str, local_checkpoint: u64) -> Result<()> {
+    async fn sync_from_peer(&self, peer: &str, local_checkpoint: u64) -> Result<DeltaSyncResult> {
         let client = reqwest::Client::new();
         let mut offset = 0usize;
         let limit = 500usize;
-        let mut total_added = 0usize;
+        let mut result = DeltaSyncResult::default();
         
         loop {
             // Fetch transactions with pagination
@@ -691,7 +728,6 @@ impl GossipService {
                 break;
             }
             
-            let mut added = 0;
             for tx in transactions {
                 // Check if we already have this tx
                 let is_known = {
@@ -702,16 +738,15 @@ impl GossipService {
                 if !is_known {
                     if let Err(e) = self.state.add_transaction(tx.clone()).await {
                         debug!("Failed to add synced tx {}: {}", tx.hash, e);
+                        result.failed += 1;
                     } else {
                         let mut inner = self.inner.write().await;
                         inner.known_txs.insert(tx.hash.clone());
                         inner.stats.txs_received += 1;
-                        added += 1;
+                        result.added += 1;
                     }
                 }
             }
-            
-            total_added += added;
             
             if !has_more {
                 break;
@@ -726,11 +761,14 @@ impl GossipService {
             }
         }
         
-        if total_added > 0 {
-            info!("Added {} new transactions from peer sync", total_added);
+        if result.added > 0 || result.failed > 0 {
+            info!(
+                "Delta sync complete: {} added, {} failed",
+                result.added, result.failed
+            );
         }
         
-        Ok(())
+        Ok(result)
     }
 
     async fn send_to_peer(&self, peer: &str, message: &GossipMessage) -> Result<()> {
