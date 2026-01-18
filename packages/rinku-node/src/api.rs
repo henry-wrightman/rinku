@@ -421,8 +421,11 @@ async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusRespo
     let (dag_size, _, _) = state.get_dag_stats().await;
     let checkpoint_height = state.get_checkpoint_height().await;
     let total_transactions = state.get_total_transactions().await;
-    let validators = state.get_validator_count().await;
-    let total_stake = state.get_total_stake().await;
+    // Use rewards service for accurate staking data
+    let rewards = state.rewards.read().await;
+    let validators = rewards.get_active_validators().len();
+    let total_stake = rewards.get_total_staked();
+    drop(rewards);
     let uptime_seconds = state.get_uptime_seconds().await;
     let merkle_root = state.get_dag_merkle_root().await;
     let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| "unknown".to_string());
@@ -449,8 +452,11 @@ async fn get_node_status(State(state): State<NodeState>) -> Json<NodeStatusRespo
     let (dag_size, _, _) = state.get_dag_stats().await;
     let checkpoint_height = state.get_checkpoint_height().await;
     let total_transactions = state.get_total_transactions().await;
-    let validators = state.get_validator_count().await;
-    let total_stake = state.get_total_stake().await;
+    // Use rewards service for accurate staking data
+    let rewards = state.rewards.read().await;
+    let validators = rewards.get_active_validators().len();
+    let total_stake = rewards.get_total_staked();
+    drop(rewards);
     let uptime_seconds = state.get_uptime_seconds().await;
     let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| "unknown".to_string());
     let (validator_address, bls_public_key) = state.get_validator_info().await;
@@ -1987,8 +1993,11 @@ async fn get_metrics(State(state): State<NodeState>) -> String {
     let (dag_nodes, tips, accounts) = state.get_dag_stats().await;
     let checkpoint_height = state.get_checkpoint_height().await;
     let gas_price = state.get_gas_price().await;
-    let validators = state.get_validator_count().await;
-    let total_stake = state.get_total_stake().await;
+    // Use rewards service for accurate staking data (not deprecated state.validators)
+    let rewards = state.rewards.read().await;
+    let validators = rewards.get_active_validators().len();
+    let total_stake = rewards.get_total_staked();
+    drop(rewards);
     let total_supply = state.get_total_supply().await;
     let total_transactions = state.get_total_transactions().await;
     let (finalized, unfinalized) = state.get_finalized_stats().await;

@@ -1,0 +1,141 @@
+2026-01-18T18:32:27.933775Z  INFO rinku_node: Starting Rinku Node v0.1.0
+18:32:27
+2026-01-18T18:32:27.934831Z  INFO rinku_node: Process PID: 651
+18:32:27
+2026-01-18T18:32:27.935574Z  INFO rinku_node: Node ID: fly-node-1
+18:32:27
+2026-01-18T18:32:27.935621Z  INFO rinku_node: Data dir: /data
+18:32:27
+2026-01-18T18:32:27.935735Z  INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+18:32:27
+2026-01-18T18:32:27.935779Z  INFO rinku_node: Data directory exists, checking for stale locks...
+18:32:27
+2026-01-18T18:32:27.937416Z  INFO rinku_node: Initializing node state...
+18:32:28
+Machine created and started in 3.179s
+18:32:28
+2026-01-18T18:32:28.137265Z  INFO rinku_node::persistence: Opened sled database at /data/sled-db (32MB cache)
+18:32:28
+2026-01-18T18:32:28.177321Z  INFO rinku_node::persistence: Loaded snapshot: 32 accounts, 0 validators, 132 checkpoints, 517 txs
+18:32:28
+2026-01-18T18:32:28.180831Z  INFO rinku_node::state: Restored from snapshot: 32 accounts, 517 txs, 132 checkpoints
+18:32:28
+2026-01-18T18:32:28.226437Z  INFO rinku_node::state: Loaded 0 contracts from persistence
+18:32:28
+2026-01-18T18:32:28.230687Z  INFO rinku_node::persistence: Loaded rewards snapshot: 0 stakes, 30 pending rewards
+18:32:28
+2026-01-18T18:32:28.230757Z  INFO rinku_node::state: Restored rewards: 0 stakes, 30 pending
+18:32:28
+2026-01-18T18:32:28.234906Z  INFO rinku_node::validator: Loaded validator key: 54de5fbb4ad0c5d0...
+18:32:28
+2026-01-18T18:32:28.234952Z  INFO rinku_node: Validator key loaded: 54de5fbb4ad0c5d0...
+18:32:28
+2026-01-18T18:32:28.234979Z  INFO rinku_node: Gas service initialized
+18:32:28
+2026-01-18T18:32:28.235001Z  INFO rinku_node: Rewards service initialized
+18:32:28
+2026-01-18T18:32:28.235022Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+18:32:28
+2026-01-18T18:32:28.235042Z  INFO rinku_node: Slashing service initialized
+18:32:28
+2026-01-18T18:32:28.235324Z  INFO rinku_node: BLS public key: odNhsp2d4UHDEB6qL2XPWkmKvhXkLnTK...
+18:32:28
+2026-01-18T18:32:28.235458Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+18:32:28
+2026-01-18T18:32:28.235494Z  INFO rinku_node: Fork remediation service started
+18:32:28
+2026-01-18T18:32:28.236115Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+18:32:28
+2026-01-18T18:32:28.236257Z  INFO rinku_node: Gossip service started (5000ms interval)
+18:32:28
+2026-01-18T18:32:28.236315Z  INFO rinku_node: Tip consolidation service started
+18:32:28
+2026-01-18T18:32:28.236348Z  INFO rinku_node: Snapshot persistence started (60s interval)
+18:32:28
+2026-01-18T18:32:28.236404Z  INFO rinku_node: STATIC_DIR config: None
+18:32:28
+2026-01-18T18:32:28.236297Z  INFO rinku_node::gossip: Gossip service started (interval: 5000ms, peers: 1)
+18:32:28
+2026-01-18T18:32:28.236672Z  INFO rinku_node::gossip: Starting initial sync with peers...
+18:32:28
+2026-01-18T18:32:28.236683Z  INFO rinku_node::gossip: Fetching sync status from peer: https://rinkuchan.com
+18:32:28
+2026-01-18T18:32:28.236999Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+18:32:28
+2026-01-18T18:32:28.237230Z  INFO rinku_node: Rinku Node running on port 8080
+18:32:28
+2026-01-18T18:32:28.237235Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+18:32:28
+2026-01-18T18:32:28.237238Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+18:32:28
+2026/01/18 18:32:28 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:4ec:a098:61f3:2]:22
+18:32:28
+2026-01-18T18:32:28.346329Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 200, interval: 3000ms)
+18:32:28
+2026-01-18T18:32:28.386983Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Above upper threshold (517), starting consolidation
+18:32:28
+2026-01-18T18:32:28.459000Z  INFO rinku_node::gossip: Peer https://rinkuchan.com status: checkpoint_height=134, dag_size=527, tips=9
+18:32:28
+2026-01-18T18:32:28.459096Z  INFO rinku_node::gossip: Peer has more data, requesting bootstrap sync...
+18:32:28
+2026-01-18T18:32:28.519393Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinkuchan.com
+18:32:28
+2026-01-18T18:32:28.675056Z  INFO rinku_node::gossip: Received snapshot: 32 accounts, 134 checkpoints, 527 dag txs, checkpoint height 134
+18:32:28
+2026-01-18T18:32:28.675137Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+18:32:28
+2026-01-18T18:32:28.675475Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 514 local transactions to https://rinkuchan.com before snapshot sync
+18:32:30
+2026-01-18T18:32:30.096075Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinkuchan.com has 527 DAG nodes vs our 508 - spawning background sync
+18:32:30
+2026-01-18T18:32:30.225707Z  INFO rinku_node::gossip: Background sync: peer https://rinkuchan.com is 2 checkpoint(s) ahead, using snapshot sync
+18:32:30
+2026-01-18T18:32:30.280399Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinkuchan.com
+18:32:30
+2026-01-18T18:32:30.507317Z  INFO rinku_node::gossip: Received snapshot: 32 accounts, 134 checkpoints, 527 dag txs, checkpoint height 134
+18:32:30
+2026-01-18T18:32:30.507398Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+18:32:30
+2026-01-18T18:32:30.507869Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 508 local transactions to https://rinkuchan.com before snapshot sync
+18:32:58
+2026-01-18T18:32:58.461035Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 133 from https://rinkuchan.com: b633b888998f73ac
+18:32:58
+2026-01-18T18:32:58.461124Z  WARN rinku_node::checkpoint: Peer checkpoint previous_hash mismatch at height 133: peer=Some("a2557b1acd088446") vs local=Some("97de044fde7337d5")
+18:32:58
+2026-01-18T18:32:58.461256Z  INFO rinku_node::checkpoint: Peer checkpoint validation failed at height 133, attempting DAG sync before fallback
+18:32:58
+2026-01-18T18:32:58.705081Z  WARN rinku_node::checkpoint: Peer checkpoint previous_hash mismatch at height 133: peer=Some("a2557b1acd088446") vs local=Some("97de044fde7337d5")
+18:32:58
+2026-01-18T18:32:58.706094Z  INFO rinku_node::checkpoint: Created checkpoint b6cfa04011072cea at height 133 (20 txs finalized, 3.932411 RKU emitted)
+18:33:12
+2026-01-18T18:33:12.891542Z  WARN rinku_node::state: Transaction rejected: account c448e3edab6789e6 does not exist
+18:33:12
+2026-01-18T18:33:12.891628Z  WARN rinku_node::gossip: Failed to add gossiped tx 80ebc2ff4da6bd52fb809221ae3b99d3b4c58c47d798a3c2b4da23f71cafd524: Account does not exist
+18:33:28
+2026-01-18T18:33:28.026886Z  WARN rinku_node::state: Transaction rejected: account c448e3edab6789e6 does not exist
+18:33:28
+2026-01-18T18:33:28.026964Z  WARN rinku_node::gossip: Failed to add gossiped tx 7d73b8fbd200df8e4e0f96ea99c7e82e2ebb7ba6a24cde9ab3e4a0f13baefd09: Account does not exist
+18:33:28
+2026-01-18T18:33:28.407834Z  INFO rinku_node::state: Pruned 1 expired witness entries
+18:33:28
+2026-01-18T18:33:28.922895Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 134 from https://rinkuchan.com: 1abd55f21fb8db74
+18:33:28
+2026-01-18T18:33:28.922987Z  WARN rinku_node::checkpoint: Peer checkpoint previous_hash mismatch at height 134: peer=Some("b633b888998f73ac") vs local=Some("b6cfa04011072cea")
+18:33:28
+2026-01-18T18:33:28.923023Z  WARN rinku_node::checkpoint: [ForkRecovery] 3 consecutive previous_hash mismatches detected, triggering chain recovery
+18:33:28
+2026-01-18T18:33:28.923125Z  INFO rinku_node::checkpoint: [ForkRecovery] Attempting to recover checkpoint chain from peer...
+18:33:28
+2026-01-18T18:33:28.987186Z  INFO rinku_node::checkpoint: [ForkRecovery] Requesting full snapshot sync from peer https://rinkuchan.com
+18:33:29
+2026-01-18T18:33:29.328115Z  WARN rinku_node::checkpoint: [ForkRecovery] No genesis validators configured - using format validation only (TESTNET MODE)
+18:33:29
+2026-01-18T18:33:29.329024Z  INFO rinku_node::checkpoint: [ForkRecovery] Applied snapshot from https://rinkuchan.com: 137 checkpoints, 33 accounts, 0 txs (height: 137)
+18:33:29
+2026-01-18T18:33:29.329089Z  INFO rinku_node::checkpoint: [ForkRecovery] Chain recovery successful, skipping local checkpoint creation
+18:33:29
+2026-01-18T18:33:29.373292Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 56, got 55
+18:33:29
+2026-01-18T18:33:29.373372Z  WARN rinku_node::gossip: Failed to add gossiped tx ae176aa90764086a3033d1db680857bd2e6169a430eab2048085def8ea386b43: Invalid nonce: expected 56, got 55
+18:33:31
+2026-01-18T18:33:31.410932Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Below lower threshold (0), stopping consolidation

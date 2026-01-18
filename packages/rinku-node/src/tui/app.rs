@@ -228,8 +228,11 @@ impl App {
         let checkpoint_height = self.state.get_checkpoint_height().await;
         let gas_price = self.state.get_gas_price().await;
         let (_, _, _, total_burned) = self.state.get_gas_stats().await;
-        let validator_count = self.state.get_validator_count().await;
-        let total_staked = self.state.get_total_stake().await;
+        // Use rewards service for accurate staking data
+        let rewards = self.state.rewards.read().await;
+        let validator_count = rewards.get_active_validators().len();
+        let total_staked = rewards.get_total_staked();
+        drop(rewards);
         let tps = self.state.get_finalized_tps().await;
 
         let (dag_nodes, _total, _has_more) = self.state.get_dag_nodes_paginated(0, 10).await;
