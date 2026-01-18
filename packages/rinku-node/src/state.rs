@@ -830,10 +830,28 @@ impl NodeState {
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
         
-        // Pre-check balance validation
+        // Pre-check balance and stake minimum validation
         {
             let state = self.inner.read().await;
             let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+            
+            // Validate minimum stake amount BEFORE any state changes
+            if is_stake_tx {
+                let rewards = self.rewards.read().await;
+                let min_stake = rewards.get_config().min_stake_amount;
+                drop(rewards);
+                
+                if tx.tx.amount < min_stake {
+                    tracing::warn!(
+                        "Stake transaction rejected: amount {:.6} below minimum {:.6}",
+                        tx.tx.amount, min_stake
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Minimum stake amount is {} RKU, you tried to stake {}",
+                        min_stake, tx.tx.amount
+                    ));
+                }
+            }
             
             // Calculate required balance based on transaction type
             let required_balance = if is_stake_tx {
@@ -1149,6 +1167,13 @@ impl NodeState {
     pub async fn add_transactions_batch(&self, txs: Vec<SignedTransaction>) -> Vec<Result<()>> {
         // PHASE 0: Pre-validate all transactions BEFORE any state mutations
         let mut validation_results: Vec<Option<anyhow::Error>> = Vec::with_capacity(txs.len());
+        
+        // Get min_stake from rewards config first
+        let min_stake = {
+            let rewards = self.rewards.read().await;
+            rewards.get_config().min_stake_amount
+        };
+        
         {
             let state = self.inner.read().await;
             for tx in txs.iter() {
@@ -1156,6 +1181,15 @@ impl NodeState {
                 let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
                 let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
                 let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+                
+                // Validate minimum stake amount BEFORE any state changes
+                if is_stake_tx && tx.tx.amount < min_stake {
+                    validation_results.push(Some(anyhow::anyhow!(
+                        "Minimum stake amount is {} RKU, you tried to stake {}",
+                        min_stake, tx.tx.amount
+                    )));
+                    continue;
+                }
                 
                 let required_balance = if is_stake_tx {
                     tx.tx.amount + gas_fee
