@@ -1,0 +1,256 @@
+6:52:22
+2026-01-19T16:52:22.177439Z  WARN rinku_node::gossip: Failed to add gossiped tx 2a1dda5b373af6d7763e1043c645b86fba60e63680853f022f6bdb9eb80a3e3c: Invalid nonce: expected 1540, got 50
+16:52:22
+2026-01-19T16:52:22.321709Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1642, got 172
+16:52:22
+2026-01-19T16:52:22.321785Z  WARN rinku_node::gossip: Failed to add gossiped tx dd649519e60b3d9876bb8ac52707fee8531eb33030054d0af4d71699f5196230: Invalid nonce: expected 1642, got 172
+16:52:22
+2026-01-19T16:52:22.456227Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 314
+16:52:22
+2026-01-19T16:52:22.456296Z  WARN rinku_node::gossip: Failed to add gossiped tx 3b0b22a3ce1273de7cd78b93618df0f1c94750c259506cbe8ca86e46247911db: Invalid nonce: expected 1860, got 314
+16:52:22
+2026-01-19T16:52:22.594155Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 311
+16:52:22
+2026-01-19T16:52:22.594231Z  WARN rinku_node::gossip: Failed to add gossiped tx 21471dd783a65a51d103ffee4f8b29fe22debd30e73eb31ba9693994b8279f46: Invalid nonce: expected 1860, got 311
+16:52:22
+2026-01-19T16:52:22.729374Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1822, got 313
+16:52:22
+2026-01-19T16:52:22.729453Z  WARN rinku_node::gossip: Failed to add gossiped tx ed25394a8ced0dcfbad731df5053a433cd6848765e25446d7d6fafdd1740a3a1: Invalid nonce: expected 1822, got 313
+16:52:22
+2026-01-19T16:52:22.862609Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1797, got 282
+16:52:22
+2026-01-19T16:52:22.862690Z  WARN rinku_node::gossip: Failed to add gossiped tx 7d22c9b422d23556098a9ceaea2708325a7bd218fb5810711949e704871f04fd: Invalid nonce: expected 1797, got 282
+16:52:23
+2026-01-19T16:52:23.008450Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 315
+16:52:23
+2026-01-19T16:52:23.008812Z  WARN rinku_node::gossip: Failed to add gossiped tx 89796041832a164511508035d5bccbe655b48ab99b1082a4d022121596a2a247: Invalid nonce: expected 1860, got 315
+16:52:23
+2026-01-19T16:52:23.142826Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1463, got 2
+16:52:23
+2026-01-19T16:52:23.142902Z  WARN rinku_node::gossip: Failed to add gossiped tx 7bad56c9eeb156339a6a0b4660e8ada61a9557e7017a0b3836f48b48fc8d99dd: Invalid nonce: expected 1463, got 2
+16:52:23
+2026-01-19T16:52:23.285416Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1710, got 202
+16:52:23
+2026-01-19T16:52:23.285433Z  WARN rinku_node::gossip: Failed to add gossiped tx e48d5eb6f7100517169ccfbb1cf48b23237d93022960d10345227512f7439a68: Invalid nonce: expected 1710, got 202
+16:52:23
+2026-01-19T16:52:23.418145Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 315
+16:52:23
+2026-01-19T16:52:23.418222Z  WARN rinku_node::gossip: Failed to add gossiped tx e3a62f616a51a545e792929b73b3a9a337e9abd9690aa7829b8295934348c29f: Invalid nonce: expected 1860, got 315
+16:52:23
+2026-01-19T16:52:23.550486Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 312
+16:52:23
+2026-01-19T16:52:23.550567Z  WARN rinku_node::gossip: Failed to add gossiped tx a4da56a2b1cee822639b0fa28ba2d4f427f87637043c5e67ef47012123ab9e2c: Invalid nonce: expected 1860, got 312
+16:52:23
+2026-01-19T16:52:23.688798Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1797, got 283
+16:52:23
+2026-01-19T16:52:23.688879Z  WARN rinku_node::gossip: Failed to add gossiped tx a8e35e5c61945c20dc1451548a2a1c71e28195e825561e7f4459c3787d4e0444: Invalid nonce: expected 1797, got 283
+16:52:23
+2026-01-19T16:52:23.839122Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1642, got 173
+16:52:23
+2026-01-19T16:52:23.839203Z  WARN rinku_node::gossip: Failed to add gossiped tx 70c989e299c3e4294aad8bcee8c086698d007647053c7f871fd45400ed5dcbb1: Invalid nonce: expected 1642, got 173
+16:52:24
+2026-01-19T16:52:24.978874Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1540, got 51
+16:52:24
+2026-01-19T16:52:24.978961Z  WARN rinku_node::gossip: Failed to add gossiped tx 85fa24f1aeae35274aa07e60fdb8c38cec0b80a03a8959509983c7e97228bacb: Invalid nonce: expected 1540, got 51
+16:52:25
+2026-01-19T16:52:25.536914Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1822, got 314
+16:52:25
+2026-01-19T16:52:25.536990Z  WARN rinku_node::gossip: Failed to add gossiped tx f2ee89b8747f160fcc1408ad52ae8153a63b5653d04b5ebdd9ce3b420f460673: Invalid nonce: expected 1822, got 314
+16:52:25
+2026-01-19T16:52:25.857930Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1710, got 203
+16:52:25
+2026-01-19T16:52:25.858107Z  WARN rinku_node::gossip: Failed to add gossiped tx 21d22891125ad8d4ee69680a73bd403c08a4ffa6ee0e4c8e3371384b471f2c5a: Invalid nonce: expected 1710, got 203
+16:52:25
+2026-01-19T16:52:25.977088Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1797, got 284
+16:52:25
+2026-01-19T16:52:25.977218Z  WARN rinku_node::gossip: Failed to add gossiped tx 2677b1ffcd83333cba10ba96a2e66c0e5caf9d85232c14cb2e7881ecdfd9d085: Invalid nonce: expected 1797, got 284
+16:52:28
+2026-01-19T16:52:28.338638Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 313
+16:52:28
+2026-01-19T16:52:28.338740Z  WARN rinku_node::gossip: Failed to add gossiped tx 9df30e7039df42cad1eb44e0026ea0cdf269a5a9d07a1f02c27d3b815ed99f8f: Invalid nonce: expected 1860, got 313
+16:52:28
+2026-01-19T16:52:28.497111Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1822, got 315
+16:52:28
+2026-01-19T16:52:28.497208Z  WARN rinku_node::gossip: Failed to add gossiped tx 882d88eb9e836cb24f045fc11d792c82e14c0666fe88aeb841bc2ff190cfe138: Invalid nonce: expected 1822, got 315
+16:52:29
+2026-01-19T16:52:29.458610Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 199 from https://rinkuchan.com: a63dff50f3a51285
+16:52:29
+2026-01-19T16:52:29.458707Z  WARN rinku_node::checkpoint: Peer checkpoint merkle root mismatch at height 199: peer=7bc1e7294472829d vs local=3f644dede0827de1
+16:52:29
+2026-01-19T16:52:29.458734Z  INFO rinku_node::checkpoint: Peer checkpoint validation failed at height 199, attempting DAG sync before fallback
+16:52:30
+2026-01-19T16:52:30.498749Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1642, got 174
+16:52:30
+2026-01-19T16:52:30.498839Z  WARN rinku_node::gossip: Failed to add gossiped tx ccb770a6da347e3b58764329a6e17edc27498d4d05721faf73935132cb3f6cb8: Invalid nonce: expected 1642, got 174
+16:52:31
+2026-01-19T16:52:31.619188Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1463, got 3
+16:52:31
+2026-01-19T16:52:31.619269Z  WARN rinku_node::gossip: Failed to add gossiped tx 4c077fdbf2cddc622cf8b842347580977f96e0e8e121c78f65fa3d7883bfe608: Invalid nonce: expected 1463, got 3
+16:52:31
+2026-01-19T16:52:31.703713Z  WARN rinku_node::checkpoint: Peer checkpoint merkle root mismatch at height 199: peer=7bc1e7294472829d vs local=2c50934e4cc21b16
+16:52:31
+2026-01-19T16:52:31.704439Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+16:52:31
+2026-01-19T16:52:31.704483Z  INFO rinku_node::checkpoint: Created checkpoint 3052d527ecc2d37e at height 199 (2 txs finalized, 3.932411 RKU emitted)
+16:52:31
+2026-01-19T16:52:31.779471Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 316
+16:52:31
+2026-01-19T16:52:31.779547Z  WARN rinku_node::gossip: Failed to add gossiped tx f7aeef33b4666bd6a03f752d718ef30f71ac514b127560d86ecffb1d7e6d004f: Invalid nonce: expected 1860, got 316
+16:52:31
+2026-01-19T16:52:31.893966Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1540, got 52
+16:52:31
+2026-01-19T16:52:31.894055Z  WARN rinku_node::gossip: Failed to add gossiped tx 006d2e1f8b2c9a788bff9077cee0565c9b158e96309161e58017e92b53e5cb05: Invalid nonce: expected 1540, got 52
+16:52:32
+2026-01-19T16:52:32.978180Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 314
+16:52:32
+2026-01-19T16:52:32.978237Z  WARN rinku_node::gossip: Failed to add gossiped tx 370a79e89b82e975ac9e299bac88090dd8ccfaa2b28052ea4a28ba4182c33014: Invalid nonce: expected 1860, got 314
+16:52:34
+2026-01-19T16:52:34.258604Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Above upper threshold (235), starting consolidation
+16:52:34
+2026-01-19T16:52:34.258973Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1822, got 316
+16:52:34
+2026-01-19T16:52:34.259040Z  WARN rinku_node::gossip: Failed to add gossiped tx 34bb7fd690899c7457f0b318a2a4fe8f8b0da05177a743697c0ed92f999c169c: Invalid nonce: expected 1822, got 316
+16:52:35
+2026-01-19T16:52:35.539448Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1463, got 4
+16:52:35
+2026-01-19T16:52:35.539528Z  WARN rinku_node::gossip: Failed to add gossiped tx 784157b66ac0419cffaab36d1a34da2b3288e4d890e09b15b8b50cd33d6feefd: Invalid nonce: expected 1463, got 4
+16:52:36
+2026-01-19T16:52:36.739010Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1540, got 53
+16:52:36
+2026-01-19T16:52:36.739087Z  WARN rinku_node::gossip: Failed to add gossiped tx 3463332708d4721cf9a5891dc415c423754ec7d29da504ea290880fa4d9bbc5c: Invalid nonce: expected 1540, got 53
+16:52:36
+2026-01-19T16:52:36.833929Z  INFO rinku_node::api: Transaction d936bdfecec1cb72 broadcast to peers
+16:52:36
+2026-01-19T16:52:36.860747Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1797, got 285
+16:52:36
+2026-01-19T16:52:36.860833Z  WARN rinku_node::gossip: Failed to add gossiped tx 59acf0c6431d3e108c0b5387257c917fe2dcd2fd2fe25ea07754766a0c4a4ad9: Invalid nonce: expected 1797, got 285
+16:52:37
+2026-01-19T16:52:37.620069Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 317
+16:52:37
+2026-01-19T16:52:37.620470Z  WARN rinku_node::gossip: Failed to add gossiped tx 9545ff1a70128bf314a562b468f19359e181d9d65e1cccc38bfbcc0258fc4fb2: Invalid nonce: expected 1860, got 317
+16:52:37
+2026-01-19T16:52:37.735210Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1642, got 175
+16:52:37
+2026-01-19T16:52:37.735249Z  WARN rinku_node::gossip: Failed to add gossiped tx dbf4895424c8d7b0c6882dac68d8f4ef60438d38dcc4cb1dff01c467af2e5083: Invalid nonce: expected 1642, got 175
+16:52:39
+2026-01-19T16:52:39.140617Z  INFO rinku_node::api: Transaction 7e1aa98253246872 broadcast to peers
+16:52:39
+2026-01-19T16:52:39.141119Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 315
+16:52:39
+2026-01-19T16:52:39.141165Z  WARN rinku_node::gossip: Failed to add gossiped tx e186af76e51dab99e98895ed76e1b9cc335a0f21209621fb49dd955c9c3253fb: Invalid nonce: expected 1860, got 315
+16:52:39
+2026-01-19T16:52:39.297222Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1710, got 204
+16:52:39
+2026-01-19T16:52:39.297305Z  WARN rinku_node::gossip: Failed to add gossiped tx 09e22183e6a82bee0bcc326859c3c64b6f395ae25001364bd6e2be778d6abc76: Invalid nonce: expected 1710, got 204
+16:52:40
+2026-01-19T16:52:40.577072Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1540, got 54
+16:52:40
+2026-01-19T16:52:40.577183Z  WARN rinku_node::gossip: Failed to add gossiped tx 5d5a63e3ed5ef6ed1305410ddfe2352e2c1561f9d2637ad7739d5f546f6037e5: Invalid nonce: expected 1540, got 54
+16:52:41
+2026-01-19T16:52:41.064675Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1822, got 317
+16:52:41
+2026-01-19T16:52:41.064749Z  WARN rinku_node::gossip: Failed to add gossiped tx 3210adb582616ab7ed9e61ad79827ab7d041e373c3e7943da32c57135a34889b: Invalid nonce: expected 1822, got 317
+16:52:41
+2026-01-19T16:52:41.185078Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1642, got 176
+16:52:41
+2026-01-19T16:52:41.185161Z  WARN rinku_node::gossip: Failed to add gossiped tx fa98780480156cf001e00c8d9d7e56b7e0ebb6c39607ad65ae76f654ab7ec9ba: Invalid nonce: expected 1642, got 176
+16:52:42
+2026-01-19T16:52:42.422204Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1463, got 5
+16:52:42
+2026-01-19T16:52:42.422327Z  WARN rinku_node::gossip: Failed to add gossiped tx bba319a6d24d997d9d3936002a5f58244963faaf4039f26f1f17607f30aa718b: Invalid nonce: expected 1463, got 5
+16:52:43
+2026-01-19T16:52:43.698664Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 316
+16:52:43
+2026-01-19T16:52:43.698746Z  WARN rinku_node::gossip: Failed to add gossiped tx f230cac0ff0d8b9cc718ab978200dc625dc8958ec40462be11d1d5fe54645a47: Invalid nonce: expected 1860, got 316
+16:52:44
+2026-01-19T16:52:44.898620Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 318
+16:52:44
+2026-01-19T16:52:44.898746Z  WARN rinku_node::gossip: Failed to add gossiped tx 115bf5f6d863630385791e74d9c3914d03387ccc7ef847f6cb271b0d30a0198a: Invalid nonce: expected 1860, got 318
+16:52:46
+2026-01-19T16:52:46.019313Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1710, got 205
+16:52:46
+2026-01-19T16:52:46.019396Z  WARN rinku_node::gossip: Failed to add gossiped tx 377c562e89cc5393f31619e9b50720b22ad32b7ad6b8bf00765869923433bea0: Invalid nonce: expected 1710, got 205
+16:52:46
+2026-01-19T16:52:46.117994Z  INFO rinku_node::api: Transaction 321675d336240c4d broadcast to peers
+16:52:47
+2026-01-19T16:52:47.381522Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1540, got 55
+16:52:47
+2026-01-19T16:52:47.381582Z  WARN rinku_node::gossip: Failed to add gossiped tx 456811b1afa8586b13afe3496047b11facf9899d6bc5d3506c6e29047d56b337: Invalid nonce: expected 1540, got 55
+16:52:47
+2026-01-19T16:52:47.537376Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1797, got 286
+16:52:47
+2026-01-19T16:52:47.537445Z  WARN rinku_node::gossip: Failed to add gossiped tx 4b6b6495aaa972c432f1a536c8317c4ba3d30672af81c142fdd83c34e553e3fe: Invalid nonce: expected 1797, got 286
+16:52:47
+2026-01-19T16:52:47.569971Z  INFO rinku_node::api: Transaction d5b96dc6fa8e7f82 broadcast to peers
+16:52:48
+2026-01-19T16:52:48.177538Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1822, got 318
+16:52:48
+2026-01-19T16:52:48.177621Z  WARN rinku_node::gossip: Failed to add gossiped tx cb7aac5e7f02a03448f03aca2f4bd9f04a0c9a12946875dd022ff79166008cc4: Invalid nonce: expected 1822, got 318
+16:52:49
+2026-01-19T16:52:49.060808Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1642, got 177
+16:52:49
+2026-01-19T16:52:49.060924Z  WARN rinku_node::gossip: Failed to add gossiped tx 7b78e2749d3df68a3334ebb6ee9e1265c83d684e7c4b3c0a421e47c088f99f77: Invalid nonce: expected 1642, got 177
+16:52:49
+2026-01-19T16:52:49.937772Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 317
+16:52:49
+2026-01-19T16:52:49.937861Z  WARN rinku_node::gossip: Failed to add gossiped tx c010ca4113fc736b21f3c7fb224d752f810d8a11429d73582c2a0ea473432c16: Invalid nonce: expected 1860, got 317
+16:52:50
+2026-01-19T16:52:50.052417Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 319
+16:52:50
+2026-01-19T16:52:50.052513Z  WARN rinku_node::gossip: Failed to add gossiped tx 48eb211f0838bff62b124a9be4a77ed8a096cce3401664f54cf2ead720dcfb83: Invalid nonce: expected 1860, got 319
+16:52:52
+2026-01-19T16:52:52.579332Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1540, got 56
+16:52:52
+2026-01-19T16:52:52.579404Z  WARN rinku_node::gossip: Failed to add gossiped tx 883da1d0d6fae660766356f44805dfcdedf3fb00d9da13d41c924e618e31fea6: Invalid nonce: expected 1540, got 56
+16:52:53
+2026-01-19T16:52:53.858876Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1710, got 206
+16:52:53
+2026-01-19T16:52:53.859052Z  WARN rinku_node::gossip: Failed to add gossiped tx 83b054999fa57b426fec043b5dc30a21b945028200521bec0e71cea3683c0b62: Invalid nonce: expected 1710, got 206
+16:52:54
+2026-01-19T16:52:54.979756Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 318
+16:52:54
+2026-01-19T16:52:54.979837Z  WARN rinku_node::gossip: Failed to add gossiped tx d57ed5eb7f030367ba7bcb7cd3587b61fae59f0f44d5b52a356cbbaa7280c6d1: Invalid nonce: expected 1860, got 318
+16:52:55
+2026-01-19T16:52:55.137085Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1463, got 7
+16:52:55
+2026-01-19T16:52:55.137108Z  WARN rinku_node::gossip: Failed to add gossiped tx 8004b13f4ec232289e0c19f4a6a6e5357a70b5e29a99cf032d20617616541a36: Invalid nonce: expected 1463, got 7
+16:52:55
+2026-01-19T16:52:55.137517Z  INFO rinku_node::api: Transaction 9d8b75a710bf21fc broadcast to peers
+16:52:56
+2026-01-19T16:52:56.100746Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 319
+16:52:56
+2026-01-19T16:52:56.100825Z  WARN rinku_node::gossip: Failed to add gossiped tx d95b3a184e4280937f63d7af43cbf477855ebfb0ec83f0306d99b2ce979168f1: Invalid nonce: expected 1860, got 319
+16:52:56
+2026-01-19T16:52:56.202129Z  INFO rinku_node::api: Transaction f56408143d4ea498 broadcast to peers
+16:52:57
+2026-01-19T16:52:57.298214Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1797, got 288
+16:52:57
+2026-01-19T16:52:57.298316Z  WARN rinku_node::gossip: Failed to add gossiped tx b98fc76260961e687ed60dd8221a7d0f3edec9a9134ba4910083db0da92a26d8: Invalid nonce: expected 1797, got 288
+16:52:57
+2026-01-19T16:52:57.298786Z  INFO rinku_node::api: Transaction 251f618370ae1794 broadcast to peers
+16:52:57
+2026-01-19T16:52:57.408027Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1822, got 320
+16:52:57
+2026-01-19T16:52:57.408105Z  WARN rinku_node::gossip: Failed to add gossiped tx 9fd330227c068176ba37a564c68713ea0e4d1652d83855e0ae9ade1f82c13090: Invalid nonce: expected 1822, got 320
+16:52:57
+2026-01-19T16:52:57.940013Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1860, got 320
+16:52:57
+2026-01-19T16:52:57.940074Z  WARN rinku_node::gossip: Failed to add gossiped tx 292a8e9fc3af7d5e769a78b2cef1bc10906a96bc9e960ff27bd1a85d2c6b7818: Invalid nonce: expected 1860, got 320
+16:52:59
+2026-01-19T16:52:59.059245Z  INFO rinku_node::api: Transaction df21f9dc15ac6db5 broadcast to peers
+16:52:59
+2026-01-19T16:52:59.059497Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1642, got 179
+16:52:59
+2026-01-19T16:52:59.059585Z  WARN rinku_node::gossip: Failed to add gossiped tx 90b86aef629bc8b4b2410ecbe9a926f0e2ffe3561a9743dd53d071c923115f71: Invalid nonce: expected 1642, got 179
+16:53:00
+2026-01-19T16:53:00.179278Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1710, got 207
+16:53:00
+2026-01-19T16:53:00.179385Z  WARN rinku_node::gossip: Failed to add gossiped tx 0207af052cfd0632a63682c6c09a0a4684b776e5e98d9200f4f21c8a06594218: Invalid nonce: expected 1710, got 207
+16:53:00
+2026-01-19T16:53:00.300462Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1540, got 57
+16:53:00
+2026-01-19T16:53:00.300563Z  WARN rinku_node::gossip: Failed to add gossiped tx 3891c60438c62afa09761d480e0004827b3c3175b1d438299d09afb4570a681a: Invalid nonce: expected 1540, got 57
+16:53:01
+2026-01-19T16:53:01.223601Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 1822, got 321
+16:53:01
+2026-01-19T16:53:01.223677Z  WARN rinku_node::gossip: Failed to add gossiped tx a52285de91b08bebdf5fed41ad5fb89fa858d1dd2d678a3868696f745d72f46b: Invalid nonce: expected 1822, got 321

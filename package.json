@@ -14,7 +14,8 @@
     "dev:faucet": "npm run dev -w @rinku/faucet",
     "validate": "npx tsx scripts/validate-testnet.ts",
     "stress-test": "npx tsx scripts/stress-test.ts",
-    "activity-bot": "npx tsx scripts/activity-bot.ts"
+    "activity-bot": "npx tsx scripts/activity-bot.ts",
+    "p2p-test": "npx tsx scripts/p2p-sync-test.ts"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

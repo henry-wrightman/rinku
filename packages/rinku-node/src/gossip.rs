@@ -406,6 +406,11 @@ impl GossipService {
         // This prevents locally-created transactions from being lost during snapshot sync
         self.flush_pending_txs_to_peer(peer).await;
 
+        // Get our local accounts BEFORE applying snapshot (to push back local-only accounts)
+        let local_accounts_before = self.state.get_all_accounts_map().await;
+        let peer_fingerprints: std::collections::HashSet<String> = 
+            snapshot_response.accounts.keys().cloned().collect();
+
         // Convert response to SyncSnapshot and apply
         let snapshot = SyncSnapshot {
             accounts: snapshot_response.accounts,
@@ -427,6 +432,25 @@ impl GossipService {
         let added = self.state.apply_sync_snapshot(snapshot).await?;
         
         info!("Snapshot sync complete: applied {} DAG transactions", added);
+
+        // CRITICAL: Push local-only accounts back to peer to prevent account loss
+        // This ensures accounts created on this node are shared with the peer
+        let local_only_accounts: std::collections::HashMap<String, rinku_core::types::Account> = 
+            local_accounts_before
+                .into_iter()
+                .filter(|(fingerprint, _)| !peer_fingerprints.contains(fingerprint))
+                .collect();
+        
+        if !local_only_accounts.is_empty() {
+            info!(
+                "Pushing {} local-only accounts back to peer {} after sync",
+                local_only_accounts.len(), peer
+            );
+            
+            if let Err(e) = self.push_accounts_to_peer(peer, local_only_accounts).await {
+                warn!("Failed to push local accounts to peer {}: {}", peer, e);
+            }
+        }
 
         let mut inner = self.inner.write().await;
         inner.stats.sync_requests += 1;
