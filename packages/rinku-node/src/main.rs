@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use anyhow::Result;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod api;
