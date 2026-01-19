@@ -181,6 +181,10 @@ pub struct PeerInfo {
     pub checkpoint_height: u64,
     pub latency_ms: u64,
     pub is_healthy: bool,
+    #[serde(default)]
+    pub consecutive_failures: u32,
+    #[serde(default)]
+    pub backoff_until: u64,
 }
 
 pub struct GossipServiceInner {
@@ -211,6 +215,7 @@ pub struct GossipService {
     node_id: String,
     interval_ms: u64,
     trust_verifier: Arc<TrustVerifier>,
+    http_client: reqwest::Client,
 }
 
 impl GossipService {
@@ -232,9 +237,19 @@ impl GossipService {
                 checkpoint_height: 0,
                 latency_ms: 0,
                 is_healthy: true,
+                consecutive_failures: 0,
+                backoff_until: 0,
             });
         }
 
+        // Create a shared HTTP client with connection pooling
+        let http_client = reqwest::Client::builder()
+            .pool_max_idle_per_host(2)
+            .timeout(Duration::from_secs(10))
+            .connect_timeout(Duration::from_secs(5))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        
         Self {
             state,
             inner: Arc::new(RwLock::new(GossipServiceInner {
@@ -250,6 +265,7 @@ impl GossipService {
             node_id,
             interval_ms,
             trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
+            http_client,
         }
     }
 
@@ -1041,32 +1057,60 @@ impl GossipService {
     }
 
     async fn send_to_peer(&self, peer: &str, message: &GossipMessage) -> Result<()> {
-        let client = reqwest::Client::new();
+        // Check if peer is in backoff
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        {
+            let inner = self.inner.read().await;
+            if let Some(peer_info) = inner.peers.get(peer) {
+                if peer_info.backoff_until > now {
+                    return Err(anyhow::anyhow!("Peer {} is in backoff until {}", peer, peer_info.backoff_until));
+                }
+            }
+        }
+
         let url = format!("{}/api/gossip", peer);
 
         let start = std::time::Instant::now();
-        let response = client
+        let result = self.http_client
             .post(&url)
             .json(message)
             .timeout(Duration::from_secs(5))
             .send()
-            .await?;
+            .await;
 
-        let latency = start.elapsed().as_millis() as u64;
-
-        if response.status().is_success() {
-            let mut inner = self.inner.write().await;
-            if let Some(peer_info) = inner.peers.get_mut(peer) {
-                peer_info.latency_ms = latency;
-                peer_info.last_seen = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-                peer_info.is_healthy = true;
+        match result {
+            Ok(response) if response.status().is_success() => {
+                let latency = start.elapsed().as_millis() as u64;
+                let mut inner = self.inner.write().await;
+                if let Some(peer_info) = inner.peers.get_mut(peer) {
+                    peer_info.latency_ms = latency;
+                    peer_info.last_seen = now;
+                    peer_info.is_healthy = true;
+                    peer_info.consecutive_failures = 0;
+                    peer_info.backoff_until = 0;
+                }
+                Ok(())
+            }
+            Ok(_) | Err(_) => {
+                // Track failure and apply exponential backoff
+                let mut inner = self.inner.write().await;
+                if let Some(peer_info) = inner.peers.get_mut(peer) {
+                    peer_info.consecutive_failures += 1;
+                    peer_info.is_healthy = false;
+                    // Exponential backoff: 10s, 20s, 40s, 80s, max 5 minutes
+                    let backoff_secs = std::cmp::min(10 * (1 << peer_info.consecutive_failures.min(5)), 300);
+                    peer_info.backoff_until = now + backoff_secs;
+                    if peer_info.consecutive_failures == 1 || peer_info.consecutive_failures % 10 == 0 {
+                        warn!("Peer {} failed {} times, backoff for {}s", peer, peer_info.consecutive_failures, backoff_secs);
+                    }
+                    inner.stats.failed_sends += 1;
+                }
+                Err(anyhow::anyhow!("Failed to send to peer"))
             }
         }
-
-        Ok(())
     }
 
     pub async fn handle_message(&self, message: GossipMessage) -> Result<Option<GossipMessage>> {
@@ -1182,6 +1226,8 @@ impl GossipService {
                             checkpoint_height: 0,
                             latency_ms: 0,
                             is_healthy: true,
+                            consecutive_failures: 0,
+                            backoff_until: 0,
                         });
                         inner.stats.peers_discovered += 1;
                     }
@@ -1417,6 +1463,8 @@ impl GossipService {
                 checkpoint_height: 0,
                 latency_ms: 0,
                 is_healthy: true,
+                consecutive_failures: 0,
+                backoff_until: 0,
             });
             inner.stats.peers_discovered += 1;
         }

@@ -4,11 +4,11 @@ use tracing::{debug, info};
 
 use crate::state::NodeState;
 
-const UPPER_THRESHOLD: usize = 200;
-const LOWER_THRESHOLD: usize = 100;
-const TIPS_PER_CONSOLIDATION: usize = 32;
-const CONSOLIDATION_INTERVAL_MS: u64 = 3000;
-const CONSOLIDATION_COOLDOWN_MS: u64 = 5000;
+const UPPER_THRESHOLD: usize = 500;
+const LOWER_THRESHOLD: usize = 200;
+const TIPS_PER_CONSOLIDATION: usize = 64;
+const CONSOLIDATION_INTERVAL_MS: u64 = 1000;
+const CONSOLIDATION_COOLDOWN_MS: u64 = 2000;
 
 pub struct TipConsolidator {
     state: NodeState,
