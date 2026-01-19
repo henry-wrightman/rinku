@@ -1,8 +1,8 @@
 #!/usr/bin/env npx tsx
 import { webcrypto } from 'crypto';
-import { p256 } from '@noble/curves/p256';
-import { sha256 } from '@noble/hashes/sha256';
-import { bytesToHex } from '@noble/hashes/utils';
+import { p256 } from '@noble/curves/nist.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 
 const NODE_1_URL = process.env.NODE_1_URL || 'https://rinkuchan.com';
 const NODE_2_URL = process.env.NODE_2_URL || 'https://rinku-node-0.fly.dev';
@@ -113,7 +113,7 @@ async function getCheckpoints(nodeUrl: string): Promise<{ height: number; merkle
 
 async function fundWallet(nodeUrl: string, address: string): Promise<boolean> {
   try {
-    const resp = await fetchWithTimeout(`${nodeUrl}/faucet`, {
+    const resp = await fetchWithTimeout(`${nodeUrl}/api/faucet/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ address, amount: 10 })
