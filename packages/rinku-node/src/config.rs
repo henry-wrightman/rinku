@@ -25,6 +25,74 @@ impl Default for TrustConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct P2pConfig {
+    pub enabled: bool,
+    pub listen_addr: String,
+    pub bootstrap_peers: Vec<String>,
+    pub enable_mdns: bool,
+    pub max_peers: usize,
+    pub connection_timeout_secs: u64,
+}
+
+impl Default for P2pConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            listen_addr: "/ip4/0.0.0.0/tcp/4001".to_string(),
+            bootstrap_peers: Vec::new(),
+            enable_mdns: true,
+            max_peers: 50,
+            connection_timeout_secs: 60,
+        }
+    }
+}
+
+impl P2pConfig {
+    pub fn from_env() -> Self {
+        let enabled = std::env::var("P2P_ENABLED")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(true);
+        
+        let port = std::env::var("P2P_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(4001);
+        
+        let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", port);
+        
+        let bootstrap_peers: Vec<String> = std::env::var("P2P_BOOTSTRAP_PEERS")
+            .map(|p| p.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect())
+            .unwrap_or_default();
+        
+        let enable_mdns = std::env::var("P2P_MDNS")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(true);
+        
+        let max_peers = std::env::var("P2P_MAX_PEERS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(50);
+        
+        let connection_timeout_secs = std::env::var("P2P_CONNECTION_TIMEOUT")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(60);
+        
+        Self {
+            enabled,
+            listen_addr,
+            bootstrap_peers,
+            enable_mdns,
+            max_peers,
+            connection_timeout_secs,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct NodeConfig {
     pub node_id: String,
     pub data_dir: String,
@@ -45,6 +113,7 @@ pub struct NodeConfig {
     pub static_dir: Option<String>,
     pub trust: TrustConfig,
     pub public_url: Option<String>,
+    pub p2p: P2pConfig,
 }
 
 impl NodeConfig {
@@ -111,6 +180,7 @@ impl NodeConfig {
             static_dir: env::var("STATIC_DIR").ok(),
             trust: TrustConfig::from_env(),
             public_url: env::var("PUBLIC_URL").ok(),
+            p2p: P2pConfig::from_env(),
         }
     }
 }

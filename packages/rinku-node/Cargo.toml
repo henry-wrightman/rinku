@@ -14,7 +14,7 @@ name = "rinku-node"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["p2p"]
 tui = ["ratatui", "crossterm"]
 zk = ["ark-bn254", "ark-groth16", "ark-serialize", "ark-std", "ark-ff", "ark-ec", "ark-relations", "light-poseidon"]
 p2p = ["libp2p"]

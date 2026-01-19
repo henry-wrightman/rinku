@@ -38,6 +38,8 @@ use emission::EmissionService;
 use fork_remediation::ForkRemediationService;
 use gas::{GasConfig, GasService};
 use gossip::GossipService;
+#[cfg(feature = "p2p")]
+use network::{NetworkConfig, NetworkService};
 use rewards::{RewardConfig, RewardsService};
 use slashing::SlashingService;
 use tip_consolidator::TipConsolidator;
@@ -221,6 +223,45 @@ async fn main() -> Result<()> {
         );
         Some(service)
     } else {
+        None
+    };
+
+    // Start libp2p NetworkService for production P2P
+    #[cfg(feature = "p2p")]
+    let _network_handle = if config.p2p.enabled {
+        let network_config = NetworkConfig {
+            listen_addr: config.p2p.listen_addr.clone(),
+            bootstrap_peers: config.p2p.bootstrap_peers.clone(),
+            enable_mdns: config.p2p.enable_mdns,
+        };
+        
+        match NetworkService::new(network_config) {
+            Ok((mut network_service, network_handle)) => {
+                let peer_id = network_service.local_peer_id();
+                info!("P2P network started with peer ID: {}", peer_id);
+                info!("P2P listening on: {}", config.p2p.listen_addr);
+                if !config.p2p.bootstrap_peers.is_empty() {
+                    info!("P2P bootstrap peers: {:?}", config.p2p.bootstrap_peers);
+                }
+                if config.p2p.enable_mdns {
+                    info!("P2P mDNS discovery enabled (LAN peers)");
+                }
+                
+                tokio::spawn(async move {
+                    if let Err(e) = network_service.start().await {
+                        tracing::error!("P2P network service error: {}", e);
+                    }
+                });
+                
+                Some(network_handle)
+            }
+            Err(e) => {
+                warn!("Failed to start P2P network: {}", e);
+                None
+            }
+        }
+    } else {
+        info!("P2P networking disabled (using HTTP gossip only)");
         None
     };
 
