@@ -63,7 +63,8 @@ function signTransaction(tx: Record<string, unknown>, privateKey: Uint8Array): s
   const message = JSON.stringify(tx);
   const messageHash = sha256(new TextEncoder().encode(message));
   const signature = p256.sign(messageHash, privateKey);
-  return bytesToHex(signature.toCompactRawBytes());
+  // Signature is already Uint8Array in newer noble/curves
+  return bytesToHex(signature);
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 10000): Promise<Response> {
