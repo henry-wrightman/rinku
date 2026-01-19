@@ -6,17 +6,15 @@
 
 Traditional blockchain networks requires some form extraneous software for verification, such as a light client, node, an API, etc. Other lightweight solutions such as quorum-signed receipts also exist, but they require fetching a validator set from the chain. Same story for gossip witnessing, timestamp/anchoring, even zk proofs - all of these either rely on the live network, or external infrasture. Further, additional latency is introduced due to this secondary confirmation process. One way or another, there's an issue with trust, overhead, delays, or overall reliability. An API may be inaccessible, network conditions unreliable, or hardware restrictions surface. In the end, these gaps create risk within the user experience, and overall assurances of the transactional process.
 
-Ultimatley, *some infrastructure* is required to be trusted & relied upon to provide proofs. However in rinku's case, verification becomes self-contained. Imagine point-of-sale that is immediately confirmable on the client itself, nearly instantaneous with absolute certainty?
+Ultimatley, *some infrastructure* is required to be trusted & relied upon to provide proofs. However in rinku's case, verification becomes self-contained. Imagine point-of-sale that is immediately confirmable on the client itself, nearly instantaneous with absolute certainty.
 
 ## 2. URLs as Proofs
 
 Instead of storing data on-chain and fetching proofs from nodes, we can encode proofs directly into URLs that are returned within a transaction's receipt:
 
-For example
-
 `rinku://tx/{base64url(deflate(transaction + ancestry + checkpoint))}`
 
-A Rinku URL contains:
+A rinku URL contains:
 
 - The transaction data (sender, recipient, amount, signature)
 - Ancestry chain back to a finalized checkpoint
@@ -108,7 +106,6 @@ function verify(proofUrl):
 rinku is a DAG-based distributed network where:
 
 * **Shared DAG structure** - Transactions reference 1-2 recent global **tip** transactions (the latest unconfirmed transactions across the network), weaving all network activity into a unified DAG
-* **Account Transaction Chains:** - Each transaction includes a `prev_account_tx` field (\~32 bytes) referencing the sender's previous transaction hash, forming a backward-linked chain per wallet
 * **Nonce-based ordering** - Each account maintains the _classic_ sequential nonce to prevent replay attacks & establish per-account ordering
 * **Weight-based consensus** - Conflicts are resolved by cumulative weight (based on account age & stake), ensuring Sybil resistance
 
@@ -135,6 +132,7 @@ Different use cases require different security/size tradeoffs:
 ```
 rinku://tx/{payload}
 
+
 ```
 
       
@@ -148,6 +146,7 @@ rinku://tx/{payload}
 ```
 rinku://txp/{payload}
 
+
 ```
 
      
@@ -160,6 +159,7 @@ rinku://txp/{payload}
 
 ```
 rinku://sp/{payload}
+
 
 ```
 
@@ -206,7 +206,7 @@ Traditional flow (simplified):
 User -> Trust Node -> Query Proof -> Verify with Node
 ```
 
-Rinku flow:
+rinku flow:
 
 ```
 User -> Receive URL -> Verify Locally
@@ -216,7 +216,7 @@ User -> Receive URL -> Verify Locally
 
 ### 7.2 Portable Proofs
 
-A Rinku URL can be:
+A rinku URL can be:
 
 - Printed as a QR code on a receipt
 - Sent via SMS, email, or messaging app
@@ -258,7 +258,7 @@ ECDSA verification can use the Web Crypto API; BLS verification can use a WASM l
 
 ## 10. Conclusion
 
-The rinku network demonstrates that transactional proofs can be fully self-contained within URLs. By encoding transaction data, ancestry chains, and checkpoint anchors directly into the URL, we can eliminate infrastructure dependencies for verification, and vastly improve the transactional experience for network participants.
+The rinku network demonstrates that transactional proofs can be fully self-contained within URLs. By encoding transaction data, ancestry chains, and checkpoint anchors directly into the URL, we can eliminate infrastructure dependencies for verification, and vastly improve the transactional experience for network participants. 
 
 The core innovation is architectural: treating URLs as the canonical proof object rather than as references to external state. This enables truly trustless, offline verification.
 

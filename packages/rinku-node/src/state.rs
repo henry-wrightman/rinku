@@ -43,6 +43,13 @@ pub struct SyncSnapshot {
     pub total_to_validators: f64,
 }
 
+/// Result of applying a sync snapshot, includes local-only accounts for push-back
+#[derive(Debug, Clone)]
+pub struct SyncApplyResult {
+    pub dag_transactions_added: usize,
+    pub local_only_accounts: HashMap<String, Account>,
+}
+
 pub struct DagNodeInfo {
     pub hash: String,
     pub from: String,
@@ -537,6 +544,50 @@ impl NodeState {
             state.accounts.insert(address.to_string(), account);
             tracing::debug!("Created account {} with nonce {}", address, peer_nonce);
         }
+    }
+
+    /// Merge accounts pushed from a peer.
+    /// Adds new accounts and updates existing ones if peer has higher nonce.
+    /// Returns (accounts_added, accounts_updated)
+    pub async fn merge_accounts_from_peer(&self, accounts: HashMap<String, Account>) -> (usize, usize) {
+        let mut state = self.inner.write().await;
+        let mut added = 0;
+        let mut updated = 0;
+        
+        for (fingerprint, peer_account) in accounts {
+            if let Some(local_account) = state.accounts.get_mut(&fingerprint) {
+                // Account exists locally - update if peer has higher nonce
+                if peer_account.nonce > local_account.nonce {
+                    *local_account = peer_account;
+                    updated += 1;
+                }
+            } else {
+                // Account doesn't exist locally - add it
+                state.accounts.insert(fingerprint, peer_account);
+                added += 1;
+            }
+        }
+        
+        if added > 0 || updated > 0 {
+            info!(
+                "Merged accounts from peer: {} added, {} updated, {} total accounts",
+                added, updated, state.accounts.len()
+            );
+        }
+        
+        (added, updated)
+    }
+
+    /// Get all accounts with fingerprints (for pushing to peer)
+    pub async fn get_all_accounts_map(&self) -> HashMap<String, Account> {
+        let state = self.inner.read().await;
+        state.accounts.clone()
+    }
+
+    /// Get account count
+    pub async fn get_account_count(&self) -> usize {
+        let state = self.inner.read().await;
+        state.accounts.len()
     }
 
     /// Update account's staked amount (syncs with RewardsService)
@@ -1830,6 +1881,19 @@ impl NodeState {
         let mut accounts_added = 0;
         let mut accounts_updated = 0;
         
+        // Track which local accounts are NOT in peer's snapshot
+        // These need to be pushed back to the peer
+        let peer_fingerprints: std::collections::HashSet<String> = 
+            snapshot.accounts.keys().cloned().collect();
+        let mut local_only_accounts: HashMap<String, Account> = HashMap::new();
+        
+        for (fingerprint, local_account) in state.accounts.iter() {
+            if !peer_fingerprints.contains(fingerprint) {
+                // This account exists locally but not on peer - need to push back
+                local_only_accounts.insert(fingerprint.clone(), local_account.clone());
+            }
+        }
+        
         for (fingerprint, peer_account) in snapshot.accounts.iter() {
             if let Some(local_account) = merged_accounts.get(fingerprint) {
                 // Account exists in both - keep the one with higher nonce
@@ -1846,8 +1910,8 @@ impl NodeState {
         }
         
         info!(
-            "Account merge: {} added from peer, {} updated (higher nonce), {} total",
-            accounts_added, accounts_updated, merged_accounts.len()
+            "Account merge: {} added from peer, {} updated (higher nonce), {} local-only to push back, {} total",
+            accounts_added, accounts_updated, local_only_accounts.len(), merged_accounts.len()
         );
         
         state.accounts = merged_accounts;

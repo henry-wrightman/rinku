@@ -615,6 +615,34 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncR
     })
 }
 
+#[derive(Deserialize)]
+struct MergeAccountsRequest {
+    accounts: std::collections::HashMap<String, rinku_core::types::Account>,
+}
+
+#[derive(Serialize)]
+struct MergeAccountsResponse {
+    added: usize,
+    updated: usize,
+    total: usize,
+}
+
+async fn post_merge_accounts(
+    State(state): State<NodeState>,
+    Json(req): Json<MergeAccountsRequest>,
+) -> Json<MergeAccountsResponse> {
+    info!("Merge accounts request: {} accounts from peer", req.accounts.len());
+    
+    let (added, updated) = state.merge_accounts_from_peer(req.accounts).await;
+    let total = state.get_account_count().await;
+    
+    Json(MergeAccountsResponse {
+        added,
+        updated,
+        total,
+    })
+}
+
 async fn get_batch_transactions(
     State(state): State<NodeState>,
     Query(query): Query<BatchTxQuery>,
@@ -2183,6 +2211,7 @@ pub async fn start_api_server(
         .route("/api/sync/status", get(get_sync_status))
         .route("/api/sync/bootstrap", post(post_bootstrap))
         .route("/api/sync/snapshot", get(get_snapshot_sync))
+        .route("/api/sync/merge-accounts", post(post_merge_accounts))
         .route("/api/sync/transactions", get(get_batch_transactions))
         .route("/api/sync/delta", get(get_sync_transactions))
         .route("/api/verify-proof", post(verify_proof_endpoint))

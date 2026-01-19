@@ -1,0 +1,108 @@
+2026-01-19 10:25:40.93
+c938d5f3
+User
+2026-01-19T15:25:40.932221Z INFO rinku_node::api: Transaction ac09e1ebf8959b07 broadcast to peers
+2026-01-19 10:25:40.93
+c938d5f3
+User
+2026-01-19T15:25:40.932354Z INFO rinku_node::api: Transaction a0111f0a131a8bfb broadcast to peers
+2026-01-19 10:25:40.93
+c938d5f3
+User
+2026-01-19T15:25:40.934937Z INFO rinku_node::api: Transaction e7bc2d2b5ec92a7d broadcast to peers
+2026-01-19 10:25:42.15
+c938d5f3
+User
+2026-01-19T15:25:42.151091Z INFO rinku_node::api: Transaction c46cc66bdd516f8c broadcast to peers
+2026-01-19 10:25:44.86
+c938d5f3
+User
+2026-01-19T15:25:44.862628Z INFO rinku_node::api: Snapshot sync request received
+2026-01-19 10:25:44.86
+c938d5f3
+User
+2026-01-19T15:25:44.868683Z INFO rinku_node::api: Snapshot sync response: 29 accounts, 0 validators, 173 checkpoints, 286 dag txs
+2026-01-19 10:25:45.85
+c938d5f3
+User
+2026-01-19T15:25:45.858591Z INFO rinku_node::api: Transaction f79cf4eff83aceac broadcast to peers
+2026-01-19 10:25:45.85
+c938d5f3
+User
+2026-01-19T15:25:45.859705Z INFO rinku_node::api: Transaction 45d7767a973bd4e1 broadcast to peers
+2026-01-19 10:25:45.94
+c938d5f3
+User
+2026-01-19T15:25:45.942751Z INFO rinku_node::api: Transaction cb9e63e7ffe3f4ac broadcast to peers
+2026-01-19 10:25:45.94
+c938d5f3
+User
+2026-01-19T15:25:45.942233Z INFO rinku_node::api: Transaction 184e461c34753f80 broadcast to peers
+2026-01-19 10:25:45.97
+c938d5f3
+User
+2026-01-19T15:25:45.971502Z INFO rinku_node::api: Transaction 8d6b1e6555764312 broadcast to peers
+2026-01-19 10:25:54.11
+c938d5f3
+User
+2026-01-19T15:25:54.118938Z INFO rinku_node::api: Broadcast 13 transactions to peers
+2026-01-19 10:25:55.15
+c938d5f3
+User
+2026-01-19T15:25:55.153187Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-19 10:25:55.15
+c938d5f3
+User
+2026-01-19T15:25:55.153246Z INFO rinku_node::checkpoint: Created checkpoint 24f0b860d863d66a at height 174 (24 txs finalized, 3.932411 RKU emitted)
+2026-01-19 10:25:55.43
+c938d5f3
+User
+2026-01-19T15:25:55.431247Z INFO rinku_node::api: Transaction 1196eeb5f2a47a85 broadcast to peers
+2026-01-19 10:25:59.96
+c938d5f3
+User
+2026-01-19T15:25:59.960392Z INFO rinku_node::api: Broadcast 14 transactions to peers
+2026-01-19 10:26:00.83
+c938d5f3
+User
+2026-01-19T15:26:00.830853Z INFO rinku_node::api: Transaction cbf0cd9b96918aec broadcast to peers
+2026-01-19 10:26:00.85
+c938d5f3
+User
+2026-01-19T15:26:00.855791Z INFO rinku_node::api: Transaction 37785fdb0bf76168 broadcast to peers
+2026-01-19 10:26:00.94
+c938d5f3
+User
+2026-01-19T15:26:00.940080Z INFO rinku_node::api: Transaction 4d06190a2466c123 broadcast to peers
+2026-01-19 10:26:01.66
+c938d5f3
+User
+2026-01-19T15:26:01.663271Z INFO rinku_node::api: Transaction f7655dc7cba608e8 broadcast to peers
+2026-01-19 10:26:04.81
+c938d5f3
+User
+2026-01-19T15:26:04.811555Z INFO rinku_node::api: Sync delta request: checkpoint=170, offset=0, limit=500
+2026-01-19 10:26:04.81
+c938d5f3
+User
+2026-01-19T15:26:04.811648Z INFO rinku_node::api: Returning 185 of 185 transactions with 28 account nonces (offset=0, has_more=false)
+2026-01-19 10:26:09.20
+c938d5f3
+User
+2026-01-19T15:26:09.203478Z INFO rinku_node::api: Broadcast 14 transactions to peers
+2026-01-19 10:26:10.15
+c938d5f3
+User
+2026-01-19T15:26:10.156594Z INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-19 10:26:10.91
+c938d5f3
+User
+2026-01-19T15:26:10.917868Z INFO rinku_node::api: Transaction ed8b4ffd9fc5182d broadcast to peers
+2026-01-19 10:26:10.95
+c938d5f3
+User
+2026-01-19T15:26:10.957489Z INFO rinku_node::api: Transaction 75fec9ac10e33640 broadcast to peers
+2026-01-19 10:26:19.30
+c938d5f3
+User
+2026-01-19T15:26:19.306237Z INFO rinku_node::api: Broadcast 14 transactions to peers

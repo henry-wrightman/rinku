@@ -434,6 +434,47 @@ impl GossipService {
         Ok(())
     }
 
+    /// Push accounts to peer - used to share local-only accounts after receiving a snapshot
+    async fn push_accounts_to_peer(
+        &self, 
+        peer: &str, 
+        accounts: std::collections::HashMap<String, rinku_core::types::Account>
+    ) -> Result<()> {
+        let client = reqwest::Client::new();
+        let url = format!("{}/api/sync/merge-accounts", peer);
+        
+        #[derive(Serialize)]
+        struct MergeRequest {
+            accounts: std::collections::HashMap<String, rinku_core::types::Account>,
+        }
+        
+        let response = client
+            .post(&url)
+            .json(&MergeRequest { accounts })
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await?;
+        
+        if response.status().is_success() {
+            #[derive(Deserialize)]
+            struct MergeResponse {
+                added: usize,
+                updated: usize,
+            }
+            
+            if let Ok(result) = response.json::<MergeResponse>().await {
+                info!(
+                    "Pushed accounts to peer {}: {} added, {} updated",
+                    peer, result.added, result.updated
+                );
+            }
+        } else {
+            warn!("Failed to push accounts to peer {}: HTTP {}", peer, response.status());
+        }
+        
+        Ok(())
+    }
+
     /// Force bootstrap from peer - used for recovery when delta sync fails due to state divergence
     /// This forces the snapshot to be applied even if checkpoint counts are equal
     async fn bootstrap_from_peer_force(&self, peer: &str) -> Result<()> {
@@ -487,10 +528,35 @@ impl GossipService {
             total_to_validators: snapshot_response.total_to_validators,
         };
 
+        // Get our local accounts before applying snapshot (to push back local-only accounts)
+        let local_accounts_before = self.state.get_all_accounts_map().await;
+        let peer_fingerprints: std::collections::HashSet<String> = 
+            snapshot.accounts.keys().cloned().collect();
+        
         // Use force apply to bypass checkpoint count check
         let added = self.state.apply_sync_snapshot_force(snapshot).await?;
         
         warn!("RECOVERY: Force snapshot sync complete - applied {} DAG transactions", added);
+
+        // Identify accounts that were local-only (not in peer's snapshot)
+        // These need to be pushed back to the peer
+        let local_only_accounts: std::collections::HashMap<String, rinku_core::types::Account> = 
+            local_accounts_before
+                .into_iter()
+                .filter(|(fingerprint, _)| !peer_fingerprints.contains(fingerprint))
+                .collect();
+        
+        if !local_only_accounts.is_empty() {
+            info!(
+                "Pushing {} local-only accounts back to peer {}",
+                local_only_accounts.len(), peer
+            );
+            
+            // Push local-only accounts back to peer
+            if let Err(e) = self.push_accounts_to_peer(peer, local_only_accounts).await {
+                warn!("Failed to push local accounts to peer {}: {}", peer, e);
+            }
+        }
 
         let mut inner = self.inner.write().await;
         inner.stats.sync_requests += 1;
