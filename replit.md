@@ -44,8 +44,8 @@ All transactions undergo comprehensive validation, including account existence, 
 Read-only endpoints (`GET /api/staking/:address`, `GET /api/rewards/:address`, `GET /api/contracts/:id`) remain available for querying state without authentication.
 
 ### Scalable State Architecture (Phase 2 - January 2026)
-- **Persistent Storage:** Migrated from sled to redb (pure Rust, ACID, MVCC) with separate tables for accounts, DAG, checkpoints, validators, trie, metadata
-- **Binary Serialization:** bincode for efficient storage (vs JSON)
+- **Persistent Storage:** Migrated from sled to redb (pure Rust, ACID, MVCC) with separate tables for accounts, DAG, checkpoints, validators, trie, metadata, contracts, rewards
+- **JSON Serialization:** Using serde_json for compatibility with complex serde features (#[serde(flatten)], etc.)
 - **DAG Pruning:** Checkpoint-bounded retention, configurable 100+ checkpoint window
 - **Sparse Merkle Trie:** 256-level trie for verifiable state roots with O(log n) proofs
 - **Sharding Design:** Account-based sharding strategy documented for billions of accounts (see SHARDING.md)
