@@ -6,6 +6,7 @@ use rinku_core::{
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{info, warn, debug};
 
 use crate::bls::{
@@ -14,6 +15,7 @@ use crate::bls::{
 use crate::config::TrustConfig;
 use crate::state::NodeState;
 use crate::trust::TrustVerifier;
+use crate::validator_identity::ValidatorIdentityService;
 
 pub struct CheckpointService {
     state: NodeState,
@@ -24,6 +26,7 @@ pub struct CheckpointService {
     peers: Vec<String>,
     consecutive_fork_failures: std::sync::atomic::AtomicU32,
     trust_verifier: Arc<TrustVerifier>,
+    validator_identity: Option<Arc<RwLock<ValidatorIdentityService>>>,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
@@ -47,7 +50,13 @@ impl CheckpointService {
             peers,
             consecutive_fork_failures: std::sync::atomic::AtomicU32::new(0),
             trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
+            validator_identity: None,
         }
+    }
+
+    pub fn with_validator_identity(mut self, identity: Arc<RwLock<ValidatorIdentityService>>) -> Self {
+        self.validator_identity = Some(identity);
+        self
     }
 
     pub fn bls_public_key_base64(&self) -> String {
@@ -55,13 +64,24 @@ impl CheckpointService {
     }
 
     pub async fn start(self) -> Result<()> {
-        // Sign the genesis checkpoint if it exists and has no signatures
         self.sign_genesis_checkpoint().await;
         
         let interval = tokio::time::Duration::from_millis(self.interval_ms);
 
         loop {
             tokio::time::sleep(interval).await;
+
+            if let Some(ref validator_identity) = self.validator_identity {
+                let result = validator_identity.write().await.process_epoch_transition();
+                if result.new_epoch > result.old_epoch {
+                    info!(
+                        "Epoch transition: {} -> {} (activated: {}, exited: {})",
+                        result.old_epoch, result.new_epoch,
+                        result.activated.len(), result.exited.len()
+                    );
+                }
+            }
+
             if let Err(e) = self.create_checkpoint().await {
                 tracing::warn!("Checkpoint creation failed: {}", e);
             }

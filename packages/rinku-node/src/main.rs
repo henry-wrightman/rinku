@@ -40,7 +40,9 @@ use gossip::GossipService;
 use rewards::{RewardConfig, RewardsService};
 use slashing::SlashingService;
 use tip_consolidator::TipConsolidator;
+use tokio::sync::RwLock;
 use validator::ValidatorKeyManager;
+use validator_identity::ValidatorIdentityService;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -150,6 +152,18 @@ async fn main() -> Result<()> {
     let _slashing_service = SlashingService::new();
     info!("Slashing service initialized");
 
+    let validator_identity_path = format!("{}/validator-identity", config.data_dir);
+    let validator_identity = match ValidatorIdentityService::new(&validator_identity_path) {
+        Ok(service) => {
+            info!("Validator identity service initialized (epoch: {})", service.current_epoch());
+            Some(Arc::new(RwLock::new(service)))
+        }
+        Err(e) => {
+            warn!("Could not initialize validator identity service: {}", e);
+            None
+        }
+    };
+
     let checkpoint_service = CheckpointService::new(
         state.clone(),
         config.checkpoint_interval_ms,
@@ -157,6 +171,11 @@ async fn main() -> Result<()> {
         config.peers.clone(),
         config.trust.clone(),
     );
+    let checkpoint_service = if let Some(ref vi) = validator_identity {
+        checkpoint_service.with_validator_identity(vi.clone())
+    } else {
+        checkpoint_service
+    };
     let bls_public_key = checkpoint_service.bls_public_key_base64();
     info!(
         "BLS public key: {}...",

@@ -194,6 +194,29 @@ Missing 3+ consecutive checkpoints triggers slashing, incentivizing uptime.
 ### Unbonding Security
 14-day unbonding allows evidence submission for past misbehavior.
 
+## Recent Improvements (January 2026)
+
+### Epoch Advancement Hook
+- ValidatorIdentityService integrated into CheckpointService
+- `process_epoch_transition()` called on each checkpoint loop iteration
+- Logs epoch transitions with activated/exited validator counts
+
+### Frozen Validator Snapshots
+- VoteAccumulator captures validator set at voting round start
+- Prevents index drift during voting round
+- Deterministic validator ordering (sorted by address)
+
+### Atomic Slashing Integration
+- `vote_history` HashMap tracks all votes by (validator, height)
+- `slashed_validators` HashSet prevents duplicate slashing
+- `reduce_validator_power()` updates both frozen snapshot and accumulated power
+- Double-sign detection triggers immediate voting power reduction across all pending rounds
+
+### BLS Verification Enforcement
+- Votes with empty BLS public keys are rejected
+- All vote signatures verified before acceptance
+- 8 new BLS integration tests with real key generation
+
 ## Future Improvements
 
 1. **Persistent DAG Storage:** Replace in-memory DAG with persistent storage

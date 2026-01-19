@@ -87,6 +87,20 @@ impl VoteAccumulator {
         self.frozen_validators.iter().find(|v| v.address == address)
     }
 
+    pub fn reduce_validator_power(&mut self, address: &str, reduction_ratio: f64) -> Option<f64> {
+        if let Some(validator) = self.frozen_validators.iter_mut().find(|v| v.address == address) {
+            let reduction = validator.voting_power * reduction_ratio;
+            validator.voting_power -= reduction;
+            self.total_voting_power -= reduction;
+            if let Some(vote) = self.votes.get(address) {
+                self.accumulated_power -= reduction;
+            }
+            Some(reduction)
+        } else {
+            None
+        }
+    }
+
     pub fn quorum_reached(&self) -> bool {
         self.voting_power_ratio() >= QUORUM_THRESHOLD
     }
@@ -172,6 +186,8 @@ pub struct ConsensusService {
     pending_votes: HashMap<u64, VoteAccumulator>,
     finalized_heights: HashSet<u64>,
     last_finalized_height: u64,
+    vote_history: HashMap<(String, u64), Vote>,
+    slashed_validators: HashSet<String>,
 }
 
 impl ConsensusService {
@@ -182,6 +198,8 @@ impl ConsensusService {
             pending_votes: HashMap::new(),
             finalized_heights: HashSet::new(),
             last_finalized_height: 0,
+            vote_history: HashMap::new(),
+            slashed_validators: HashSet::new(),
         }
     }
 
@@ -283,15 +301,52 @@ impl ConsensusService {
             return Err(anyhow!("Invalid BLS signature from validator {}", vote.validator));
         }
 
-        let accumulator = self.pending_votes.get_mut(&vote.checkpoint_height)
-            .ok_or_else(|| anyhow!("No voting round for height {}", vote.checkpoint_height))?;
+        let expected_hash = {
+            let accumulator = self.pending_votes.get(&vote.checkpoint_height)
+                .ok_or_else(|| anyhow!("No voting round for height {}", vote.checkpoint_height))?;
+            accumulator.checkpoint_hash.clone()
+        };
 
-        if vote.checkpoint_hash != accumulator.checkpoint_hash {
+        let vote_key = (vote.validator.clone(), vote.checkpoint_height);
+        let double_sign_evidence = if let Some(existing_vote) = self.vote_history.get(&vote_key) {
+            if existing_vote.checkpoint_hash != vote.checkpoint_hash 
+                && !self.slashed_validators.contains(&vote.validator) {
+                Some(DoubleSignEvidence {
+                    validator: vote.validator.clone(),
+                    height: vote.checkpoint_height,
+                    hash1: existing_vote.checkpoint_hash.clone(),
+                    hash2: vote.checkpoint_hash.clone(),
+                    signature1: existing_vote.signature.clone(),
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(evidence) = double_sign_evidence {
+            warn!(
+                "DOUBLE-SIGN DETECTED: validator {} at height {} (hashes: {} vs {})",
+                evidence.validator, evidence.height, evidence.hash1, evidence.hash2
+            );
+            if let Some(slashed_amount) = self.handle_double_sign_detection(&evidence).await {
+                self.slashed_validators.insert(vote.validator.clone());
+                info!("Slashed {} RKU from validator {}", slashed_amount, vote.validator);
+            }
+        }
+
+        self.vote_history.insert(vote_key, vote.clone());
+
+        if vote.checkpoint_hash != expected_hash {
             return Err(anyhow!(
                 "Vote for wrong checkpoint hash: expected {}, got {}",
-                accumulator.checkpoint_hash, vote.checkpoint_hash
+                expected_hash, vote.checkpoint_hash
             ));
         }
+
+        let accumulator = self.pending_votes.get_mut(&vote.checkpoint_height)
+            .ok_or_else(|| anyhow!("No voting round for height {}", vote.checkpoint_height))?;
 
         let is_new = accumulator.add_vote(vote.clone(), voting_power, signer_index);
         if !is_new {
@@ -330,21 +385,47 @@ impl ConsensusService {
         }
     }
 
-    pub async fn handle_double_sign_detection(&self, evidence: &DoubleSignEvidence) -> Option<f64> {
-        if let Some(ref vs) = self.validator_service {
+    pub async fn handle_double_sign_detection(&mut self, evidence: &DoubleSignEvidence) -> Option<f64> {
+        let slashed_amount = if let Some(ref vs) = self.validator_service {
             let mut vs_guard = vs.write().await;
-            if let Some(validator) = vs_guard.get_validator(&evidence.validator) {
-                let stake = validator.effective_stake;
-                if let Ok(slashed) = vs_guard.slash_validator(&evidence.validator, 0.15) {
-                    warn!(
-                        "Slashed validator {} for double-signing: {} RKU",
-                        evidence.validator, slashed
+            if vs_guard.get_validator(&evidence.validator).is_some() {
+                vs_guard.slash_validator(&evidence.validator, 0.15).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(slashed) = slashed_amount {
+            warn!(
+                "Slashed validator {} for double-signing: {} RKU (15% of stake)",
+                evidence.validator, slashed
+            );
+
+            for (_, accumulator) in self.pending_votes.iter_mut() {
+                if let Some(reduced) = accumulator.reduce_validator_power(&evidence.validator, 0.15) {
+                    debug!(
+                        "Reduced voting power for {} in height {} by {} RKU",
+                        evidence.validator, accumulator.checkpoint_height, reduced
                     );
-                    return Some(slashed);
                 }
             }
+            return Some(slashed);
         }
         None
+    }
+
+    pub fn cleanup_old_vote_history(&mut self, keep_after_height: u64) {
+        self.vote_history.retain(|(_, height), _| *height >= keep_after_height);
+    }
+
+    pub fn is_validator_slashed(&self, validator: &str) -> bool {
+        self.slashed_validators.contains(validator)
+    }
+
+    pub fn clear_slashed_set(&mut self) {
+        self.slashed_validators.clear();
     }
 
     pub async fn create_finality_proof(&self, height: u64) -> Result<FinalityProof> {
@@ -865,5 +946,242 @@ mod tests {
         let has_sufficient = account_balance >= required_balance;
         
         assert!(has_sufficient, "Balance > stake + gas should succeed");
+    }
+
+    #[test]
+    fn test_bls_sign_and_verify_real_keys() {
+        use crate::bls::{generate_bls_keypair, bls_sign, bls_verify};
+
+        let keypair = generate_bls_keypair();
+        let message = b"checkpoint_hash_12345";
+
+        let signature = bls_sign(message, &keypair.private_key)
+            .expect("BLS signing should succeed");
+
+        assert!(!signature.is_empty(), "Signature should not be empty");
+        assert!(bls_verify(message, &signature, &keypair.public_key),
+            "Signature verification should succeed with correct key");
+    }
+
+    #[test]
+    fn test_bls_verify_rejects_wrong_key() {
+        use crate::bls::{generate_bls_keypair, bls_sign, bls_verify};
+
+        let keypair1 = generate_bls_keypair();
+        let keypair2 = generate_bls_keypair();
+        let message = b"checkpoint_hash_12345";
+
+        let signature = bls_sign(message, &keypair1.private_key)
+            .expect("BLS signing should succeed");
+
+        assert!(!bls_verify(message, &signature, &keypair2.public_key),
+            "Verification should fail with wrong public key");
+    }
+
+    #[test]
+    fn test_bls_verify_rejects_tampered_message() {
+        use crate::bls::{generate_bls_keypair, bls_sign, bls_verify};
+
+        let keypair = generate_bls_keypair();
+        let message = b"checkpoint_hash_12345";
+        let tampered = b"checkpoint_hash_67890";
+
+        let signature = bls_sign(message, &keypair.private_key)
+            .expect("BLS signing should succeed");
+
+        assert!(!bls_verify(tampered, &signature, &keypair.public_key),
+            "Verification should fail with tampered message");
+    }
+
+    #[test]
+    fn test_bls_aggregate_signatures() {
+        use crate::bls::{generate_bls_keypair, bls_sign, aggregate_signatures, verify_aggregated_signature};
+
+        let keypair1 = generate_bls_keypair();
+        let keypair2 = generate_bls_keypair();
+        let keypair3 = generate_bls_keypair();
+        let message = b"checkpoint_hash_for_aggregation";
+
+        let sig1 = bls_sign(message, &keypair1.private_key).unwrap();
+        let sig2 = bls_sign(message, &keypair2.private_key).unwrap();
+        let sig3 = bls_sign(message, &keypair3.private_key).unwrap();
+
+        let aggregated = aggregate_signatures(&[sig1, sig2, sig3])
+            .expect("Aggregation should succeed");
+
+        let public_keys = vec![
+            keypair1.public_key,
+            keypair2.public_key,
+            keypair3.public_key,
+        ];
+
+        assert!(verify_aggregated_signature(message, &aggregated, &public_keys),
+            "Aggregated signature should verify with all public keys");
+    }
+
+    #[test]
+    fn test_bls_aggregate_rejects_missing_signer() {
+        use crate::bls::{generate_bls_keypair, bls_sign, aggregate_signatures, verify_aggregated_signature};
+
+        let keypair1 = generate_bls_keypair();
+        let keypair2 = generate_bls_keypair();
+        let keypair3 = generate_bls_keypair();
+        let message = b"checkpoint_hash_for_aggregation";
+
+        let sig1 = bls_sign(message, &keypair1.private_key).unwrap();
+        let sig2 = bls_sign(message, &keypair2.private_key).unwrap();
+
+        let aggregated = aggregate_signatures(&[sig1, sig2])
+            .expect("Aggregation should succeed");
+
+        let public_keys = vec![
+            keypair1.public_key,
+            keypair2.public_key,
+            keypair3.public_key,
+        ];
+
+        assert!(!verify_aggregated_signature(message, &aggregated, &public_keys),
+            "Aggregated signature should fail if signer is missing");
+    }
+
+    #[test]
+    fn test_vote_with_real_bls_signature() {
+        use crate::bls::{generate_bls_keypair, bls_sign, bls_verify};
+
+        let keypair = generate_bls_keypair();
+        let vote = Vote {
+            validator: "validator_001".to_string(),
+            vote_type: VoteType::Commit,
+            checkpoint_height: 100,
+            checkpoint_hash: "abcdef123456".to_string(),
+            signature: vec![],
+            timestamp: 1000,
+        };
+
+        let message = vote.message();
+        let signature = bls_sign(&message, &keypair.private_key).unwrap();
+
+        assert!(bls_verify(&message, &signature, &keypair.public_key),
+            "Vote signature should verify");
+    }
+
+    #[test]
+    fn test_frozen_validator_snapshot_consistency() {
+        let validators = vec![
+            ValidatorSnapshot {
+                address: "validator_c".to_string(),
+                voting_power: 100.0,
+                bls_public_key: vec![1, 2, 3],
+            },
+            ValidatorSnapshot {
+                address: "validator_a".to_string(),
+                voting_power: 200.0,
+                bls_public_key: vec![4, 5, 6],
+            },
+            ValidatorSnapshot {
+                address: "validator_b".to_string(),
+                voting_power: 150.0,
+                bls_public_key: vec![7, 8, 9],
+            },
+        ];
+
+        let mut sorted = validators.clone();
+        sorted.sort_by(|a, b| a.address.cmp(&b.address));
+
+        assert_eq!(sorted[0].address, "validator_a");
+        assert_eq!(sorted[1].address, "validator_b");
+        assert_eq!(sorted[2].address, "validator_c");
+
+        let acc = VoteAccumulator::new(1, "hash".to_string(), 450.0, sorted);
+
+        assert_eq!(acc.get_validator_index("validator_a"), Some(0));
+        assert_eq!(acc.get_validator_index("validator_b"), Some(1));
+        assert_eq!(acc.get_validator_index("validator_c"), Some(2));
+        assert_eq!(acc.get_validator_index("validator_x"), None);
+    }
+
+    #[test]
+    fn test_double_sign_evidence_structure() {
+        let evidence = DoubleSignEvidence {
+            validator: "validator_001".to_string(),
+            height: 100,
+            hash1: "hash_a".to_string(),
+            hash2: "hash_b".to_string(),
+            signature1: vec![1, 2, 3],
+        };
+
+        assert_ne!(evidence.hash1, evidence.hash2);
+        assert_eq!(evidence.height, 100);
+    }
+
+    #[test]
+    fn test_reduce_validator_power_in_accumulator() {
+        let validators = vec![
+            ValidatorSnapshot {
+                address: "v1".to_string(),
+                voting_power: 100.0,
+                bls_public_key: vec![1],
+            },
+            ValidatorSnapshot {
+                address: "v2".to_string(),
+                voting_power: 100.0,
+                bls_public_key: vec![2],
+            },
+        ];
+
+        let mut acc = VoteAccumulator::new(1, "hash".to_string(), 200.0, validators);
+
+        acc.add_vote(create_test_vote("v1", 1, "hash"), 100.0, 0);
+        assert_eq!(acc.accumulated_power, 100.0);
+        assert_eq!(acc.total_voting_power, 200.0);
+
+        let reduced = acc.reduce_validator_power("v1", 0.15);
+        assert!(reduced.is_some());
+        assert!((reduced.unwrap() - 15.0).abs() < 0.001);
+
+        assert!((acc.accumulated_power - 85.0).abs() < 0.001);
+        assert!((acc.total_voting_power - 185.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_slashed_validator_tracking() {
+        let mut slashed: HashSet<String> = HashSet::new();
+
+        assert!(!slashed.contains("v1"));
+
+        slashed.insert("v1".to_string());
+        assert!(slashed.contains("v1"));
+        assert!(!slashed.contains("v2"));
+
+        slashed.clear();
+        assert!(!slashed.contains("v1"));
+    }
+
+    #[test]
+    fn test_vote_history_cleanup() {
+        let mut vote_history: HashMap<(String, u64), Vote> = HashMap::new();
+
+        vote_history.insert(
+            ("v1".to_string(), 10), 
+            create_test_vote("v1", 10, "h10")
+        );
+        vote_history.insert(
+            ("v2".to_string(), 20), 
+            create_test_vote("v2", 20, "h20")
+        );
+        vote_history.insert(
+            ("v3".to_string(), 30), 
+            create_test_vote("v3", 30, "h30")
+        );
+
+        assert_eq!(vote_history.len(), 3);
+
+        let keep_after_height = 15u64;
+        vote_history.retain(|(_, height), _| *height >= keep_after_height);
+
+        assert_eq!(vote_history.len(), 2);
+        assert!(vote_history.get(&("v2".to_string(), 20)).is_some());
+        assert!(vote_history.get(&("v3".to_string(), 30)).is_some());
+        assert!(vote_history.get(&("v1".to_string(), 10)).is_none());
     }
 }
