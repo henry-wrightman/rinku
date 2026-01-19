@@ -334,7 +334,7 @@ impl RedbStorage {
         {
             let mut table = write_txn.open_table(TABLE_ACCOUNTS)?;
             for (addr, account) in accounts {
-                let data = bincode::serialize(account)?;
+                let data = serde_json::to_vec(account)?;
                 table.insert(addr.as_bytes(), data.as_slice())?;
             }
         }
@@ -342,7 +342,7 @@ impl RedbStorage {
         {
             let mut table = write_txn.open_table(TABLE_VALIDATORS)?;
             for (addr, validator) in validators {
-                let data = bincode::serialize(validator)?;
+                let data = serde_json::to_vec(validator)?;
                 table.insert(addr.as_bytes(), data.as_slice())?;
             }
         }
@@ -351,7 +351,7 @@ impl RedbStorage {
             let mut table = write_txn.open_table(TABLE_CHECKPOINTS)?;
             for checkpoint in checkpoints {
                 let key = checkpoint.height.to_be_bytes();
-                let data = bincode::serialize(checkpoint)?;
+                let data = serde_json::to_vec(checkpoint)?;
                 table.insert(key.as_slice(), data.as_slice())?;
             }
         }
@@ -359,16 +359,16 @@ impl RedbStorage {
         {
             let mut table = write_txn.open_table(TABLE_DAG)?;
             for tx in transactions {
-                let data = bincode::serialize(tx)?;
+                let data = serde_json::to_vec(tx)?;
                 table.insert(tx.hash.as_bytes(), data.as_slice())?;
             }
         }
         
         {
             let mut table = write_txn.open_table(TABLE_METADATA)?;
-            table.insert(b"gas_price".as_slice(), bincode::serialize(&gas_price)?.as_slice())?;
-            table.insert(b"total_supply".as_slice(), bincode::serialize(&total_supply)?.as_slice())?;
-            table.insert(b"genesis_time".as_slice(), bincode::serialize(&genesis_time)?.as_slice())?;
+            table.insert(b"gas_price".as_slice(), serde_json::to_vec(&gas_price)?.as_slice())?;
+            table.insert(b"total_supply".as_slice(), serde_json::to_vec(&total_supply)?.as_slice())?;
+            table.insert(b"genesis_time".as_slice(), serde_json::to_vec(&genesis_time)?.as_slice())?;
         }
         
         write_txn.commit()?;
@@ -401,7 +401,7 @@ impl RedbStorage {
         let gas_price: f64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"gas_price".as_slice())? {
-                Some(data) => bincode::deserialize(data.value())?,
+                Some(data) => serde_json::from_slice(data.value())?,
                 None => {
                     warn!("No snapshot found in redb, starting fresh");
                     return Ok(None);
@@ -412,7 +412,7 @@ impl RedbStorage {
         let total_supply: f64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"total_supply".as_slice())? {
-                Some(data) => bincode::deserialize(data.value())?,
+                Some(data) => serde_json::from_slice(data.value())?,
                 None => return Ok(None),
             }
         };
@@ -420,7 +420,7 @@ impl RedbStorage {
         let genesis_time: u64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"genesis_time".as_slice())? {
-                Some(data) => bincode::deserialize(data.value())?,
+                Some(data) => serde_json::from_slice(data.value())?,
                 None => return Ok(None),
             }
         };
@@ -431,7 +431,7 @@ impl RedbStorage {
             for entry in table.iter()? {
                 let (key, value) = entry?;
                 let addr = String::from_utf8_lossy(key.value()).to_string();
-                let account: Account = bincode::deserialize(value.value())?;
+                let account: Account = serde_json::from_slice(value.value())?;
                 accounts.insert(addr, account);
             }
         }
@@ -442,7 +442,7 @@ impl RedbStorage {
             for entry in table.iter()? {
                 let (key, value) = entry?;
                 let addr = String::from_utf8_lossy(key.value()).to_string();
-                let validator: Validator = bincode::deserialize(value.value())?;
+                let validator: Validator = serde_json::from_slice(value.value())?;
                 validators.insert(addr, validator);
             }
         }
@@ -452,7 +452,7 @@ impl RedbStorage {
             let table = read_txn.open_table(TABLE_CHECKPOINTS)?;
             for entry in table.iter()? {
                 let (_, value) = entry?;
-                let checkpoint: Checkpoint = bincode::deserialize(value.value())?;
+                let checkpoint: Checkpoint = serde_json::from_slice(value.value())?;
                 checkpoints.push(checkpoint);
             }
         }
@@ -463,7 +463,7 @@ impl RedbStorage {
             let table = read_txn.open_table(TABLE_DAG)?;
             for entry in table.iter()? {
                 let (_, value) = entry?;
-                let tx: SignedTransaction = bincode::deserialize(value.value())?;
+                let tx: SignedTransaction = serde_json::from_slice(value.value())?;
                 transactions.push(tx);
             }
         }
@@ -488,7 +488,7 @@ impl RedbStorage {
     }
 
     pub fn save_rewards(&self, snapshot: &RewardsSnapshot) -> Result<()> {
-        let data = bincode::serialize(snapshot)?;
+        let data = serde_json::to_vec(snapshot)?;
         let db = self.db_read();
         let write_txn = db.begin_write()?;
         {
@@ -506,7 +506,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_REWARDS)?;
         match table.get(b"rewards_snapshot".as_slice())? {
             Some(data) => {
-                let snapshot: RewardsSnapshot = bincode::deserialize(data.value())?;
+                let snapshot: RewardsSnapshot = serde_json::from_slice(data.value())?;
                 info!(
                     "Loaded rewards snapshot: {} stakes, {} pending rewards",
                     snapshot.stakes.len(),
@@ -522,7 +522,7 @@ impl RedbStorage {
     }
 
     pub fn save_contracts(&self, contracts: &[ContractState]) -> Result<()> {
-        let data = bincode::serialize(contracts)?;
+        let data = serde_json::to_vec(contracts)?;
         let db = self.db_read();
         let write_txn = db.begin_write()?;
         {
@@ -540,7 +540,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_CONTRACTS)?;
         match table.get(b"contracts_snapshot".as_slice())? {
             Some(data) => {
-                let contracts: Vec<ContractState> = bincode::deserialize(data.value())?;
+                let contracts: Vec<ContractState> = serde_json::from_slice(data.value())?;
                 info!("Loaded {} contracts from redb", contracts.len());
                 Ok(contracts)
             }
