@@ -1,8 +1,13 @@
 use anyhow::Result;
 use redb::{Database, ReadableTable, TableDefinition, WriteTransaction};
+use rinku_core::types::{Account, Checkpoint, SignedTransaction, Validator};
 use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+
+use crate::contracts::ContractState;
+use crate::rewards::RewardsSnapshot;
 
 pub const TABLE_ACCOUNTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("accounts");
 pub const TABLE_DAG: TableDefinition<&[u8], &[u8]> = TableDefinition::new("dag");
@@ -311,6 +316,243 @@ impl RedbStorage {
             dag_count: self.count_dag().unwrap_or(0),
             checkpoints_count: self.count_checkpoints().unwrap_or(0),
         }
+    }
+
+    pub fn save_snapshot(
+        &self,
+        accounts: &HashMap<String, Account>,
+        validators: &HashMap<String, Validator>,
+        checkpoints: &[Checkpoint],
+        gas_price: f64,
+        total_supply: f64,
+        genesis_time: u64,
+        transactions: &[SignedTransaction],
+    ) -> Result<()> {
+        let db = self.db_read();
+        let write_txn = db.begin_write()?;
+        
+        {
+            let mut table = write_txn.open_table(TABLE_ACCOUNTS)?;
+            for (addr, account) in accounts {
+                let data = bincode::serialize(account)?;
+                table.insert(addr.as_bytes(), data.as_slice())?;
+            }
+        }
+        
+        {
+            let mut table = write_txn.open_table(TABLE_VALIDATORS)?;
+            for (addr, validator) in validators {
+                let data = bincode::serialize(validator)?;
+                table.insert(addr.as_bytes(), data.as_slice())?;
+            }
+        }
+        
+        {
+            let mut table = write_txn.open_table(TABLE_CHECKPOINTS)?;
+            for checkpoint in checkpoints {
+                let key = checkpoint.height.to_be_bytes();
+                let data = bincode::serialize(checkpoint)?;
+                table.insert(key.as_slice(), data.as_slice())?;
+            }
+        }
+        
+        {
+            let mut table = write_txn.open_table(TABLE_DAG)?;
+            for tx in transactions {
+                let data = bincode::serialize(tx)?;
+                table.insert(tx.hash.as_bytes(), data.as_slice())?;
+            }
+        }
+        
+        {
+            let mut table = write_txn.open_table(TABLE_METADATA)?;
+            table.insert(b"gas_price".as_slice(), bincode::serialize(&gas_price)?.as_slice())?;
+            table.insert(b"total_supply".as_slice(), bincode::serialize(&total_supply)?.as_slice())?;
+            table.insert(b"genesis_time".as_slice(), bincode::serialize(&genesis_time)?.as_slice())?;
+        }
+        
+        write_txn.commit()?;
+        debug!(
+            "Saved snapshot: {} accounts, {} validators, {} checkpoints, {} txs",
+            accounts.len(),
+            validators.len(),
+            checkpoints.len(),
+            transactions.len()
+        );
+        Ok(())
+    }
+
+    pub fn load_snapshot(
+        &self,
+    ) -> Result<
+        Option<(
+            HashMap<String, Account>,
+            HashMap<String, Validator>,
+            Vec<Checkpoint>,
+            f64,
+            f64,
+            u64,
+            Vec<SignedTransaction>,
+        )>,
+    > {
+        let db = self.db_read();
+        let read_txn = db.begin_read()?;
+        
+        let gas_price: f64 = {
+            let table = read_txn.open_table(TABLE_METADATA)?;
+            match table.get(b"gas_price".as_slice())? {
+                Some(data) => bincode::deserialize(data.value())?,
+                None => {
+                    warn!("No snapshot found in redb, starting fresh");
+                    return Ok(None);
+                }
+            }
+        };
+        
+        let total_supply: f64 = {
+            let table = read_txn.open_table(TABLE_METADATA)?;
+            match table.get(b"total_supply".as_slice())? {
+                Some(data) => bincode::deserialize(data.value())?,
+                None => return Ok(None),
+            }
+        };
+        
+        let genesis_time: u64 = {
+            let table = read_txn.open_table(TABLE_METADATA)?;
+            match table.get(b"genesis_time".as_slice())? {
+                Some(data) => bincode::deserialize(data.value())?,
+                None => return Ok(None),
+            }
+        };
+        
+        let mut accounts = HashMap::new();
+        {
+            let table = read_txn.open_table(TABLE_ACCOUNTS)?;
+            for entry in table.iter()? {
+                let (key, value) = entry?;
+                let addr = String::from_utf8_lossy(key.value()).to_string();
+                let account: Account = bincode::deserialize(value.value())?;
+                accounts.insert(addr, account);
+            }
+        }
+        
+        let mut validators = HashMap::new();
+        {
+            let table = read_txn.open_table(TABLE_VALIDATORS)?;
+            for entry in table.iter()? {
+                let (key, value) = entry?;
+                let addr = String::from_utf8_lossy(key.value()).to_string();
+                let validator: Validator = bincode::deserialize(value.value())?;
+                validators.insert(addr, validator);
+            }
+        }
+        
+        let mut checkpoints = Vec::new();
+        {
+            let table = read_txn.open_table(TABLE_CHECKPOINTS)?;
+            for entry in table.iter()? {
+                let (_, value) = entry?;
+                let checkpoint: Checkpoint = bincode::deserialize(value.value())?;
+                checkpoints.push(checkpoint);
+            }
+        }
+        checkpoints.sort_by_key(|c| c.height);
+        
+        let mut transactions = Vec::new();
+        {
+            let table = read_txn.open_table(TABLE_DAG)?;
+            for entry in table.iter()? {
+                let (_, value) = entry?;
+                let tx: SignedTransaction = bincode::deserialize(value.value())?;
+                transactions.push(tx);
+            }
+        }
+        
+        info!(
+            "Loaded snapshot: {} accounts, {} validators, {} checkpoints, {} txs",
+            accounts.len(),
+            validators.len(),
+            checkpoints.len(),
+            transactions.len()
+        );
+        
+        Ok(Some((
+            accounts,
+            validators,
+            checkpoints,
+            gas_price,
+            total_supply,
+            genesis_time,
+            transactions,
+        )))
+    }
+
+    pub fn save_rewards(&self, snapshot: &RewardsSnapshot) -> Result<()> {
+        let data = bincode::serialize(snapshot)?;
+        let db = self.db_read();
+        let write_txn = db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(TABLE_REWARDS)?;
+            table.insert(b"rewards_snapshot".as_slice(), data.as_slice())?;
+        }
+        write_txn.commit()?;
+        debug!("Saved rewards snapshot: {} stakes", snapshot.stakes.len());
+        Ok(())
+    }
+
+    pub fn load_rewards(&self) -> Result<Option<RewardsSnapshot>> {
+        let db = self.db_read();
+        let read_txn = db.begin_read()?;
+        let table = read_txn.open_table(TABLE_REWARDS)?;
+        match table.get(b"rewards_snapshot".as_slice())? {
+            Some(data) => {
+                let snapshot: RewardsSnapshot = bincode::deserialize(data.value())?;
+                info!(
+                    "Loaded rewards snapshot: {} stakes, {} pending rewards",
+                    snapshot.stakes.len(),
+                    snapshot.pending_rewards.len()
+                );
+                Ok(Some(snapshot))
+            }
+            None => {
+                warn!("No rewards snapshot found, starting fresh");
+                Ok(None)
+            }
+        }
+    }
+
+    pub fn save_contracts(&self, contracts: &[ContractState]) -> Result<()> {
+        let data = bincode::serialize(contracts)?;
+        let db = self.db_read();
+        let write_txn = db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(TABLE_CONTRACTS)?;
+            table.insert(b"contracts_snapshot".as_slice(), data.as_slice())?;
+        }
+        write_txn.commit()?;
+        debug!("Saved {} contracts", contracts.len());
+        Ok(())
+    }
+
+    pub fn load_contracts(&self) -> Result<Vec<ContractState>> {
+        let db = self.db_read();
+        let read_txn = db.begin_read()?;
+        let table = read_txn.open_table(TABLE_CONTRACTS)?;
+        match table.get(b"contracts_snapshot".as_slice())? {
+            Some(data) => {
+                let contracts: Vec<ContractState> = bincode::deserialize(data.value())?;
+                info!("Loaded {} contracts from redb", contracts.len());
+                Ok(contracts)
+            }
+            None => {
+                debug!("No contracts found in redb");
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    pub fn flush(&self) -> Result<()> {
+        Ok(())
     }
 }
 

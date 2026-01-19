@@ -12,7 +12,7 @@ use tracing::{info, warn};
 
 use crate::config::NodeConfig;
 use crate::emission::EmissionService;
-use crate::persistence::PersistenceService;
+use crate::storage::RedbStorage;
 use crate::rewards::RewardsService;
 use crate::slashing::SlashingService;
 
@@ -114,7 +114,7 @@ pub struct StateInner {
 pub struct NodeState {
     config: NodeConfig,
     pub inner: Arc<RwLock<StateInner>>,
-    persistence: Arc<PersistenceService>,
+    storage: Arc<RedbStorage>,
     pub emission: Arc<RwLock<EmissionService>>,
     pub slashing: Arc<RwLock<SlashingService>>,
     pub rewards: Arc<RwLock<RewardsService>>,
@@ -123,12 +123,12 @@ pub struct NodeState {
 
 impl NodeState {
     pub async fn new(config: NodeConfig) -> Result<Self> {
-        let persistence = PersistenceService::new(&config.data_dir)?;
-        let persistence = Arc::new(persistence);
+        let storage = RedbStorage::open(&config.data_dir)?;
+        let storage = Arc::new(storage);
 
         let inner =
             if let Some((accounts, validators, checkpoints, gas_price, supply, genesis, txs)) =
-                persistence.load_snapshot()?
+                storage.load_snapshot()?
             {
                 let tx_count = txs.len() as u64;
                 let checkpoint_count = checkpoints.len() as u64;
@@ -178,12 +178,12 @@ impl NodeState {
                     .last()
                     .map(|c| c.timestamp * 1000)
                     .unwrap_or(now_ms);
-                let loaded_contracts = persistence.load_contracts().unwrap_or_default();
+                let loaded_contracts = storage.load_contracts().unwrap_or_default();
                 let contracts: HashMap<String, crate::contracts::ContractState> = loaded_contracts
                     .into_iter()
                     .map(|c| (c.contract_id.clone(), c))
                     .collect();
-                info!("Loaded {} contracts from persistence", contracts.len());
+                info!("Loaded {} contracts from storage", contracts.len());
                 StateInner {
                     dag,
                     accounts,
@@ -329,8 +329,8 @@ impl NodeState {
         let emission = EmissionService::new();
         let slashing = SlashingService::new();
 
-        // Load rewards from persistence or create fresh
-        let rewards = if let Some(snapshot) = persistence.load_rewards()? {
+        // Load rewards from storage or create fresh
+        let rewards = if let Some(snapshot) = storage.load_rewards()? {
             info!(
                 "Restored rewards: {} stakes, {} pending",
                 snapshot.stakes.len(),
@@ -344,7 +344,7 @@ impl NodeState {
         let node_state = Self {
             config,
             inner: Arc::new(RwLock::new(inner)),
-            persistence,
+            storage,
             emission: Arc::new(RwLock::new(emission)),
             slashing: Arc::new(RwLock::new(slashing)),
             rewards: Arc::new(RwLock::new(rewards)),
@@ -428,7 +428,7 @@ impl NodeState {
         
         let state = self.inner.read().await;
         let transactions: Vec<SignedTransaction> = state.dag.all_transactions();
-        self.persistence.save_snapshot(
+        self.storage.save_snapshot(
             &state.accounts,
             &state.validators,
             &state.checkpoints,
@@ -442,7 +442,7 @@ impl NodeState {
         let rewards = self.rewards.read().await;
         let rewards_snapshot = rewards.to_json();
         drop(rewards);
-        self.persistence.save_rewards(&rewards_snapshot)?;
+        self.storage.save_rewards(&rewards_snapshot)?;
 
         Ok(())
     }
@@ -2214,7 +2214,7 @@ impl NodeState {
         
         let contracts_data: Vec<_> = state.contracts.values().cloned().collect();
         drop(state);
-        self.persistence.save_contracts(&contracts_data)?;
+        self.storage.save_contracts(&contracts_data)?;
         Ok(())
     }
 
@@ -2244,7 +2244,7 @@ impl NodeState {
             
             let contracts_data: Vec<_> = state.contracts.values().cloned().collect();
             drop(state);
-            self.persistence.save_contracts(&contracts_data)?;
+            self.storage.save_contracts(&contracts_data)?;
             Ok(())
         } else {
             anyhow::bail!("Contract {} not found", contract_id)

@@ -17,6 +17,7 @@ mod gossip;
 mod network;
 mod persistence;
 mod proofs;
+mod storage;
 mod rewards;
 mod slashing;
 mod state;
