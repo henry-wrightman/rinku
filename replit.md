@@ -43,6 +43,13 @@ All transactions undergo comprehensive validation, including account existence, 
 
 Read-only endpoints (`GET /api/staking/:address`, `GET /api/rewards/:address`, `GET /api/contracts/:id`) remain available for querying state without authentication.
 
+### Scalable State Architecture (Phase 2 - January 2026)
+- **Persistent Storage:** Migrated from sled to redb (pure Rust, ACID, MVCC) with separate tables for accounts, DAG, checkpoints, validators, trie, metadata
+- **Binary Serialization:** bincode for efficient storage (vs JSON)
+- **DAG Pruning:** Checkpoint-bounded retention, configurable 100+ checkpoint window
+- **Sparse Merkle Trie:** 256-level trie for verifiable state roots with O(log n) proofs
+- **Sharding Design:** Account-based sharding strategy documented for billions of accounts (see SHARDING.md)
+
 ### Technical Implementations
 - **Core Library:** Shared library for types, cryptography (Web Crypto API), encoding, Merkle trees, DAG structures, and weight calculation.
 - **Fork Remediation Service:** Double-spend detection only. Multiple DAG tips are treated as healthy concurrent branches (not forks). Checkpointing naturally merges tips into finalized state. Only actual conflicts (same account + same nonce) trigger branch pruning.

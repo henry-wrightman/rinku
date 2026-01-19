@@ -83,15 +83,7 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
-packages = [
-  "nettools",
-  "rustc",
-  "circom",
-  "openssl",
-  "pkg-config",
-  "pandoc",
-  "jq",
-]
+packages = ["nettools", "rustc", "circom", "openssl", "pkg-config", "pandoc", "jq", "cmake", "clang", "libclang", "llvmPackages.libclang"]
 
 [deployment]
 deploymentTarget = "autoscale"

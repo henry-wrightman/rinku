@@ -47,6 +47,7 @@ petgraph = "0.6"
 
 # Persistence
 sled = "0.34"
+redb = "2.1"
 
 # Compression
 flate2 = "1.0"
