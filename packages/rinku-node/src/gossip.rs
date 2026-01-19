@@ -56,6 +56,7 @@ impl BoundedHashSet {
 }
 
 use crate::config::TrustConfig;
+use crate::network::NetworkHandle;
 use crate::state::{NodeState, SyncSnapshot};
 use crate::trust::TrustVerifier;
 
@@ -216,6 +217,7 @@ pub struct GossipService {
     interval_ms: u64,
     trust_verifier: Arc<TrustVerifier>,
     http_client: reqwest::Client,
+    network_handle: Option<Arc<tokio::sync::Mutex<NetworkHandle>>>,
 }
 
 impl GossipService {
@@ -266,19 +268,35 @@ impl GossipService {
             interval_ms,
             trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
             http_client,
+            network_handle: None,
         }
+    }
+
+    pub fn set_network_handle(&mut self, handle: NetworkHandle) {
+        self.network_handle = Some(Arc::new(tokio::sync::Mutex::new(handle)));
     }
 
     pub async fn start(self) -> Result<()> {
         let peer_count = self.inner.read().await.peers.len();
+        let has_p2p = self.network_handle.is_some();
         info!(
-            "Gossip service started (interval: {}ms, peers: {})",
+            "Gossip service started (interval: {}ms, peers: {}, p2p: {})",
             self.interval_ms,
-            peer_count
+            peer_count,
+            has_p2p
         );
 
         if peer_count > 0 {
             self.initial_sync().await;
+        }
+
+        // If we have a libp2p network handle, spawn a task to receive messages
+        if let Some(ref handle) = self.network_handle {
+            let gossip_clone = self.clone();
+            let handle_clone = handle.clone();
+            tokio::spawn(async move {
+                gossip_clone.run_p2p_receiver(handle_clone).await;
+            });
         }
 
         let mut tick = interval(Duration::from_millis(self.interval_ms));
@@ -286,6 +304,38 @@ impl GossipService {
         loop {
             tick.tick().await;
             self.gossip_round().await;
+        }
+    }
+
+    async fn run_p2p_receiver(&self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) {
+        info!("P2P message receiver started");
+        loop {
+            let message = {
+                let mut locked = handle.lock().await;
+                locked.message_rx.recv().await
+            };
+            
+            match message {
+                Some(msg) => {
+                    debug!("Received P2P gossip message: {:?}", std::mem::discriminant(&msg));
+                    if let Err(e) = self.handle_message(msg).await {
+                        warn!("Failed to handle P2P message: {}", e);
+                    }
+                }
+                None => {
+                    warn!("P2P message channel closed");
+                    break;
+                }
+            }
+        }
+    }
+
+    async fn broadcast_via_p2p(&self, message: &GossipMessage) {
+        if let Some(ref handle) = self.network_handle {
+            let locked = handle.lock().await;
+            if let Err(e) = locked.broadcast(message.clone()).await {
+                debug!("Failed to broadcast via P2P: {}", e);
+            }
         }
     }
 
@@ -681,6 +731,11 @@ impl GossipService {
             }
         }
 
+        // Also broadcast via libp2p if available
+        if self.network_handle.is_some() {
+            self.broadcast_via_p2p(&message).await;
+        }
+
         if success_count > 0 || fail_count > 0 {
             debug!(
                 "Gossip round: {}/{} tips announced to {} peers ({} failed), dag_size={}",
@@ -755,6 +810,10 @@ impl GossipService {
                 sender_url: public_url.clone(),
             };
 
+            // Broadcast via libp2p (reaches all connected peers)
+            self.broadcast_via_p2p(&message).await;
+
+            // Also send via HTTP to known HTTP peers
             for peer in &peers {
                 if let Err(e) = self.send_to_peer(peer, &message).await {
                     warn!("Failed to propagate tx {} to {}: {}", &tx.hash[..16.min(tx.hash.len())], peer, e);

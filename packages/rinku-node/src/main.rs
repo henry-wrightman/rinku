@@ -203,32 +203,9 @@ async fn main() -> Result<()> {
     });
     info!("Fork remediation service started");
 
-    // Create GossipService - shared between background task and API
-    let gossip_service = if config.gossip_enabled {
-        let service = GossipService::new(
-            state.clone(),
-            config.peers.clone(),
-            config.gossip_interval_ms,
-            config.trust.clone(),
-        );
-        let service_for_task = service.clone();
-        tokio::spawn(async move {
-            if let Err(e) = service_for_task.start().await {
-                tracing::error!("Gossip service error: {}", e);
-            }
-        });
-        info!(
-            "Gossip service started ({}ms interval)",
-            config.gossip_interval_ms
-        );
-        Some(service)
-    } else {
-        None
-    };
-
-    // Start libp2p NetworkService for production P2P
+    // Start libp2p NetworkService for production P2P (before GossipService so we can pass the handle)
     #[cfg(feature = "p2p")]
-    let _network_handle = if config.p2p.enabled {
+    let network_handle = if config.p2p.enabled {
         let network_config = NetworkConfig {
             listen_addr: config.p2p.listen_addr.clone(),
             bootstrap_peers: config.p2p.bootstrap_peers.clone(),
@@ -236,7 +213,7 @@ async fn main() -> Result<()> {
         };
         
         match NetworkService::new(network_config) {
-            Ok((mut network_service, network_handle)) => {
+            Ok((mut network_service, handle)) => {
                 let peer_id = network_service.local_peer_id();
                 info!("P2P network started with peer ID: {}", peer_id);
                 info!("P2P listening on: {}", config.p2p.listen_addr);
@@ -253,7 +230,7 @@ async fn main() -> Result<()> {
                     }
                 });
                 
-                Some(network_handle)
+                Some(handle)
             }
             Err(e) => {
                 warn!("Failed to start P2P network: {}", e);
@@ -262,6 +239,39 @@ async fn main() -> Result<()> {
         }
     } else {
         info!("P2P networking disabled (using HTTP gossip only)");
+        None
+    };
+
+    #[cfg(not(feature = "p2p"))]
+    let network_handle: Option<network::NetworkHandle> = None;
+
+    // Create GossipService - shared between background task and API
+    let gossip_service = if config.gossip_enabled {
+        let mut service = GossipService::new(
+            state.clone(),
+            config.peers.clone(),
+            config.gossip_interval_ms,
+            config.trust.clone(),
+        );
+        
+        // Wire up the libp2p network handle if available
+        if let Some(handle) = network_handle {
+            service.set_network_handle(handle);
+            info!("GossipService connected to libp2p network");
+        }
+        
+        let service_for_task = service.clone();
+        tokio::spawn(async move {
+            if let Err(e) = service_for_task.start().await {
+                tracing::error!("Gossip service error: {}", e);
+            }
+        });
+        info!(
+            "Gossip service started ({}ms interval)",
+            config.gossip_interval_ms
+        );
+        Some(service)
+    } else {
         None
     };
 
