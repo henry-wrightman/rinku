@@ -24,6 +24,7 @@ mod state_trie;
 mod tip_consolidator;
 mod trust;
 mod validator;
+mod validator_identity;
 mod versioning;
 #[cfg(feature = "zk")]
 mod zk;

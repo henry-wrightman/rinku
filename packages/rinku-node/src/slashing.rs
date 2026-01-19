@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{info, warn};
 
 pub const UNBONDING_PERIOD_MS: u64 = 14 * 24 * 60 * 60 * 1000;
 pub const SLASH_DOUBLE_SIGN_PERCENT: f64 = 0.15;
+pub const DOUBLE_SIGN_EVIDENCE_EXPIRY_MS: u64 = 24 * 60 * 60 * 1000;
 pub const SLASH_INVALID_CHECKPOINT_PERCENT: f64 = 0.25;
 pub const SLASH_INVALID_PROOF_PERCENT: f64 = 0.20;
 pub const SLASH_INVALID_WITNESS_PERCENT: f64 = 0.15;
@@ -69,10 +70,24 @@ struct LivenessRecord {
     last_failure: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoubleSignEvidence {
+    pub validator: String,
+    pub checkpoint_height: u64,
+    pub hash1: String,
+    pub hash2: String,
+    pub signature1: String,
+    pub signature2: Option<String>,
+    pub timestamp: u64,
+    pub processed: bool,
+}
+
 pub struct SlashingService {
     slash_events: Vec<SlashEvent>,
     unbonding_queue: Vec<UnbondingEntry>,
     liveness_failures: HashMap<String, LivenessRecord>,
+    double_sign_evidence: Vec<DoubleSignEvidence>,
     total_slashed: f64,
     next_slash_id: u64,
 }
@@ -80,6 +95,7 @@ pub struct SlashingService {
 impl SlashingService {
     pub fn new() -> Self {
         Self {
+            double_sign_evidence: Vec::new(),
             slash_events: Vec::new(),
             unbonding_queue: Vec::new(),
             liveness_failures: HashMap::new(),
@@ -188,6 +204,105 @@ impl SlashingService {
         self.liveness_failures.remove(validator);
     }
 
+    pub fn submit_double_sign_evidence(
+        &mut self,
+        validator: String,
+        checkpoint_height: u64,
+        hash1: String,
+        hash2: String,
+        signature1: String,
+        signature2: Option<String>,
+    ) -> bool {
+        if hash1 == hash2 {
+            return false;
+        }
+
+        let already_exists = self.double_sign_evidence.iter().any(|e| {
+            e.validator == validator
+                && e.checkpoint_height == checkpoint_height
+                && ((e.hash1 == hash1 && e.hash2 == hash2)
+                    || (e.hash1 == hash2 && e.hash2 == hash1))
+        });
+
+        if already_exists {
+            return false;
+        }
+
+        let evidence = DoubleSignEvidence {
+            validator: validator.clone(),
+            checkpoint_height,
+            hash1,
+            hash2,
+            signature1,
+            signature2,
+            timestamp: Self::current_time_ms(),
+            processed: false,
+        };
+
+        info!(
+            "Double-sign evidence submitted for validator {} at height {}",
+            validator, checkpoint_height
+        );
+
+        self.double_sign_evidence.push(evidence);
+        true
+    }
+
+    pub fn process_double_sign_evidence(&mut self, stake_amount: f64) -> Vec<SlashEvent> {
+        let mut events = Vec::new();
+        let now = Self::current_time_ms();
+
+        let mut to_slash: Vec<(String, u64, String, String)> = Vec::new();
+
+        for evidence in &mut self.double_sign_evidence {
+            if evidence.processed {
+                continue;
+            }
+
+            if now - evidence.timestamp > DOUBLE_SIGN_EVIDENCE_EXPIRY_MS {
+                evidence.processed = true;
+                continue;
+            }
+
+            to_slash.push((
+                evidence.validator.clone(),
+                evidence.checkpoint_height,
+                evidence.hash1.clone(),
+                evidence.hash2.clone(),
+            ));
+            evidence.processed = true;
+        }
+
+        for (validator, height, hash1, hash2) in to_slash {
+            if let Some(event) = self.slash(
+                &validator,
+                stake_amount,
+                SlashReason::DoubleSign,
+                height,
+                Some(format!(
+                    "Double-signed checkpoint: {} vs {}",
+                    &hash1[..16.min(hash1.len())],
+                    &hash2[..16.min(hash2.len())]
+                )),
+            ) {
+                events.push(event);
+            }
+        }
+
+        self.double_sign_evidence.retain(|e| {
+            !e.processed || (now - e.timestamp < DOUBLE_SIGN_EVIDENCE_EXPIRY_MS)
+        });
+
+        events
+    }
+
+    pub fn get_pending_evidence(&self) -> Vec<&DoubleSignEvidence> {
+        self.double_sign_evidence
+            .iter()
+            .filter(|e| !e.processed)
+            .collect()
+    }
+
     pub fn start_unbonding(&mut self, validator: &str, amount: f64) -> UnbondingEntry {
         let now = Self::current_time_ms();
 
@@ -285,6 +400,7 @@ impl SlashingService {
                     (k, LivenessRecord { count: v.count, last_failure: v.last_failure })
                 })
                 .collect(),
+            double_sign_evidence: Vec::new(),
             next_slash_id,
         }
     }
@@ -361,5 +477,87 @@ mod tests {
         assert_eq!(service.get_unbonding_queue().len(), 1);
         assert_eq!(service.get_unbonding_for_validator("v1").len(), 1);
         assert_eq!(service.get_unbonding_for_validator("v2").len(), 0);
+    }
+
+    #[test]
+    fn test_double_sign_evidence_submission() {
+        let mut service = SlashingService::new();
+        
+        let submitted = service.submit_double_sign_evidence(
+            "validator1".to_string(),
+            100,
+            "hash1".to_string(),
+            "hash2".to_string(),
+            "sig1".to_string(),
+            Some("sig2".to_string()),
+        );
+        
+        assert!(submitted);
+        assert_eq!(service.get_pending_evidence().len(), 1);
+    }
+
+    #[test]
+    fn test_double_sign_same_hash_rejected() {
+        let mut service = SlashingService::new();
+        
+        let submitted = service.submit_double_sign_evidence(
+            "validator1".to_string(),
+            100,
+            "same_hash".to_string(),
+            "same_hash".to_string(),
+            "sig1".to_string(),
+            None,
+        );
+        
+        assert!(!submitted, "Same hash should be rejected");
+        assert_eq!(service.get_pending_evidence().len(), 0);
+    }
+
+    #[test]
+    fn test_double_sign_duplicate_rejected() {
+        let mut service = SlashingService::new();
+        
+        service.submit_double_sign_evidence(
+            "validator1".to_string(),
+            100,
+            "hash1".to_string(),
+            "hash2".to_string(),
+            "sig1".to_string(),
+            None,
+        );
+        
+        let duplicate = service.submit_double_sign_evidence(
+            "validator1".to_string(),
+            100,
+            "hash1".to_string(),
+            "hash2".to_string(),
+            "sig1".to_string(),
+            None,
+        );
+        
+        assert!(!duplicate, "Duplicate evidence should be rejected");
+        assert_eq!(service.get_pending_evidence().len(), 1);
+    }
+
+    #[test]
+    fn test_process_double_sign_evidence() {
+        let mut service = SlashingService::new();
+        
+        service.submit_double_sign_evidence(
+            "validator1".to_string(),
+            100,
+            "hash1".to_string(),
+            "hash2".to_string(),
+            "sig1".to_string(),
+            None,
+        );
+        
+        let events = service.process_double_sign_evidence(1000.0);
+        
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].validator, "validator1");
+        assert_eq!(events[0].reason, SlashReason::DoubleSign);
+        assert_eq!(events[0].amount, 150.0);
+        assert_eq!(service.get_pending_evidence().len(), 0);
     }
 }

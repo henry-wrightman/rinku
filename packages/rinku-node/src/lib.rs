@@ -19,6 +19,7 @@ pub mod state_trie;
 pub mod tip_consolidator;
 pub mod trust;
 pub mod validator;
+pub mod validator_identity;
 pub mod versioning;
 #[cfg(feature = "zk")]
 pub mod zk;
