@@ -1823,8 +1823,34 @@ impl NodeState {
             snapshot.dag_transactions.len()
         );
 
-        // Apply derived state from peer
-        state.accounts = snapshot.accounts;
+        // MERGE accounts from peer instead of replacing
+        // This ensures accounts created on different nodes are preserved during sync
+        // For conflicts, keep the account with higher nonce (more transactions processed)
+        let mut merged_accounts = state.accounts.clone();
+        let mut accounts_added = 0;
+        let mut accounts_updated = 0;
+        
+        for (fingerprint, peer_account) in snapshot.accounts.iter() {
+            if let Some(local_account) = merged_accounts.get(fingerprint) {
+                // Account exists in both - keep the one with higher nonce
+                // Higher nonce means more transactions processed = more authoritative
+                if peer_account.nonce > local_account.nonce {
+                    merged_accounts.insert(fingerprint.clone(), peer_account.clone());
+                    accounts_updated += 1;
+                }
+            } else {
+                // Account only exists on peer - add it
+                merged_accounts.insert(fingerprint.clone(), peer_account.clone());
+                accounts_added += 1;
+            }
+        }
+        
+        info!(
+            "Account merge: {} added from peer, {} updated (higher nonce), {} total",
+            accounts_added, accounts_updated, merged_accounts.len()
+        );
+        
+        state.accounts = merged_accounts;
         state.validators = snapshot.validators;
         state.checkpoints = snapshot.checkpoints.clone();
         state.current_gas_price = snapshot.gas_price;

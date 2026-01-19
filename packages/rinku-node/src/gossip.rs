@@ -768,28 +768,25 @@ impl GossipService {
                             }
                         }
                     } else if status.checkpoint_height == local_checkpoint && status.faucet_balance > 0.0 {
-                        // ACCOUNT STATE VERIFICATION: Even when checkpoints match, account balances may differ
-                        // This can happen if earlier checkpoints diverged but later ones converged
+                        // ACCOUNT STATE VERIFICATION: Even when checkpoints match, account states may differ
+                        // This can happen when different faucets create different wallets on different nodes
                         // Compare faucet balance as a proxy for overall account state consistency
                         let local_faucet_balance = self.state.get_faucet_balance().await;
                         let balance_diff = (status.faucet_balance - local_faucet_balance).abs();
                         
-                        // If faucet balances differ by more than 1.0 RKU, we have state divergence
-                        // Force a snapshot sync from the peer with the higher faucet balance (more conservative)
+                        // If faucet balances differ by more than 1.0 RKU, we likely have different accounts
+                        // Merge accounts from peer regardless of which has higher faucet balance
+                        // The snapshot apply now MERGES accounts instead of replacing, so this is safe
                         if balance_diff > 1.0 {
-                            warn!(
-                                "[StateVerification] Faucet balance mismatch with peer {}: local={:.2}, peer={:.2}, diff={:.2}",
+                            info!(
+                                "[AccountSync] Faucet balance differs from peer {}: local={:.2}, peer={:.2}, diff={:.2} - merging accounts",
                                 peer, local_faucet_balance, status.faucet_balance, balance_diff
                             );
                             
-                            // Sync from peer with higher faucet balance (they have less distributed funds = more conservative)
-                            if status.faucet_balance > local_faucet_balance {
-                                warn!("[StateVerification] Peer has higher faucet balance - forcing snapshot sync to fix state divergence");
-                                if let Err(e) = self.bootstrap_from_peer_force(peer).await {
-                                    warn!("RECOVERY: Force snapshot sync from {} failed: {}", peer, e);
-                                }
-                            } else {
-                                info!("[StateVerification] We have higher faucet balance - peer should sync from us");
+                            // Always sync from peer to merge their accounts into ours
+                            // The apply_sync_snapshot now merges instead of replacing
+                            if let Err(e) = self.bootstrap_from_peer_force(peer).await {
+                                warn!("[AccountSync] Merge sync from {} failed: {}", peer, e);
                             }
                         }
                     }
