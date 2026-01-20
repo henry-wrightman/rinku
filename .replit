@@ -114,6 +114,10 @@ externalPort = 80
 localPort = 5001
 externalPort = 3000
 
+[[ports]]
+localPort = 9999
+externalPort = 6000
+
 [nix]
 channel = "stable-25_05"
 packages = [
@@ -132,16 +136,8 @@ packages = [
 
 [deployment]
 deploymentTarget = "autoscale"
-run = [
-  "sh",
-  "-c",
-  "bash -c NODE_PEERS='' VITE_API_URL=https://rinku-genesis.fly.dev PUBLIC_URL=https://rinkuchan.com ./rinku-node-bin",
-]
-build = [
-  "sh",
-  "-c",
-  "bash -c rm -f rinku-node-bin; cargo build --release -p rinku-node --no-default-features && cp target/release/rinku-node rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer",
-]
+run = ["./rinku-node-bin"]
+build = ["bash", "-c", "rm -f rinku-node-bin && cargo build --release -p rinku-node --no-default-features && cp target/release/rinku-node rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
 
 [userenv]
 
