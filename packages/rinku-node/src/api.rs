@@ -733,7 +733,7 @@ async fn get_sync_transactions(
 }
 
 async fn handle_faucet_request(
-    State(state): State<NodeState>,
+    State(api_state): State<ApiState>,
     Json(req): Json<FaucetRequest>,
 ) -> impl IntoResponse {
     let address = req.address.trim().to_string();
@@ -766,6 +766,7 @@ async fn handle_faucet_request(
         rate_limit.insert(address.clone(), now);
     }
 
+    let state = &api_state.node_state;
     let tips = state.get_tips().await;
     let tip_urls: Vec<String> = tips
         .into_iter()
@@ -779,7 +780,7 @@ async fn handle_faucet_request(
 
     let inner_tx = rinku_core::types::Transaction {
         from: "faucet".to_string(),
-        to: address,
+        to: address.clone(),
         amount: FAUCET_AMOUNT,
         nonce,
         timestamp: now,
@@ -801,15 +802,22 @@ async fn handle_faucet_request(
     let hash = rinku_core::crypto::hash_transaction(&tx_json);
     let tx = rinku_core::types::SignedTransaction { hash: hash.clone(), ..tx };
 
-    match state.add_transaction(tx).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(serde_json::json!(FaucetResponse {
-                success: true,
-                amount: FAUCET_AMOUNT,
-                tx_hash: hash,
-            })),
-        ).into_response(),
+    match state.add_transaction(tx.clone()).await {
+        Ok(_) => {
+            // Broadcast to peers after successful local add
+            if let Some(ref gossip) = api_state.gossip_service {
+                gossip.broadcast_transaction(tx).await;
+                info!("Faucet tx {} to {} broadcast to peers", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!(FaucetResponse {
+                    success: true,
+                    amount: FAUCET_AMOUNT,
+                    tx_hash: hash,
+                })),
+            ).into_response()
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": e.to_string() })),
@@ -2168,12 +2176,14 @@ pub async fn start_api_server(
         gossip_service,
     };
 
-    // Routes that need ApiState (gossip + transaction submission for broadcasting)
+    // Routes that need ApiState (gossip + transaction submission + faucet for broadcasting)
     let gossip_routes = Router::new()
         .route("/api/gossip", post(post_gossip))
         .route("/api/gossip/stats", get(get_gossip_stats))
         .route("/api/tx", post(submit_transaction))
         .route("/api/tx/batch", post(submit_batch_transaction))
+        .route("/api/request", post(handle_faucet_request))
+        .route("/api/faucet/request", post(handle_faucet_request))
         .layer(cors.clone())
         .with_state(api_state);
 
@@ -2185,8 +2195,6 @@ pub async fn start_api_server(
         .route("/api/faucet/stats", get(get_faucet_stats))
         .route("/api/tips", get(get_tips))
         .route("/api/tipUrls", get(get_tip_urls))
-        .route("/api/request", post(handle_faucet_request))
-        .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/account/:address", get(get_account))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/txp/:hash", get(get_self_provable_tx))
