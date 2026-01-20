@@ -2279,6 +2279,11 @@ pub async fn start_api_server(
     // Merge both routers
     let api_routes = gossip_routes.merge(node_routes);
 
+    // Root health check handler for API-only mode
+    async fn root_health() -> impl IntoResponse {
+        Json(serde_json::json!({ "status": "ok", "mode": "api-only" }))
+    }
+
     let app = if let Some(static_path) = static_dir {
         if static_path.exists() {
             let index_path = static_path.join("index.html");
@@ -2287,11 +2292,12 @@ pub async fn start_api_server(
             info!("Serving static files from {:?}", static_path);
             api_routes.fallback_service(serve_dir)
         } else {
-            info!("Static directory {:?} not found, API-only mode", static_path);
-            api_routes
+            info!("Static directory {:?} not found, API-only mode with root health check", static_path);
+            api_routes.route("/", get(root_health))
         }
     } else {
-        api_routes
+        info!("No STATIC_DIR configured, API-only mode with root health check");
+        api_routes.route("/", get(root_health))
     };
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

@@ -1,0 +1,562 @@
+ly logs -a rinku-validator-1 
+Waiting for logs...
+20:06:24
+Pulling container image registry.fly.io/rinku-validator-1@sha256:5c679b6c62976fb8314fe5183d002744ae1188bb4e261fd88839d4eb17d3ffff
+20:06:25
+Successfully prepared image registry.fly.io/rinku-validator-1@sha256:5c679b6c62976fb8314fe5183d002744ae1188bb4e261fd88839d4eb17d3ffff (977.981475ms)
+20:06:25
+Setting up volume 'rinku_data'
+20:06:25
+Uninitialized volume 'rinku_data', initializing...
+20:06:25
+Encrypting volume
+20:06:26
+Opening encrypted volume
+20:06:26
+Formatting volume
+20:06:27
+Configuring firecracker
+20:06:27
+2026-01-20T20:06:27.418381873 [01KFEG7YW5NZ7QRATV60RWPE6F:main] Running Firecracker v1.12.1
+20:06:27
+2026-01-20T20:06:27.418543919 [01KFEG7YW5NZ7QRATV60RWPE6F:main] Listening on API socket ("/fc.sock").
+20:06:28
+ INFO Starting init (commit: 6f59af0a)...
+20:06:28
+ INFO Checking filesystem on /data
+20:06:28
+/dev/vdc: clean, 11/64512 files, 8785/258048 blocks
+20:06:28
+ INFO Mounting /dev/vdc at /data w/ uid: 0, gid: 0 and chmod 0755
+20:06:28
+ INFO Resized /data to 1056964608 bytes
+20:06:28
+ INFO Preparing to run: `/app/rinku-node` as root
+20:06:28
+ INFO [fly api proxy] listening at /.fly/api
+20:06:28
+2026-01-20T20:06:28.427522Z  INFO rinku_node: Starting Rinku Node v0.1.0
+20:06:28
+2026-01-20T20:06:28.427615Z  INFO rinku_node: Process PID: 649
+20:06:28
+2026-01-20T20:06:28.429989Z  INFO rinku_node: Node ID: 8bcf0ae926de8449
+20:06:28
+2026-01-20T20:06:28.430028Z  INFO rinku_node: Data dir: /data
+20:06:28
+2026-01-20T20:06:28.434245Z  INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+20:06:28
+2026-01-20T20:06:28.434261Z  INFO rinku_node: Data directory exists, checking for stale locks...
+20:06:28
+2026-01-20T20:06:28.434620Z  INFO rinku_node: Initializing node state...
+20:06:28
+2026-01-20T20:06:28.457981Z  INFO rinku_node::storage: Opened redb database at /data/redb.db
+20:06:28
+2026-01-20T20:06:28.458055Z  WARN rinku_node::storage: No snapshot found in redb, starting fresh
+20:06:28
+2026-01-20T20:06:28.458165Z  INFO rinku_node::state: Faucet account initialized with 1000000 RKU
+20:06:28
+2026-01-20T20:06:28.458475Z  INFO rinku_node::state: Genesis transaction created: 5d104b2cc495687b
+20:06:28
+2026-01-20T20:06:28.458549Z  WARN rinku_node::storage: No rewards snapshot found, starting fresh
+20:06:28
+2026-01-20T20:06:28.458983Z  INFO rinku_node::validator: Generated new validator key: b6486d630ef42e84...
+20:06:28
+2026-01-20T20:06:28.462325Z  INFO rinku_node: Validator key loaded: b6486d630ef42e84...
+20:06:28
+2026-01-20T20:06:28.462336Z  INFO rinku_node: Gas service initialized
+20:06:28
+2026-01-20T20:06:28.462339Z  INFO rinku_node: Rewards service initialized
+20:06:28
+2026-01-20T20:06:28.462341Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+20:06:28
+2026-01-20T20:06:28.462344Z  INFO rinku_node: Slashing service initialized
+20:06:28
+2026-01-20T20:06:28.462350Z  INFO rinku_node: Consensus service initialized with slashing integration
+20:06:28
+2026-01-20T20:06:28.463087Z  INFO rinku_node::validator_identity: Generated and saved new validator keys: 082aa70fd9340ac62fc6522a321d9b1b09eea2f9
+20:06:28
+2026-01-20T20:06:28.463197Z  INFO rinku_node: Validator identity service initialized (epoch: 0)
+20:06:28
+2026-01-20T20:06:28.466349Z  INFO rinku_node::dag_pruning: DAG pruning service initialized: retain 100 checkpoints, max 100000 nodes
+20:06:28
+2026-01-20T20:06:28.466369Z  INFO rinku_node: BLS public key: hSmCSBZZNU10FVUZ7YUqlLD5mgbT9JB7...
+20:06:28
+2026-01-20T20:06:28.466385Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+20:06:28
+2026-01-20T20:06:28.466393Z  INFO rinku_node: Fork remediation service started
+20:06:28
+2026-01-20T20:06:28.466584Z  INFO rinku_node::checkpoint: Signing genesis checkpoint with node's BLS key
+20:06:28
+2026-01-20T20:06:28.467179Z  INFO rinku_node::checkpoint: Genesis checkpoint signed: 3542cb47275487a7
+20:06:28
+2026-01-20T20:06:28.467192Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+20:06:28
+2026-01-20T20:06:28.466466Z  INFO rinku_node::network: Local peer id: 12D3KooWBs5dHtLiig2TPbib4SvEzqM2jXY4Qjpjj1aXk9w9aK5H
+20:06:28
+2026-01-20T20:06:28.468104Z  INFO rinku_node: P2P network started with peer ID: 12D3KooWBs5dHtLiig2TPbib4SvEzqM2jXY4Qjpjj1aXk9w9aK5H
+20:06:28
+2026-01-20T20:06:28.468252Z  INFO rinku_node: P2P listening on: /ip4/0.0.0.0/tcp/4001
+20:06:28
+2026-01-20T20:06:28.468287Z  INFO rinku_node: P2P bootstrap peers: ["/ip4/137.66.42.118/tcp/4001/p2p/12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i"]
+20:06:28
+2026-01-20T20:06:28.468430Z  INFO rinku_node: P2P mDNS discovery enabled (LAN peers)
+20:06:28
+2026-01-20T20:06:28.470510Z  INFO rinku_node::network: Dialing bootstrap peer: /ip4/137.66.42.118/tcp/4001/p2p/12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i
+20:06:28
+2026-01-20T20:06:28.470608Z  INFO rinku_node::network: Network service started on /ip4/0.0.0.0/tcp/4001
+20:06:28
+2026-01-20T20:06:28.472651Z  INFO rinku_node::network: Listening on /ip4/127.0.0.1/tcp/4001
+20:06:28
+2026-01-20T20:06:28.473505Z  INFO rinku_node::network: Listening on /ip4/172.19.9.74/tcp/4001
+20:06:28
+2026-01-20T20:06:28.474244Z  INFO rinku_node::network: Listening on /ip4/172.19.9.75/tcp/4001
+20:06:28
+Machine created and started in 3.92s
+20:06:28
+2026-01-20T20:06:28.498419Z  INFO rinku_node::network: Connected to peer: 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i via Dialer { address: /ip4/137.66.42.118/tcp/4001/p2p/12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i, role_override: Dialer, port_use: Reuse }
+20:06:28
+2026-01-20T20:06:28.574624Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:06:28
+2026-01-20T20:06:28.606803Z  INFO rinku_node: GossipService connected to libp2p network
+20:06:28
+2026-01-20T20:06:28.606889Z  INFO rinku_node: Gossip service started (200ms interval)
+20:06:28
+2026-01-20T20:06:28.606988Z  INFO rinku_node: Tip consolidation service started
+20:06:28
+2026-01-20T20:06:28.607014Z  INFO rinku_node: Snapshot persistence started (60s interval)
+20:06:28
+2026-01-20T20:06:28.607119Z  INFO rinku_node: STATIC_DIR config: None
+20:06:28
+2026-01-20T20:06:28.607276Z  INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 0, p2p: true)
+20:06:28
+2026-01-20T20:06:28.607310Z  INFO rinku_node::gossip: P2P message receiver started
+20:06:28
+2026-01-20T20:06:28.607339Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 500, interval: 1000ms)
+20:06:28
+2026-01-20T20:06:28.607855Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+20:06:28
+2026-01-20T20:06:28.608877Z  INFO rinku_node: Rinku Node running on port 8080
+20:06:28
+2026-01-20T20:06:28.608928Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+20:06:28
+2026-01-20T20:06:28.609199Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+20:06:28
+2026-01-20T20:06:28.619767Z  INFO rinku_node::network: Peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i subscribed to TopicHash { hash: "rinku/1.0.0" }
+20:06:28
+2026/01/20 20:06:28 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:59c:20a5:7389:2]:22
+20:06:28
+Health check 'metrics' on port 8080 is now passing.
+20:06:28
+Health check 'health' on port 8080 is now passing.
+20:07:28
+2026-01-20T20:07:28.469766Z  INFO rinku_node::validator_identity: Epoch transition: 0 -> 1
+20:07:28
+2026-01-20T20:07:28.469897Z  INFO rinku_node::checkpoint: Epoch transition: 0 -> 1 (activated: 0, exited: 0)
+20:08:28
+2026-01-20T20:08:28.471422Z  INFO rinku_node::validator_identity: Epoch transition: 1 -> 2
+20:08:28
+2026-01-20T20:08:28.471635Z  INFO rinku_node::checkpoint: Epoch transition: 1 -> 2 (activated: 0, exited: 0)
+20:09:28
+2026-01-20T20:09:28.472088Z  INFO rinku_node::validator_identity: Epoch transition: 2 -> 3
+20:09:28
+2026-01-20T20:09:28.472272Z  INFO rinku_node::checkpoint: Epoch transition: 2 -> 3 (activated: 0, exited: 0)
+20:10:28
+2026-01-20T20:10:28.472758Z  INFO rinku_node::validator_identity: Epoch transition: 3 -> 4
+20:10:28
+2026-01-20T20:10:28.472967Z  INFO rinku_node::checkpoint: Epoch transition: 3 -> 4 (activated: 0, exited: 0)
+20:11:28
+2026-01-20T20:11:28.474329Z  INFO rinku_node::validator_identity: Epoch transition: 4 -> 5
+20:11:28
+2026-01-20T20:11:28.474531Z  INFO rinku_node::checkpoint: Epoch transition: 4 -> 5 (activated: 0, exited: 0)
+20:11:28
+2026-01-20T20:11:28.494412Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:12:28
+2026-01-20T20:12:28.476179Z  INFO rinku_node::validator_identity: Epoch transition: 5 -> 6
+20:12:28
+2026-01-20T20:12:28.476362Z  INFO rinku_node::checkpoint: Epoch transition: 5 -> 6 (activated: 0, exited: 0)
+20:13:28
+2026-01-20T20:13:28.476745Z  INFO rinku_node::validator_identity: Epoch transition: 6 -> 7
+20:13:28
+2026-01-20T20:13:28.476966Z  INFO rinku_node::checkpoint: Epoch transition: 6 -> 7 (activated: 0, exited: 0)
+20:14:28
+2026-01-20T20:14:28.477298Z  INFO rinku_node::validator_identity: Epoch transition: 7 -> 8
+20:14:28
+2026-01-20T20:14:28.477472Z  INFO rinku_node::checkpoint: Epoch transition: 7 -> 8 (activated: 0, exited: 0)
+20:15:28
+2026-01-20T20:15:28.477933Z  INFO rinku_node::validator_identity: Epoch transition: 8 -> 9
+20:15:28
+2026-01-20T20:15:28.478106Z  INFO rinku_node::checkpoint: Epoch transition: 8 -> 9 (activated: 0, exited: 0)
+20:16:28
+2026-01-20T20:16:28.478817Z  INFO rinku_node::validator_identity: Epoch transition: 9 -> 10
+20:16:28
+2026-01-20T20:16:28.478998Z  INFO rinku_node::checkpoint: Epoch transition: 9 -> 10 (activated: 0, exited: 0)
+20:16:28
+2026-01-20T20:16:28.487309Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:17:28
+2026-01-20T20:17:28.479315Z  INFO rinku_node::validator_identity: Epoch transition: 10 -> 11
+20:17:28
+2026-01-20T20:17:28.479520Z  INFO rinku_node::checkpoint: Epoch transition: 10 -> 11 (activated: 0, exited: 0)
+20:18:28
+2026-01-20T20:18:28.480115Z  INFO rinku_node::validator_identity: Epoch transition: 11 -> 12
+20:18:28
+2026-01-20T20:18:28.480296Z  INFO rinku_node::checkpoint: Epoch transition: 11 -> 12 (activated: 0, exited: 0)
+20:19:28
+2026-01-20T20:19:28.480638Z  INFO rinku_node::validator_identity: Epoch transition: 12 -> 13
+20:19:28
+2026-01-20T20:19:28.480907Z  INFO rinku_node::checkpoint: Epoch transition: 12 -> 13 (activated: 0, exited: 0)
+20:20:28
+2026-01-20T20:20:28.481306Z  INFO rinku_node::validator_identity: Epoch transition: 13 -> 14
+20:20:28
+2026-01-20T20:20:28.481485Z  INFO rinku_node::checkpoint: Epoch transition: 13 -> 14 (activated: 0, exited: 0)
+20:21:28
+2026-01-20T20:21:28.480764Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:21:28
+2026-01-20T20:21:28.481911Z  INFO rinku_node::validator_identity: Epoch transition: 14 -> 15
+20:21:28
+2026-01-20T20:21:28.482055Z  INFO rinku_node::checkpoint: Epoch transition: 14 -> 15 (activated: 0, exited: 0)
+20:22:28
+2026-01-20T20:22:28.482613Z  INFO rinku_node::validator_identity: Epoch transition: 15 -> 16
+20:22:28
+2026-01-20T20:22:28.482842Z  INFO rinku_node::checkpoint: Epoch transition: 15 -> 16 (activated: 0, exited: 0)
+20:23:28
+2026-01-20T20:23:28.483194Z  INFO rinku_node::validator_identity: Epoch transition: 16 -> 17
+20:23:28
+2026-01-20T20:23:28.483392Z  INFO rinku_node::checkpoint: Epoch transition: 16 -> 17 (activated: 0, exited: 0)
+20:24:28
+2026-01-20T20:24:28.483904Z  INFO rinku_node::validator_identity: Epoch transition: 17 -> 18
+20:24:28
+2026-01-20T20:24:28.484085Z  INFO rinku_node::checkpoint: Epoch transition: 17 -> 18 (activated: 0, exited: 0)
+20:25:28
+2026-01-20T20:25:28.484627Z  INFO rinku_node::validator_identity: Epoch transition: 18 -> 19
+20:25:28
+2026-01-20T20:25:28.484807Z  INFO rinku_node::checkpoint: Epoch transition: 18 -> 19 (activated: 0, exited: 0)
+20:26:28
+2026-01-20T20:26:28.485695Z  INFO rinku_node::validator_identity: Epoch transition: 19 -> 20
+20:26:28
+2026-01-20T20:26:28.485867Z  INFO rinku_node::checkpoint: Epoch transition: 19 -> 20 (activated: 0, exited: 0)
+20:26:28
+2026-01-20T20:26:28.517306Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:27:28
+2026-01-20T20:27:28.486939Z  INFO rinku_node::validator_identity: Epoch transition: 20 -> 21
+20:27:28
+2026-01-20T20:27:28.487103Z  INFO rinku_node::checkpoint: Epoch transition: 20 -> 21 (activated: 0, exited: 0)
+20:28:28
+2026-01-20T20:28:28.487559Z  INFO rinku_node::validator_identity: Epoch transition: 21 -> 22
+20:28:28
+2026-01-20T20:28:28.487728Z  INFO rinku_node::checkpoint: Epoch transition: 21 -> 22 (activated: 0, exited: 0)
+20:29:28
+2026-01-20T20:29:28.488157Z  INFO rinku_node::validator_identity: Epoch transition: 22 -> 23
+20:29:28
+2026-01-20T20:29:28.488325Z  INFO rinku_node::checkpoint: Epoch transition: 22 -> 23 (activated: 0, exited: 0)
+20:30:28
+2026-01-20T20:30:28.488839Z  INFO rinku_node::validator_identity: Epoch transition: 23 -> 24
+20:30:28
+2026-01-20T20:30:28.489005Z  INFO rinku_node::checkpoint: Epoch transition: 23 -> 24 (activated: 0, exited: 0)
+20:31:28
+2026-01-20T20:31:28.467621Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:31:28
+2026-01-20T20:31:28.489096Z  INFO rinku_node::validator_identity: Epoch transition: 24 -> 25
+20:31:28
+2026-01-20T20:31:28.489257Z  INFO rinku_node::checkpoint: Epoch transition: 24 -> 25 (activated: 0, exited: 0)
+20:32:28
+2026-01-20T20:32:28.490157Z  INFO rinku_node::validator_identity: Epoch transition: 25 -> 26
+20:32:28
+2026-01-20T20:32:28.490315Z  INFO rinku_node::checkpoint: Epoch transition: 25 -> 26 (activated: 0, exited: 0)
+20:33:28
+2026-01-20T20:33:28.490830Z  INFO rinku_node::validator_identity: Epoch transition: 26 -> 27
+20:33:28
+2026-01-20T20:33:28.490984Z  INFO rinku_node::checkpoint: Epoch transition: 26 -> 27 (activated: 0, exited: 0)
+20:34:28
+2026-01-20T20:34:28.491526Z  INFO rinku_node::validator_identity: Epoch transition: 27 -> 28
+20:34:28
+2026-01-20T20:34:28.491685Z  INFO rinku_node::checkpoint: Epoch transition: 27 -> 28 (activated: 0, exited: 0)
+20:35:28
+2026-01-20T20:35:28.493124Z  INFO rinku_node::validator_identity: Epoch transition: 28 -> 29
+20:35:28
+2026-01-20T20:35:28.493279Z  INFO rinku_node::checkpoint: Epoch transition: 28 -> 29 (activated: 0, exited: 0)
+20:36:28
+2026-01-20T20:36:28.460793Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:36:28
+2026-01-20T20:36:28.494642Z  INFO rinku_node::validator_identity: Epoch transition: 29 -> 30
+20:36:28
+2026-01-20T20:36:28.494887Z  INFO rinku_node::checkpoint: Epoch transition: 29 -> 30 (activated: 0, exited: 0)
+20:37:28
+2026-01-20T20:37:28.496450Z  INFO rinku_node::validator_identity: Epoch transition: 30 -> 31
+20:37:28
+2026-01-20T20:37:28.496609Z  INFO rinku_node::checkpoint: Epoch transition: 30 -> 31 (activated: 0, exited: 0)
+20:38:28
+2026-01-20T20:38:28.497220Z  INFO rinku_node::validator_identity: Epoch transition: 31 -> 32
+20:38:28
+2026-01-20T20:38:28.497425Z  INFO rinku_node::checkpoint: Epoch transition: 31 -> 32 (activated: 0, exited: 0)
+20:39:28
+2026-01-20T20:39:28.498697Z  INFO rinku_node::validator_identity: Epoch transition: 32 -> 33
+20:39:28
+2026-01-20T20:39:28.498897Z  INFO rinku_node::checkpoint: Epoch transition: 32 -> 33 (activated: 0, exited: 0)
+20:40:28
+2026-01-20T20:40:28.499465Z  INFO rinku_node::validator_identity: Epoch transition: 33 -> 34
+20:40:28
+2026-01-20T20:40:28.499715Z  INFO rinku_node::checkpoint: Epoch transition: 33 -> 34 (activated: 0, exited: 0)
+20:41:28
+2026-01-20T20:41:28.497115Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:41:28
+2026-01-20T20:41:28.500320Z  INFO rinku_node::validator_identity: Epoch transition: 34 -> 35
+20:41:28
+2026-01-20T20:41:28.500472Z  INFO rinku_node::checkpoint: Epoch transition: 34 -> 35 (activated: 0, exited: 0)
+20:42:28
+2026-01-20T20:42:28.501786Z  INFO rinku_node::validator_identity: Epoch transition: 35 -> 36
+20:42:28
+2026-01-20T20:42:28.501950Z  INFO rinku_node::checkpoint: Epoch transition: 35 -> 36 (activated: 0, exited: 0)
+20:43:28
+2026-01-20T20:43:28.503378Z  INFO rinku_node::validator_identity: Epoch transition: 36 -> 37
+20:43:28
+2026-01-20T20:43:28.503606Z  INFO rinku_node::checkpoint: Epoch transition: 36 -> 37 (activated: 0, exited: 0)
+20:44:28
+2026-01-20T20:44:28.504102Z  INFO rinku_node::validator_identity: Epoch transition: 37 -> 38
+20:44:28
+2026-01-20T20:44:28.504282Z  INFO rinku_node::checkpoint: Epoch transition: 37 -> 38 (activated: 0, exited: 0)
+20:45:28
+2026-01-20T20:45:28.504664Z  INFO rinku_node::validator_identity: Epoch transition: 38 -> 39
+20:45:28
+2026-01-20T20:45:28.504878Z  INFO rinku_node::checkpoint: Epoch transition: 38 -> 39 (activated: 0, exited: 0)
+20:46:28
+2026-01-20T20:46:28.467365Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:46:28
+2026-01-20T20:46:28.505986Z  INFO rinku_node::validator_identity: Epoch transition: 39 -> 40
+20:46:28
+2026-01-20T20:46:28.506159Z  INFO rinku_node::checkpoint: Epoch transition: 39 -> 40 (activated: 0, exited: 0)
+20:47:28
+2026-01-20T20:47:28.507287Z  INFO rinku_node::validator_identity: Epoch transition: 40 -> 41
+20:47:28
+2026-01-20T20:47:28.507461Z  INFO rinku_node::checkpoint: Epoch transition: 40 -> 41 (activated: 0, exited: 0)
+20:48:28
+2026-01-20T20:48:28.507761Z  INFO rinku_node::validator_identity: Epoch transition: 41 -> 42
+20:48:28
+2026-01-20T20:48:28.507942Z  INFO rinku_node::checkpoint: Epoch transition: 41 -> 42 (activated: 0, exited: 0)
+20:49:28
+2026-01-20T20:49:28.508408Z  INFO rinku_node::validator_identity: Epoch transition: 42 -> 43
+20:49:28
+2026-01-20T20:49:28.508601Z  INFO rinku_node::checkpoint: Epoch transition: 42 -> 43 (activated: 0, exited: 0)
+20:50:28
+2026-01-20T20:50:28.509143Z  INFO rinku_node::validator_identity: Epoch transition: 43 -> 44
+20:50:28
+2026-01-20T20:50:28.509316Z  INFO rinku_node::checkpoint: Epoch transition: 43 -> 44 (activated: 0, exited: 0)
+20:51:28
+2026-01-20T20:51:28.440209Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:51:28
+2026-01-20T20:51:28.509799Z  INFO rinku_node::validator_identity: Epoch transition: 44 -> 45
+20:51:28
+2026-01-20T20:51:28.509991Z  INFO rinku_node::checkpoint: Epoch transition: 44 -> 45 (activated: 0, exited: 0)
+20:52:28
+2026-01-20T20:52:28.510328Z  INFO rinku_node::validator_identity: Epoch transition: 45 -> 46
+20:52:28
+2026-01-20T20:52:28.510616Z  INFO rinku_node::checkpoint: Epoch transition: 45 -> 46 (activated: 0, exited: 0)
+20:53:28
+2026-01-20T20:53:28.511042Z  INFO rinku_node::validator_identity: Epoch transition: 46 -> 47
+20:53:28
+2026-01-20T20:53:28.511215Z  INFO rinku_node::checkpoint: Epoch transition: 46 -> 47 (activated: 0, exited: 0)
+20:54:28
+2026-01-20T20:54:28.511925Z  INFO rinku_node::validator_identity: Epoch transition: 47 -> 48
+20:54:28
+2026-01-20T20:54:28.512106Z  INFO rinku_node::checkpoint: Epoch transition: 47 -> 48 (activated: 0, exited: 0)
+20:55:28
+2026-01-20T20:55:28.512402Z  INFO rinku_node::validator_identity: Epoch transition: 48 -> 49
+20:55:28
+2026-01-20T20:55:28.512603Z  INFO rinku_node::checkpoint: Epoch transition: 48 -> 49 (activated: 0, exited: 0)
+20:56:28
+2026-01-20T20:56:28.477347Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+20:56:28
+2026-01-20T20:56:28.513039Z  INFO rinku_node::validator_identity: Epoch transition: 49 -> 50
+20:56:28
+2026-01-20T20:56:28.513237Z  INFO rinku_node::checkpoint: Epoch transition: 49 -> 50 (activated: 0, exited: 0)
+20:57:28
+2026-01-20T20:57:28.513608Z  INFO rinku_node::validator_identity: Epoch transition: 50 -> 51
+20:57:28
+2026-01-20T20:57:28.513813Z  INFO rinku_node::checkpoint: Epoch transition: 50 -> 51 (activated: 0, exited: 0)
+20:58:28
+2026-01-20T20:58:28.514238Z  INFO rinku_node::validator_identity: Epoch transition: 51 -> 52
+20:58:28
+2026-01-20T20:58:28.514416Z  INFO rinku_node::checkpoint: Epoch transition: 51 -> 52 (activated: 0, exited: 0)
+20:59:28
+2026-01-20T20:59:28.515010Z  INFO rinku_node::validator_identity: Epoch transition: 52 -> 53
+20:59:28
+2026-01-20T20:59:28.515201Z  INFO rinku_node::checkpoint: Epoch transition: 52 -> 53 (activated: 0, exited: 0)
+21:00:28
+2026-01-20T21:00:28.515679Z  INFO rinku_node::validator_identity: Epoch transition: 53 -> 54
+21:00:28
+2026-01-20T21:00:28.515862Z  INFO rinku_node::checkpoint: Epoch transition: 53 -> 54 (activated: 0, exited: 0)
+21:01:28
+2026-01-20T21:01:28.426602Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+21:01:28
+2026-01-20T21:01:28.516221Z  INFO rinku_node::validator_identity: Epoch transition: 54 -> 55
+21:01:28
+2026-01-20T21:01:28.516406Z  INFO rinku_node::checkpoint: Epoch transition: 54 -> 55 (activated: 0, exited: 0)
+21:02:28
+2026-01-20T21:02:28.517003Z  INFO rinku_node::validator_identity: Epoch transition: 55 -> 56
+21:02:28
+2026-01-20T21:02:28.517179Z  INFO rinku_node::checkpoint: Epoch transition: 55 -> 56 (activated: 0, exited: 0)
+21:03:28
+2026-01-20T21:03:28.517744Z  INFO rinku_node::validator_identity: Epoch transition: 56 -> 57
+21:03:28
+2026-01-20T21:03:28.517920Z  INFO rinku_node::checkpoint: Epoch transition: 56 -> 57 (activated: 0, exited: 0)
+21:04:28
+2026-01-20T21:04:28.519128Z  INFO rinku_node::validator_identity: Epoch transition: 57 -> 58
+21:04:28
+2026-01-20T21:04:28.519416Z  INFO rinku_node::checkpoint: Epoch transition: 57 -> 58 (activated: 0, exited: 0)
+21:05:28
+2026-01-20T21:05:28.519810Z  INFO rinku_node::validator_identity: Epoch transition: 58 -> 59
+21:05:28
+2026-01-20T21:05:28.519985Z  INFO rinku_node::checkpoint: Epoch transition: 58 -> 59 (activated: 0, exited: 0)
+21:06:28
+2026-01-20T21:06:28.419679Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+21:06:28
+2026-01-20T21:06:28.520085Z  INFO rinku_node::validator_identity: Epoch transition: 59 -> 60
+21:06:28
+2026-01-20T21:06:28.520269Z  INFO rinku_node::checkpoint: Epoch transition: 59 -> 60 (activated: 0, exited: 0)
+21:07:28
+2026-01-20T21:07:28.521268Z  INFO rinku_node::validator_identity: Epoch transition: 60 -> 61
+21:07:28
+2026-01-20T21:07:28.521603Z  INFO rinku_node::checkpoint: Epoch transition: 60 -> 61 (activated: 0, exited: 0)
+21:08:28
+2026-01-20T21:08:28.522823Z  INFO rinku_node::validator_identity: Epoch transition: 61 -> 62
+21:08:28
+2026-01-20T21:08:28.523023Z  INFO rinku_node::checkpoint: Epoch transition: 61 -> 62 (activated: 0, exited: 0)
+21:09:28
+2026-01-20T21:09:28.524149Z  INFO rinku_node::validator_identity: Epoch transition: 62 -> 63
+21:09:28
+2026-01-20T21:09:28.524282Z  INFO rinku_node::checkpoint: Epoch transition: 62 -> 63 (activated: 0, exited: 0)
+21:10:28
+2026-01-20T21:10:28.524937Z  INFO rinku_node::validator_identity: Epoch transition: 63 -> 64
+21:10:28
+2026-01-20T21:10:28.525069Z  INFO rinku_node::checkpoint: Epoch transition: 63 -> 64 (activated: 0, exited: 0)
+21:11:28
+2026-01-20T21:11:28.460882Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+21:11:28
+2026-01-20T21:11:28.525893Z  INFO rinku_node::validator_identity: Epoch transition: 64 -> 65
+21:11:28
+2026-01-20T21:11:28.526071Z  INFO rinku_node::checkpoint: Epoch transition: 64 -> 65 (activated: 0, exited: 0)
+21:12:28
+2026-01-20T21:12:28.527350Z  INFO rinku_node::validator_identity: Epoch transition: 65 -> 66
+21:12:28
+2026-01-20T21:12:28.527520Z  INFO rinku_node::checkpoint: Epoch transition: 65 -> 66 (activated: 0, exited: 0)
+21:13:28
+2026-01-20T21:13:28.528329Z  INFO rinku_node::validator_identity: Epoch transition: 66 -> 67
+21:13:28
+2026-01-20T21:13:28.528660Z  INFO rinku_node::checkpoint: Epoch transition: 66 -> 67 (activated: 0, exited: 0)
+21:14:28
+2026-01-20T21:14:28.529740Z  INFO rinku_node::validator_identity: Epoch transition: 67 -> 68
+21:14:28
+2026-01-20T21:14:28.529911Z  INFO rinku_node::checkpoint: Epoch transition: 67 -> 68 (activated: 0, exited: 0)
+21:15:28
+2026-01-20T21:15:28.531314Z  INFO rinku_node::validator_identity: Epoch transition: 68 -> 69
+21:15:28
+2026-01-20T21:15:28.531491Z  INFO rinku_node::checkpoint: Epoch transition: 68 -> 69 (activated: 0, exited: 0)
+21:16:28
+2026-01-20T21:16:28.407476Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+21:16:28
+2026-01-20T21:16:28.533415Z  INFO rinku_node::validator_identity: Epoch transition: 69 -> 70
+21:16:28
+2026-01-20T21:16:28.533592Z  INFO rinku_node::checkpoint: Epoch transition: 69 -> 70 (activated: 0, exited: 0)
+21:17:28
+2026-01-20T21:17:28.534675Z  INFO rinku_node::validator_identity: Epoch transition: 70 -> 71
+21:17:28
+2026-01-20T21:17:28.534884Z  INFO rinku_node::checkpoint: Epoch transition: 70 -> 71 (activated: 0, exited: 0)
+21:18:28
+2026-01-20T21:18:28.536218Z  INFO rinku_node::validator_identity: Epoch transition: 71 -> 72
+21:18:28
+2026-01-20T21:18:28.536389Z  INFO rinku_node::checkpoint: Epoch transition: 71 -> 72 (activated: 0, exited: 0)
+21:19:28
+2026-01-20T21:19:28.536917Z  INFO rinku_node::validator_identity: Epoch transition: 72 -> 73
+21:19:28
+2026-01-20T21:19:28.537116Z  INFO rinku_node::checkpoint: Epoch transition: 72 -> 73 (activated: 0, exited: 0)
+21:20:28
+2026-01-20T21:20:28.537745Z  INFO rinku_node::validator_identity: Epoch transition: 73 -> 74
+21:20:28
+2026-01-20T21:20:28.538039Z  INFO rinku_node::checkpoint: Epoch transition: 73 -> 74 (activated: 0, exited: 0)
+21:21:28
+2026-01-20T21:21:28.400156Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+21:21:28
+2026-01-20T21:21:28.538590Z  INFO rinku_node::validator_identity: Epoch transition: 74 -> 75
+21:21:28
+2026-01-20T21:21:28.538819Z  INFO rinku_node::checkpoint: Epoch transition: 74 -> 75 (activated: 0, exited: 0)
+21:22:28
+2026-01-20T21:22:28.539652Z  INFO rinku_node::validator_identity: Epoch transition: 75 -> 76
+21:22:28
+2026-01-20T21:22:28.539822Z  INFO rinku_node::checkpoint: Epoch transition: 75 -> 76 (activated: 0, exited: 0)
+21:23:28
+2026-01-20T21:23:28.540603Z  INFO rinku_node::validator_identity: Epoch transition: 76 -> 77
+21:23:28
+2026-01-20T21:23:28.540777Z  INFO rinku_node::checkpoint: Epoch transition: 76 -> 77 (activated: 0, exited: 0)
+21:24:28
+2026-01-20T21:24:28.541126Z  INFO rinku_node::validator_identity: Epoch transition: 77 -> 78
+21:24:28
+2026-01-20T21:24:28.541303Z  INFO rinku_node::checkpoint: Epoch transition: 77 -> 78 (activated: 0, exited: 0)
+21:25:28
+2026-01-20T21:25:28.541996Z  INFO rinku_node::validator_identity: Epoch transition: 78 -> 79
+21:25:28
+2026-01-20T21:25:28.542176Z  INFO rinku_node::checkpoint: Epoch transition: 78 -> 79 (activated: 0, exited: 0)
+21:26:28
+2026-01-20T21:26:28.393434Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+21:26:28
+2026-01-20T21:26:28.542533Z  INFO rinku_node::validator_identity: Epoch transition: 79 -> 80
+21:26:28
+2026-01-20T21:26:28.542716Z  INFO rinku_node::checkpoint: Epoch transition: 79 -> 80 (activated: 0, exited: 0)
+21:27:28
+2026-01-20T21:27:28.543176Z  INFO rinku_node::validator_identity: Epoch transition: 80 -> 81
+21:27:28
+2026-01-20T21:27:28.543349Z  INFO rinku_node::checkpoint: Epoch transition: 80 -> 81 (activated: 0, exited: 0)
+21:28:28
+2026-01-20T21:28:28.543609Z  INFO rinku_node::validator_identity: Epoch transition: 81 -> 82
+21:28:28
+2026-01-20T21:28:28.543778Z  INFO rinku_node::checkpoint: Epoch transition: 81 -> 82 (activated: 0, exited: 0)
+21:29:28
+2026-01-20T21:29:28.544648Z  INFO rinku_node::validator_identity: Epoch transition: 82 -> 83
+21:29:28
+2026-01-20T21:29:28.544825Z  INFO rinku_node::checkpoint: Epoch transition: 82 -> 83 (activated: 0, exited: 0)
+21:30:28
+2026-01-20T21:30:28.546326Z  INFO rinku_node::validator_identity: Epoch transition: 83 -> 84
+21:30:28
+2026-01-20T21:30:28.546498Z  INFO rinku_node::checkpoint: Epoch transition: 83 -> 84 (activated: 0, exited: 0)
+21:31:28
+2026-01-20T21:31:28.386690Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+21:31:28
+2026-01-20T21:31:28.546999Z  INFO rinku_node::validator_identity: Epoch transition: 84 -> 85
+21:31:28
+2026-01-20T21:31:28.547204Z  INFO rinku_node::checkpoint: Epoch transition: 84 -> 85 (activated: 0, exited: 0)
+21:32:28
+2026-01-20T21:32:28.547665Z  INFO rinku_node::validator_identity: Epoch transition: 85 -> 86
+21:32:28
+2026-01-20T21:32:28.547845Z  INFO rinku_node::checkpoint: Epoch transition: 85 -> 86 (activated: 0, exited: 0)
+21:33:28
+2026-01-20T21:33:28.547997Z  INFO rinku_node::validator_identity: Epoch transition: 86 -> 87
+21:33:28
+2026-01-20T21:33:28.548170Z  INFO rinku_node::checkpoint: Epoch transition: 86 -> 87 (activated: 0, exited: 0)
+21:34:28
+2026-01-20T21:34:28.548604Z  INFO rinku_node::validator_identity: Epoch transition: 87 -> 88
+21:34:28
+2026-01-20T21:34:28.548809Z  INFO rinku_node::checkpoint: Epoch transition: 87 -> 88 (activated: 0, exited: 0)
+21:35:28
+2026-01-20T21:35:28.550233Z  INFO rinku_node::validator_identity: Epoch transition: 88 -> 89
+21:35:28
+2026-01-20T21:35:28.550520Z  INFO rinku_node::checkpoint: Epoch transition: 88 -> 89 (activated: 0, exited: 0)
+21:36:28
+2026-01-20T21:36:28.379029Z  INFO rinku_node::network: Identified peer 12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i: rinku-node/0.1.0 (protocols: 5)
+21:36:28
+2026-01-20T21:36:28.551492Z  INFO rinku_node::validator_identity: Epoch transition: 89 -> 90
+21:36:28
+2026-01-20T21:36:28.551717Z  INFO rinku_node::checkpoint: Epoch transition: 89 -> 90 (activated: 0, exited: 0)
+21:37:28
+2026-01-20T21:37:28.553043Z  INFO rinku_node::validator_identity: Epoch transition: 90 -> 91
+21:37:28
+2026-01-20T21:37:28.553214Z  INFO rinku_node::checkpoint: Epoch transition: 90 -> 91 (activated: 0, exited: 0)
+21:38:28
+2026-01-20T21:38:28.554214Z  INFO rinku_node::validator_identity: Epoch transition: 91 -> 92
+21:38:28
+2026-01-20T21:38:28.554388Z  INFO rinku_node::checkpoint: Epoch transition: 91 -> 92 (activated: 0, exited: 0)
+21:39:28
+2026-01-20T21:39:28.555497Z  INFO rinku_node::validator_identity: Epoch transition: 92 -> 93
+21:39:28
+2026-01-20T21:39:28.555712Z  INFO rinku_node::checkpoint: Epoch transition: 92 -> 93 (activated: 0, exited: 0)
+21:40:28
+2026-01-20T21:40:28.556942Z  INFO rinku_node::validator_identity: Epoch transition: 93 -> 94
+21:40:28
+2026-01-20T21:40:28.557138Z  INFO rinku_node::checkpoint: Epoch transition: 93 -> 94 (activated: 0, exited: 0)
