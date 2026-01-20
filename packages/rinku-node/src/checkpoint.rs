@@ -13,7 +13,9 @@ use crate::bls::{
     aggregate_signatures, bls_sign, create_signer_bitmap, generate_bls_keypair,
 };
 use crate::config::TrustConfig;
+use crate::consensus::ConsensusService;
 use crate::dag_pruning::{DagPruningService, PruningConfig};
+use crate::slashing::SlashingService;
 use crate::state::NodeState;
 use crate::trust::TrustVerifier;
 use crate::validator_identity::ValidatorIdentityService;
@@ -30,6 +32,8 @@ pub struct CheckpointService {
     validator_identity: Option<Arc<RwLock<ValidatorIdentityService>>>,
     pruning_service: Option<DagPruningService>,
     pruning_counter: std::sync::atomic::AtomicU32,
+    consensus_service: Option<Arc<RwLock<ConsensusService>>>,
+    slashing_service: Option<Arc<RwLock<SlashingService>>>,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
@@ -56,6 +60,8 @@ impl CheckpointService {
             validator_identity: None,
             pruning_service: Some(DagPruningService::new(PruningConfig::default())),
             pruning_counter: std::sync::atomic::AtomicU32::new(0),
+            consensus_service: None,
+            slashing_service: None,
         }
     }
 
@@ -68,12 +74,22 @@ impl CheckpointService {
         self.pruning_service = Some(DagPruningService::new(config));
         self
     }
+    
+    pub fn with_consensus_service(mut self, consensus: Arc<RwLock<ConsensusService>>) -> Self {
+        self.consensus_service = Some(consensus);
+        self
+    }
+    
+    pub fn with_slashing_service(mut self, slashing: Arc<RwLock<SlashingService>>) -> Self {
+        self.slashing_service = Some(slashing);
+        self
+    }
 
     pub fn bls_public_key_base64(&self) -> String {
         URL_SAFE_NO_PAD.encode(&self.bls_public_key)
     }
 
-    pub async fn start(self) -> Result<()> {
+    pub async fn start(mut self) -> Result<()> {
         self.sign_genesis_checkpoint().await;
         
         let interval = tokio::time::Duration::from_millis(self.interval_ms);
@@ -101,12 +117,29 @@ impl CheckpointService {
             if prune_count > 0 && prune_count % PRUNE_EVERY_N_CHECKPOINTS == 0 {
                 let state_guard = self.state.inner.read().await;
                 let current_height = state_guard.checkpoints.len() as u64;
-                let dag_size = state_guard.dag.get_all_nodes().len();
+                let finalized_hashes: std::collections::HashSet<String> = state_guard.dag
+                    .get_all_nodes()
+                    .iter()
+                    .filter(|n| n.finalized)
+                    .map(|n| n.hash.clone())
+                    .collect();
                 drop(state_guard);
                 
                 if current_height > 100 {
-                    info!("Scheduled DAG pruning at checkpoint height {} ({} DAG nodes)", 
-                          current_height, dag_size);
+                    if let Some(ref mut pruning) = self.pruning_service.as_mut() {
+                        let storage = self.state.storage();
+                        match pruning.prune_dag(storage.as_ref(), current_height, &finalized_hashes) {
+                            Ok(stats) => {
+                                info!(
+                                    "DAG pruning completed: {} nodes pruned, {} checkpoints pruned, oldest retained: {}",
+                                    stats.nodes_pruned, stats.checkpoints_pruned, stats.oldest_retained_checkpoint
+                                );
+                            }
+                            Err(e) => {
+                                warn!("DAG pruning failed: {}", e);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -872,10 +905,35 @@ impl CheckpointService {
             bls_public_key: Some(self.bls_public_key_base64()),
         };
 
-        let aggregated_sig = aggregate_signatures(&[signature.clone()])
+        // Multi-validator quorum collection - attempt to gather votes from peers
+        // Falls back to single-validator mode if no peer votes are collected
+        let (all_signatures, raw_signatures) = self.collect_validator_quorum(
+            &checkpoint_hash,
+            height,
+            signature.clone(),
+            validator_sig.clone(),
+        ).await;
+        
+        // Use collected signatures if quorum was reached, otherwise use single validator
+        let (final_signatures, final_raw_sigs) = if all_signatures.len() > 1 {
+            debug!(
+                "Checkpoint {} has {} validator signatures (quorum reached)",
+                height, all_signatures.len()
+            );
+            (all_signatures, raw_signatures)
+        } else {
+            // Single-validator mode - use only our signature
+            debug!(
+                "Checkpoint {} using single-validator mode (no peer votes collected)",
+                height
+            );
+            (vec![validator_sig], vec![signature])
+        };
+        
+        let signer_indices: Vec<usize> = (0..final_signatures.len()).collect();
+        let aggregated_sig = aggregate_signatures(&final_raw_sigs)
             .map_err(|e| anyhow::anyhow!("BLS aggregation failed: {}", e))?;
-
-        let signer_bitmap = create_signer_bitmap(&[0], 1);
+        let signer_bitmap = create_signer_bitmap(&signer_indices, final_signatures.len());
 
         let checkpoint = Checkpoint {
             height,
@@ -886,7 +944,7 @@ impl CheckpointService {
             receipt_root,
             tip_count,
             timestamp,
-            validator_signatures: vec![validator_sig],
+            validator_signatures: final_signatures,
             aggregated_signature: Some(URL_SAFE_NO_PAD.encode(&aggregated_sig)),
             signer_bitmap: Some(signer_bitmap),
         };
@@ -976,8 +1034,97 @@ impl CheckpointService {
             unfinalized_hashes.len(),
             checkpoint_reward
         );
+        
+        // Track validator liveness - record which validators participated
+        if let Some(ref consensus) = self.consensus_service {
+            let participating_validators: Vec<String> = checkpoint.validator_signatures
+                .iter()
+                .map(|sig| sig.validator.clone())
+                .collect();
+            
+            let mut consensus_guard = consensus.write().await;
+            consensus_guard.track_liveness(height, &participating_validators).await;
+            debug!(
+                "Tracked liveness for checkpoint {}: {} validators participated",
+                height, participating_validators.len()
+            );
+        }
 
         Ok(())
+    }
+    
+    /// Collect validator votes from peers for multi-validator quorum.
+    /// 
+    /// This method attempts to gather BLS signatures from connected peers
+    /// for a checkpoint at the given height. If no peer votes are collected
+    /// (e.g., no peers connected or RPC not implemented), it returns only
+    /// the local validator's signature.
+    /// 
+    /// Future implementations should:
+    /// 1. Implement request_checkpoint_vote() to use P2P request-response
+    /// 2. Add stake-weighted quorum thresholds (e.g., 2/3 of total stake)
+    /// 3. Verify peer signatures before including in aggregate
+    async fn collect_validator_quorum(
+        &self,
+        checkpoint_hash: &[u8],
+        height: u64,
+        our_signature: Vec<u8>,
+        our_validator_sig: ValidatorSignature,
+    ) -> (Vec<ValidatorSignature>, Vec<Vec<u8>>) {
+        const QUORUM_TIMEOUT_MS: u64 = 5000;
+        
+        let mut signatures = vec![our_validator_sig];
+        let mut raw_signatures = vec![our_signature];
+        
+        // Skip peer collection if no peers configured
+        if self.peers.is_empty() {
+            return (signatures, raw_signatures);
+        }
+        
+        let checkpoint_hash_hex = hex::encode(checkpoint_hash);
+        let start_time = std::time::Instant::now();
+        
+        for peer in &self.peers {
+            if start_time.elapsed().as_millis() as u64 >= QUORUM_TIMEOUT_MS {
+                debug!("Quorum collection timeout reached after {}ms", QUORUM_TIMEOUT_MS);
+                break;
+            }
+            
+            // Request vote from peer (currently returns None - future P2P implementation)
+            if let Some((peer_sig, peer_raw)) = self.request_checkpoint_vote(peer, &checkpoint_hash_hex, height).await {
+                // Avoid duplicate signatures from same validator
+                if !signatures.iter().any(|s| s.validator == peer_sig.validator) {
+                    info!(
+                        "Received quorum vote from {} for checkpoint {}",
+                        &peer_sig.validator[..16.min(peer_sig.validator.len())],
+                        height
+                    );
+                    signatures.push(peer_sig);
+                    raw_signatures.push(peer_raw);
+                }
+            }
+        }
+        
+        (signatures, raw_signatures)
+    }
+    
+    /// Request a checkpoint vote from a peer validator.
+    /// 
+    /// TODO: Implement using P2P request-response protocol:
+    /// 1. Send CheckpointVoteRequest { hash, height } to peer
+    /// 2. Receive CheckpointVoteResponse { signature, bls_public_key }
+    /// 3. Verify signature against peer's known public key
+    /// 4. Return validated signature or None on failure
+    #[allow(unused_variables)]
+    async fn request_checkpoint_vote(
+        &self,
+        peer: &str,
+        checkpoint_hash: &str,
+        height: u64,
+    ) -> Option<(ValidatorSignature, Vec<u8>)> {
+        // Placeholder for future P2P implementation
+        // Currently returns None to fall back to single-validator mode
+        None
     }
 }
 

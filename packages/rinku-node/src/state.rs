@@ -122,6 +122,10 @@ pub struct NodeState {
 }
 
 impl NodeState {
+    pub fn storage(&self) -> &Arc<RedbStorage> {
+        &self.storage
+    }
+    
     pub async fn new(config: NodeConfig) -> Result<Self> {
         let storage = RedbStorage::open(&config.data_dir)?;
         let storage = Arc::new(storage);

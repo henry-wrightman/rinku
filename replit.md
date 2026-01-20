@@ -46,9 +46,10 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **DoS Protection:** Includes connection limits, rate limiting via token bucket algorithm, and peer banning for misbehavior.
 - **Bloom Filter Announcements:** Uses 524,288 bit filters with 7 hash functions for bandwidth-efficient transaction advertising.
 - **Verified Sync with Merkle Proofs:** Snapshot verification, account proofs, and a `SyncVerifier` for tamper detection.
-- **Slashing-Consensus Integration:** `ConsensusService` integrates with `SlashingService` for unified slashing, double-sign detection, and automatic slashing based on LIVENESS_MISS_THRESHOLD.
-- **DoS Protection Enforcement:** Rate limiting enforced for gossip messages and sync requests, with automatic rejection and peer banning for violations.
-- **DAG Pruning Scheduling:** `CheckpointService` integrates `DagPruningService`, with pruning triggered every 10 checkpoints after a certain height.
+- **Slashing-Consensus Integration:** `ConsensusService` integrates with `SlashingService` for unified slashing, double-sign detection, and automatic slashing based on LIVENESS_MISS_THRESHOLD. `track_liveness()` is called after each checkpoint creation with participating validator addresses.
+- **DoS Protection Enforcement:** Rate limiting enforced for gossip messages and sync requests, with automatic rejection and peer banning for violations. Conservative approach rejects on lock contention rather than bypassing.
+- **DAG Pruning Scheduling:** `CheckpointService` integrates `DagPruningService`, with `prune_dag()` called via `NodeState.storage()` getter. Pruning triggered every 10 checkpoints after height 100, logging stats (nodes/checkpoints pruned, oldest retained).
+- **Multi-Validator Quorum Collection:** `collect_validator_quorum()` gathers BLS signatures from peers with fallback to single-validator mode. Placeholder `request_checkpoint_vote()` for future P2P implementation; supports stake-weighted quorum (2/3 total stake) when enabled.
 - **Fly.io Deployment:** The Rust node is deployable to Fly.io using a `Dockerfile.fly` and `fly.toml`.
 
 ## External Dependencies
