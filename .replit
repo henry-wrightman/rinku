@@ -116,20 +116,28 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
-packages = ["nettools", "rustc", "circom", "openssl", "pkg-config", "pandoc", "jq", "cmake", "clang", "libclang", "llvmPackages.libclang"]
+packages = [
+  "nettools",
+  "rustc",
+  "circom",
+  "openssl",
+  "pkg-config",
+  "pandoc",
+  "jq",
+  "cmake",
+  "clang",
+  "libclang",
+  "llvmPackages.libclang",
+]
 
 [deployment]
 deploymentTarget = "autoscale"
 run = [
   "bash",
   "-c",
-  "NODE_PEERS='' PUBLIC_URL=https://rinkuchan.com ./rinku-node-bin",
+  "NODE_PEERS='' VITE_API_URL=https://rinku-genesis.fly.dev PUBLIC_URL=https://rinkuchan.com ./rinku-node-bin",
 ]
-build = [
-  "bash",
-  "-c",
-  "rm -f rinku-node-bin; cargo build --release --no-default-features -p rinku-node && cp target/release/rinku-node rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer",
-]
+build = ["sh", "-c", "bash -c rm -f rinku-node-bin; cargo build --release -p rinku-node && cp target/release/rinku-node rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
 
 [userenv]
 
