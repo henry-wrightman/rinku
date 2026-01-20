@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rinku_core::crypto::sha256_hex;
 use rinku_core::types::{Account, Checkpoint, SignedTransaction};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -9,6 +10,141 @@ use tracing::{debug, info, warn};
 
 const KNOWN_TXS_MAX_SIZE: usize = 50_000;
 const SEEN_CONFLICTS_MAX_SIZE: usize = 10_000;
+
+/// Default bloom filter size in bits (64KB = 512k bits for ~100K items at 1% FPR)
+const BLOOM_FILTER_SIZE_BITS: usize = 524_288;
+/// Number of hash functions for bloom filter (optimal k = (m/n) * ln(2) ≈ 7 for 100K items)
+const BLOOM_FILTER_HASH_COUNT: usize = 7;
+
+/// A space-efficient probabilistic data structure for set membership testing.
+/// Used to efficiently advertise which transactions a node knows about without
+/// transmitting full transaction hashes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BloomFilter {
+    /// Bit array stored as bytes
+    bits: Vec<u8>,
+    /// Number of bits in the filter
+    size_bits: usize,
+    /// Number of hash functions
+    hash_count: usize,
+    /// Number of items inserted
+    item_count: usize,
+}
+
+impl BloomFilter {
+    /// Create a new bloom filter with default parameters
+    pub fn new() -> Self {
+        Self::with_size(BLOOM_FILTER_SIZE_BITS, BLOOM_FILTER_HASH_COUNT)
+    }
+
+    /// Create a bloom filter with custom size
+    pub fn with_size(size_bits: usize, hash_count: usize) -> Self {
+        let size_bytes = (size_bits + 7) / 8;
+        Self {
+            bits: vec![0u8; size_bytes],
+            size_bits,
+            hash_count,
+            item_count: 0,
+        }
+    }
+
+    /// Create a compact bloom filter for limited items (e.g., recent tips)
+    pub fn compact(expected_items: usize) -> Self {
+        let size_bits = (expected_items * 10).max(1024);
+        let hash_count = 7.min((size_bits / expected_items.max(1)) * 7 / 10);
+        Self::with_size(size_bits, hash_count.max(3))
+    }
+
+    /// Insert an item into the bloom filter
+    pub fn insert(&mut self, item: &str) {
+        for i in 0..self.hash_count {
+            let bit_index = self.hash(item, i);
+            let byte_index = bit_index / 8;
+            let bit_offset = bit_index % 8;
+            if byte_index < self.bits.len() {
+                self.bits[byte_index] |= 1 << bit_offset;
+            }
+        }
+        self.item_count += 1;
+    }
+
+    /// Check if an item might be in the set (may have false positives)
+    pub fn might_contain(&self, item: &str) -> bool {
+        for i in 0..self.hash_count {
+            let bit_index = self.hash(item, i);
+            let byte_index = bit_index / 8;
+            let bit_offset = bit_index % 8;
+            if byte_index >= self.bits.len() || (self.bits[byte_index] & (1 << bit_offset)) == 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Generate hash values for bloom filter indexing
+    /// Uses double hashing: h(item, i) = (h1 + i * h2) mod m
+    fn hash(&self, item: &str, index: usize) -> usize {
+        let h1 = self.hash_primary(item);
+        let h2 = self.hash_secondary(item);
+        ((h1 as u128 + (index as u128) * (h2 as u128)) % (self.size_bits as u128)) as usize
+    }
+
+    fn hash_primary(&self, item: &str) -> u64 {
+        let hash = sha256_hex(item);
+        u64::from_str_radix(&hash[0..16], 16).unwrap_or(0)
+    }
+
+    fn hash_secondary(&self, item: &str) -> u64 {
+        let hash = sha256_hex(item);
+        u64::from_str_radix(&hash[16..32], 16).unwrap_or(1)
+    }
+
+    /// Get the estimated false positive rate
+    pub fn false_positive_rate(&self) -> f64 {
+        if self.item_count == 0 {
+            return 0.0;
+        }
+        let k = self.hash_count as f64;
+        let m = self.size_bits as f64;
+        let n = self.item_count as f64;
+        (1.0 - (-k * n / m).exp()).powf(k)
+    }
+
+    /// Get the size in bytes
+    pub fn size_bytes(&self) -> usize {
+        self.bits.len()
+    }
+
+    /// Get the number of items inserted
+    pub fn item_count(&self) -> usize {
+        self.item_count
+    }
+
+    /// Clear the bloom filter
+    pub fn clear(&mut self) {
+        self.bits.fill(0);
+        self.item_count = 0;
+    }
+}
+
+impl Default for BloomFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Bloom filter announcement message for bandwidth-efficient tx advertising
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BloomAnnouncement {
+    /// The bloom filter containing known tx hashes
+    pub filter: BloomFilter,
+    /// Checkpoint height this filter is associated with
+    pub checkpoint_height: u64,
+    /// Timestamp of announcement
+    pub timestamp: u64,
+    /// Peer's known DAG tip count
+    pub tip_count: usize,
+}
 
 pub(crate) struct BoundedHashSet {
     set: HashSet<String>,
@@ -171,6 +307,13 @@ pub enum GossipMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
     },
+    BloomAnnouncement {
+        filter: BloomFilter,
+        checkpoint_height: u64,
+        tip_count: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +340,7 @@ pub struct GossipServiceInner {
     pub round_counter: u64,
     pub last_peer_refresh: u64,
     pub sync_in_flight: bool,
+    pub peer_bloom_filters: HashMap<String, BloomFilter>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -263,6 +407,7 @@ impl GossipService {
                 round_counter: 0,
                 last_peer_refresh: now,
                 sync_in_flight: false,
+                peer_bloom_filters: HashMap::new(),
             })),
             node_id,
             interval_ms,
@@ -1345,6 +1490,20 @@ impl GossipService {
             GossipMessage::CheckpointSignature { .. } => {
                 Ok(None)
             }
+
+            GossipMessage::BloomAnnouncement { filter, checkpoint_height, tip_count, sender_url } => {
+                debug!(
+                    "Received bloom filter from peer with {} items, checkpoint height {}, {} tips",
+                    filter.item_count(), checkpoint_height, tip_count
+                );
+                
+                if let Some(peer_url) = sender_url {
+                    let mut inner = self.inner.write().await;
+                    inner.peer_bloom_filters.insert(peer_url, filter);
+                }
+                
+                Ok(None)
+            }
         }
     }
 
@@ -1550,7 +1709,46 @@ impl GossipService {
             GossipMessage::ConflictResolution { sender_url, .. } => sender_url.clone(),
             GossipMessage::SyncRequest { sender_url, .. } => sender_url.clone(),
             GossipMessage::SyncResponse { sender_url, .. } => sender_url.clone(),
+            GossipMessage::BloomAnnouncement { sender_url, .. } => sender_url.clone(),
         }
+    }
+
+    /// Generate a bloom filter containing all known transaction hashes
+    pub async fn generate_bloom_filter(&self) -> BloomFilter {
+        let inner = self.inner.read().await;
+        let mut filter = BloomFilter::new();
+        
+        for tx_hash in inner.known_txs.set.iter() {
+            filter.insert(tx_hash);
+        }
+        
+        filter
+    }
+
+    /// Check if a peer likely has a transaction (using their bloom filter)
+    pub async fn peer_likely_has_tx(&self, peer_url: &str, tx_hash: &str) -> bool {
+        let inner = self.inner.read().await;
+        if let Some(filter) = inner.peer_bloom_filters.get(peer_url) {
+            filter.might_contain(tx_hash)
+        } else {
+            false
+        }
+    }
+
+    /// Broadcast bloom filter announcement to peers
+    pub async fn broadcast_bloom_filter(&self) {
+        let filter = self.generate_bloom_filter().await;
+        let checkpoint_height = self.state.get_checkpoint_height().await;
+        let (_, tip_count, _) = self.state.get_dag_stats().await;
+        
+        let message = GossipMessage::BloomAnnouncement {
+            filter,
+            checkpoint_height,
+            tip_count,
+            sender_url: std::env::var("PUBLIC_URL").ok(),
+        };
+        
+        self.broadcast_via_p2p(&message).await;
     }
 }
 
@@ -1689,5 +1887,93 @@ mod tests {
         assert!(set.contains("a"));
         assert!(!set.contains("b"));
         assert!(set.contains("c"));
+    }
+
+    #[test]
+    fn test_bloom_filter_basic_operations() {
+        let mut filter = BloomFilter::new();
+        
+        filter.insert("tx1");
+        filter.insert("tx2");
+        filter.insert("tx3");
+        
+        assert!(filter.might_contain("tx1"));
+        assert!(filter.might_contain("tx2"));
+        assert!(filter.might_contain("tx3"));
+        assert!(!filter.might_contain("tx4"));
+        
+        assert_eq!(filter.item_count(), 3);
+    }
+
+    #[test]
+    fn test_bloom_filter_no_false_negatives() {
+        let mut filter = BloomFilter::new();
+        let items: Vec<String> = (0..1000).map(|i| format!("tx_{}", i)).collect();
+        
+        for item in &items {
+            filter.insert(item);
+        }
+        
+        for item in &items {
+            assert!(filter.might_contain(item), "Bloom filter should never have false negatives");
+        }
+    }
+
+    #[test]
+    fn test_bloom_filter_compact() {
+        let mut filter = BloomFilter::compact(100);
+        
+        for i in 0..100 {
+            filter.insert(&format!("tx_{}", i));
+        }
+        
+        assert!(filter.size_bytes() < 2000, "Compact filter should use minimal memory");
+        
+        for i in 0..100 {
+            assert!(filter.might_contain(&format!("tx_{}", i)));
+        }
+    }
+
+    #[test]
+    fn test_bloom_filter_false_positive_rate() {
+        let mut filter = BloomFilter::new();
+        
+        for i in 0..10000 {
+            filter.insert(&format!("tx_{}", i));
+        }
+        
+        let fpr = filter.false_positive_rate();
+        assert!(fpr < 0.05, "False positive rate should be under 5% for 10K items in default filter");
+    }
+
+    #[test]
+    fn test_bloom_filter_clear() {
+        let mut filter = BloomFilter::new();
+        
+        filter.insert("tx1");
+        filter.insert("tx2");
+        assert!(filter.might_contain("tx1"));
+        assert_eq!(filter.item_count(), 2);
+        
+        filter.clear();
+        
+        assert!(!filter.might_contain("tx1"));
+        assert!(!filter.might_contain("tx2"));
+        assert_eq!(filter.item_count(), 0);
+    }
+
+    #[test]
+    fn test_bloom_filter_serialization() {
+        let mut filter = BloomFilter::new();
+        filter.insert("tx1");
+        filter.insert("tx2");
+        
+        let serialized = serde_json::to_string(&filter).expect("Should serialize");
+        let deserialized: BloomFilter = serde_json::from_str(&serialized).expect("Should deserialize");
+        
+        assert!(deserialized.might_contain("tx1"));
+        assert!(deserialized.might_contain("tx2"));
+        assert!(!deserialized.might_contain("tx3"));
+        assert_eq!(deserialized.item_count(), 2);
     }
 }

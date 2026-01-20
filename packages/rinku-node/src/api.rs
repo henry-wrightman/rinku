@@ -549,6 +549,10 @@ async fn post_gossip(
                     &checkpoint_id[..16.min(checkpoint_id.len())], 
                     &validator_address[..16.min(validator_address.len())]);
             }
+            GossipMessage::BloomAnnouncement { filter, checkpoint_height, tip_count, .. } => {
+                info!("Gossip: bloom filter with {} items, checkpoint height {}, {} tips",
+                    filter.item_count(), checkpoint_height, tip_count);
+            }
         }
     }
 
