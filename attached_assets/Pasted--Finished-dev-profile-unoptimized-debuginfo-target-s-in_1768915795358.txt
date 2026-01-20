@@ -1,0 +1,58 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
+[INFO] Starting Node 1 on port 3001...
+[OK] Node 1 started (PID: 8208, Port: 3001, P2P: 4001)
+[INFO]   Peers: http://localhost:3002,http://localhost:3003
+[INFO] Starting Node 2 on port 3002...
+[OK] Node 2 started (PID: 8217, Port: 3002, P2P: 4002)
+[INFO]   Peers: http://localhost:3001,http://localhost:3003
+[INFO] Starting Node 3 on port 3003...
+[OK] Node 3 started (PID: 8225, Port: 3003, P2P: 4003)
+[INFO]   Peers: http://localhost:3001,http://localhost:3002
+
+[INFO] Waiting for nodes to initialize...
+
+  Node Status:
+  ─────────────────────────────────────────────────────
+[OK] Node 1: Running (Port: 3001, DAG: 1 txs)
+[ERROR] Node 2: Stopped (Port: 3002)
+[ERROR] Node 3: Stopped (Port: 3003)
+  ─────────────────────────────────────────────────────
+  Running: 1/3 nodes
+
+
+[OK] Local testnet started!
+
+  Available endpoints:
+    Node 1: http://localhost:3001
+    Node 2: http://localhost:3002
+    Node 3: http://localhost:3003
+
+  Commands:
+    ./scripts/local-testnet.sh status    - Check node status
+    ./scripts/local-testnet.sh validate  - Run multi-node validation
+    ./scripts/local-testnet.sh logs 1    - View Node 1 logs
+    ./scripts/local-testnet.sh stop      - Stop all nodes
+
+~/workspace$ bash scripts/local-testnet.sh validate
+[INFO] Running multi-node validation...
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 2
+    Node 1: http://localhost:3001
+    Node 2: http://localhost:3002
+  Started: 2026-01-20T13:29:35.634Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: http://localhost:3001 (77ms)
+  ✗ Node 2 reachable: http://localhost:3002 - fetch failed
+  ✗ Minimum nodes online: 1/2 nodes
+
+  FATAL: Not enough nodes reachable for comparison
+
+~/workspace$ 

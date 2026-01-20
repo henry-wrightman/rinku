@@ -130,10 +130,10 @@ start_testnet() {
         # rm -rf "$db_path"
         
         # Set environment variables and start node (using debug binary directly)
-        # Use DATA_DIR, PORT, and P2P_PORT env vars that the node actually reads
+        # Use DATA_DIR, API_PORT, and P2P_PORT env vars that the node actually reads
         local p2p_port=$((4001 + i))
         
-        PORT=$port \
+        API_PORT=$port \
         P2P_PORT=$p2p_port \
         NODE_PEERS="$peers" \
         DATA_DIR="$db_path" \

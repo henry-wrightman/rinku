@@ -1,0 +1,10 @@
+{
+  "current_epoch": 1,
+  "epoch_start_time": 1768915802000,
+  "active_validators": {},
+  "pending_validators": {},
+  "exiting_validators": {},
+  "exited_validators": {},
+  "total_active_stake": -0.0,
+  "finalized_checkpoint_height": 0
+}
