@@ -1,0 +1,72 @@
+2026-01-20 17:36:52.97
+88e38754
+User
+2026-01-20T22:36:52.969567Z INFO rinku_node: Starting Rinku Node v0.1.0
+2026-01-20 17:36:52.97
+88e38754
+User
+2026-01-20T22:36:52.975542Z INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+2026-01-20 17:36:52.97
+88e38754
+User
+2026-01-20T22:36:52.975537Z INFO rinku_node: Data dir: .rinku-data
+2026-01-20 17:36:52.97
+88e38754
+User
+2026-01-20T22:36:52.972823Z INFO rinku_node: Process PID: 26
+2026-01-20 17:36:52.97
+88e38754
+User
+2026-01-20T22:36:52.975487Z INFO rinku_node: Node ID: 7b12526a4dc1925e
+2026-01-20 17:36:52.97
+88e38754
+User
+2026-01-20T22:36:52.976546Z INFO rinku_node: Data directory exists, checking for stale locks...
+2026-01-20 17:36:52.97
+88e38754
+User
+2026-01-20T22:36:52.977450Z INFO rinku_node: Initializing node state...
+2026-01-20 17:36:53.00
+88e38754
+User
+2026-01-20T22:36:53.006903Z INFO rinku_node::storage: Loaded snapshot: 1 accounts, 0 validators, 1 checkpoints, 1 txs
+2026-01-20 17:36:53.00
+88e38754
+User
+2026-01-20T22:36:53.006933Z INFO rinku_node::state: Loaded 0 contracts from storage
+2026-01-20 17:36:53.00
+88e38754
+User
+2026-01-20T22:36:53.006464Z INFO rinku_node::storage: Opened redb database at .rinku-data/redb.db
+2026-01-20 17:36:53.00
+88e38754
+User
+2026-01-20T22:36:53.006919Z INFO rinku_node::state: Restored from snapshot: 1 accounts, 1 txs, 1 checkpoints
+2026-01-20 17:36:53.00
+88e38754
+User
+2026-01-20T22:36:53.007157Z INFO rinku_node::storage: Loaded rewards snapshot: 0 stakes, 0 pending rewards
+2026-01-20 17:36:53.00
+88e38754
+User
+2026-01-20T22:36:53.007167Z INFO rinku_node::state: Restored rewards: 0 stakes, 0 pending
+2026-01-20 17:36:53.01
+88e38754
+User
+2026-01-20T22:36:53.011286Z INFO rinku_node: Rewards service initialized
+2026-01-20 17:36:53.01
+88e38754
+User
+2026-01-20T22:36:53.011301Z INFO rinku_node: Consensus service initialized with slashing integration
+2026-01-20 17:36:53.01
+88e38754
+User
+2026-01-20T22:36:53.011289Z INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+2026-01-20 17:36:53.01
+88e38754
+User
+2026-01-20T22:36:53.011250Z INFO rinku_node::validator: Loaded validator key: 23a0574d29aa4dce...
+2026-01-20 17:36:53.01
+88e38754
+User
+2026-01-20T22:36:53.011282Z INFO rinku_node: Gas service initialized
