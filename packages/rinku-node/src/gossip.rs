@@ -192,6 +192,7 @@ impl BoundedHashSet {
 }
 
 use crate::config::TrustConfig;
+#[cfg(feature = "p2p")]
 use crate::network::NetworkHandle;
 use crate::state::{NodeState, SyncSnapshot};
 use crate::trust::TrustVerifier;
@@ -361,6 +362,7 @@ pub struct GossipService {
     interval_ms: u64,
     trust_verifier: Arc<TrustVerifier>,
     http_client: reqwest::Client,
+    #[cfg(feature = "p2p")]
     network_handle: Option<Arc<tokio::sync::Mutex<NetworkHandle>>>,
 }
 
@@ -413,17 +415,22 @@ impl GossipService {
             interval_ms,
             trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
             http_client,
+            #[cfg(feature = "p2p")]
             network_handle: None,
         }
     }
 
+    #[cfg(feature = "p2p")]
     pub fn set_network_handle(&mut self, handle: NetworkHandle) {
         self.network_handle = Some(Arc::new(tokio::sync::Mutex::new(handle)));
     }
 
     pub async fn start(self) -> Result<()> {
         let peer_count = self.inner.read().await.peers.len();
+        #[cfg(feature = "p2p")]
         let has_p2p = self.network_handle.is_some();
+        #[cfg(not(feature = "p2p"))]
+        let has_p2p = false;
         info!(
             "Gossip service started (interval: {}ms, peers: {}, p2p: {})",
             self.interval_ms,
@@ -436,6 +443,7 @@ impl GossipService {
         }
 
         // If we have a libp2p network handle, spawn a task to receive messages
+        #[cfg(feature = "p2p")]
         if let Some(ref handle) = self.network_handle {
             let gossip_clone = self.clone();
             let handle_clone = handle.clone();
@@ -452,6 +460,7 @@ impl GossipService {
         }
     }
 
+    #[cfg(feature = "p2p")]
     async fn run_p2p_receiver(&self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) {
         info!("P2P message receiver started");
         loop {
@@ -481,6 +490,7 @@ impl GossipService {
         }
     }
 
+    #[cfg(feature = "p2p")]
     async fn broadcast_via_p2p(&self, message: &GossipMessage) {
         if let Some(ref handle) = self.network_handle {
             let locked = handle.lock().await;
@@ -883,6 +893,7 @@ impl GossipService {
         }
 
         // Also broadcast via libp2p if available
+        #[cfg(feature = "p2p")]
         if self.network_handle.is_some() {
             self.broadcast_via_p2p(&message).await;
         }
@@ -962,6 +973,7 @@ impl GossipService {
             };
 
             // Broadcast via libp2p (reaches all connected peers)
+            #[cfg(feature = "p2p")]
             self.broadcast_via_p2p(&message).await;
 
             // Also send via HTTP to known HTTP peers
@@ -1535,6 +1547,7 @@ impl GossipService {
                 tx,
                 sender_url: public_url,
             };
+            #[cfg(feature = "p2p")]
             self.broadcast_via_p2p(&message).await;
             debug!("Broadcast tx {} via P2P immediately", &tx_hash[..16.min(tx_hash.len())]);
         }
@@ -1773,6 +1786,7 @@ impl GossipService {
             sender_url: std::env::var("PUBLIC_URL").ok(),
         };
         
+        #[cfg(feature = "p2p")]
         self.broadcast_via_p2p(&message).await;
     }
 }

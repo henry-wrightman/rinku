@@ -254,9 +254,6 @@ async fn main() -> Result<()> {
         None
     };
 
-    #[cfg(not(feature = "p2p"))]
-    let network_handle: Option<network::NetworkHandle> = None;
-
     // Create GossipService - shared between background task and API
     let gossip_service = if config.gossip_enabled {
         let mut service = GossipService::new(
@@ -267,6 +264,7 @@ async fn main() -> Result<()> {
         );
         
         // Wire up the libp2p network handle if available
+        #[cfg(feature = "p2p")]
         if let Some(handle) = network_handle {
             service.set_network_handle(handle);
             info!("GossipService connected to libp2p network");

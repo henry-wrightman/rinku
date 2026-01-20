@@ -135,9 +135,13 @@ deploymentTarget = "autoscale"
 run = [
   "bash",
   "-c",
-  "NODE_PEERS='' VITE_API_URL=https://rinku-genesis.fly.dev PUBLIC_URL=https://rinkuchan.com ./rinku-node-bin",
+  "NODE_PEERS='' VITE_API_URL=https://rinku-genesis.fly.dev PUBLIC_URL=https://rinkuchan.com ./target/release/rinku-node",
 ]
-build = ["sh", "-c", "bash -c rm -f rinku-node-bin; cargo build --release -p rinku-node && cp target/release/rinku-node rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
+build = [
+  "sh",
+  "-c",
+  "bash -c rm -f rinku-node-bin; cargo build --release -p rinku-node --no-default-features && cp target/release/rinku-node rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer",
+]
 
 [userenv]
 
