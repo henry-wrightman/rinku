@@ -74,12 +74,20 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 ### Step 1: Deploy Genesis Node to Fly.io
 
 ```bash
-# Clone and deploy first node
+# Create the app
 fly apps create rinku-genesis
+
+# IMPORTANT: Allocate dedicated IPv4 for P2P port 4001
+fly ips allocate-v4 --app rinku-genesis
+
+# Deploy the node
 fly deploy --dockerfile Dockerfile.fly --app rinku-genesis
 
 # Wait for startup, then get bootstrap info
 curl https://rinku-genesis.fly.dev/api/bootstrap
+
+# Get the public IP address for P2P connections
+fly ips list --app rinku-genesis
 ```
 
 Response will include:

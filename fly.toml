@@ -4,12 +4,19 @@
 # This deploys ONLY the Rust node (API + P2P consensus)
 # Explorer remains on Replit deployment
 #
+# IMPORTANT: For P2P port 4001, allocate a dedicated IPv4:
+#   fly ips allocate-v4 --app <app-name>
+#
 # MULTI-NODE TESTNET SETUP:
-# 1. Deploy genesis node first (leave P2P_BOOTSTRAP_PEERS empty)
-# 2. Get bootstrap info: curl https://<app>.fly.dev/api/bootstrap
-# 3. For additional nodes, set:
-#    - P2P_BOOTSTRAP_PEERS=/ip4/<GENESIS_IP>/tcp/4001/p2p/<PEER_ID>
-#    - GENESIS_VALIDATORS=<ADDRESS>:<BLS_KEY>
+# 1. Create app: fly apps create rinku-genesis
+# 2. Allocate IPv4: fly ips allocate-v4 --app rinku-genesis
+# 3. Deploy: fly deploy --dockerfile Dockerfile.fly --app rinku-genesis
+# 4. Get bootstrap info: curl https://rinku-genesis.fly.dev/api/bootstrap
+# 5. Get IP: fly ips list --app rinku-genesis
+# 6. For additional nodes, set env vars:
+#    fly secrets set -a rinku-validator-1 \
+#      P2P_BOOTSTRAP_PEERS="/ip4/<GENESIS_IP>/tcp/4001/p2p/<PEER_ID>" \
+#      GENESIS_VALIDATORS="<ADDRESS>:<BLS_KEY>"
 
 app = "rinku-node"
 primary_region = "sjc"
@@ -45,6 +52,11 @@ primary_region = "sjc"
 
   [[services.ports]]
     port = 4001
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 100
+    soft_limit = 50
 
 [[vm]]
   memory = "512mb"
