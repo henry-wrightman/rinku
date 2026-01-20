@@ -285,6 +285,16 @@ async function validateTransactionSync(nodeStatuses: NodeStatus[]) {
   console.log(`\n  \x1b[33mℹ\x1b[0m DAG transaction differences are expected - transactions are pruned after finalization.`);
 }
 
+// Configuration for stress testing
+const ACCOUNTS_PER_NODE = 10;  // Number of test accounts to create per node
+const PROPAGATION_WAIT_MS = 8000;  // Wait time for gossip propagation
+
+function generateTestAddress(): string {
+  return Array.from({ length: 20 }, () => 
+    Math.floor(Math.random() * 256).toString(16).padStart(2, '0')
+  ).join('');
+}
+
 async function testTransactionPropagation(nodeStatuses: NodeStatus[]) {
   logSection('5. TRANSACTION PROPAGATION TEST (Live Consensus)');
   
@@ -295,74 +305,121 @@ async function testTransactionPropagation(nodeStatuses: NodeStatus[]) {
     return;
   }
   
-  console.log('  Creating test wallets and transactions on different nodes...\n');
+  const totalTxTarget = reachable.length * ACCOUNTS_PER_NODE;
+  console.log(`  Testing with ${ACCOUNTS_PER_NODE} accounts per node (${totalTxTarget} total transactions)`);
+  console.log(`  Nodes under test: ${reachable.map(n => n.name).join(', ')}\n`);
   
-  // Generate test addresses (simple random hex)
-  const testAddresses: string[] = [];
-  for (let i = 0; i < reachable.length; i++) {
-    const addr = Array.from({ length: 20 }, () => 
-      Math.floor(Math.random() * 256).toString(16).padStart(2, '0')
-    ).join('');
-    testAddresses.push(addr);
+  // Generate all test addresses upfront
+  const testAccounts: { nodeIndex: number; address: string }[] = [];
+  for (let nodeIdx = 0; nodeIdx < reachable.length; nodeIdx++) {
+    for (let i = 0; i < ACCOUNTS_PER_NODE; i++) {
+      testAccounts.push({
+        nodeIndex: nodeIdx,
+        address: generateTestAddress()
+      });
+    }
   }
   
-  // Submit a faucet request on each node to its unique test address
-  const txResults: { node: string; address: string; success: boolean; hash?: string }[] = [];
+  // Submit faucet requests across all nodes
+  const txResults: { 
+    node: string; 
+    address: string; 
+    success: boolean; 
+    hash?: string;
+    error?: string;
+  }[] = [];
   
-  for (let i = 0; i < reachable.length; i++) {
-    const node = reachable[i];
-    const testAddr = testAddresses[i];
+  console.log('  Phase 1: Submitting transactions...');
+  let submitted = 0;
+  let failed = 0;
+  
+  // Submit in batches to avoid overwhelming any single node
+  for (let i = 0; i < testAccounts.length; i++) {
+    const { nodeIndex, address } = testAccounts[i];
+    const node = reachable[nodeIndex];
     
     try {
-      console.log(`  Submitting faucet tx on ${node.name} to ${testAddr.slice(0, 12)}...`);
-      
-      const response = await fetch(`${node.url}/api/faucet`, {
+      const response = await fetch(`${node.url}/api/faucet/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: testAddr }),
+        body: JSON.stringify({ address }),
       });
       
       if (response.ok) {
         const data = await response.json();
         const hash = data.hash || data.txHash || data.transaction?.hash || 'unknown';
-        console.log(`    ✓ Transaction submitted: ${hash.slice(0, 16)}...`);
-        txResults.push({ node: node.name, address: testAddr, success: true, hash });
+        txResults.push({ node: node.name, address, success: true, hash });
+        submitted++;
       } else {
         const text = await response.text();
-        console.log(`    ✗ Failed: ${text.slice(0, 50)}`);
-        txResults.push({ node: node.name, address: testAddr, success: false });
+        txResults.push({ node: node.name, address, success: false, error: text.slice(0, 100) });
+        failed++;
       }
     } catch (e: any) {
-      console.log(`    ✗ Error: ${e.message}`);
-      txResults.push({ node: node.name, address: testAddr, success: false });
+      txResults.push({ node: node.name, address, success: false, error: e.message });
+      failed++;
     }
+    
+    // Progress indicator every 10 transactions
+    if ((i + 1) % 10 === 0 || i === testAccounts.length - 1) {
+      process.stdout.write(`\r    Submitted: ${submitted} successful, ${failed} failed (${i + 1}/${testAccounts.length})`);
+    }
+    
+    // Small delay between requests to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
+  console.log('');
   
   const successfulTxs = txResults.filter(r => r.success);
   
+  // Report submission stats per node
+  console.log('\n  Submission results per node:');
+  for (const node of reachable) {
+    const nodeTxs = txResults.filter(r => r.node === node.name);
+    const nodeSuccess = nodeTxs.filter(r => r.success).length;
+    const nodeFailed = nodeTxs.filter(r => !r.success).length;
+    console.log(`    ${node.name}: ${nodeSuccess} submitted, ${nodeFailed} failed`);
+  }
+  
   if (successfulTxs.length === 0) {
-    console.log('\n  No transactions could be submitted - skipping propagation check');
-    console.log('  (This may be normal if faucet is disabled or rate-limited)');
+    console.log('\n  \x1b[31m✗\x1b[0m No transactions could be submitted');
+    
+    // Show sample errors
+    const sampleErrors = txResults.filter(r => r.error).slice(0, 3);
+    if (sampleErrors.length > 0) {
+      console.log('  Sample errors:');
+      for (const e of sampleErrors) {
+        console.log(`    - ${e.node}: ${e.error}`);
+      }
+    }
+    
+    record('Transaction submission', false, 'No transactions could be submitted');
     return;
   }
   
+  record('Transaction submission', successfulTxs.length >= totalTxTarget * 0.8,
+    `${successfulTxs.length}/${totalTxTarget} transactions submitted successfully`
+  );
+  
   // Wait for propagation
-  console.log(`\n  Waiting 5 seconds for transaction propagation...`);
-  await new Promise(resolve => setTimeout(resolve, 5000));
+  console.log(`\n  Phase 2: Waiting ${PROPAGATION_WAIT_MS/1000}s for gossip propagation...`);
+  await new Promise(resolve => setTimeout(resolve, PROPAGATION_WAIT_MS));
   
-  // Check if test addresses have balances on all nodes
-  console.log('\n  Verifying transaction propagation:');
+  // Verify propagation: check if accounts exist on ALL nodes
+  console.log('\n  Phase 3: Verifying cross-node propagation...');
   
-  let propagationSuccess = 0;
-  let propagationTotal = 0;
+  let fullyPropagated = 0;
+  let partiallyPropagated = 0;
+  let notPropagated = 0;
+  const propagationDetails: { address: string; seenOn: number }[] = [];
   
-  for (const tx of successfulTxs) {
-    propagationTotal++;
+  for (let i = 0; i < successfulTxs.length; i++) {
+    const tx = successfulTxs[i];
     let seenOnNodes = 0;
     
     for (const node of reachable) {
       try {
-        const { data } = await fetchWithTimeout(`${node.url}/api/accounts/${tx.address}`, 5000);
+        const { data } = await fetchWithTimeout(`${node.url}/api/accounts/${tx.address}`, 3000);
         if (data && data.balance > 0) {
           seenOnNodes++;
         }
@@ -371,19 +428,89 @@ async function testTransactionPropagation(nodeStatuses: NodeStatus[]) {
       }
     }
     
-    const propagated = seenOnNodes === reachable.length;
-    if (propagated) propagationSuccess++;
+    propagationDetails.push({ address: tx.address, seenOn: seenOnNodes });
     
-    const status = propagated ? '\x1b[32m✓\x1b[0m' : '\x1b[33m⏳\x1b[0m';
-    console.log(`    ${status} Tx from ${tx.node}: seen on ${seenOnNodes}/${reachable.length} nodes`);
+    if (seenOnNodes === reachable.length) {
+      fullyPropagated++;
+    } else if (seenOnNodes > 1) {
+      partiallyPropagated++;
+    } else {
+      notPropagated++;
+    }
+    
+    // Progress indicator
+    if ((i + 1) % 10 === 0 || i === successfulTxs.length - 1) {
+      process.stdout.write(`\r    Checked: ${i + 1}/${successfulTxs.length} accounts`);
+    }
+  }
+  console.log('');
+  
+  // Summary
+  console.log('\n  Propagation results:');
+  console.log(`    \x1b[32m✓\x1b[0m Fully propagated (on all ${reachable.length} nodes): ${fullyPropagated}`);
+  if (partiallyPropagated > 0) {
+    console.log(`    \x1b[33m⏳\x1b[0m Partially propagated: ${partiallyPropagated}`);
+  }
+  if (notPropagated > 0) {
+    console.log(`    \x1b[31m✗\x1b[0m Not propagated: ${notPropagated}`);
   }
   
-  if (propagationTotal > 0) {
-    const allPropagated = propagationSuccess === propagationTotal;
-    record('Transaction propagation', allPropagated,
-      allPropagated 
-        ? `All ${propagationTotal} test transactions propagated to all nodes`
-        : `${propagationSuccess}/${propagationTotal} transactions fully propagated (others may still be syncing)`
+  // Calculate propagation rate
+  const propagationRate = (fullyPropagated / successfulTxs.length) * 100;
+  console.log(`\n  Propagation rate: ${propagationRate.toFixed(1)}%`);
+  
+  // Show sample of failed propagations
+  if (notPropagated > 0 || partiallyPropagated > 0) {
+    const failed = propagationDetails.filter(p => p.seenOn < reachable.length).slice(0, 5);
+    console.log('  Sample incomplete propagations:');
+    for (const f of failed) {
+      console.log(`    ${f.address.slice(0, 12)}... seen on ${f.seenOn}/${reachable.length} nodes`);
+    }
+  }
+  
+  // Pass if at least 90% of transactions propagated to all nodes
+  const passed = propagationRate >= 90;
+  record('Transaction propagation', passed,
+    passed 
+      ? `${propagationRate.toFixed(1)}% of ${successfulTxs.length} transactions propagated to all nodes`
+      : `Only ${propagationRate.toFixed(1)}% propagated (need 90%+)`
+  );
+  
+  // Additional consensus check: verify balances match across nodes for propagated accounts
+  if (fullyPropagated > 0) {
+    console.log('\n  Phase 4: Verifying balance consistency...');
+    
+    const sampleAccounts = propagationDetails
+      .filter(p => p.seenOn === reachable.length)
+      .slice(0, 10);
+    
+    let balanceMismatches = 0;
+    for (const acc of sampleAccounts) {
+      const balances: number[] = [];
+      for (const node of reachable) {
+        try {
+          const { data } = await fetchWithTimeout(`${node.url}/api/accounts/${acc.address}`, 3000);
+          balances.push(data?.balance || 0);
+        } catch {
+          balances.push(-1);
+        }
+      }
+      
+      const uniqueBalances = [...new Set(balances.filter(b => b >= 0))];
+      if (uniqueBalances.length > 1) {
+        balanceMismatches++;
+        console.log(`    \x1b[31m✗\x1b[0m Balance mismatch for ${acc.address.slice(0, 12)}...: ${balances.join(' vs ')}`);
+      }
+    }
+    
+    if (balanceMismatches === 0) {
+      console.log(`    \x1b[32m✓\x1b[0m All ${sampleAccounts.length} sampled accounts have consistent balances`);
+    }
+    
+    record('Balance consistency', balanceMismatches === 0,
+      balanceMismatches === 0 
+        ? `All sampled accounts have matching balances across nodes`
+        : `${balanceMismatches} accounts have balance mismatches`
     );
   }
 }

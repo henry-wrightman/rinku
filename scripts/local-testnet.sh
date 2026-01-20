@@ -23,7 +23,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Configuration
-BASE_PORT=3001
+# Use ports 3011+ to avoid conflict with main workflow on 3001/4001
+BASE_PORT=3011
+P2P_BASE_PORT=4011
 NODE_PORTS=()
 NUM_NODES=${2:-2}
 LOG_DIR="$PROJECT_ROOT/.testnet-logs"
@@ -131,7 +133,7 @@ start_testnet() {
         
         # Set environment variables and start node (using debug binary directly)
         # Use DATA_DIR, API_PORT, and P2P_PORT env vars that the node actually reads
-        local p2p_port=$((4001 + i))
+        local p2p_port=$((P2P_BASE_PORT + i))
         
         API_PORT=$port \
         P2P_PORT=$p2p_port \
@@ -260,37 +262,34 @@ view_logs() {
 }
 
 run_validation() {
-    calculate_ports
-    
-    # Build URL list
+    # Detect running nodes from PID files (not hardcoded NUM_NODES)
     local urls=""
-    for ((i=0; i<NUM_NODES; i++)); do
-        if [ -n "$urls" ]; then
-            urls="$urls "
-        fi
-        urls="${urls}http://localhost:${NODE_PORTS[$i]}"
-    done
+    local running_count=0
     
-    if [ -z "$urls" ]; then
-        # Default to checking for running nodes
-        for pid_file in "$LOG_DIR"/node-*.pid; do
-            if [ -f "$pid_file" ]; then
-                local node_num=$(basename "$pid_file" .pid | sed 's/node-//')
-                local port=$((BASE_PORT + node_num - 1))
+    for pid_file in "$LOG_DIR"/node-*.pid; do
+        if [ -f "$pid_file" ]; then
+            local pid=$(cat "$pid_file")
+            local node_num=$(basename "$pid_file" .pid | sed 's/node-//')
+            local port=$((BASE_PORT + node_num - 1))
+            
+            # Check if process is actually running
+            if kill -0 "$pid" 2>/dev/null; then
                 if [ -n "$urls" ]; then
                     urls="$urls "
                 fi
                 urls="${urls}http://localhost:$port"
+                ((running_count++))
             fi
-        done
-    fi
+        fi
+    done
     
-    if [ -z "$urls" ]; then
-        log_error "No nodes to validate. Start testnet first."
+    if [ -z "$urls" ] || [ "$running_count" -lt 2 ]; then
+        log_error "Need at least 2 running nodes to validate. Found: $running_count"
+        log_info "Start testnet first: ./scripts/local-testnet.sh start 3"
         exit 1
     fi
     
-    log_info "Running multi-node validation..."
+    log_info "Running multi-node validation on $running_count nodes..."
     npx ts-node "$SCRIPT_DIR/validate-multi-node.ts" $urls
 }
 
