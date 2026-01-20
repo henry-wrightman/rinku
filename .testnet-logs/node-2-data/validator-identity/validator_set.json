@@ -1,6 +1,6 @@
 {
-  "current_epoch": 5,
-  "epoch_start_time": 1768916042000,
+  "current_epoch": 3,
+  "epoch_start_time": 1768916029000,
   "active_validators": {},
   "pending_validators": {},
   "exiting_validators": {},

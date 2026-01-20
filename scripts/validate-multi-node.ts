@@ -285,8 +285,111 @@ async function validateTransactionSync(nodeStatuses: NodeStatus[]) {
   console.log(`\n  \x1b[33mℹ\x1b[0m DAG transaction differences are expected - transactions are pruned after finalization.`);
 }
 
+async function testTransactionPropagation(nodeStatuses: NodeStatus[]) {
+  logSection('5. TRANSACTION PROPAGATION TEST (Live Consensus)');
+  
+  const reachable = nodeStatuses.filter(n => n.reachable);
+  
+  if (reachable.length < 2) {
+    console.log('  Skipping: Need at least 2 reachable nodes for propagation test');
+    return;
+  }
+  
+  console.log('  Creating test wallets and transactions on different nodes...\n');
+  
+  // Generate test addresses (simple random hex)
+  const testAddresses: string[] = [];
+  for (let i = 0; i < reachable.length; i++) {
+    const addr = Array.from({ length: 20 }, () => 
+      Math.floor(Math.random() * 256).toString(16).padStart(2, '0')
+    ).join('');
+    testAddresses.push(addr);
+  }
+  
+  // Submit a faucet request on each node to its unique test address
+  const txResults: { node: string; address: string; success: boolean; hash?: string }[] = [];
+  
+  for (let i = 0; i < reachable.length; i++) {
+    const node = reachable[i];
+    const testAddr = testAddresses[i];
+    
+    try {
+      console.log(`  Submitting faucet tx on ${node.name} to ${testAddr.slice(0, 12)}...`);
+      
+      const response = await fetch(`${node.url}/api/faucet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: testAddr }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const hash = data.hash || data.txHash || data.transaction?.hash || 'unknown';
+        console.log(`    ✓ Transaction submitted: ${hash.slice(0, 16)}...`);
+        txResults.push({ node: node.name, address: testAddr, success: true, hash });
+      } else {
+        const text = await response.text();
+        console.log(`    ✗ Failed: ${text.slice(0, 50)}`);
+        txResults.push({ node: node.name, address: testAddr, success: false });
+      }
+    } catch (e: any) {
+      console.log(`    ✗ Error: ${e.message}`);
+      txResults.push({ node: node.name, address: testAddr, success: false });
+    }
+  }
+  
+  const successfulTxs = txResults.filter(r => r.success);
+  
+  if (successfulTxs.length === 0) {
+    console.log('\n  No transactions could be submitted - skipping propagation check');
+    console.log('  (This may be normal if faucet is disabled or rate-limited)');
+    return;
+  }
+  
+  // Wait for propagation
+  console.log(`\n  Waiting 5 seconds for transaction propagation...`);
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  
+  // Check if test addresses have balances on all nodes
+  console.log('\n  Verifying transaction propagation:');
+  
+  let propagationSuccess = 0;
+  let propagationTotal = 0;
+  
+  for (const tx of successfulTxs) {
+    propagationTotal++;
+    let seenOnNodes = 0;
+    
+    for (const node of reachable) {
+      try {
+        const { data } = await fetchWithTimeout(`${node.url}/api/accounts/${tx.address}`, 5000);
+        if (data && data.balance > 0) {
+          seenOnNodes++;
+        }
+      } catch {
+        // Account might not exist yet
+      }
+    }
+    
+    const propagated = seenOnNodes === reachable.length;
+    if (propagated) propagationSuccess++;
+    
+    const status = propagated ? '\x1b[32m✓\x1b[0m' : '\x1b[33m⏳\x1b[0m';
+    console.log(`    ${status} Tx from ${tx.node}: seen on ${seenOnNodes}/${reachable.length} nodes`);
+  }
+  
+  if (propagationTotal > 0) {
+    const allPropagated = propagationSuccess === propagationTotal;
+    record('Transaction propagation', allPropagated,
+      allPropagated 
+        ? `All ${propagationTotal} test transactions propagated to all nodes`
+        : `${propagationSuccess}/${propagationTotal} transactions fully propagated (others may still be syncing)`
+    );
+  }
+}
+
 async function validateAccountBalances(nodeStatuses: NodeStatus[]) {
-  logSection('5. ACCOUNT BALANCE CONSISTENCY');
+  logSection('6. ACCOUNT BALANCE CONSISTENCY');
   
   const reachable = nodeStatuses.filter(n => n.reachable);
   
@@ -345,7 +448,7 @@ async function validateAccountBalances(nodeStatuses: NodeStatus[]) {
 }
 
 async function validatePeerConnectivity(nodeStatuses: NodeStatus[]) {
-  logSection('6. PEER-TO-PEER CONNECTIVITY');
+  logSection('7. PEER-TO-PEER CONNECTIVITY');
   
   const reachable = nodeStatuses.filter(n => n.reachable);
   
@@ -440,6 +543,7 @@ async function main() {
     await validateCheckpointConsensus(nodeStatuses);
     await validateDAGState(nodeStatuses);
     await validateTransactionSync(nodeStatuses);
+    await testTransactionPropagation(nodeStatuses);
     await validateAccountBalances(nodeStatuses);
     await validatePeerConnectivity(nodeStatuses);
     

@@ -1,0 +1,63 @@
+241 | impl VersioningService {
+    | ---------------------- associated items in this implementation
+242 |     pub fn new(chain_id: &str, network_id: &str) -> Self {
+    |            ^^^
+...
+263 |     pub fn get_version_info(&self) -> &VersionInfo {
+    |            ^^^^^^^^^^^^^^^^
+...
+267 |     pub fn get_active_features(&self) -> Vec<&FeatureFlag> {
+    |            ^^^^^^^^^^^^^^^^^^^
+...
+275 |     pub fn is_feature_active(&self, feature_id: &str) -> b...
+    |            ^^^^^^^^^^^^^^^^^
+...
+282 |     pub fn add_proposal(&mut self, proposal: UpgradePropos...
+    |            ^^^^^^^^^^^^
+...
+286 |     pub fn record_signal(&mut self, signal: UpgradeSignal) {
+    |            ^^^^^^^^^^^^^
+...
+290 |     pub fn get_proposals(&self) -> &[UpgradeProposal] {
+    |            ^^^^^^^^^^^^^
+...
+294 |     pub fn check_compatibility(&self, remote_version: &str...
+    |            ^^^^^^^^^^^^^^^^^^^
+
+warning: `rinku-node` (bin "rinku-node") generated 122 warnings (11 duplicates)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s
+[INFO] Starting Node 1 on port 3001...
+[OK] Node 1 started (PID: 8720, Port: 3001, P2P: 4001)
+[INFO]   Peers: http://localhost:3002,http://localhost:3003
+[INFO] Starting Node 2 on port 3002...
+[OK] Node 2 started (PID: 8727, Port: 3002, P2P: 4002)
+[INFO]   Peers: http://localhost:3001,http://localhost:3003
+[INFO] Starting Node 3 on port 3003...
+[OK] Node 3 started (PID: 8736, Port: 3003, P2P: 4003)
+[INFO]   Peers: http://localhost:3001,http://localhost:3002
+
+[INFO] Waiting for nodes to initialize...
+
+  Node Status:
+  ─────────────────────────────────────────────────────
+[ERROR] Node 1: Stopped (Port: 3001)
+[OK] Node 2: Running (Port: 3002, DAG: 1 txs)
+[OK] Node 3: Running (Port: 3003, DAG: 1 txs)
+  ─────────────────────────────────────────────────────
+  Running: 2/3 nodes
+
+
+[OK] Local testnet started!
+
+  Available endpoints:
+    Node 1: http://localhost:3001
+    Node 2: http://localhost:3002
+    Node 3: http://localhost:3003
+
+  Commands:
+    ./scripts/local-testnet.sh status    - Check node status
+    ./scripts/local-testnet.sh validate  - Run multi-node validation
+    ./scripts/local-testnet.sh logs 1    - View Node 1 logs
+    ./scripts/local-testnet.sh stop      - Stop all nodes
+
+~/workspace$ 

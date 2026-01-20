@@ -126,8 +126,8 @@ start_testnet() {
         
         log_info "Starting Node $((i+1)) on port $port..."
         
-        # Clean up old database for fresh start (optional)
-        # rm -rf "$db_path"
+        # Clean up old database to ensure fresh start (avoid stale locks)
+        rm -rf "$db_path"
         
         # Set environment variables and start node (using debug binary directly)
         # Use DATA_DIR, API_PORT, and P2P_PORT env vars that the node actually reads
