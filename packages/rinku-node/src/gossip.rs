@@ -1675,7 +1675,18 @@ impl GossipService {
     }
 
     pub async fn get_peer_count(&self) -> usize {
-        self.inner.read().await.peers.len()
+        let http_peers = self.inner.read().await.peers.len();
+        
+        // Include P2P peer count if available
+        #[cfg(feature = "p2p")]
+        {
+            if let Some(ref handle) = self.network_handle {
+                let p2p_peers = handle.lock().await.get_peer_count().await;
+                return http_peers + p2p_peers;
+            }
+        }
+        
+        http_peers
     }
 
     pub async fn get_healthy_peer_count(&self) -> usize {
