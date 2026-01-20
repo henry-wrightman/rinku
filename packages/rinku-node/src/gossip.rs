@@ -1508,10 +1508,29 @@ impl GossipService {
     }
 
     pub async fn broadcast_transaction(&self, tx: SignedTransaction) {
-        let mut inner = self.inner.write().await;
-        if !inner.known_txs.contains(&tx.hash) {
-            inner.known_txs.insert(tx.hash.clone());
-            inner.pending_txs.push(tx);
+        let is_new = {
+            let mut inner = self.inner.write().await;
+            if !inner.known_txs.contains(&tx.hash) {
+                inner.known_txs.insert(tx.hash.clone());
+                inner.pending_txs.push(tx.clone());
+                inner.stats.txs_propagated += 1;
+                true
+            } else {
+                false
+            }
+        };
+        
+        // Immediately broadcast via P2P for fast propagation
+        if is_new {
+            let tx_hash = tx.hash.clone();
+            let public_url = std::env::var("PUBLIC_URL").ok();
+            let message = GossipMessage::Transaction {
+                hash: tx_hash.clone(),
+                tx,
+                sender_url: public_url,
+            };
+            self.broadcast_via_p2p(&message).await;
+            debug!("Broadcast tx {} via P2P immediately", &tx_hash[..16.min(tx_hash.len())]);
         }
     }
 
