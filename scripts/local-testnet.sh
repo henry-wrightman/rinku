@@ -95,13 +95,27 @@ start_testnet() {
         exit 1
     fi
     
-    # Build the node first
-    log_info "Building Rinku node..."
+    # Build the node first (use debug build for faster iteration)
+    log_info "Building Rinku node (debug mode for faster startup)..."
     cd "$PROJECT_ROOT"
-    cargo build -p rinku-node --release 2>/dev/null || {
-        log_warn "Release build failed, trying debug build..."
-        cargo build -p rinku-node
-    }
+    
+    # Check if binary already exists and is recent
+    if [ -f "target/debug/rinku-node" ]; then
+        local binary_age=$(($(date +%s) - $(stat -c %Y target/debug/rinku-node 2>/dev/null || echo 0)))
+        if [ $binary_age -lt 300 ]; then
+            log_success "Using existing build (built ${binary_age}s ago)"
+        else
+            cargo build -p rinku-node || {
+                log_error "Build failed"
+                exit 1
+            }
+        fi
+    else
+        cargo build -p rinku-node || {
+            log_error "Build failed"
+            exit 1
+        }
+    fi
     
     # Start each node
     for ((i=0; i<NUM_NODES; i++)); do
@@ -115,23 +129,30 @@ start_testnet() {
         # Clean up old database for fresh start (optional)
         # rm -rf "$db_path"
         
-        # Set environment variables and start node
-        RINKU_PORT=$port \
+        # Set environment variables and start node (using debug binary directly)
+        # Use DATA_DIR, PORT, and P2P_PORT env vars that the node actually reads
+        local p2p_port=$((4001 + i))
+        
+        PORT=$port \
+        P2P_PORT=$p2p_port \
         NODE_PEERS="$peers" \
-        RINKU_DB_PATH="$db_path" \
+        DATA_DIR="$db_path" \
         RUST_LOG=info \
-        cargo run -p rinku-node --release 2>/dev/null &>"$log_file" &
+        ./target/debug/rinku-node &>"$log_file" &
         
         local pid=$!
         echo $pid > "$LOG_DIR/node-$((i+1)).pid"
         
-        log_success "Node $((i+1)) started (PID: $pid, Port: $port)"
+        log_success "Node $((i+1)) started (PID: $pid, Port: $port, P2P: $p2p_port)"
         
         if [ -n "$peers" ]; then
             log_info "  Peers: $peers"
         else
             log_info "  Peers: None (bootstrap node)"
         fi
+        
+        # Wait a bit between starting nodes to avoid port conflicts
+        sleep 2
     done
     
     echo ""

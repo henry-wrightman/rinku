@@ -12,26 +12,15 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Rinku Rust Node"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "Rinku Explorer"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "Rinku Faucet"
 
-[[workflows.workflow]]
-name = "Rinku Rust Node"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
 [[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "RUST_LOG=\"rinku_node=info,rinku_node::gossip=info\" cargo run -p rinku-node"
+task = "workflow.run"
+args = "Rinku Rust Node"
 
 [[workflows.workflow]]
 name = "Rinku Explorer"
@@ -57,13 +46,21 @@ waitForPort = 3002
 [workflows.workflow.metadata]
 outputType = "console"
 
+[[workflows.workflow]]
+name = "Rinku Rust Node"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "RUST_LOG=\"rinku_node=info,rinku_node::gossip=info\" cargo run -p rinku-node"
+waitForPort = 3001
+
+[workflows.workflow.metadata]
+outputType = "console"
+
 [[ports]]
 localPort = 3001
 externalPort = 3001
-
-[[ports]]
-localPort = 3002
-externalPort = 3002
 
 [[ports]]
 localPort = 4001
