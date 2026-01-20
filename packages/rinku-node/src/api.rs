@@ -2245,7 +2245,7 @@ pub async fn start_api_server(
         .route("/api/dag", get(get_dag))
         .route("/api/dag/summary", get(get_dag_summary))
         .route("/api/accounts", get(get_accounts))
-        .route("/api/stats/network", get(get_network_stats))
+        .route("/api/network/stats", get(get_network_stats))
         .route("/api/gas/price", get(get_gas_price))
         .route("/api/gas/stats", get(get_gas_stats))
         .route("/api/finality/metrics", get(get_finality_metrics))
