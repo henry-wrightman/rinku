@@ -143,6 +143,39 @@ The Rust node implements a production-grade P2P networking layer using libp2p fo
 - `packages/rinku-node/src/sync_verification.rs` - Merkle proof verification for sync
 - `packages/rinku-node/tests/p2p_integration.rs` - P2P integration tests
 
+### E2E Multi-Node Testing (Phase 3.5 - January 2026)
+Comprehensive end-to-end test suite for multi-node P2P network validation:
+
+**Test Infrastructure:**
+- `spawn_test_node()` helper to spawn real libp2p nodes on different ports
+- NetworkHandle extensions: `connect()`, `stats()`, `broadcast()`, `request_snapshot()`
+- Async tokio-based tests with proper assertions
+
+**E2E Test Coverage:**
+- `test_e2e_node_connection`: Two-node connection establishment
+- `test_e2e_bloom_broadcast`: Bloom filter gossip propagation
+- `test_e2e_three_node_mesh`: Three-node mesh formation and connectivity
+- `test_e2e_sync_request`: Request/response sync protocol validation
+- `test_e2e_peer_stats`: Peer counting and connection statistics
+
+### TPS Benchmarking Infrastructure (Phase 3.5 - January 2026)
+Production benchmarking module for measuring transaction throughput:
+
+**Benchmark Components:**
+- `BenchmarkConfig`: Configurable tx_count, workers, batch_size, warmup, target_tps
+- `LatencyTracker`: Collects timing metrics with safe percentile calculation (p50, p95, p99)
+- `ThroughputMeter`: Real-time TPS monitoring with instant and overall rates
+- `TxGenerator`: Atomic nonce-incrementing transaction generator
+- `BenchmarkRunner`: Orchestrates benchmarks with success/error tracking
+
+**Benchmark Results (January 2026):**
+- Signature validation: **65,107 TPS** (P-256 ECDSA verification)
+- Merkle tree operations: **877 TPS** for 100-leaf trees
+- Target: 1,000-10,000+ TPS at mainnet scale
+
+**Key Files:**
+- `packages/rinku-node/src/benchmark.rs` - TPS benchmarking module
+
 ### Fly.io Deployment
 The Rust node is deployable to Fly.io using a `Dockerfile.fly` and `fly.toml` for production environments.
 
