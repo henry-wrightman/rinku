@@ -1,10 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const apiTarget = process.env.VITE_API_URL || 'http://127.0.0.1:3001';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
     dedupe: ['react', 'react-dom']
+  },
+  define: {
+    'import.meta.env.VITE_API_URL': JSON.stringify(apiTarget)
   },
   server: {
     host: '0.0.0.0',
@@ -12,7 +17,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:3001',
+        target: apiTarget,
         changeOrigin: true
       }
     }

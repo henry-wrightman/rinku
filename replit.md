@@ -62,3 +62,85 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Testing:** vitest.
 - **ZK-SNARKs:** circomlib, snarkjs, circomlibjs.
 - **Rust Libraries:** `p256`, `sha2`, `petgraph`, `tokio`, `axum`, `serde`, `serde_json`, `flate2`, `redb`, `tower-http`, `tracing`, `libp2p` (gossipsub, request-response, mDNS, identify).
+
+## Testnet Deployment Guide
+
+### Architecture
+- **Fly.io**: Runs Rust nodes (genesis + validators) with full P2P consensus
+- **Replit**: Hosts explorer frontend connecting to Fly.io node API
+
+> Note: Replit deployments only support a single external port, so P2P nodes must run on Fly.io.
+
+### Step 1: Deploy Genesis Node to Fly.io
+
+```bash
+# Clone and deploy first node
+fly apps create rinku-genesis
+fly deploy --dockerfile Dockerfile.fly --app rinku-genesis
+
+# Wait for startup, then get bootstrap info
+curl https://rinku-genesis.fly.dev/api/bootstrap
+```
+
+Response will include:
+- `peerId`: libp2p peer ID
+- `bootstrapMultiaddr`: Template for P2P_BOOTSTRAP_PEERS
+- `genesisValidatorEnv`: Format for GENESIS_VALIDATORS
+
+### Step 2: Deploy Additional Validator Nodes
+
+```bash
+# Create new app for each validator
+fly apps create rinku-validator-1
+
+# Set bootstrap configuration
+fly secrets set -a rinku-validator-1 \
+  P2P_BOOTSTRAP_PEERS="/ip4/<GENESIS_IP>/tcp/4001/p2p/<PEER_ID>" \
+  GENESIS_VALIDATORS="<ADDRESS>:<BLS_PUBLIC_KEY>"
+
+# Deploy
+fly deploy --dockerfile Dockerfile.fly --app rinku-validator-1
+```
+
+To get the genesis node's public IP:
+```bash
+fly ips list -a rinku-genesis
+```
+
+### Step 3: Deploy Explorer to Replit
+
+Set environment variable before deploying:
+```
+VITE_API_URL=https://rinku-genesis.fly.dev
+```
+
+The explorer will proxy all `/api` requests to the Fly.io node.
+
+### Verifying the Network
+
+1. Check genesis node status:
+   ```bash
+   curl https://rinku-genesis.fly.dev/api/status
+   ```
+
+2. Check validator node sync:
+   ```bash
+   curl https://rinku-validator-1.fly.dev/api/sync/status
+   ```
+
+3. Check P2P connectivity:
+   ```bash
+   curl https://rinku-genesis.fly.dev/api/bootstrap
+   # Should show peer connections in network stats
+   ```
+
+### Environment Variables Reference
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `API_PORT` | HTTP API port (default: 8080) | No |
+| `P2P_PORT` | libp2p P2P port (default: 4001) | No |
+| `DATA_DIR` | Persistent data directory | Yes |
+| `P2P_BOOTSTRAP_PEERS` | Multiaddr of bootstrap peer(s) | No (genesis) / Yes (validators) |
+| `GENESIS_VALIDATORS` | Trusted validator addresses with BLS keys | No (genesis) / Yes (validators) |
+| `RUST_LOG` | Log level filter | No |
