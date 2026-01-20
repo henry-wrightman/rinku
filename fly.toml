@@ -1,8 +1,15 @@
 # Fly.io configuration for Rinku Rust Node
 # Deploy with: fly deploy --dockerfile Dockerfile.fly
 #
-# This deploys ONLY the Rust node (API + consensus + metrics)
+# This deploys ONLY the Rust node (API + P2P consensus)
 # Explorer remains on Replit deployment
+#
+# MULTI-NODE TESTNET SETUP:
+# 1. Deploy genesis node first (leave P2P_BOOTSTRAP_PEERS empty)
+# 2. Get bootstrap info: curl https://<app>.fly.dev/api/bootstrap
+# 3. For additional nodes, set:
+#    - P2P_BOOTSTRAP_PEERS=/ip4/<GENESIS_IP>/tcp/4001/p2p/<PEER_ID>
+#    - GENESIS_VALIDATORS=<ADDRESS>:<BLS_KEY>
 
 app = "rinku-node"
 primary_region = "sjc"
@@ -11,27 +18,33 @@ primary_region = "sjc"
   dockerfile = "Dockerfile.fly"
 
 [env]
-  RUST_LOG = "info"
+  RUST_LOG = "rinku_node=info,rinku_node::gossip=info"
   API_PORT = "8080"
-  GOSSIP_ENABLED = "true"
-  GOSSIP_INTERVAL_MS = "5000"
-  CHECKPOINT_INTERVAL_MS = "30000"
-  NODE_ID = "fly-node-1"
+  P2P_PORT = "4001"
   DATA_DIR = "/data"
-  PUBLIC_URL = "https://rinku-node-0.fly.dev"
-  NODE_PEERS = "https://rinkuchan.com"
+  CHECKPOINT_INTERVAL_MS = "30000"
+  # P2P Bootstrap - set via `fly secrets set` for non-genesis nodes
+  # P2P_BOOTSTRAP_PEERS = "/ip4/<IP>/tcp/4001/p2p/<PEER_ID>"
+  # GENESIS_VALIDATORS = "<ADDRESS>:<BLS_PUBLIC_KEY>"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [http_service.concurrency]
     type = "requests"
     hard_limit = 250
     soft_limit = 200
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 4001
+
+  [[services.ports]]
+    port = 4001
 
 [[vm]]
   memory = "512mb"
@@ -51,15 +64,7 @@ primary_region = "sjc"
     port = 8080
     interval = "30s"
     timeout = "10s"
-    grace_period = "30s"
-
-  [checks.sync]
-    type = "http"
-    method = "GET"
-    path = "/api/sync/status"
-    port = 8080
-    interval = "60s"
-    timeout = "10s"
+    grace_period = "60s"
 
   [checks.metrics]
     type = "http"
