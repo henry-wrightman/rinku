@@ -455,19 +455,25 @@ impl GossipService {
     async fn run_p2p_receiver(&self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) {
         info!("P2P message receiver started");
         loop {
-            let message = {
+            // Use try_recv with a short sleep to avoid holding the lock
+            // This prevents deadlock when broadcast_via_p2p tries to acquire the lock
+            let recv_result = {
                 let mut locked = handle.lock().await;
-                locked.message_rx.recv().await
+                locked.message_rx.try_recv()
             };
             
-            match message {
-                Some(msg) => {
+            match recv_result {
+                Ok(msg) => {
                     debug!("Received P2P gossip message: {:?}", std::mem::discriminant(&msg));
                     if let Err(e) = self.handle_message(msg).await {
                         warn!("Failed to handle P2P message: {}", e);
                     }
                 }
-                None => {
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                    // No message available, sleep briefly and try again
+                    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                     warn!("P2P message channel closed");
                     break;
                 }
