@@ -262,6 +262,8 @@ pub struct NetworkService {
     handshake_config: HandshakeConfig,
     /// Banned peers
     banned_peers: Arc<RwLock<HashMap<String, BannedPeer>>>,
+    /// Command channel for dial requests etc
+    command_rx: mpsc::Receiver<NetworkCommand>,
 }
 
 struct NetworkStatsInner {
@@ -342,6 +344,8 @@ impl NetworkService {
         // Sync request channels
         let (sync_request_tx, sync_request_rx) = mpsc::channel(100);
         let (sync_incoming_tx, sync_incoming_rx) = mpsc::channel(100);
+        // Command channel for dial requests etc
+        let (command_tx, command_rx) = mpsc::channel(100);
 
         let stats = Arc::new(RwLock::new(NetworkStatsInner {
             messages_published: 0,
@@ -359,6 +363,8 @@ impl NetworkService {
             local_peer_id: local_peer_id.to_string(),
             sync_request_tx,
             sync_incoming_rx,
+            command_tx,
+            stats: stats.clone(),
         };
 
         let service = Self {
@@ -376,6 +382,7 @@ impl NetworkService {
             dos_config: DoSConfig::default(),
             handshake_config: HandshakeConfig::default(),
             banned_peers: Arc::new(RwLock::new(HashMap::new())),
+            command_rx,
         };
 
         Ok((service, handle))
@@ -405,6 +412,13 @@ impl NetworkService {
         self.run_event_loop().await
     }
 
+    /// Public run method for running the service (starts listening and runs event loop)
+    /// This method will block until the service is stopped or encounters an error.
+    pub async fn run(&mut self) -> Result<()> {
+        self.start().await?;
+        self.run_event_loop().await
+    }
+
     async fn run_event_loop(&mut self) -> Result<()> {
         loop {
             tokio::select! {
@@ -418,9 +432,23 @@ impl NetworkService {
                     self.pending_requests.insert(request_id, PendingSyncRequest { response_tx });
                     debug!("Sent sync request {:?} to {}", request_id, peer_id);
                 }
+                Some(cmd) = self.command_rx.recv() => {
+                    self.handle_command(cmd).await;
+                }
                 event = self.swarm.select_next_some() => {
                     self.handle_swarm_event(event).await;
                 }
+            }
+        }
+    }
+
+    async fn handle_command(&mut self, cmd: NetworkCommand) {
+        match cmd {
+            NetworkCommand::Dial(addr, response_tx) => {
+                debug!("Dialing peer at {}", addr);
+                let result = self.swarm.dial(addr.clone())
+                    .map_err(|e| anyhow::anyhow!("Dial error: {}", e));
+                let _ = response_tx.send(result);
             }
         }
     }
@@ -822,6 +850,12 @@ fn current_time_secs() -> u64 {
         .as_secs()
 }
 
+/// Command to send to the network service
+#[derive(Debug)]
+pub enum NetworkCommand {
+    Dial(Multiaddr, oneshot::Sender<Result<()>>),
+}
+
 pub struct NetworkHandle {
     outbound_tx: mpsc::Sender<GossipMessage>,
     pub message_rx: mpsc::Receiver<GossipMessage>,
@@ -831,6 +865,10 @@ pub struct NetworkHandle {
     sync_request_tx: mpsc::Sender<(PeerId, SyncRequest, oneshot::Sender<SyncResponse>)>,
     /// Channel for receiving incoming sync requests (to be handled by application)
     pub sync_incoming_rx: mpsc::Receiver<IncomingSyncRequest>,
+    /// Channel for sending commands to the network service
+    command_tx: mpsc::Sender<NetworkCommand>,
+    /// Stats tracking
+    stats: Arc<RwLock<NetworkStatsInner>>,
 }
 
 impl NetworkHandle {
@@ -845,6 +883,33 @@ impl NetworkHandle {
 
     pub fn local_peer_id(&self) -> &str {
         &self.local_peer_id
+    }
+
+    /// Connect to a peer by multiaddr
+    pub async fn connect(&self, addr: &str) -> Result<()> {
+        let multiaddr: Multiaddr = addr.parse()
+            .map_err(|e| anyhow::anyhow!("Invalid multiaddr: {}", e))?;
+        
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx.send(NetworkCommand::Dial(multiaddr, response_tx)).await?;
+        
+        response_rx.await
+            .map_err(|_| anyhow::anyhow!("Dial command cancelled"))?
+    }
+
+    /// Get network statistics
+    pub async fn stats(&self) -> NetworkStats {
+        let stats = self.stats.read().await;
+        let peer_count = self.peers.read().await.len();
+        
+        NetworkStats {
+            local_peer_id: self.local_peer_id.clone(),
+            connected_peers: peer_count,
+            messages_published: stats.messages_published,
+            messages_received: stats.messages_received,
+            bytes_sent: stats.bytes_sent,
+            bytes_received: stats.bytes_received,
+        }
     }
 
     /// Get list of connected peer IDs

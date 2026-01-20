@@ -1,4 +1,5 @@
 pub mod api;
+pub mod benchmark;
 pub mod bls;
 pub mod checkpoint;
 pub mod config;
