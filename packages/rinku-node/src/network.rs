@@ -164,6 +164,60 @@ pub struct PeerStats {
     pub messages_received: u64,
     pub messages_sent: u64,
     pub last_seen: u64,
+    pub handshake_validated: bool,
+    pub handshake_info: Option<PeerHandshake>,
+    pub rate_limit_tokens: u32,
+    pub last_rate_update: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct DoSConfig {
+    pub max_connections: usize,
+    pub rate_limit_tokens_per_second: u32,
+    pub max_rate_limit_tokens: u32,
+    pub ban_duration_secs: u64,
+    pub min_protocol_version: String,
+}
+
+impl Default for DoSConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: 50,
+            rate_limit_tokens_per_second: 10,
+            max_rate_limit_tokens: 100,
+            ban_duration_secs: 300,
+            min_protocol_version: "1.0.0".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BannedPeer {
+    pub peer_id: String,
+    pub reason: String,
+    pub banned_at: u64,
+    pub expires_at: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct HandshakeConfig {
+    pub protocol_version: String,
+    pub chain_id: String,
+    pub network_id: String,
+    pub required_chain_id: Option<String>,
+    pub required_network_id: Option<String>,
+}
+
+impl Default for HandshakeConfig {
+    fn default() -> Self {
+        Self {
+            protocol_version: "1.0.0".to_string(),
+            chain_id: "rinku-mainnet".to_string(),
+            network_id: "mainnet".to_string(),
+            required_chain_id: None,
+            required_network_id: None,
+        }
+    }
 }
 
 pub struct NetworkStats {
@@ -202,6 +256,12 @@ pub struct NetworkService {
     sync_incoming_tx: mpsc::Sender<IncomingSyncRequest>,
     /// Pending requests awaiting responses
     pending_requests: HashMap<OutboundRequestId, PendingSyncRequest>,
+    /// DoS protection configuration
+    dos_config: DoSConfig,
+    /// Handshake configuration
+    handshake_config: HandshakeConfig,
+    /// Banned peers
+    banned_peers: Arc<RwLock<HashMap<String, BannedPeer>>>,
 }
 
 struct NetworkStatsInner {
@@ -313,6 +373,9 @@ impl NetworkService {
             sync_request_rx,
             sync_incoming_tx,
             pending_requests: HashMap::new(),
+            dos_config: DoSConfig::default(),
+            handshake_config: HandshakeConfig::default(),
+            banned_peers: Arc::new(RwLock::new(HashMap::new())),
         };
 
         Ok((service, handle))
@@ -404,13 +467,19 @@ impl NetworkService {
                     info!("mDNS discovered peer: {} at {}", peer_id, addr);
                     self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                     
+                    let now = current_time_secs();
+                    let max_tokens = self.dos_config.max_rate_limit_tokens;
                     let mut peer_map = self.peers.write().await;
                     peer_map.entry(peer_id).or_insert_with(|| PeerStats {
                         peer_id: peer_id.to_string(),
-                        connected_at: current_time_secs(),
+                        connected_at: now,
                         messages_received: 0,
                         messages_sent: 0,
-                        last_seen: current_time_secs(),
+                        last_seen: now,
+                        handshake_validated: false,
+                        handshake_info: None,
+                        rate_limit_tokens: max_tokens,
+                        last_rate_update: now,
                     });
                 }
             }
@@ -426,15 +495,35 @@ impl NetworkService {
             }
 
             SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+                let peer_id_str = peer_id.to_string();
+                
+                if self.is_peer_banned_sync(&peer_id_str) {
+                    warn!("Rejecting banned peer: {}", peer_id_str);
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                    return;
+                }
+
+                if self.is_connection_limit_reached_sync() {
+                    warn!("Connection limit reached, rejecting peer: {}", peer_id_str);
+                    let _ = self.swarm.disconnect_peer_id(peer_id);
+                    return;
+                }
+
                 info!("Connected to peer: {} via {:?}", peer_id, endpoint);
                 
+                let now = current_time_secs();
+                let max_tokens = self.dos_config.max_rate_limit_tokens;
                 let mut peers = self.peers.write().await;
                 peers.entry(peer_id).or_insert_with(|| PeerStats {
-                    peer_id: peer_id.to_string(),
-                    connected_at: current_time_secs(),
+                    peer_id: peer_id_str,
+                    connected_at: now,
                     messages_received: 0,
                     messages_sent: 0,
-                    last_seen: current_time_secs(),
+                    last_seen: now,
+                    handshake_validated: false,
+                    handshake_info: None,
+                    rate_limit_tokens: max_tokens,
+                    last_rate_update: now,
                 });
             }
 
@@ -557,6 +646,172 @@ impl NetworkService {
 
     pub async fn get_connected_peers(&self) -> Vec<PeerStats> {
         self.peers.read().await.values().cloned().collect()
+    }
+
+    /// Validate a handshake from a peer
+    pub fn validate_handshake(&self, handshake: &PeerHandshake) -> Result<(), String> {
+        if !self.is_protocol_version_compatible(&handshake.protocol_version) {
+            return Err(format!(
+                "Incompatible protocol version: {} (min: {})",
+                handshake.protocol_version, self.dos_config.min_protocol_version
+            ));
+        }
+
+        if let Some(ref required_chain) = self.handshake_config.required_chain_id {
+            if &handshake.chain_id != required_chain {
+                return Err(format!(
+                    "Chain ID mismatch: {} (expected: {})",
+                    handshake.chain_id, required_chain
+                ));
+            }
+        }
+
+        if let Some(ref required_network) = self.handshake_config.required_network_id {
+            if &handshake.network_id != required_network {
+                return Err(format!(
+                    "Network ID mismatch: {} (expected: {})",
+                    handshake.network_id, required_network
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check if protocol version is compatible (simple semver major version check)
+    fn is_protocol_version_compatible(&self, version: &str) -> bool {
+        let min_parts: Vec<&str> = self.dos_config.min_protocol_version.split('.').collect();
+        let version_parts: Vec<&str> = version.split('.').collect();
+
+        if min_parts.is_empty() || version_parts.is_empty() {
+            return false;
+        }
+
+        let min_major: u32 = min_parts[0].parse().unwrap_or(0);
+        let version_major: u32 = version_parts[0].parse().unwrap_or(0);
+
+        version_major >= min_major
+    }
+
+    /// Check if peer is banned (non-blocking check, returns false if lock contended)
+    pub fn is_peer_banned_sync(&self, peer_id: &str) -> bool {
+        if let Ok(banned) = self.banned_peers.try_read() {
+            if let Some(ban) = banned.get(peer_id) {
+                return ban.expires_at > current_time_secs();
+            }
+        }
+        false
+    }
+
+    /// Check if peer is banned (async version)
+    pub async fn is_peer_banned(&self, peer_id: &str) -> bool {
+        let banned = self.banned_peers.read().await;
+        if let Some(ban) = banned.get(peer_id) {
+            ban.expires_at > current_time_secs()
+        } else {
+            false
+        }
+    }
+
+    /// Ban a peer (non-blocking, queues ban if lock contended)
+    pub fn ban_peer_sync(&self, peer_id: String, reason: String) {
+        let now = current_time_secs();
+        let ban = BannedPeer {
+            peer_id: peer_id.clone(),
+            reason: reason.clone(),
+            banned_at: now,
+            expires_at: now + self.dos_config.ban_duration_secs,
+        };
+        
+        warn!("Banning peer {} for {} secs: {}", peer_id, self.dos_config.ban_duration_secs, reason);
+        if let Ok(mut banned) = self.banned_peers.try_write() {
+            banned.insert(peer_id, ban);
+        }
+    }
+
+    /// Ban a peer (async version)
+    pub async fn ban_peer(&self, peer_id: String, reason: String) {
+        let now = current_time_secs();
+        let ban = BannedPeer {
+            peer_id: peer_id.clone(),
+            reason: reason.clone(),
+            banned_at: now,
+            expires_at: now + self.dos_config.ban_duration_secs,
+        };
+        
+        warn!("Banning peer {} for {} secs: {}", peer_id, self.dos_config.ban_duration_secs, reason);
+        self.banned_peers.write().await.insert(peer_id, ban);
+    }
+
+    /// Cleanup expired bans
+    pub async fn cleanup_expired_bans(&self) {
+        let now = current_time_secs();
+        let mut banned = self.banned_peers.write().await;
+        banned.retain(|_, ban| ban.expires_at > now);
+    }
+
+    /// Check if connection limit is reached (non-blocking, returns false if lock contended)
+    pub fn is_connection_limit_reached_sync(&self) -> bool {
+        if let Ok(peers) = self.peers.try_read() {
+            return peers.len() >= self.dos_config.max_connections;
+        }
+        false
+    }
+
+    /// Check if connection limit is reached (async version)
+    pub async fn is_connection_limit_reached(&self) -> bool {
+        self.peers.read().await.len() >= self.dos_config.max_connections
+    }
+
+    /// Check rate limit for a peer (returns true if request allowed)
+    pub async fn check_rate_limit(&self, peer_id: &PeerId) -> bool {
+        let mut peers = self.peers.write().await;
+        if let Some(peer) = peers.get_mut(peer_id) {
+            let now = current_time_secs();
+            let elapsed = now.saturating_sub(peer.last_rate_update);
+            
+            let tokens_to_add = (elapsed as u32) * self.dos_config.rate_limit_tokens_per_second;
+            peer.rate_limit_tokens = (peer.rate_limit_tokens + tokens_to_add)
+                .min(self.dos_config.max_rate_limit_tokens);
+            peer.last_rate_update = now;
+
+            if peer.rate_limit_tokens > 0 {
+                peer.rate_limit_tokens -= 1;
+                true
+            } else {
+                false
+            }
+        } else {
+            true
+        }
+    }
+
+    /// Create a handshake info for this node
+    pub fn create_handshake(&self, checkpoint_height: u64, validator_address: Option<String>) -> PeerHandshake {
+        PeerHandshake {
+            protocol_version: self.handshake_config.protocol_version.clone(),
+            chain_id: self.handshake_config.chain_id.clone(),
+            network_id: self.handshake_config.network_id.clone(),
+            node_id: self.local_peer_id.to_string(),
+            checkpoint_height,
+            validator_address,
+            capabilities: vec!["sync".to_string(), "gossip".to_string(), "proofs".to_string()],
+        }
+    }
+
+    /// Get banned peers list
+    pub async fn get_banned_peers(&self) -> Vec<BannedPeer> {
+        self.banned_peers.read().await.values().cloned().collect()
+    }
+
+    /// Manually set DoS config
+    pub fn set_dos_config(&mut self, config: DoSConfig) {
+        self.dos_config = config;
+    }
+
+    /// Manually set handshake config
+    pub fn set_handshake_config(&mut self, config: HandshakeConfig) {
+        self.handshake_config = config;
     }
 }
 
