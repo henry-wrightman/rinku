@@ -225,6 +225,10 @@ async fn main() -> Result<()> {
                 let peer_id = network_service.local_peer_id();
                 info!("P2P network started with peer ID: {}", peer_id);
                 info!("P2P listening on: {}", config.p2p.listen_addr);
+                
+                // Store peer info for bootstrap endpoint
+                state.set_peer_info(peer_id.to_string(), config.p2p.listen_addr.clone()).await;
+                
                 if !config.p2p.bootstrap_peers.is_empty() {
                     info!("P2P bootstrap peers: {:?}", config.p2p.bootstrap_peers);
                 }

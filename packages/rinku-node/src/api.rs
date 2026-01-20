@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -195,6 +196,17 @@ struct DagNodeResponse {
 #[derive(Serialize)]
 struct AccountsResponse {
     accounts: Vec<AccountResponse>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BootstrapInfoResponse {
+    peer_id: Option<String>,
+    listen_addr: Option<String>,
+    validator_address: Option<String>,
+    bls_public_key_hex: Option<String>,
+    bootstrap_multiaddr: Option<String>,
+    genesis_validator_env: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -444,6 +456,42 @@ async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusRespo
         uptime_seconds,
         is_syncing: false,
         faucet_balance,
+    })
+}
+
+async fn get_bootstrap_info(State(state): State<NodeState>) -> Json<BootstrapInfoResponse> {
+    let (peer_id, listen_addr, validator_address, bls_public_key) = state.get_bootstrap_info().await;
+    
+    // Build bootstrap multiaddr for P2P_BOOTSTRAP_PEERS env var
+    let bootstrap_multiaddr = match (&peer_id, &listen_addr) {
+        (Some(pid), Some(_addr)) => {
+            // For external connections, we need the public IP/hostname
+            // Using placeholder that user should replace with their public address
+            Some(format!("/ip4/<PUBLIC_IP>/tcp/4001/p2p/{}", pid))
+        }
+        _ => None,
+    };
+    
+    // Build GENESIS_VALIDATORS env var format: address:bls_hex
+    let genesis_validator_env = match (&validator_address, &bls_public_key) {
+        (Some(addr), Some(bls_key)) => {
+            // BLS key is stored as base64, convert to hex for env var
+            if let Ok(bls_bytes) = base64::Engine::decode(&base64::prelude::BASE64_STANDARD, bls_key) {
+                Some(format!("{}:{}", addr, hex::encode(&bls_bytes)))
+            } else {
+                Some(format!("{}:{}", addr, bls_key))
+            }
+        }
+        _ => None,
+    };
+    
+    Json(BootstrapInfoResponse {
+        peer_id,
+        listen_addr,
+        validator_address,
+        bls_public_key_hex: bls_public_key,
+        bootstrap_multiaddr,
+        genesis_validator_env,
     })
 }
 
@@ -2221,6 +2269,7 @@ pub async fn start_api_server(
         .route("/api/checkpoints/:height", get(get_checkpoint_by_height))
         .route("/api/fork/stats", get(get_fork_stats))
         .route("/api/sync/status", get(get_sync_status))
+        .route("/api/bootstrap", get(get_bootstrap_info))
         .route("/api/sync/bootstrap", post(post_bootstrap))
         .route("/api/sync/snapshot", get(get_snapshot_sync))
         .route("/api/sync/merge-accounts", post(post_merge_accounts))

@@ -106,6 +106,8 @@ pub struct StateInner {
     pub finality_max_ms: u64,             // Track maximum finality time
     pub node_validator_address: Option<String>,
     pub node_bls_public_key: Option<String>,
+    pub node_peer_id: Option<String>,
+    pub node_listen_addr: Option<String>,
     // TPS calculation: track (timestamp_ms, finalized_tx_count) for sliding window
     pub finalized_tx_history: VecDeque<(u64, u64)>,
 }
@@ -210,6 +212,8 @@ impl NodeState {
                     finality_max_ms: 0,
                     node_validator_address: None,
                     node_bls_public_key: None,
+                    node_peer_id: None,
+                    node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                 }
             } else {
@@ -326,6 +330,8 @@ impl NodeState {
                     finality_max_ms: 0,
                     node_validator_address: None,
                     node_bls_public_key: None,
+                    node_peer_id: None,
+                    node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                 }
             };
@@ -513,6 +519,22 @@ impl NodeState {
     pub async fn get_validator_info(&self) -> (Option<String>, Option<String>) {
         let state = self.inner.read().await;
         (state.node_validator_address.clone(), state.node_bls_public_key.clone())
+    }
+
+    pub async fn set_peer_info(&self, peer_id: String, listen_addr: String) {
+        let mut state = self.inner.write().await;
+        state.node_peer_id = Some(peer_id);
+        state.node_listen_addr = Some(listen_addr);
+    }
+
+    pub async fn get_bootstrap_info(&self) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+        let state = self.inner.read().await;
+        (
+            state.node_peer_id.clone(),
+            state.node_listen_addr.clone(),
+            state.node_validator_address.clone(),
+            state.node_bls_public_key.clone(),
+        )
     }
 
     pub async fn get_account(&self, address: &str) -> Option<Account> {
