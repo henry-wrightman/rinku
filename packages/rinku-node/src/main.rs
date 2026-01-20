@@ -9,6 +9,7 @@ mod checkpoint;
 mod config;
 mod consensus;
 mod contracts;
+mod dag_pruning;
 mod emission;
 mod fork_remediation;
 mod gas;
@@ -41,6 +42,7 @@ use gossip::GossipService;
 #[cfg(feature = "p2p")]
 use network::{NetworkConfig, NetworkService};
 use rewards::{RewardConfig, RewardsService};
+use consensus::ConsensusService;
 use slashing::SlashingService;
 use tip_consolidator::TipConsolidator;
 use tokio::sync::RwLock;
@@ -152,8 +154,14 @@ async fn main() -> Result<()> {
     let _emission_service = EmissionService::new();
     info!("Emission service initialized (30M max supply, halving every 3.15M checkpoints)");
 
-    let _slashing_service = SlashingService::new();
+    let slashing_service = Arc::new(RwLock::new(SlashingService::new()));
     info!("Slashing service initialized");
+    
+    let consensus_service = Arc::new(RwLock::new(
+        ConsensusService::new(state.clone())
+            .with_slashing_service(slashing_service.clone())
+    ));
+    info!("Consensus service initialized with slashing integration");
 
     let validator_identity_path = format!("{}/validator-identity", config.data_dir);
     let validator_identity = match ValidatorIdentityService::new(&validator_identity_path) {

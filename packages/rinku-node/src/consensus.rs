@@ -188,6 +188,8 @@ pub struct ConsensusService {
     last_finalized_height: u64,
     vote_history: HashMap<(String, u64), Vote>,
     slashed_validators: HashSet<String>,
+    slashing_service: Arc<RwLock<crate::slashing::SlashingService>>,
+    liveness_tracking: HashMap<String, u32>,
 }
 
 impl ConsensusService {
@@ -200,7 +202,14 @@ impl ConsensusService {
             last_finalized_height: 0,
             vote_history: HashMap::new(),
             slashed_validators: HashSet::new(),
+            slashing_service: Arc::new(RwLock::new(crate::slashing::SlashingService::new())),
+            liveness_tracking: HashMap::new(),
         }
+    }
+    
+    pub fn with_slashing_service(mut self, slashing: Arc<RwLock<crate::slashing::SlashingService>>) -> Self {
+        self.slashing_service = slashing;
+        self
     }
 
     pub fn with_validator_service(
@@ -403,6 +412,18 @@ impl ConsensusService {
                 evidence.validator, slashed
             );
 
+            {
+                let original_stake = slashed / 0.15;
+                let mut slashing = self.slashing_service.write().await;
+                slashing.slash(
+                    &evidence.validator,
+                    original_stake,
+                    crate::slashing::SlashReason::DoubleSign,
+                    evidence.height,
+                    Some(format!("Double-sign: {} vs {}", &evidence.hash1[..8.min(evidence.hash1.len())], &evidence.hash2[..8.min(evidence.hash2.len())])),
+                );
+            }
+
             for (_, accumulator) in self.pending_votes.iter_mut() {
                 if let Some(reduced) = accumulator.reduce_validator_power(&evidence.validator, 0.15) {
                     debug!(
@@ -414,6 +435,47 @@ impl ConsensusService {
             return Some(slashed);
         }
         None
+    }
+    
+    pub async fn track_liveness(&mut self, checkpoint_height: u64, participating_validators: &[String]) {
+        let all_validators: Vec<String> = if let Some(ref vs) = self.validator_service {
+            vs.read().await.active_validators().keys().cloned().collect()
+        } else {
+            let state = self.state.inner.read().await;
+            state.validators.keys().cloned().collect()
+        };
+        
+        for validator in &all_validators {
+            if !participating_validators.contains(validator) {
+                let count = self.liveness_tracking.entry(validator.clone()).or_insert(0);
+                *count += 1;
+                
+                if *count >= crate::slashing::LIVENESS_MISS_THRESHOLD {
+                    warn!("Validator {} missed {} consecutive checkpoints", validator, count);
+                    
+                    let stake = if let Some(ref vs) = self.validator_service {
+                        let vs_guard = vs.read().await;
+                        vs_guard.get_validator(validator).map(|v| v.effective_stake).unwrap_or(0.0)
+                    } else {
+                        let state = self.state.inner.read().await;
+                        state.validators.get(validator).map(|v| v.stake).unwrap_or(0.0)
+                    };
+                    
+                    if stake > 0.0 {
+                        let mut slashing = self.slashing_service.write().await;
+                        slashing.record_liveness_failure(validator, checkpoint_height, stake);
+                    }
+                }
+            } else {
+                let mut slashing = self.slashing_service.write().await;
+                slashing.reset_liveness_counter(validator);
+                self.liveness_tracking.remove(validator);
+            }
+        }
+    }
+    
+    pub async fn get_slash_events(&self) -> Vec<crate::slashing::SlashEvent> {
+        self.slashing_service.read().await.get_events().to_vec()
     }
 
     pub fn cleanup_old_vote_history(&mut self, keep_after_height: u64) {

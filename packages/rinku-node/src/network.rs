@@ -471,6 +471,12 @@ impl NetworkService {
                     stats.bytes_received += message.data.len() as u64;
                 }
 
+                if !self.check_rate_limit_sync(&propagation_source) {
+                    warn!("Rate limit exceeded for peer: {}", propagation_source);
+                    self.record_misbehavior_sync(&propagation_source.to_string());
+                    return;
+                }
+
                 if let Ok(gossip_msg) = serde_json::from_slice::<GossipMessage>(&message.data) {
                     let _ = self.message_tx.send(gossip_msg).await;
                 }
@@ -572,6 +578,16 @@ impl NetworkService {
             )) => {
                 match message {
                     request_response::Message::Request { request, channel, .. } => {
+                        if !self.check_rate_limit_sync(&peer) {
+                            warn!("Rate limit exceeded for sync request from: {}", peer);
+                            self.record_misbehavior_sync(&peer.to_string());
+                            let _ = self.swarm.behaviour_mut().request_response.send_response(
+                                channel,
+                                SyncResponse::Error { message: "Rate limit exceeded".to_string() }
+                            );
+                            return;
+                        }
+                        
                         debug!("Received sync request from {}: {:?}", peer, request);
                         let incoming = IncomingSyncRequest {
                             peer_id: peer.to_string(),
@@ -791,7 +807,38 @@ impl NetworkService {
         self.peers.read().await.len() >= self.dos_config.max_connections
     }
 
-    /// Check rate limit for a peer (returns true if request allowed)
+    /// Check rate limit for a peer (returns true if request allowed) - sync version
+    /// Uses blocking wait to ensure rate limiting is never bypassed
+    pub fn check_rate_limit_sync(&self, peer_id: &PeerId) -> bool {
+        let mut peers = match self.peers.try_write() {
+            Ok(p) => p,
+            Err(_) => {
+                warn!("Rate limit check blocked, rejecting request as precaution");
+                return false;
+            }
+        };
+        
+        if let Some(peer) = peers.get_mut(peer_id) {
+            let now = current_time_secs();
+            let elapsed = now.saturating_sub(peer.last_rate_update);
+            
+            let tokens_to_add = (elapsed as u32) * self.dos_config.rate_limit_tokens_per_second;
+            peer.rate_limit_tokens = (peer.rate_limit_tokens + tokens_to_add)
+                .min(self.dos_config.max_rate_limit_tokens);
+            peer.last_rate_update = now;
+
+            if peer.rate_limit_tokens > 0 {
+                peer.rate_limit_tokens -= 1;
+                true
+            } else {
+                false
+            }
+        } else {
+            true
+        }
+    }
+    
+    /// Check rate limit for a peer (returns true if request allowed) - async version
     pub async fn check_rate_limit(&self, peer_id: &PeerId) -> bool {
         let mut peers = self.peers.write().await;
         if let Some(peer) = peers.get_mut(peer_id) {
@@ -830,6 +877,50 @@ impl NetworkService {
     /// Get banned peers list
     pub async fn get_banned_peers(&self) -> Vec<BannedPeer> {
         self.banned_peers.read().await.values().cloned().collect()
+    }
+    
+    /// Record misbehavior for a peer - escalates to ban after threshold (async version)
+    pub async fn record_misbehavior(&self, peer_id: &str) {
+        let mut peers = self.peers.write().await;
+        let peer_key = if let Ok(pid) = peer_id.parse::<PeerId>() {
+            pid
+        } else {
+            return;
+        };
+        
+        if let Some(peer) = peers.get_mut(&peer_key) {
+            peer.rate_limit_tokens = peer.rate_limit_tokens.saturating_sub(10);
+            
+            if peer.rate_limit_tokens == 0 {
+                drop(peers);
+                self.ban_peer(peer_id.to_string(), "Repeated misbehavior".to_string()).await;
+            }
+        }
+    }
+    
+    /// Record misbehavior for a peer - sync version
+    /// Deducts tokens and bans peer if depleted
+    pub fn record_misbehavior_sync(&self, peer_id: &str) {
+        let peer_key = if let Ok(pid) = peer_id.parse::<PeerId>() {
+            pid
+        } else {
+            return;
+        };
+        
+        let should_ban = if let Ok(mut peers) = self.peers.try_write() {
+            if let Some(peer) = peers.get_mut(&peer_key) {
+                peer.rate_limit_tokens = peer.rate_limit_tokens.saturating_sub(10);
+                peer.rate_limit_tokens == 0
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        
+        if should_ban {
+            self.ban_peer_sync(peer_id.to_string(), "Repeated misbehavior".to_string());
+        }
     }
 
     /// Manually set DoS config

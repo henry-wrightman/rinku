@@ -358,6 +358,10 @@ impl SlashingService {
     pub fn get_slash_events(&self, limit: usize) -> Vec<&SlashEvent> {
         self.slash_events.iter().rev().take(limit).collect()
     }
+    
+    pub fn get_events(&self) -> &[SlashEvent] {
+        &self.slash_events
+    }
 
     pub fn get_validator_slash_history(&self, validator: &str) -> Vec<&SlashEvent> {
         self.slash_events

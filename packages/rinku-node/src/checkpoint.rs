@@ -13,6 +13,7 @@ use crate::bls::{
     aggregate_signatures, bls_sign, create_signer_bitmap, generate_bls_keypair,
 };
 use crate::config::TrustConfig;
+use crate::dag_pruning::{DagPruningService, PruningConfig};
 use crate::state::NodeState;
 use crate::trust::TrustVerifier;
 use crate::validator_identity::ValidatorIdentityService;
@@ -27,6 +28,8 @@ pub struct CheckpointService {
     consecutive_fork_failures: std::sync::atomic::AtomicU32,
     trust_verifier: Arc<TrustVerifier>,
     validator_identity: Option<Arc<RwLock<ValidatorIdentityService>>>,
+    pruning_service: Option<DagPruningService>,
+    pruning_counter: std::sync::atomic::AtomicU32,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
@@ -51,11 +54,18 @@ impl CheckpointService {
             consecutive_fork_failures: std::sync::atomic::AtomicU32::new(0),
             trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
             validator_identity: None,
+            pruning_service: Some(DagPruningService::new(PruningConfig::default())),
+            pruning_counter: std::sync::atomic::AtomicU32::new(0),
         }
     }
 
     pub fn with_validator_identity(mut self, identity: Arc<RwLock<ValidatorIdentityService>>) -> Self {
         self.validator_identity = Some(identity);
+        self
+    }
+    
+    pub fn with_pruning_config(mut self, config: PruningConfig) -> Self {
+        self.pruning_service = Some(DagPruningService::new(config));
         self
     }
 
@@ -84,6 +94,20 @@ impl CheckpointService {
 
             if let Err(e) = self.create_checkpoint().await {
                 tracing::warn!("Checkpoint creation failed: {}", e);
+            }
+            
+            let prune_count = self.pruning_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            const PRUNE_EVERY_N_CHECKPOINTS: u32 = 10;
+            if prune_count > 0 && prune_count % PRUNE_EVERY_N_CHECKPOINTS == 0 {
+                let state_guard = self.state.inner.read().await;
+                let current_height = state_guard.checkpoints.len() as u64;
+                let dag_size = state_guard.dag.get_all_nodes().len();
+                drop(state_guard);
+                
+                if current_height > 100 {
+                    info!("Scheduled DAG pruning at checkpoint height {} ({} DAG nodes)", 
+                          current_height, dag_size);
+                }
             }
         }
     }
