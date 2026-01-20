@@ -94,6 +94,54 @@ Comprehensive test coverage includes 89 unit tests and 20 multi-node integration
 - **Cryptography:** BLS signatures, P-256 ECDSA, SHA-256 hashing
 - **State Management:** Persistence, state trie, validator management, slashing, unbonding
 - **Protocol:** Version compatibility, trust verification, checkpoint chain validation
+- **P2P Networking:** Bloom filter operations, DoS protection, handshake validation, sync verification
+
+### P2P Networking Architecture (Phase 3 - January 2026)
+The Rust node implements a production-grade P2P networking layer using libp2p for secure, decentralized communication:
+
+**Transport & Security:**
+- libp2p with TCP transport and Noise protocol encryption
+- Yamux multiplexing for efficient stream management
+- mDNS for automatic local peer discovery
+- Bootstrap peer configuration for network joining
+
+**Messaging Layer:**
+- GossipSub for efficient pub/sub message propagation
+- CBOR-serialized request/response protocol for sync operations
+- Message types: Transaction, TipAnnouncement, BlockProposal, BloomAnnouncement
+
+**Request/Response Protocol:**
+- Snapshot sync: Full state transfer (accounts, validators, checkpoints)
+- Delta sync: Transactions since specific checkpoint height
+- Transaction requests: Fetch specific transactions by hash
+- Proof requests: Request merkle proofs for transaction verification
+- Account state queries: Fetch account data with merkle verification
+- Authenticated handshake: Protocol version, chain/network ID validation
+
+**DoS Protection:**
+- Connection limits: Max 50 connections per peer (configurable)
+- Rate limiting: Token bucket algorithm (10 tokens/sec, 20 burst)
+- Peer banning: 300s default ban duration for misbehavior
+- Sync/async variants for non-blocking validation
+
+**Bloom Filter Announcements:**
+- 524,288 bit filters (64KB) with 7 hash functions
+- Double hashing: h(i) = (h1 + i*h2) mod m
+- ~1% false positive rate for 50K items, ~12% for 100K items (use compact filters for smaller sets)
+- Bandwidth-efficient transaction advertising between peers
+- Automatic filter generation from local DAG tips
+
+**Verified Sync with Merkle Proofs:**
+- Snapshot verification: Validate received state against merkle root
+- Account proofs: Generate and verify merkle proofs for individual accounts
+- SyncVerifier: Strict/lenient modes for verification enforcement
+- Tamper detection: Any modification invalidates proofs
+
+**Key Files:**
+- `packages/rinku-node/src/network.rs` - NetworkService, libp2p setup, P2P event handling
+- `packages/rinku-node/src/gossip.rs` - GossipService, BloomFilter, message broadcasting
+- `packages/rinku-node/src/sync_verification.rs` - Merkle proof verification for sync
+- `packages/rinku-node/tests/p2p_integration.rs` - P2P integration tests
 
 ### Fly.io Deployment
 The Rust node is deployable to Fly.io using a `Dockerfile.fly` and `fly.toml` for production environments.
@@ -106,4 +154,4 @@ The Rust node is deployable to Fly.io using a `Dockerfile.fly` and `fly.toml` fo
 - **Compression:** pako (DEFLATE).
 - **Testing:** vitest.
 - **ZK-SNARKs:** circomlib, snarkjs, circomlibjs.
-- **Rust Libraries:** `p256`, `sha2`, `petgraph`, `tokio`, `axum`, `serde`, `serde_json`, `flate2`, `sled`, `tower-http`, `tracing`.
+- **Rust Libraries:** `p256`, `sha2`, `petgraph`, `tokio`, `axum`, `serde`, `serde_json`, `flate2`, `redb`, `tower-http`, `tracing`, `libp2p` (with gossipsub, request-response, mDNS, identify).

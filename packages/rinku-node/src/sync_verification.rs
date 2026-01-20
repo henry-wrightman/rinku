@@ -156,39 +156,72 @@ pub fn verify_snapshot(snapshot: &SnapshotData) -> VerificationResult {
     }
 }
 
-/// Verify delta sync data integrity
+/// Verify delta sync data integrity with strict merkle root validation
+/// 
+/// SECURITY: This function enforces that all transactions in the delta
+/// match the advertised merkle roots in checkpoints. Any mismatch indicates
+/// potential data tampering and will be rejected.
 pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
-    // Verify each checkpoint's tx merkle root against transactions
-    for checkpoint in &delta.new_checkpoints {
-        // Get transactions for this checkpoint
-        let checkpoint_txs: Vec<&TransactionData> = delta.transactions
-            .iter()
-            .filter(|tx| tx.timestamp <= checkpoint.timestamp as u64)
-            .collect();
-        
-        if checkpoint_txs.is_empty() {
-            continue; // Skip empty checkpoints
-        }
-        
-        let tx_hashes: Vec<String> = checkpoint_txs
-            .iter()
-            .map(|tx| sha256_hex(&tx.hash))
-            .collect();
-        
-        let computed_root = build_merkle_root(&tx_hashes);
-        
-        // In production, we verify against checkpoint.merkle_root
-        // For now, just validate the structure
+    if delta.new_checkpoints.is_empty() {
+        return VerificationResult::Valid; // No checkpoints to verify
+    }
+    
+    // Sort checkpoints by height for sequential verification
+    let mut sorted_checkpoints: Vec<_> = delta.new_checkpoints.iter().collect();
+    sorted_checkpoints.sort_by_key(|cp| cp.height);
+    
+    // Track which transactions we've already processed
+    let mut last_checkpoint_end: u64 = delta.from_checkpoint;
+    
+    for checkpoint in sorted_checkpoints {
         if checkpoint.merkle_root.is_empty() {
             return VerificationResult::Invalid(format!(
-                "Checkpoint {} has empty merkle root",
+                "Checkpoint {} has empty merkle root - potential tampering",
                 checkpoint.height
             ));
         }
         
-        // Optional: strict verification (currently disabled for flexibility)
-        // if computed_root != checkpoint.merkle_root { ... }
-        let _ = computed_root; // Silence unused warning for now
+        // Get transactions for this checkpoint window
+        // Using height-based windowing for proper checkpoint association
+        let checkpoint_txs: Vec<&TransactionData> = delta.transactions
+            .iter()
+            .filter(|tx| {
+                // Transaction belongs to this checkpoint if its timestamp
+                // falls within the checkpoint's range
+                tx.timestamp > last_checkpoint_end && tx.timestamp <= checkpoint.timestamp
+            })
+            .collect();
+        
+        if checkpoint_txs.is_empty() {
+            // Empty checkpoint - verify root matches empty merkle
+            let empty_root = sha256_hex("empty");
+            if checkpoint.merkle_root != empty_root && checkpoint.tx_count > 0 {
+                return VerificationResult::Invalid(format!(
+                    "Checkpoint {} claims {} txs but none provided",
+                    checkpoint.height, checkpoint.tx_count
+                ));
+            }
+        } else {
+            // Build merkle root from transaction hashes (sorted for determinism)
+            let mut tx_hashes: Vec<String> = checkpoint_txs
+                .iter()
+                .map(|tx| sha256_hex(&tx.hash))
+                .collect();
+            tx_hashes.sort(); // Canonical ordering
+            
+            let computed_root = build_merkle_root(&tx_hashes);
+            
+            // SECURITY: Strict verification - reject any mismatch
+            // This is the critical security check that prevents forged state
+            if computed_root != checkpoint.merkle_root {
+                return VerificationResult::Invalid(format!(
+                    "Checkpoint {} merkle root mismatch: computed {} != received {} - REJECTED",
+                    checkpoint.height, &computed_root[..16], &checkpoint.merkle_root[..16.min(checkpoint.merkle_root.len())]
+                ));
+            }
+        }
+        
+        last_checkpoint_end = checkpoint.timestamp;
     }
     
     VerificationResult::Valid
