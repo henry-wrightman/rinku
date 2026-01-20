@@ -5,7 +5,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -204,7 +203,7 @@ struct BootstrapInfoResponse {
     peer_id: Option<String>,
     listen_addr: Option<String>,
     validator_address: Option<String>,
-    bls_public_key_hex: Option<String>,
+    bls_public_key: Option<String>,
     bootstrap_multiaddr: Option<String>,
     genesis_validator_env: Option<String>,
 }
@@ -464,23 +463,19 @@ async fn get_bootstrap_info(State(state): State<NodeState>) -> Json<BootstrapInf
     
     // Build bootstrap multiaddr for P2P_BOOTSTRAP_PEERS env var
     let bootstrap_multiaddr = match (&peer_id, &listen_addr) {
-        (Some(pid), Some(_addr)) => {
-            // For external connections, we need the public IP/hostname
-            // Using placeholder that user should replace with their public address
-            Some(format!("/ip4/<PUBLIC_IP>/tcp/4001/p2p/{}", pid))
+        (Some(pid), Some(addr)) => {
+            // Parse listen_addr to extract port, use placeholder for external IP
+            let port = addr.split("/tcp/").nth(1).and_then(|s| s.split('/').next()).unwrap_or("4001");
+            Some(format!("/ip4/<PUBLIC_IP>/tcp/{}/p2p/{}", port, pid))
         }
         _ => None,
     };
     
-    // Build GENESIS_VALIDATORS env var format: address:bls_hex
+    // Build GENESIS_VALIDATORS env var format: address:bls_base64url
+    // Only include if both validator address and valid BLS key exist
     let genesis_validator_env = match (&validator_address, &bls_public_key) {
-        (Some(addr), Some(bls_key)) => {
-            // BLS key is stored as base64, convert to hex for env var
-            if let Ok(bls_bytes) = base64::Engine::decode(&base64::prelude::BASE64_STANDARD, bls_key) {
-                Some(format!("{}:{}", addr, hex::encode(&bls_bytes)))
-            } else {
-                Some(format!("{}:{}", addr, bls_key))
-            }
+        (Some(addr), Some(bls_key)) if !bls_key.is_empty() => {
+            Some(format!("{}:{}", addr, bls_key))
         }
         _ => None,
     };
@@ -489,7 +484,7 @@ async fn get_bootstrap_info(State(state): State<NodeState>) -> Json<BootstrapInf
         peer_id,
         listen_addr,
         validator_address,
-        bls_public_key_hex: bls_public_key,
+        bls_public_key,
         bootstrap_multiaddr,
         genesis_validator_env,
     })
