@@ -10,15 +10,20 @@ use tokio::sync::RwLock;
 use tracing::{info, warn, debug};
 
 use crate::bls::{
-    aggregate_signatures, bls_sign, create_signer_bitmap, generate_bls_keypair,
+    aggregate_signatures, bls_sign, bls_verify, create_signer_bitmap, generate_bls_keypair,
 };
 use crate::config::TrustConfig;
 use crate::consensus::ConsensusService;
 use crate::dag_pruning::{DagPruningService, PruningConfig};
+#[cfg(feature = "p2p")]
+use crate::network::{CheckpointVoteRequest, CheckpointVoteResponse, NetworkHandle, SyncRequest, SyncResponse};
 use crate::slashing::SlashingService;
 use crate::state::NodeState;
 use crate::trust::TrustVerifier;
 use crate::validator_identity::ValidatorIdentityService;
+
+/// Quorum threshold for multi-validator checkpoints (2/3 of stake)
+const QUORUM_STAKE_THRESHOLD: f64 = 0.667;
 
 pub struct CheckpointService {
     state: NodeState,
@@ -34,6 +39,10 @@ pub struct CheckpointService {
     pruning_counter: std::sync::atomic::AtomicU32,
     consensus_service: Option<Arc<RwLock<ConsensusService>>>,
     slashing_service: Option<Arc<RwLock<SlashingService>>>,
+    #[cfg(feature = "p2p")]
+    network_handle: Option<Arc<NetworkHandle>>,
+    /// Our validator's stake (for quorum calculation)
+    our_stake: f64,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
@@ -62,6 +71,9 @@ impl CheckpointService {
             pruning_counter: std::sync::atomic::AtomicU32::new(0),
             consensus_service: None,
             slashing_service: None,
+            #[cfg(feature = "p2p")]
+            network_handle: None,
+            our_stake: 1000.0, // Default stake, should be set from validator identity
         }
     }
 
@@ -82,6 +94,19 @@ impl CheckpointService {
     
     pub fn with_slashing_service(mut self, slashing: Arc<RwLock<SlashingService>>) -> Self {
         self.slashing_service = Some(slashing);
+        self
+    }
+    
+    /// Set the P2P network handle for requesting checkpoint votes from peers
+    #[cfg(feature = "p2p")]
+    pub fn with_network_handle(mut self, handle: Arc<NetworkHandle>) -> Self {
+        self.network_handle = Some(handle);
+        self
+    }
+    
+    /// Set our validator's stake for quorum calculation
+    pub fn with_stake(mut self, stake: f64) -> Self {
+        self.our_stake = stake;
         self
     }
 
@@ -907,25 +932,37 @@ impl CheckpointService {
 
         // Multi-validator quorum collection - attempt to gather votes from peers
         // Falls back to single-validator mode if no peer votes are collected
-        let (all_signatures, raw_signatures) = self.collect_validator_quorum(
+        let (all_signatures, raw_signatures, total_stake) = self.collect_validator_quorum(
             &checkpoint_hash,
             height,
             signature.clone(),
             validator_sig.clone(),
+            &tx_merkle_root,
+            &state_root,
         ).await;
         
+        // Get total network stake for quorum check
+        let total_network_stake = if let Some(ref identity) = self.validator_identity {
+            let identity = identity.read().await;
+            identity.total_active_stake().max(self.our_stake)
+        } else {
+            self.our_stake
+        };
+        let quorum_stake_needed = total_network_stake * QUORUM_STAKE_THRESHOLD;
+        let quorum_reached = total_stake >= quorum_stake_needed && all_signatures.len() > 1;
+        
         // Use collected signatures if quorum was reached, otherwise use single validator
-        let (final_signatures, final_raw_sigs) = if all_signatures.len() > 1 {
-            debug!(
-                "Checkpoint {} has {} validator signatures (quorum reached)",
-                height, all_signatures.len()
+        let (final_signatures, final_raw_sigs) = if quorum_reached {
+            info!(
+                "Checkpoint {} has {} validator signatures with {:.0}/{:.0} stake (quorum reached)",
+                height, all_signatures.len(), total_stake, total_network_stake
             );
             (all_signatures, raw_signatures)
         } else {
             // Single-validator mode - use only our signature
             debug!(
-                "Checkpoint {} using single-validator mode (no peer votes collected)",
-                height
+                "Checkpoint {} using single-validator mode ({:.0}/{:.0} stake, {} votes)",
+                height, total_stake, quorum_stake_needed, all_signatures.len()
             );
             (vec![validator_sig], vec![signature])
         };
@@ -1055,75 +1092,227 @@ impl CheckpointService {
     
     /// Collect validator votes from peers for multi-validator quorum.
     /// 
-    /// This method attempts to gather BLS signatures from connected peers
-    /// for a checkpoint at the given height. If no peer votes are collected
-    /// (e.g., no peers connected or RPC not implemented), it returns only
-    /// the local validator's signature.
-    /// 
-    /// Future implementations should:
-    /// 1. Implement request_checkpoint_vote() to use P2P request-response
-    /// 2. Add stake-weighted quorum thresholds (e.g., 2/3 of total stake)
-    /// 3. Verify peer signatures before including in aggregate
+    /// Uses stake-weighted quorum threshold (2/3 of total stake) to determine
+    /// when enough signatures have been collected. Falls back to single-validator
+    /// mode if P2P network is unavailable or insufficient votes are collected.
     async fn collect_validator_quorum(
         &self,
         checkpoint_hash: &[u8],
         height: u64,
         our_signature: Vec<u8>,
         our_validator_sig: ValidatorSignature,
-    ) -> (Vec<ValidatorSignature>, Vec<Vec<u8>>) {
+        tx_merkle_root: &str,
+        state_root: &str,
+    ) -> (Vec<ValidatorSignature>, Vec<Vec<u8>>, f64) {
         const QUORUM_TIMEOUT_MS: u64 = 5000;
         
         let mut signatures = vec![our_validator_sig];
         let mut raw_signatures = vec![our_signature];
+        let mut total_stake_collected = self.our_stake;
         
-        // Skip peer collection if no peers configured
-        if self.peers.is_empty() {
-            return (signatures, raw_signatures);
+        // Get total network stake from validator identity if available
+        let total_network_stake = if let Some(ref identity) = self.validator_identity {
+            let identity = identity.read().await;
+            identity.total_active_stake().max(self.our_stake)
+        } else {
+            self.our_stake // Fallback: assume we're the only validator
+        };
+        
+        let quorum_stake_needed = total_network_stake * QUORUM_STAKE_THRESHOLD;
+        debug!(
+            "Quorum collection: need {:.0}/{:.0} stake ({:.1}%)",
+            quorum_stake_needed, total_network_stake, QUORUM_STAKE_THRESHOLD * 100.0
+        );
+        
+        // Check if we already have quorum with just our stake
+        if total_stake_collected >= quorum_stake_needed {
+            debug!("Single validator has sufficient stake for quorum");
+            return (signatures, raw_signatures, total_stake_collected);
         }
         
-        let checkpoint_hash_hex = hex::encode(checkpoint_hash);
-        let start_time = std::time::Instant::now();
-        
-        for peer in &self.peers {
-            if start_time.elapsed().as_millis() as u64 >= QUORUM_TIMEOUT_MS {
-                debug!("Quorum collection timeout reached after {}ms", QUORUM_TIMEOUT_MS);
-                break;
-            }
+        // Try P2P vote collection if network handle is available
+        #[cfg(feature = "p2p")]
+        if let Some(ref network) = self.network_handle {
+            let checkpoint_hash_hex = hex::encode(checkpoint_hash);
+            let start_time = std::time::Instant::now();
             
-            // Request vote from peer (currently returns None - future P2P implementation)
-            if let Some((peer_sig, peer_raw)) = self.request_checkpoint_vote(peer, &checkpoint_hash_hex, height).await {
-                // Avoid duplicate signatures from same validator
-                if !signatures.iter().any(|s| s.validator == peer_sig.validator) {
-                    info!(
-                        "Received quorum vote from {} for checkpoint {}",
-                        &peer_sig.validator[..16.min(peer_sig.validator.len())],
-                        height
-                    );
-                    signatures.push(peer_sig);
-                    raw_signatures.push(peer_raw);
+            // Get connected peer IDs
+            let peer_ids = network.get_connected_peer_ids().await;
+            debug!("Requesting checkpoint votes from {} connected peers", peer_ids.len());
+            
+            for peer_id in peer_ids {
+                if start_time.elapsed().as_millis() as u64 >= QUORUM_TIMEOUT_MS {
+                    debug!("Quorum collection timeout after {}ms", QUORUM_TIMEOUT_MS);
+                    break;
+                }
+                
+                // Request vote from peer
+                if let Some((peer_sig, peer_raw, peer_stake)) = self.request_checkpoint_vote_p2p(
+                    network,
+                    &peer_id,
+                    &checkpoint_hash_hex,
+                    height,
+                    tx_merkle_root,
+                    state_root,
+                    checkpoint_hash,
+                ).await {
+                    // Avoid duplicate signatures from same validator
+                    if !signatures.iter().any(|s| s.validator == peer_sig.validator) {
+                        info!(
+                            "Received quorum vote from {} (stake: {:.0}) for checkpoint {}",
+                            &peer_sig.validator[..16.min(peer_sig.validator.len())],
+                            peer_stake,
+                            height
+                        );
+                        signatures.push(peer_sig);
+                        raw_signatures.push(peer_raw);
+                        total_stake_collected += peer_stake;
+                        
+                        // Check if quorum reached
+                        if total_stake_collected >= quorum_stake_needed {
+                            info!(
+                                "Quorum reached with {:.0}/{:.0} stake from {} validators",
+                                total_stake_collected, total_network_stake, signatures.len()
+                            );
+                            break;
+                        }
+                    }
                 }
             }
         }
         
-        (signatures, raw_signatures)
+        (signatures, raw_signatures, total_stake_collected)
     }
     
-    /// Request a checkpoint vote from a peer validator.
+    /// Request a checkpoint vote from a peer validator via P2P.
     /// 
-    /// TODO: Implement using P2P request-response protocol:
-    /// 1. Send CheckpointVoteRequest { hash, height } to peer
-    /// 2. Receive CheckpointVoteResponse { signature, bls_public_key }
-    /// 3. Verify signature against peer's known public key
-    /// 4. Return validated signature or None on failure
-    #[allow(unused_variables)]
-    async fn request_checkpoint_vote(
+    /// Security: This method validates votes against the local validator registry:
+    /// 1. Verifies the validator address exists in our registry
+    /// 2. Verifies the BLS public key matches our known key for that validator
+    /// 3. Verifies the BLS signature using verified bytes (not peer-supplied)
+    /// 4. Uses locally-known stake weight (not peer-supplied)
+    #[cfg(feature = "p2p")]
+    async fn request_checkpoint_vote_p2p(
         &self,
-        peer: &str,
-        checkpoint_hash: &str,
+        network: &NetworkHandle,
+        peer_id: &str,
+        checkpoint_hash_hex: &str,
         height: u64,
-    ) -> Option<(ValidatorSignature, Vec<u8>)> {
-        // Placeholder for future P2P implementation
-        // Currently returns None to fall back to single-validator mode
+        tx_merkle_root: &str,
+        state_root: &str,
+        checkpoint_hash_bytes: &[u8],
+    ) -> Option<(ValidatorSignature, Vec<u8>, f64)> {
+        let request = SyncRequest::CheckpointVote(CheckpointVoteRequest {
+            checkpoint_hash: checkpoint_hash_hex.to_string(),
+            height,
+            tx_merkle_root: tx_merkle_root.to_string(),
+            state_root: state_root.to_string(),
+        });
+        
+        match network.sync_request(peer_id, request).await {
+            Ok(SyncResponse::CheckpointVote(Some(vote))) => {
+                // SECURITY: Validate the validator against our local registry
+                let (verified_pk, verified_stake) = if let Some(ref identity) = self.validator_identity {
+                    let identity = identity.read().await;
+                    
+                    // Check if this validator is known and active in our registry
+                    if !identity.is_active_validator(&vote.validator_address) {
+                        warn!(
+                            "Rejecting vote from unknown/inactive validator {} (peer {})",
+                            &vote.validator_address[..16.min(vote.validator_address.len())],
+                            peer_id
+                        );
+                        return None;
+                    }
+                    
+                    // Get the known BLS public key for this validator from our registry
+                    // This prevents peers from substituting a different key
+                    match identity.get_validator_bls_key(&vote.validator_address) {
+                        Some(known_pk) => {
+                            // Verify the peer's claimed public key matches our known key
+                            let claimed_pk = URL_SAFE_NO_PAD.decode(&vote.bls_public_key).ok()?;
+                            if claimed_pk != known_pk {
+                                warn!(
+                                    "BLS key mismatch for validator {} (peer {}): claimed key doesn't match registry",
+                                    &vote.validator_address[..16.min(vote.validator_address.len())],
+                                    peer_id
+                                );
+                                return None;
+                            }
+                            
+                            // Get the validator's stake from our registry (not from peer)
+                            let stake = identity.get_validator_stake(&vote.validator_address).unwrap_or(0.0);
+                            (known_pk, stake)
+                        }
+                        None => {
+                            warn!(
+                                "No BLS key in registry for validator {} (peer {})",
+                                &vote.validator_address[..16.min(vote.validator_address.len())],
+                                peer_id
+                            );
+                            return None;
+                        }
+                    }
+                } else {
+                    // No validator identity service - use trust verifier as fallback
+                    // This is less secure but maintains backward compatibility
+                    debug!("No validator identity service, using peer-supplied data (testnet mode)");
+                    let pk = URL_SAFE_NO_PAD.decode(&vote.bls_public_key).ok()?;
+                    (pk, vote.stake)
+                };
+                
+                // SECURITY: Decode signature from the encoded string (not peer-supplied bytes)
+                // This ensures we verify and use the same bytes
+                let sig_bytes = match URL_SAFE_NO_PAD.decode(&vote.signature) {
+                    Ok(bytes) => bytes,
+                    Err(_) => {
+                        warn!("Invalid signature encoding from peer {}", peer_id);
+                        return None;
+                    }
+                };
+                
+                // Verify BLS signature using our verified public key
+                if !bls_verify(checkpoint_hash_bytes, &sig_bytes, &verified_pk) {
+                    warn!(
+                        "Invalid BLS signature from validator {} (peer {}) for checkpoint {}",
+                        &vote.validator_address[..16.min(vote.validator_address.len())],
+                        peer_id,
+                        height
+                    );
+                    return None;
+                }
+                
+                // Signature verified - create validated vote
+                let validator_sig = ValidatorSignature {
+                    validator: vote.validator_address.clone(),
+                    signature: vote.signature.clone(),
+                    weight: verified_stake, // Use locally-verified stake
+                    bls_public_key: Some(vote.bls_public_key.clone()),
+                };
+                
+                debug!(
+                    "Verified checkpoint vote from {} (stake: {:.0}) for height {}",
+                    &vote.validator_address[..16.min(vote.validator_address.len())],
+                    verified_stake,
+                    height
+                );
+                
+                // Return decoded sig_bytes (verified), not peer-supplied signature_bytes
+                return Some((validator_sig, sig_bytes, verified_stake));
+            }
+            Ok(SyncResponse::CheckpointVote(None)) => {
+                debug!("Peer {} declined to vote on checkpoint {}", peer_id, height);
+            }
+            Ok(SyncResponse::Error { message }) => {
+                warn!("Peer {} returned error for checkpoint vote: {}", peer_id, message);
+            }
+            Ok(_) => {
+                warn!("Unexpected response type from peer {} for checkpoint vote", peer_id);
+            }
+            Err(e) => {
+                debug!("Failed to request checkpoint vote from {}: {}", peer_id, e);
+            }
+        }
         None
     }
 }

@@ -40,6 +40,21 @@ pub enum SyncRequest {
     AccountsState { addresses: Vec<String> },
     /// Handshake with peer info
     Handshake(PeerHandshake),
+    /// Request a checkpoint vote from a validator peer
+    CheckpointVote(CheckpointVoteRequest),
+}
+
+/// Request for a validator to sign a checkpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointVoteRequest {
+    /// Hex-encoded checkpoint hash to sign
+    pub checkpoint_hash: String,
+    /// Checkpoint height
+    pub height: u64,
+    /// Tx merkle root for verification
+    pub tx_merkle_root: String,
+    /// State root for verification
+    pub state_root: String,
 }
 
 /// Sync response types
@@ -59,6 +74,23 @@ pub enum SyncResponse {
     Handshake(PeerHandshake),
     /// Error response
     Error { message: String },
+    /// Checkpoint vote response from a validator
+    CheckpointVote(Option<CheckpointVoteResponse>),
+}
+
+/// Response containing a validator's checkpoint signature
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointVoteResponse {
+    /// Validator address that signed
+    pub validator_address: String,
+    /// Base64-encoded BLS signature
+    pub signature: String,
+    /// Raw signature bytes (for aggregation)
+    pub signature_bytes: Vec<u8>,
+    /// Base64-encoded BLS public key
+    pub bls_public_key: String,
+    /// Validator's stake weight
+    pub stake: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

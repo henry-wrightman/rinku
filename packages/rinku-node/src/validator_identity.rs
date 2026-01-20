@@ -212,6 +212,28 @@ impl ValidatorIdentityService {
             .map(|v| v.is_active())
             .unwrap_or(false)
     }
+    
+    /// Get the BLS public key for a known validator
+    /// Returns None if validator is not in registry
+    pub fn get_validator_bls_key(&self, address: &str) -> Option<Vec<u8>> {
+        self.state.active_validators.get(address)
+            .map(|v| v.bls_public_key.clone())
+            .or_else(|| {
+                self.state.pending_validators.get(address)
+                    .map(|v| v.bls_public_key.clone())
+            })
+    }
+    
+    /// Get the stake for a known validator
+    /// Returns None if validator is not in registry
+    pub fn get_validator_stake(&self, address: &str) -> Option<f64> {
+        self.state.active_validators.get(address)
+            .map(|v| v.effective_stake)
+            .or_else(|| {
+                self.state.pending_validators.get(address)
+                    .map(|v| v.stake)
+            })
+    }
 
     pub fn get_validator(&self, address: &str) -> Option<&ValidatorIdentity> {
         self.state.active_validators.get(address)
