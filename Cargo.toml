@@ -40,7 +40,7 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
 
 # Networking/Gossip
-libp2p = { version = "0.54", features = ["tcp", "noise", "yamux", "gossipsub", "mdns", "tokio", "macros"] }
+libp2p = { version = "0.54", features = ["tcp", "noise", "yamux", "gossipsub", "mdns", "tokio", "macros", "request-response", "cbor", "identify"] }
 
 # DAG/Graph
 petgraph = "0.6"

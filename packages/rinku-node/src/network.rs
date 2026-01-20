@@ -5,25 +5,138 @@ use libp2p::futures::StreamExt;
 use libp2p::{
     gossipsub::{self, IdentTopic, MessageAuthenticity, ValidationMode},
     identity::Keypair,
+    identify,
     mdns,
     noise,
+    request_response::{self, cbor, OutboundRequestId, ProtocolSupport, ResponseChannel},
     swarm::SwarmEvent,
-    tcp, yamux, Multiaddr, PeerId, Swarm,
+    tcp, yamux, Multiaddr, PeerId, Swarm, StreamProtocol,
 };
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::{debug, info, warn};
 
 use crate::gossip::GossipMessage;
 
 const PROTOCOL_TOPIC: &str = "rinku/1.0.0";
+const SYNC_PROTOCOL: &str = "/rinku/sync/1.0.0";
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Sync request types for P2P sync operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SyncRequest {
+    /// Request a full state snapshot
+    Snapshot,
+    /// Request delta sync from a checkpoint height
+    Delta { from_checkpoint: u64 },
+    /// Request a specific transaction by hash
+    Transaction { hash: String },
+    /// Request proof for a transaction
+    Proof { tx_hash: String },
+    /// Request accounts state (for merkle verification)
+    AccountsState { addresses: Vec<String> },
+    /// Handshake with peer info
+    Handshake(PeerHandshake),
+}
+
+/// Sync response types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SyncResponse {
+    /// Full state snapshot
+    Snapshot(SnapshotData),
+    /// Delta sync response with transactions since checkpoint
+    Delta(DeltaData),
+    /// Single transaction
+    Transaction(Option<TransactionData>),
+    /// Transaction proof
+    Proof(Option<ProofData>),
+    /// Accounts state for verification
+    AccountsState(Vec<AccountData>),
+    /// Handshake response
+    Handshake(PeerHandshake),
+    /// Error response
+    Error { message: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerHandshake {
+    pub protocol_version: String,
+    pub chain_id: String,
+    pub network_id: String,
+    pub node_id: String,
+    pub checkpoint_height: u64,
+    pub validator_address: Option<String>,
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotData {
+    pub accounts: Vec<AccountData>,
+    pub validators: Vec<ValidatorData>,
+    pub checkpoints: Vec<CheckpointData>,
+    pub recent_txs: Vec<TransactionData>,
+    pub merkle_root: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeltaData {
+    pub transactions: Vec<TransactionData>,
+    pub new_checkpoints: Vec<CheckpointData>,
+    pub from_checkpoint: u64,
+    pub to_checkpoint: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountData {
+    pub address: String,
+    pub balance: f64,
+    pub nonce: u64,
+    pub stake: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorData {
+    pub address: String,
+    pub stake: f64,
+    pub bls_public_key: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointData {
+    pub height: u64,
+    pub merkle_root: String,
+    pub timestamp: u64,
+    pub tx_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionData {
+    pub hash: String,
+    pub from: String,
+    pub to: String,
+    pub amount: f64,
+    pub nonce: u64,
+    pub timestamp: u64,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProofData {
+    pub tx_hash: String,
+    pub merkle_proof: Vec<String>,
+    pub checkpoint_height: u64,
+    pub checkpoint_root: String,
+}
 
 #[derive(libp2p::swarm::NetworkBehaviour)]
 pub struct RinkuBehaviour {
     pub gossipsub: gossipsub::Behaviour,
+    pub request_response: cbor::Behaviour<SyncRequest, SyncResponse>,
+    pub identify: identify::Behaviour,
     pub mdns: mdns::tokio::Behaviour,
 }
 
@@ -62,6 +175,18 @@ pub struct NetworkStats {
     pub bytes_received: u64,
 }
 
+/// Pending sync request waiting for response
+struct PendingSyncRequest {
+    response_tx: oneshot::Sender<SyncResponse>,
+}
+
+/// Incoming sync request to be handled by the application
+pub struct IncomingSyncRequest {
+    pub peer_id: String,
+    pub request: SyncRequest,
+    pub response_channel: ResponseChannel<SyncResponse>,
+}
+
 pub struct NetworkService {
     local_peer_id: PeerId,
     swarm: Swarm<RinkuBehaviour>,
@@ -71,6 +196,12 @@ pub struct NetworkService {
     message_tx: mpsc::Sender<GossipMessage>,
     outbound_rx: mpsc::Receiver<GossipMessage>,
     peers: Arc<RwLock<HashMap<PeerId, PeerStats>>>,
+    /// Channel for outbound sync requests
+    sync_request_rx: mpsc::Receiver<(PeerId, SyncRequest, oneshot::Sender<SyncResponse>)>,
+    /// Channel for incoming sync requests (to be handled by application)
+    sync_incoming_tx: mpsc::Sender<IncomingSyncRequest>,
+    /// Pending requests awaiting responses
+    pending_requests: HashMap<OutboundRequestId, PendingSyncRequest>,
 }
 
 struct NetworkStatsInner {
@@ -112,7 +243,26 @@ impl NetworkService {
             local_peer_id,
         )?;
 
-        let behaviour = RinkuBehaviour { gossipsub, mdns };
+        // Request-response protocol for sync operations
+        let sync_protocol = StreamProtocol::new(SYNC_PROTOCOL);
+        let request_response = cbor::Behaviour::new(
+            [(sync_protocol, ProtocolSupport::Full)],
+            request_response::Config::default()
+                .with_request_timeout(Duration::from_secs(30)),
+        );
+
+        // Identify protocol for peer info exchange
+        let identify = identify::Behaviour::new(
+            identify::Config::new("/rinku/1.0.0".to_string(), local_key.public())
+                .with_agent_version(format!("rinku-node/{}", env!("CARGO_PKG_VERSION"))),
+        );
+
+        let behaviour = RinkuBehaviour { 
+            gossipsub, 
+            request_response,
+            identify,
+            mdns,
+        };
 
         let swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
             .with_tokio()
@@ -129,6 +279,9 @@ impl NetworkService {
 
         let (message_tx, message_rx) = mpsc::channel(1000);
         let (outbound_tx, outbound_rx) = mpsc::channel(1000);
+        // Sync request channels
+        let (sync_request_tx, sync_request_rx) = mpsc::channel(100);
+        let (sync_incoming_tx, sync_incoming_rx) = mpsc::channel(100);
 
         let stats = Arc::new(RwLock::new(NetworkStatsInner {
             messages_published: 0,
@@ -144,6 +297,8 @@ impl NetworkService {
             message_rx,
             peers: peers.clone(),
             local_peer_id: local_peer_id.to_string(),
+            sync_request_tx,
+            sync_incoming_rx,
         };
 
         let service = Self {
@@ -155,6 +310,9 @@ impl NetworkService {
             message_tx,
             outbound_rx,
             peers,
+            sync_request_rx,
+            sync_incoming_tx,
+            pending_requests: HashMap::new(),
         };
 
         Ok((service, handle))
@@ -189,6 +347,13 @@ impl NetworkService {
             tokio::select! {
                 Some(msg) = self.outbound_rx.recv() => {
                     self.publish_message(&msg).await;
+                }
+                Some((peer_id, request, response_tx)) = self.sync_request_rx.recv() => {
+                    let request_id = self.swarm.behaviour_mut()
+                        .request_response
+                        .send_request(&peer_id, request);
+                    self.pending_requests.insert(request_id, PendingSyncRequest { response_tx });
+                    debug!("Sent sync request {:?} to {}", request_id, peer_id);
                 }
                 event = self.swarm.select_next_some() => {
                     self.handle_swarm_event(event).await;
@@ -284,7 +449,72 @@ impl NetworkService {
                 info!("Listening on {}", address);
             }
 
+            // Request-response: incoming request from peer
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::RequestResponse(
+                request_response::Event::Message { peer, message }
+            )) => {
+                match message {
+                    request_response::Message::Request { request, channel, .. } => {
+                        debug!("Received sync request from {}: {:?}", peer, request);
+                        let incoming = IncomingSyncRequest {
+                            peer_id: peer.to_string(),
+                            request,
+                            response_channel: channel,
+                        };
+                        if let Err(e) = self.sync_incoming_tx.send(incoming).await {
+                            warn!("Failed to forward sync request: {}", e);
+                        }
+                    }
+                    request_response::Message::Response { request_id, response } => {
+                        debug!("Received sync response for {:?}", request_id);
+                        if let Some(pending) = self.pending_requests.remove(&request_id) {
+                            let _ = pending.response_tx.send(response);
+                        }
+                    }
+                }
+            }
+
+            // Request-response: outbound failure
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::RequestResponse(
+                request_response::Event::OutboundFailure { peer, request_id, error }
+            )) => {
+                warn!("Sync request to {} failed: {:?}", peer, error);
+                if let Some(pending) = self.pending_requests.remove(&request_id) {
+                    let _ = pending.response_tx.send(SyncResponse::Error {
+                        message: format!("{:?}", error),
+                    });
+                }
+            }
+
+            // Request-response: inbound failure
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::RequestResponse(
+                request_response::Event::InboundFailure { peer, error, .. }
+            )) => {
+                warn!("Inbound sync request from {} failed: {:?}", peer, error);
+            }
+
+            // Identify: received peer info
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::Identify(identify::Event::Received { peer_id, info, .. })) => {
+                info!(
+                    "Identified peer {}: {} (protocols: {})",
+                    peer_id,
+                    info.agent_version,
+                    info.protocols.len()
+                );
+            }
+
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::Identify(identify::Event::Sent { peer_id, .. })) => {
+                debug!("Sent identify info to {}", peer_id);
+            }
+
             _ => {}
+        }
+    }
+
+    /// Send a response to an incoming sync request
+    pub fn send_sync_response(&mut self, channel: ResponseChannel<SyncResponse>, response: SyncResponse) {
+        if let Err(e) = self.swarm.behaviour_mut().request_response.send_response(channel, response) {
+            warn!("Failed to send sync response: {:?}", e);
         }
     }
 
@@ -342,6 +572,10 @@ pub struct NetworkHandle {
     pub message_rx: mpsc::Receiver<GossipMessage>,
     peers: Arc<RwLock<HashMap<PeerId, PeerStats>>>,
     local_peer_id: String,
+    /// Channel for sending sync requests
+    sync_request_tx: mpsc::Sender<(PeerId, SyncRequest, oneshot::Sender<SyncResponse>)>,
+    /// Channel for receiving incoming sync requests (to be handled by application)
+    pub sync_incoming_rx: mpsc::Receiver<IncomingSyncRequest>,
 }
 
 impl NetworkHandle {
@@ -356,5 +590,52 @@ impl NetworkHandle {
 
     pub fn local_peer_id(&self) -> &str {
         &self.local_peer_id
+    }
+
+    /// Get list of connected peer IDs
+    pub async fn get_connected_peer_ids(&self) -> Vec<String> {
+        self.peers.read().await
+            .keys()
+            .map(|p| p.to_string())
+            .collect()
+    }
+
+    /// Send a sync request to a specific peer and wait for response
+    pub async fn sync_request(&self, peer_id: &str, request: SyncRequest) -> Result<SyncResponse> {
+        let peer_id: PeerId = peer_id.parse()
+            .map_err(|e| anyhow::anyhow!("Invalid peer ID: {}", e))?;
+        
+        let (response_tx, response_rx) = oneshot::channel();
+        self.sync_request_tx.send((peer_id, request, response_tx)).await?;
+        
+        let response = response_rx.await
+            .map_err(|_| anyhow::anyhow!("Sync request cancelled"))?;
+        
+        Ok(response)
+    }
+
+    /// Request a snapshot from a peer
+    pub async fn request_snapshot(&self, peer_id: &str) -> Result<SyncResponse> {
+        self.sync_request(peer_id, SyncRequest::Snapshot).await
+    }
+
+    /// Request delta sync from a checkpoint
+    pub async fn request_delta(&self, peer_id: &str, from_checkpoint: u64) -> Result<SyncResponse> {
+        self.sync_request(peer_id, SyncRequest::Delta { from_checkpoint }).await
+    }
+
+    /// Request a transaction by hash
+    pub async fn request_transaction(&self, peer_id: &str, hash: String) -> Result<SyncResponse> {
+        self.sync_request(peer_id, SyncRequest::Transaction { hash }).await
+    }
+
+    /// Request a proof for a transaction
+    pub async fn request_proof(&self, peer_id: &str, tx_hash: String) -> Result<SyncResponse> {
+        self.sync_request(peer_id, SyncRequest::Proof { tx_hash }).await
+    }
+
+    /// Send handshake to peer
+    pub async fn handshake(&self, peer_id: &str, info: PeerHandshake) -> Result<SyncResponse> {
+        self.sync_request(peer_id, SyncRequest::Handshake(info)).await
     }
 }
