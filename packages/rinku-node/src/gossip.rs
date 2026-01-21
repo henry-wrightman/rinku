@@ -645,18 +645,35 @@ impl GossipService {
         let local_genesis_hash = self.state.get_genesis_hash().await;
         let peer_genesis_hash = snapshot_response.genesis_hash.clone();
         
-        if let (Some(local), Some(peer)) = (&local_genesis_hash, &peer_genesis_hash) {
-            if local != peer {
-                warn!(
-                    "GENESIS MISMATCH: Rejecting sync from peer {} - local genesis {} != peer genesis {}",
-                    peer, &local[..16.min(local.len())], &peer[..16.min(peer.len())]
-                );
-                anyhow::bail!(
-                    "Genesis hash mismatch: this node is on a different chain than peer {}",
-                    peer
-                );
+        // Check if this node is "fresh" (only has genesis, no real data)
+        // Fresh nodes should adopt the peer's genesis hash instead of rejecting
+        let local_stats = self.state.get_dashboard_stats().await;
+        let is_fresh_node = local_stats.total_transactions <= 1 
+            && local_stats.account_count <= 1 
+            && local_stats.checkpoint_height <= 1;
+        
+        if let (Some(local), Some(peer_gh)) = (&local_genesis_hash, &peer_genesis_hash) {
+            if local != peer_gh {
+                if is_fresh_node {
+                    // Fresh node - adopt peer's genesis hash
+                    info!(
+                        "Fresh node adopting peer genesis hash from {} (local {} -> peer {})",
+                        peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
+                    );
+                } else {
+                    // Established node - reject mismatched genesis
+                    warn!(
+                        "GENESIS MISMATCH: Rejecting sync from peer {} - local genesis {} != peer genesis {}",
+                        peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
+                    );
+                    anyhow::bail!(
+                        "Genesis hash mismatch: this node is on a different chain than peer {}",
+                        peer
+                    );
+                }
+            } else {
+                info!("Genesis hash verified: {}", &local[..16.min(local.len())]);
             }
-            info!("Genesis hash verified: {}", &local[..16.min(local.len())]);
         } else if local_genesis_hash.is_some() && peer_genesis_hash.is_none() {
             warn!(
                 "Peer {} does not provide genesis_hash - accepting snapshot (legacy peer)",
@@ -798,16 +815,32 @@ impl GossipService {
         let local_genesis_hash = self.state.get_genesis_hash().await;
         let peer_genesis_hash = snapshot_response.genesis_hash.clone();
         
+        // Check if this node is "fresh" (only has genesis, no real data)
+        // Fresh nodes should adopt the peer's genesis hash instead of rejecting
+        let local_stats = self.state.get_dashboard_stats().await;
+        let is_fresh_node = local_stats.total_transactions <= 1 
+            && local_stats.account_count <= 1 
+            && local_stats.checkpoint_height <= 1;
+        
         if let (Some(local), Some(peer_gh)) = (&local_genesis_hash, &peer_genesis_hash) {
             if local != peer_gh {
-                warn!(
-                    "GENESIS MISMATCH: Rejecting recovery sync from peer {} - local genesis {} != peer genesis {}",
-                    peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
-                );
-                anyhow::bail!(
-                    "Genesis hash mismatch: this node is on a different chain than peer {}",
-                    peer
-                );
+                if is_fresh_node {
+                    // Fresh node - adopt peer's genesis hash
+                    info!(
+                        "RECOVERY: Fresh node adopting peer genesis hash from {} (local {} -> peer {})",
+                        peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
+                    );
+                } else {
+                    // Established node - reject mismatched genesis
+                    warn!(
+                        "GENESIS MISMATCH: Rejecting recovery sync from peer {} - local genesis {} != peer genesis {}",
+                        peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
+                    );
+                    anyhow::bail!(
+                        "Genesis hash mismatch: this node is on a different chain than peer {}",
+                        peer
+                    );
+                }
             }
         }
 
