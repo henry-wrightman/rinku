@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, RwLock};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::gossip::GossipMessage;
 
@@ -696,7 +696,12 @@ impl NetworkService {
                         debug!("Published message to network");
                     }
                     Err(e) => {
-                        warn!("Failed to publish message: {:?}", e);
+                        // Duplicate messages are normal in gossipsub - don't spam logs
+                        if format!("{:?}", e).contains("Duplicate") {
+                            trace!("Message already published (duplicate)");
+                        } else {
+                            warn!("Failed to publish message: {:?}", e);
+                        }
                     }
                 }
             }

@@ -1,0 +1,519 @@
+026-01-21T14:39:06.668715Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:06
+2026-01-21T14:39:06.869340Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:07
+2026-01-21T14:39:07.069396Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:07
+2026-01-21T14:39:07.269415Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:07
+2026-01-21T14:39:07.470103Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:07
+2026-01-21T14:39:07.669313Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:07
+2026-01-21T14:39:07.868749Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:08
+2026-01-21T14:39:08.077115Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:08
+2026-01-21T14:39:08.269421Z  INFO rinku_node::api: Snapshot sync request received
+14:39:08
+2026-01-21T14:39:08.269461Z  INFO rinku_node::api: Snapshot sync response: 4 accounts, 0 validators, 3 checkpoints, 3 dag txs
+14:39:08
+2026-01-21T14:39:08.269900Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:08
+2026-01-21T14:39:08.469280Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:08
+2026-01-21T14:39:08.670986Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:08
+2026-01-21T14:39:08.868045Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:09
+2026-01-21T14:39:09.069520Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:09
+2026-01-21T14:39:09.268180Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:09
+2026-01-21T14:39:09.470215Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:09
+2026-01-21T14:39:09.669475Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:09
+2026-01-21T14:39:09.868175Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:10
+2026-01-21T14:39:10.073137Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 1 checkpoint(s) ahead (cp: 4 vs 3), requesting snapshot sync...
+14:39:10
+2026-01-21T14:39:10.121066Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+14:39:10
+2026-01-21T14:39:10.150704Z  INFO rinku_node::gossip: Received snapshot: 4 accounts, 4 checkpoints, 4 dag txs, checkpoint height 4
+14:39:10
+2026-01-21T14:39:10.150799Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+14:39:10
+2026-01-21T14:39:10.150898Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 3 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+14:39:10
+2026-01-21T14:39:10.153403Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 2 transactions to peer (0 failed)
+14:39:10
+2026-01-21T14:39:10.153463Z  WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting sync from peer https://rinku-genesis.fly.dev - local genesis 1cdbe44ce909a96b != peer genesis b08b395d5c39a2eb
+14:39:10
+2026-01-21T14:39:10.153553Z  WARN rinku_node::gossip: Snapshot sync from https://rinku-genesis.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-genesis.fly.dev
+14:39:10
+2026-01-21T14:39:10.273469Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 4 vs 3), requesting delta sync...
+14:39:10
+2026-01-21T14:39:10.394692Z  INFO rinku_node::gossip: Sync page: received 3/3 transactions, 2 account nonces (offset=0, has_more=false)
+14:39:10
+2026-01-21T14:39:10.394789Z  INFO rinku_node::gossip: Applied 2 account nonces from peer
+14:39:10
+2026-01-21T14:39:10.507766Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:10
+2026-01-21T14:39:10.560033Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:10
+2026-01-21T14:39:10.616370Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:10
+2026-01-21T14:39:10.668648Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:10
+2026-01-21T14:39:10.869938Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:11
+2026-01-21T14:39:11.068194Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:11
+2026-01-21T14:39:11.269474Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:11
+2026-01-21T14:39:11.469633Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:11
+2026-01-21T14:39:11.669831Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:11
+2026-01-21T14:39:11.868731Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:12
+2026-01-21T14:39:12.069817Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:12
+2026-01-21T14:39:12.270339Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:12
+2026-01-21T14:39:12.468251Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:12
+2026-01-21T14:39:12.669364Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:12
+2026-01-21T14:39:12.870700Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:13
+2026-01-21T14:39:13.069281Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:13
+2026-01-21T14:39:13.271124Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:13
+2026-01-21T14:39:13.470379Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:13
+2026-01-21T14:39:13.667491Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:13
+2026-01-21T14:39:13.871605Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:14
+2026-01-21T14:39:14.067638Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:14
+2026-01-21T14:39:14.268641Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:14
+2026-01-21T14:39:14.469547Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:14
+2026-01-21T14:39:14.669473Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:14
+2026-01-21T14:39:14.871318Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:15
+2026-01-21T14:39:15.067256Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:15
+2026-01-21T14:39:15.269155Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:15
+2026-01-21T14:39:15.469250Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:15
+2026-01-21T14:39:15.668805Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:15
+2026-01-21T14:39:15.869240Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:16
+2026-01-21T14:39:16.069052Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:16
+2026-01-21T14:39:16.269248Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:16
+2026-01-21T14:39:16.469378Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:16
+2026-01-21T14:39:16.667601Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:16
+2026-01-21T14:39:16.869116Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:17
+2026-01-21T14:39:17.070354Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:17
+2026-01-21T14:39:17.272322Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:17
+2026-01-21T14:39:17.556484Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:17
+2026-01-21T14:39:17.797277Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:17
+2026-01-21T14:39:17.938653Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:18
+2026-01-21T14:39:18.071428Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:18
+2026-01-21T14:39:18.269456Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:18
+2026-01-21T14:39:18.360999Z  INFO rinku_node::api: Snapshot sync request received
+14:39:18
+2026-01-21T14:39:18.361040Z  INFO rinku_node::api: Snapshot sync response: 4 accounts, 0 validators, 3 checkpoints, 3 dag txs
+14:39:18
+2026-01-21T14:39:18.468355Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:18
+2026-01-21T14:39:18.668803Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:18
+2026-01-21T14:39:18.867602Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.073799Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.272309Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.470032Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.670063Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.870371Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.074168Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 1 checkpoint(s) ahead (cp: 4 vs 3), requesting snapshot sync...
+14:39:20
+2026-01-21T14:39:20.130578Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+14:39:20
+2026-01-21T14:39:20.202504Z  INFO rinku_node::gossip: Received snapshot: 4 accounts, 4 checkpoints, 4 dag txs, checkpoint height 4
+14:39:20
+2026-01-21T14:39:20.202529Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+14:39:20
+2026-01-21T14:39:20.202540Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 3 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+14:39:20
+2026-01-21T14:39:20.204622Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 2 transactions to peer (0 failed)
+14:39:20
+2026-01-21T14:39:20.204679Z  WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting sync from peer https://rinku-genesis.fly.dev - local genesis 1cdbe44ce909a96b != peer genesis b08b395d5c39a2eb
+14:39:20
+2026-01-21T14:39:20.204777Z  WARN rinku_node::gossip: Snapshot sync from https://rinku-genesis.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-genesis.fly.dev
+14:39:20
+2026-01-21T14:39:20.329370Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 4 vs 3), requesting delta sync...
+14:39:20
+2026-01-21T14:39:20.460530Z  INFO rinku_node::gossip: Sync page: received 3/3 transactions, 2 account nonces (offset=0, has_more=false)
+14:39:20
+2026-01-21T14:39:20.460609Z  INFO rinku_node::gossip: Applied 2 account nonces from peer
+14:39:20
+2026-01-21T14:39:20.572598Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.626438Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.740071Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+14:39:20
+2026-01-21T14:39:20.892519Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.943804Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.999168Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:21
+2026-01-21T14:39:21.070430Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.073799Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.272309Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.470032Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.670063Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:19
+2026-01-21T14:39:19.870371Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.074168Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 1 checkpoint(s) ahead (cp: 4 vs 3), requesting snapshot sync...
+14:39:20
+2026-01-21T14:39:20.130578Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+14:39:20
+2026-01-21T14:39:20.202504Z  INFO rinku_node::gossip: Received snapshot: 4 accounts, 4 checkpoints, 4 dag txs, checkpoint height 4
+14:39:20
+2026-01-21T14:39:20.202529Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+14:39:20
+2026-01-21T14:39:20.202540Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 3 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+14:39:20
+2026-01-21T14:39:20.204622Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 2 transactions to peer (0 failed)
+14:39:20
+2026-01-21T14:39:20.204679Z  WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting sync from peer https://rinku-genesis.fly.dev - local genesis 1cdbe44ce909a96b != peer genesis b08b395d5c39a2eb
+14:39:20
+2026-01-21T14:39:20.204777Z  WARN rinku_node::gossip: Snapshot sync from https://rinku-genesis.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-genesis.fly.dev
+14:39:20
+2026-01-21T14:39:20.329370Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 4 vs 3), requesting delta sync...
+14:39:20
+2026-01-21T14:39:20.460530Z  INFO rinku_node::gossip: Sync page: received 3/3 transactions, 2 account nonces (offset=0, has_more=false)
+14:39:20
+2026-01-21T14:39:20.460609Z  INFO rinku_node::gossip: Applied 2 account nonces from peer
+14:39:20
+2026-01-21T14:39:20.572598Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.626438Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.740071Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+14:39:20
+2026-01-21T14:39:20.892519Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.943804Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:20
+2026-01-21T14:39:20.999168Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:21
+2026-01-21T14:39:21.070430Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:21
+2026-01-21T14:39:21.270366Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:21
+2026-01-21T14:39:21.468915Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:21
+2026-01-21T14:39:21.668642Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:21
+2026-01-21T14:39:21.868259Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:22
+2026-01-21T14:39:22.070273Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:22
+2026-01-21T14:39:22.271095Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:22
+2026-01-21T14:39:22.467336Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:22
+2026-01-21T14:39:22.668204Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:22
+2026-01-21T14:39:22.869713Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:23
+2026-01-21T14:39:23.083550Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:23
+2026-01-21T14:39:23.269942Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:23
+2026-01-21T14:39:23.469244Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:23
+2026-01-21T14:39:23.670865Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:23
+2026-01-21T14:39:23.869423Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:24
+2026-01-21T14:39:24.069051Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:24
+2026-01-21T14:39:24.267814Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:24
+2026-01-21T14:39:24.469893Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:24
+2026-01-21T14:39:24.669693Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:24
+2026-01-21T14:39:24.871097Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:25
+2026-01-21T14:39:25.069222Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:25
+2026-01-21T14:39:25.268737Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:25
+2026-01-21T14:39:25.469138Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:25
+2026-01-21T14:39:25.669903Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:25
+2026-01-21T14:39:25.870449Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:26
+2026-01-21T14:39:26.070056Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:26
+2026-01-21T14:39:26.270756Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:26
+2026-01-21T14:39:26.468994Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:26
+2026-01-21T14:39:26.671244Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:26
+2026-01-21T14:39:26.869940Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:27
+2026-01-21T14:39:27.068667Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:27
+2026-01-21T14:39:27.266791Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:27
+2026-01-21T14:39:27.470008Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:27
+2026-01-21T14:39:27.669594Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:27
+2026-01-21T14:39:27.868330Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:28
+2026-01-21T14:39:28.068201Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:28
+2026-01-21T14:39:28.269323Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:28
+2026-01-21T14:39:28.324967Z  INFO rinku_node::api: Snapshot sync request received
+14:39:28
+2026-01-21T14:39:28.325004Z  INFO rinku_node::api: Snapshot sync response: 4 accounts, 0 validators, 3 checkpoints, 3 dag txs
+14:39:28
+2026-01-21T14:39:28.509717Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:28
+2026-01-21T14:39:28.667912Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:28
+2026-01-21T14:39:28.868468Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:29
+2026-01-21T14:39:29.070806Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:29
+2026-01-21T14:39:29.270743Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:29
+2026-01-21T14:39:29.469634Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:29
+2026-01-21T14:39:29.671296Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:29
+2026-01-21T14:39:29.868782Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:30
+2026-01-21T14:39:30.073571Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 1 checkpoint(s) ahead (cp: 4 vs 3), requesting snapshot sync...
+14:39:30
+2026-01-21T14:39:30.122413Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+14:39:30
+2026-01-21T14:39:30.155444Z  INFO rinku_node::gossip: Received snapshot: 4 accounts, 4 checkpoints, 4 dag txs, checkpoint height 4
+14:39:30
+2026-01-21T14:39:30.155537Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+14:39:30
+2026-01-21T14:39:30.155674Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 3 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+14:39:30
+2026-01-21T14:39:30.157906Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 2 transactions to peer (0 failed)
+14:39:30
+2026-01-21T14:39:30.157979Z  WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting sync from peer https://rinku-genesis.fly.dev - local genesis 1cdbe44ce909a96b != peer genesis b08b395d5c39a2eb
+14:39:30
+2026-01-21T14:39:30.158139Z  WARN rinku_node::gossip: Snapshot sync from https://rinku-genesis.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-genesis.fly.dev
+14:39:30
+2026-01-21T14:39:30.307832Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 4 vs 3), requesting delta sync...
+14:39:30
+2026-01-21T14:39:30.441019Z  INFO rinku_node::gossip: Sync page: received 3/3 transactions, 2 account nonces (offset=0, has_more=false)
+14:39:30
+2026-01-21T14:39:30.441120Z  INFO rinku_node::gossip: Applied 2 account nonces from peer
+14:39:30
+2026-01-21T14:39:30.573961Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:30
+2026-01-21T14:39:30.627208Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:30
+2026-01-21T14:39:30.682032Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:30
+2026-01-21T14:39:30.739244Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:30
+2026-01-21T14:39:30.875281Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:31
+2026-01-21T14:39:31.071578Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:31
+2026-01-21T14:39:31.272164Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:31
+2026-01-21T14:39:31.470888Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:31
+2026-01-21T14:39:31.671818Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:31
+2026-01-21T14:39:31.872392Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:32
+2026-01-21T14:39:32.068933Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:32
+2026-01-21T14:39:32.301317Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:32
+2026-01-21T14:39:32.472006Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:32
+2026-01-21T14:39:32.669490Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:32
+2026-01-21T14:39:32.869271Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:33
+2026-01-21T14:39:33.068879Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:33
+2026-01-21T14:39:33.270600Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:33
+2026-01-21T14:39:33.471117Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:33
+2026-01-21T14:39:33.486549Z  INFO rinku_node::validator_identity: Epoch transition: 7 -> 8
+14:39:33
+2026-01-21T14:39:33.486788Z  INFO rinku_node::checkpoint: Epoch transition: 7 -> 8 (activated: 0, exited: 0)
+14:39:33
+2026-01-21T14:39:33.670359Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:33
+2026-01-21T14:39:33.878052Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:34
+2026-01-21T14:39:34.069353Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:34
+2026-01-21T14:39:34.269300Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:34
+2026-01-21T14:39:34.469337Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:34
+2026-01-21T14:39:34.669913Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:34
+2026-01-21T14:39:34.871172Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:35
+2026-01-21T14:39:35.070437Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:35
+2026-01-21T14:39:35.270800Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:35
+2026-01-21T14:39:35.468608Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:35
+2026-01-21T14:39:35.669251Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:35
+2026-01-21T14:39:35.869802Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:36
+2026-01-21T14:39:36.069962Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:36
+2026-01-21T14:39:36.271326Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:36
+2026-01-21T14:39:36.470770Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:36
+2026-01-21T14:39:36.670151Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:36
+2026-01-21T14:39:36.870128Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:37
+2026-01-21T14:39:37.069607Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:37
+2026-01-21T14:39:37.272105Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:37
+2026-01-21T14:39:37.468310Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:37
+2026-01-21T14:39:37.672202Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:37
+2026-01-21T14:39:37.868258Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:38
+2026-01-21T14:39:38.071766Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:38
+2026-01-21T14:39:38.270266Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:38
+2026-01-21T14:39:38.328090Z  INFO rinku_node::api: Snapshot sync request received
+14:39:38
+2026-01-21T14:39:38.328131Z  INFO rinku_node::api: Snapshot sync response: 4 accounts, 0 validators, 3 checkpoints, 3 dag txs
+14:39:38
+2026-01-21T14:39:38.505164Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:38
+2026-01-21T14:39:38.733101Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:38
+2026-01-21T14:39:38.869526Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:39
+2026-01-21T14:39:39.071514Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:39
+2026-01-21T14:39:39.271828Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:39
+2026-01-21T14:39:39.513082Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:39
+2026-01-21T14:39:39.712766Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:39
+2026-01-21T14:39:39.869998Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:40
+2026-01-21T14:39:40.088668Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 1 checkpoint(s) ahead (cp: 4 vs 3), requesting snapshot sync...
+14:39:40
+2026-01-21T14:39:40.138812Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+14:39:40
+2026-01-21T14:39:40.149710Z  INFO rinku_node::gossip: Received snapshot: 4 accounts, 4 checkpoints, 4 dag txs, checkpoint height 4
+14:39:40
+2026-01-21T14:39:40.149781Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+14:39:40
+2026-01-21T14:39:40.149869Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 3 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+14:39:40
+2026-01-21T14:39:40.151552Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 2 transactions to peer (0 failed)
+14:39:40
+2026-01-21T14:39:40.151602Z  WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting sync from peer https://rinku-genesis.fly.dev - local genesis 1cdbe44ce909a96b != peer genesis b08b395d5c39a2eb
+14:39:40
+2026-01-21T14:39:40.151711Z  WARN rinku_node::gossip: Snapshot sync from https://rinku-genesis.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-genesis.fly.dev
+14:39:40
+2026-01-21T14:39:40.277023Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 4 vs 3), requesting delta sync...
+14:39:40
+2026-01-21T14:39:40.410099Z  INFO rinku_node::gossip: Sync page: received 3/3 transactions, 2 account nonces (offset=0, has_more=false)
+14:39:40
+2026-01-21T14:39:40.410202Z  INFO rinku_node::gossip: Applied 2 account nonces from peer
+14:39:40
+2026-01-21T14:39:40.529302Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:40
+2026-01-21T14:39:40.581865Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:40
+2026-01-21T14:39:40.637656Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:40
+2026-01-21T14:39:40.690128Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:40
+2026-01-21T14:39:40.867989Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:41
+2026-01-21T14:39:41.068308Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:41
+2026-01-21T14:39:41.271585Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:41
+2026-01-21T14:39:41.469111Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:41
+2026-01-21T14:39:41.669388Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:41
+2026-01-21T14:39:41.867484Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:42
+2026-01-21T14:39:42.072237Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:42
+2026-01-21T14:39:42.270108Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:42
+2026-01-21T14:39:42.469216Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:42
+2026-01-21T14:39:42.668347Z  WARN rinku_node::network: Failed to publish message: Duplicate
+14:39:42
+2026-01-21T14:39:42.868799Z  WARN rinku_node::network: Failed to publish message: Duplicate

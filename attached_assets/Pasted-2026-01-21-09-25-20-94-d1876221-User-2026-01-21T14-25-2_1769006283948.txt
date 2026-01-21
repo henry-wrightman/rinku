@@ -1,0 +1,156 @@
+2026-01-21 09:25:20.94
+d1876221
+User
+2026-01-21T14:25:20.944953Z WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting recovery sync from peer https://rinku-validator-2.fly.dev - local genesis 709ea9666c7f762f != peer genesis 3336ee84fe016f01
+2026-01-21 09:25:20.94
+d1876221
+User
+2026-01-21T14:25:20.944924Z WARN rinku_node::gossip: RECOVERY: Received snapshot: 1 accounts, 1 checkpoints, 1 dag txs
+2026-01-21 09:25:20.94
+d1876221
+User
+2026-01-21T14:25:20.944967Z WARN rinku_node::gossip: [AccountSync] Merge sync from https://rinku-validator-2.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-validator-2.fly.dev
+2026-01-21 09:25:24.07
+d1876221
+User
+2026-01-21T14:25:24.077785Z INFO rinku_node::api: Sync delta request: checkpoint=1, offset=0, limit=500
+2026-01-21 09:25:24.07
+d1876221
+User
+2026-01-21T14:25:24.077809Z INFO rinku_node::api: Returning 1 of 1 transactions with 1 account nonces (offset=0, has_more=false)
+2026-01-21 09:25:25.37
+d1876221
+User
+2026-01-21T14:25:25.379464Z INFO rinku_node::api: Returning 1 of 1 transactions with 1 account nonces (offset=0, has_more=false)
+2026-01-21 09:25:25.37
+d1876221
+User
+2026-01-21T14:25:25.379438Z INFO rinku_node::api: Sync delta request: checkpoint=1, offset=0, limit=500
+2026-01-21 09:25:25.60
+d1876221
+User
+2026-01-21T14:25:25.601515Z INFO rinku_node::validator_identity: Epoch transition: 57 -> 58
+2026-01-21 09:25:25.60
+d1876221
+User
+2026-01-21T14:25:25.601978Z INFO rinku_node::checkpoint: Epoch transition: 57 -> 58 (activated: 0, exited: 0)
+2026-01-21 09:25:30.18
+d1876221
+User
+2026-01-21T14:25:30.187318Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 2 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+2026-01-21 09:25:30.18
+d1876221
+User
+2026-01-21T14:25:30.187233Z INFO rinku_node::gossip: [AccountSync] Faucet balance differs from peer https://rinku-genesis.fly.dev: local=999900.00, peer=1000000.00, diff=100.00 - merging accounts
+2026-01-21 09:25:30.24
+d1876221
+User
+2026-01-21T14:25:30.249718Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 1 transactions to peer (0 failed)
+2026-01-21 09:25:30.26
+d1876221
+User
+2026-01-21T14:25:30.267253Z WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinku-genesis.fly.dev to fix state divergence
+2026-01-21 09:25:30.33
+d1876221
+User
+2026-01-21T14:25:30.335209Z INFO rinku_node::api: Returning 1 of 1 transactions with 1 account nonces (offset=0, has_more=false)
+2026-01-21 09:25:30.33
+d1876221
+User
+2026-01-21T14:25:30.335181Z INFO rinku_node::api: Sync delta request: checkpoint=1, offset=0, limit=500
+2026-01-21 09:25:30.36
+d1876221
+User
+2026-01-21T14:25:30.364388Z WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+2026-01-21 09:25:30.36
+d1876221
+User
+2026-01-21T14:25:30.364395Z WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting recovery sync from peer https://rinku-genesis.fly.dev - local genesis 709ea9666c7f762f != peer genesis 424afc11ce5d9313
+2026-01-21 09:25:30.36
+d1876221
+User
+2026-01-21T14:25:30.364365Z WARN rinku_node::gossip: RECOVERY: Received snapshot: 1 accounts, 1 checkpoints, 1 dag txs
+2026-01-21 09:25:30.36
+d1876221
+User
+2026-01-21T14:25:30.364418Z WARN rinku_node::gossip: [AccountSync] Merge sync from https://rinku-genesis.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-genesis.fly.dev
+2026-01-21 09:25:30.47
+d1876221
+User
+2026-01-21T14:25:30.475514Z INFO rinku_node::gossip: [AccountSync] Faucet balance differs from peer https://rinku-validator-1.fly.dev: local=999900.00, peer=1000000.00, diff=100.00 - merging accounts
+2026-01-21 09:25:30.47
+d1876221
+User
+2026-01-21T14:25:30.475543Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 2 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 09:25:30.53
+d1876221
+User
+2026-01-21T14:25:30.536431Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 1 transactions to peer (0 failed)
+2026-01-21 09:25:30.55
+d1876221
+User
+2026-01-21T14:25:30.554632Z WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinku-validator-1.fly.dev to fix state divergence
+2026-01-21 09:25:30.64
+d1876221
+User
+2026-01-21T14:25:30.646100Z WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+2026-01-21 09:25:30.64
+d1876221
+User
+2026-01-21T14:25:30.646138Z WARN rinku_node::gossip: [AccountSync] Merge sync from https://rinku-validator-1.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-validator-1.fly.dev
+2026-01-21 09:25:30.64
+d1876221
+User
+2026-01-21T14:25:30.646116Z WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting recovery sync from peer https://rinku-validator-1.fly.dev - local genesis 709ea9666c7f762f != peer genesis 3d418d32ff609795
+2026-01-21 09:25:30.64
+d1876221
+User
+2026-01-21T14:25:30.646080Z WARN rinku_node::gossip: RECOVERY: Received snapshot: 1 accounts, 1 checkpoints, 1 dag txs
+2026-01-21 09:25:30.77
+d1876221
+User
+2026-01-21T14:25:30.771852Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 2 local transactions to https://rinku-validator-2.fly.dev before snapshot sync
+2026-01-21 09:25:30.77
+d1876221
+User
+2026-01-21T14:25:30.771815Z INFO rinku_node::gossip: [AccountSync] Faucet balance differs from peer https://rinku-validator-2.fly.dev: local=999900.00, peer=1000000.00, diff=100.00 - merging accounts
+2026-01-21 09:25:30.83
+d1876221
+User
+2026-01-21T14:25:30.833328Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 1 transactions to peer (0 failed)
+2026-01-21 09:25:30.85
+d1876221
+User
+2026-01-21T14:25:30.851233Z WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinku-validator-2.fly.dev to fix state divergence
+2026-01-21 09:25:30.99
+d1876221
+User
+2026-01-21T14:25:30.993220Z WARN rinku_node::gossip: RECOVERY: Received snapshot: 1 accounts, 1 checkpoints, 1 dag txs
+2026-01-21 09:25:30.99
+d1876221
+User
+2026-01-21T14:25:30.993258Z WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting recovery sync from peer https://rinku-validator-2.fly.dev - local genesis 709ea9666c7f762f != peer genesis 3336ee84fe016f01
+2026-01-21 09:25:30.99
+d1876221
+User
+2026-01-21T14:25:30.993251Z WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+2026-01-21 09:25:30.99
+d1876221
+User
+2026-01-21T14:25:30.993274Z WARN rinku_node::gossip: [AccountSync] Merge sync from https://rinku-validator-2.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-validator-2.fly.dev
+2026-01-21 09:25:33.51
+d1876221
+User
+2026-01-21T14:25:33.510233Z INFO rinku_node::api: Sync delta request: checkpoint=1, offset=0, limit=500
+2026-01-21 09:25:33.51
+d1876221
+User
+2026-01-21T14:25:33.510263Z INFO rinku_node::api: Returning 1 of 1 transactions with 1 account nonces (offset=0, has_more=false)
+2026-01-21 09:25:34.95
+d1876221
+User
+2026-01-21T14:25:34.954491Z INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 09:25:35.37
+d1876221
+User
+2026-01-21T14:25:35.374052Z INFO rinku_node::api: Sync delta request: checkpoint=1, offset=0, limit=500

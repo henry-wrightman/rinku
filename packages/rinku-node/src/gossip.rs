@@ -645,23 +645,21 @@ impl GossipService {
         let local_genesis_hash = self.state.get_genesis_hash().await;
         let peer_genesis_hash = snapshot_response.genesis_hash.clone();
         
-        // Check if this node is "fresh" (only has genesis, no real data)
-        // Fresh nodes should adopt the peer's genesis hash instead of rejecting
-        let local_stats = self.state.get_dashboard_stats().await;
-        let is_fresh_node = local_stats.total_transactions <= 1 
-            && local_stats.account_count <= 1 
-            && local_stats.checkpoint_height <= 1;
+        // Check if this node has ever successfully synced from the network.
+        // If not, it's a new node that should adopt the peer's genesis hash.
+        // This is more reliable than checking account/tx counts, which grow with checkpoints.
+        let has_synced = self.state.has_synced_from_network().await;
         
         if let (Some(local), Some(peer_gh)) = (&local_genesis_hash, &peer_genesis_hash) {
             if local != peer_gh {
-                if is_fresh_node {
-                    // Fresh node - adopt peer's genesis hash
+                if !has_synced {
+                    // New node that hasn't synced yet - adopt peer's genesis hash
                     info!(
-                        "Fresh node adopting peer genesis hash from {} (local {} -> peer {})",
+                        "New node adopting peer genesis hash from {} (local {} -> peer {})",
                         peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
                     );
                 } else {
-                    // Established node - reject mismatched genesis
+                    // Established node that has synced before - reject mismatched genesis
                     warn!(
                         "GENESIS MISMATCH: Rejecting sync from peer {} - local genesis {} != peer genesis {}",
                         peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
@@ -701,6 +699,9 @@ impl GossipService {
         };
 
         let added = self.state.apply_sync_snapshot(snapshot).await?;
+        
+        // Mark this node as having synced from the network
+        self.state.mark_synced_from_network().await;
         
         if let Some(gh) = peer_genesis_hash {
             self.state.set_genesis_hash(gh.clone()).await;
@@ -815,23 +816,20 @@ impl GossipService {
         let local_genesis_hash = self.state.get_genesis_hash().await;
         let peer_genesis_hash = snapshot_response.genesis_hash.clone();
         
-        // Check if this node is "fresh" (only has genesis, no real data)
-        // Fresh nodes should adopt the peer's genesis hash instead of rejecting
-        let local_stats = self.state.get_dashboard_stats().await;
-        let is_fresh_node = local_stats.total_transactions <= 1 
-            && local_stats.account_count <= 1 
-            && local_stats.checkpoint_height <= 1;
+        // Check if this node has ever successfully synced from the network.
+        // If not, it's a new node that should adopt the peer's genesis hash.
+        let has_synced = self.state.has_synced_from_network().await;
         
         if let (Some(local), Some(peer_gh)) = (&local_genesis_hash, &peer_genesis_hash) {
             if local != peer_gh {
-                if is_fresh_node {
-                    // Fresh node - adopt peer's genesis hash
+                if !has_synced {
+                    // New node that hasn't synced yet - adopt peer's genesis hash
                     info!(
-                        "RECOVERY: Fresh node adopting peer genesis hash from {} (local {} -> peer {})",
+                        "RECOVERY: New node adopting peer genesis hash from {} (local {} -> peer {})",
                         peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
                     );
                 } else {
-                    // Established node - reject mismatched genesis
+                    // Established node that has synced before - reject mismatched genesis
                     warn!(
                         "GENESIS MISMATCH: Rejecting recovery sync from peer {} - local genesis {} != peer genesis {}",
                         peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
@@ -869,6 +867,9 @@ impl GossipService {
         
         // Use force apply to bypass checkpoint count check
         let added = self.state.apply_sync_snapshot_force(snapshot).await?;
+        
+        // Mark this node as having synced from the network
+        self.state.mark_synced_from_network().await;
         
         if let Some(gh) = peer_genesis_hash {
             self.state.set_genesis_hash(gh.clone()).await;

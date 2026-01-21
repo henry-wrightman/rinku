@@ -113,6 +113,9 @@ pub struct StateInner {
     pub node_listen_addr: Option<String>,
     // TPS calculation: track (timestamp_ms, finalized_tx_count) for sliding window
     pub finalized_tx_history: VecDeque<(u64, u64)>,
+    // Track whether this node has ever successfully synced from the network
+    // If false, we're a new node that should adopt peer's genesis hash
+    pub has_synced_from_network: bool,
 }
 
 #[derive(Clone)]
@@ -223,6 +226,7 @@ impl NodeState {
                     node_peer_id: None,
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
+                    has_synced_from_network: true, // Restored from storage = already synced
                 }
             } else {
                 let genesis_time = std::time::SystemTime::now()
@@ -346,6 +350,7 @@ impl NodeState {
                     node_peer_id: None,
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
+                    has_synced_from_network: false, // Fresh node = hasn't synced yet
                 }
             };
 
@@ -586,6 +591,20 @@ impl NodeState {
         if let Err(e) = self.storage.save_genesis_hash(&hash) {
             warn!("Failed to persist genesis hash: {}", e);
         }
+    }
+
+    /// Check if this node has ever successfully synced from the network.
+    /// If false, the node is new and should adopt the peer's genesis hash.
+    pub async fn has_synced_from_network(&self) -> bool {
+        let state = self.inner.read().await;
+        state.has_synced_from_network
+    }
+
+    /// Mark this node as having synced from the network.
+    /// Called after successfully applying a sync snapshot.
+    pub async fn mark_synced_from_network(&self) {
+        let mut state = self.inner.write().await;
+        state.has_synced_from_network = true;
     }
 
     pub async fn get_account(&self, address: &str) -> Option<Account> {
