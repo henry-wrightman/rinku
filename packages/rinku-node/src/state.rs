@@ -43,6 +43,8 @@ pub struct SyncSnapshot {
     pub total_to_validators: f64,
     #[serde(default)]
     pub genesis_hash: Option<String>,
+    #[serde(default)]
+    pub finalized_tx_hashes: Vec<String>,
 }
 
 /// Result of applying a sync snapshot, includes local-only accounts for push-back
@@ -1876,11 +1878,17 @@ impl NodeState {
         // Get ALL current DAG transactions for sync (including finalized ones)
         // Peers need all transactions that are still in our DAG window
         // Preserve DAG topological order - don't sort, as that could break parent-child relationships
-        let dag_txs: Vec<SignedTransaction> = state
-            .dag
-            .get_all_nodes()
-            .into_iter()
+        let all_nodes = state.dag.get_all_nodes();
+        let dag_txs: Vec<SignedTransaction> = all_nodes
+            .iter()
             .map(|n| n.tx.clone())
+            .collect();
+        
+        // Collect finalized transaction hashes so peers can restore finality status
+        let finalized_tx_hashes: Vec<String> = all_nodes
+            .iter()
+            .filter(|n| n.finalized)
+            .map(|n| n.hash.clone())
             .collect();
 
         // Get contracts from state
@@ -1945,6 +1953,7 @@ impl NodeState {
             total_burned,
             total_to_validators,
             genesis_hash,
+            finalized_tx_hashes,
         }
     }
 
@@ -2096,6 +2105,13 @@ impl NodeState {
             .iter()
             .map(|tx| tx.hash.clone())
             .collect();
+        
+        // Build lookup of finalized transaction hashes from peer
+        let finalized_hashes: std::collections::HashSet<String> = snapshot
+            .finalized_tx_hashes
+            .iter()
+            .cloned()
+            .collect();
 
         // Normalize parent references for all transactions
         let normalize_parent = |p: &str| -> String {
@@ -2199,14 +2215,17 @@ impl NodeState {
                 1.0
             };
 
+            // Check if this transaction was finalized on the peer
+            let is_finalized = finalized_hashes.contains(&tx.hash);
+            
             let node = rinku_core::types::DagNode {
                 hash: tx.hash.clone(),
                 tx: tx.clone(),
                 parents: normalized_parents,
                 children: Vec::new(),
                 weight: tx_weight,
-                finalized: false,
-                checkpoint_height: None,
+                finalized: is_finalized,
+                checkpoint_height: if is_finalized { Some(0) } else { None },
             };
 
             if state.dag.add_node(node).is_ok() {

@@ -1,0 +1,116 @@
+2026-01-21 10:22:45.67
+5f58ee9e
+User
+2026-01-21T15:22:45.676131Z WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 10:22:45.67
+5f58ee9e
+User
+2026-01-21T15:22:45.676111Z INFO rinku_node::gossip: Received snapshot: 5 accounts, 43 checkpoints, 6 dag txs, checkpoint height 43
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919514Z INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919360Z INFO rinku_node::state: Applying sync snapshot: 5 accounts, 43 checkpoints, 6 dag txs
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919510Z INFO rinku_node::state: Applied emission snapshot
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919518Z INFO rinku_node::state: Snapshot applied: 6 DAG txs, 0 validators, 43 checkpoints, 0 contracts
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919324Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 4 transactions to peer (0 failed)
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919498Z INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919842Z INFO rinku_node::gossip: Snapshot sync complete: applied 6 DAG transactions
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919370Z INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 5 total
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919355Z INFO rinku_node::gossip: Genesis hash verified: 1cdbe44ce909a96b
+2026-01-21 10:22:45.91
+5f58ee9e
+User
+2026-01-21T15:22:45.919783Z INFO rinku_node::gossip: Persisted peer genesis hash: 1cdbe44ce909a96b
+2026-01-21 10:22:51.41
+9281101f
+User
+2026-01-21T15:22:51.415460Z INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev is 1 checkpoint(s) ahead (cp: 43 vs 42), requesting snapshot sync...
+2026-01-21 10:22:54.21
+9281101f
+User
+2026-01-21T15:22:54.216027Z INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-2.fly.dev
+2026-01-21 10:22:55.11
+9281101f
+User
+2026-01-21T15:22:55.116337Z WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 10:22:55.11
+9281101f
+User
+2026-01-21T15:22:55.116352Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 6 local transactions to https://rinku-validator-2.fly.dev before snapshot sync
+2026-01-21 10:22:55.11
+9281101f
+User
+2026-01-21T15:22:55.116305Z INFO rinku_node::gossip: Received snapshot: 5 accounts, 43 checkpoints, 6 dag txs, checkpoint height 43
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074379Z INFO rinku_node::state: Snapshot applied: 6 DAG txs, 0 validators, 43 checkpoints, 0 contracts
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074092Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 4 transactions to peer (0 failed)
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074376Z INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074135Z INFO rinku_node::state: Applying sync snapshot: 5 accounts, 43 checkpoints, 6 dag txs
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074536Z INFO rinku_node::gossip: Persisted peer genesis hash: 1cdbe44ce909a96b
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074360Z INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074544Z INFO rinku_node::gossip: Snapshot sync complete: applied 6 DAG transactions
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074372Z INFO rinku_node::state: Applied emission snapshot
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074129Z INFO rinku_node::gossip: Genesis hash verified: 1cdbe44ce909a96b
+2026-01-21 10:22:56.07
+9281101f
+User
+2026-01-21T15:22:56.074146Z INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 5 total
+2026-01-21 10:22:57.81
+5f58ee9e
+User
+2026-01-21T15:22:57.811859Z INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 10:23:00.97
+9281101f
+User
+2026-01-21T15:23:00.975513Z INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead (cp: 44 vs 43

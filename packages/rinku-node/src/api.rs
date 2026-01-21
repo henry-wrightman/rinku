@@ -421,6 +421,8 @@ struct SnapshotSyncResponse {
     total_to_validators: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     genesis_hash: Option<String>,
+    #[serde(default)]
+    finalized_tx_hashes: Vec<String>,
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -666,6 +668,7 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncR
         total_burned: snapshot.total_burned,
         total_to_validators: snapshot.total_to_validators,
         genesis_hash: snapshot.genesis_hash,
+        finalized_tx_hashes: snapshot.finalized_tx_hashes,
     })
 }
 

@@ -247,6 +247,8 @@ struct SnapshotSyncResponse {
     total_to_validators: f64,
     #[serde(default)]
     genesis_hash: Option<String>,
+    #[serde(default)]
+    finalized_tx_hashes: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -696,6 +698,7 @@ impl GossipService {
             total_burned: snapshot_response.total_burned,
             total_to_validators: snapshot_response.total_to_validators,
             genesis_hash: peer_genesis_hash.clone(),
+            finalized_tx_hashes: snapshot_response.finalized_tx_hashes,
         };
 
         let added = self.state.apply_sync_snapshot(snapshot).await?;
@@ -858,6 +861,7 @@ impl GossipService {
             total_burned: snapshot_response.total_burned,
             total_to_validators: snapshot_response.total_to_validators,
             genesis_hash: peer_genesis_hash.clone(),
+            finalized_tx_hashes: snapshot_response.finalized_tx_hashes,
         };
 
         // Get our local accounts before applying snapshot (to push back local-only accounts)
