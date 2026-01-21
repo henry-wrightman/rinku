@@ -215,9 +215,9 @@ impl Default for DoSConfig {
     fn default() -> Self {
         Self {
             max_connections: 50,
-            rate_limit_tokens_per_second: 10,
-            max_rate_limit_tokens: 100,
-            ban_duration_secs: 300,
+            rate_limit_tokens_per_second: 100,  // Increased 10x for testnet activity bots
+            max_rate_limit_tokens: 1000,         // Increased 10x burst capacity
+            ban_duration_secs: 30,               // Reduced ban time for testnet
             min_protocol_version: "1.0.0".to_string(),
         }
     }
