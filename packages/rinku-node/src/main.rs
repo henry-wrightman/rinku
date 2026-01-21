@@ -92,6 +92,14 @@ async fn main() -> Result<()> {
     info!("Node ID: {}", config.node_id);
     info!("Data dir: {}", config.data_dir);
 
+    // Log genesis node status
+    if config.is_genesis_node {
+        info!("Node role: GENESIS NODE (can create new chain)");
+    } else {
+        info!("Node role: VALIDATOR (must sync from network, {} bootstrap peers)", 
+              config.p2p.bootstrap_peers.len());
+    }
+    
     // Log trust configuration
     if !config.trust.genesis_validators.is_empty() {
         info!(

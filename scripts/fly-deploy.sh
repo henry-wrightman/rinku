@@ -236,21 +236,32 @@ get_bootstrap_info() {
     return 1
 }
 
+configure_genesis() {
+    local genesis_app=$1
+    log_info "Configuring $genesis_app as genesis node..."
+    
+    fly secrets set -a "$genesis_app" \
+        IS_GENESIS_NODE="true"
+    
+    log_success "Configured $genesis_app as genesis node"
+}
+
 configure_validator() {
     local validator_app=$1
     local genesis_ip=$2
     local peer_id=$3
     local genesis_validator=$4
     
-    log_info "Configuring $validator_app..."
+    log_info "Configuring $validator_app as validator..."
     
     local bootstrap_peer="/ip4/${genesis_ip}/tcp/4001/p2p/${peer_id}"
     
     fly secrets set -a "$validator_app" \
         P2P_BOOTSTRAP_PEERS="$bootstrap_peer" \
-        GENESIS_VALIDATORS="$genesis_validator"
+        GENESIS_VALIDATORS="$genesis_validator" \
+        IS_GENESIS_NODE="false"
     
-    log_success "Configured $validator_app with bootstrap peer"
+    log_success "Configured $validator_app with bootstrap peer (IS_GENESIS_NODE=false)"
 }
 
 show_status() {
@@ -410,7 +421,8 @@ deploy_fresh() {
     wipe_and_recreate_volume "$VALIDATOR1_APP"
     wipe_and_recreate_volume "$VALIDATOR2_APP"
     
-    log_info "Step 5: Deploying genesis node..."
+    log_info "Step 5: Configuring and deploying genesis node..."
+    configure_genesis "$GENESIS_APP"
     deploy_app "$GENESIS_APP"
     
     log_info "Step 6: Waiting for genesis to start..."
@@ -477,6 +489,7 @@ deploy_fresh_genesis() {
     fi
     
     wipe_and_recreate_volume "$GENESIS_APP"
+    configure_genesis "$GENESIS_APP"
     deploy_app "$GENESIS_APP"
     
     log_success "Genesis deployed fresh!"

@@ -1,0 +1,178 @@
+2026-01-21 16:52:37.125	
+2026-01-21T21:52:37.125504Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 16:52:07.110	
+2026-01-21T21:52:07.109829Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 16:52:06.904	
+2026-01-21T21:52:06.904624Z  INFO rinku_node::checkpoint: Epoch transition: 0 -> 1 (activated: 0, exited: 0)
+2026-01-21 16:52:06.904	
+2026-01-21T21:52:06.904486Z  INFO rinku_node::validator_identity: Epoch transition: 0 -> 1
+2026-01-21 16:51:37.104	
+2026-01-21T21:51:37.104141Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 16:51:16.783	
+2026-01-21T21:51:16.782769Z  INFO rinku_node::gossip: PEER DISCOVERY: Adding new peer https://rinkuchan.com (total peers: 3)
+2026-01-21 16:51:07.237	
+Health check 'health' on port 8080 is now passing.
+2026-01-21 16:51:07.237	
+Health check 'metrics' on port 8080 is now passing.
+2026-01-21 16:51:07.191	
+2026-01-21T21:51:07.191509Z  INFO rinku_node::gossip: P2P message receiver started
+2026-01-21 16:51:07.191	
+2026-01-21T21:51:07.191366Z  INFO rinku_node::gossip: Initial sync complete
+2026-01-21 16:51:07.191	
+2026-01-21T21:51:07.191287Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev status: checkpoint_height=1, dag_size=1, tips=1
+2026-01-21 16:51:07.176	
+2026-01-21T21:51:07.176807Z  INFO rinku_node::network: Peer 12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS subscribed to TopicHash { hash: "rinku/1.0.0" }
+2026-01-21 16:51:07.103	
+2026-01-21T21:51:07.103623Z  INFO rinku_node::gossip: Fetching sync status from peer: https://rinku-validator-1.fly.dev
+2026-01-21 16:51:07.103	
+2026-01-21T21:51:07.103545Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev status: checkpoint_height=1, dag_size=1, tips=1
+2026-01-21 16:51:07.061	
+2026-01-21T21:51:07.061321Z  INFO rinku_node::network: Identified peer 12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 16:51:07.060	
+2026-01-21T21:51:07.060289Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 500, interval: 1000ms)
+2026-01-21 16:51:06.994	
+2026-01-21T21:51:06.994405Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+2026-01-21 16:51:06.994	
+2026-01-21T21:51:06.994402Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+2026-01-21 16:51:06.994	
+2026-01-21T21:51:06.994392Z  INFO rinku_node: Rinku Node running on port 8080
+2026-01-21 16:51:06.991	
+2026-01-21T21:51:06.991341Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+2026-01-21 16:51:06.991	
+2026-01-21T21:51:06.991238Z  INFO rinku_node::api: No STATIC_DIR configured, API-only mode with root health check
+2026-01-21 16:51:06.990	
+2026-01-21T21:51:06.990396Z  INFO rinku_node: STATIC_DIR config: None
+2026-01-21 16:51:06.990	
+2026-01-21T21:51:06.990385Z  INFO rinku_node: Snapshot persistence started (60s interval)
+2026-01-21 16:51:06.989	
+2026-01-21T21:51:06.989320Z  INFO rinku_node: Tip consolidation service started
+2026-01-21 16:51:06.989	
+2026-01-21T21:51:06.989370Z  INFO rinku_node::gossip: Fetching sync status from peer: https://rinku-genesis.fly.dev
+2026-01-21 16:51:06.989	
+2026-01-21T21:51:06.989333Z  INFO rinku_node::gossip: Starting initial sync with peers...
+2026-01-21 16:51:06.989	
+2026-01-21T21:51:06.989201Z  INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 2, p2p: true)
+2026-01-21 16:51:06.989	
+2026-01-21T21:51:06.989040Z  INFO rinku_node: Gossip service started (200ms interval)
+2026-01-21 16:51:06.989	
+2026-01-21T21:51:06.988934Z  INFO rinku_node: GossipService connected to libp2p network
+2026-01-21 16:51:06.919	
+2026-01-21T21:51:06.919267Z  INFO rinku_node::network: Connected to peer: 12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS via Dialer { address: /ip4/137.66.42.118/tcp/4001/p2p/12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS, role_override: Dialer, port_use: Reuse }
+2026-01-21 16:51:06.904	
+2026-01-21T21:51:06.904200Z  INFO rinku_node::network: Listening on /ip4/172.19.6.211/tcp/4001
+2026-01-21 16:51:06.904	
+2026-01-21T21:51:06.903989Z  INFO rinku_node::network: Listening on /ip4/172.19.6.210/tcp/4001
+2026-01-21 16:51:06.904	
+2026-01-21T21:51:06.903926Z  INFO rinku_node::network: Listening on /ip4/127.0.0.1/tcp/4001
+2026-01-21 16:51:06.903	
+2026-01-21T21:51:06.902216Z  INFO rinku_node::network: Network service started on /ip4/0.0.0.0/tcp/4001
+2026-01-21 16:51:06.903	
+2026-01-21T21:51:06.902132Z  INFO rinku_node::network: Dialing bootstrap peer: /ip4/137.66.42.118/tcp/4001/p2p/12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS
+2026-01-21 16:51:06.903	
+2026-01-21T21:51:06.901971Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+2026-01-21 16:51:06.901	
+2026-01-21T21:51:06.901683Z  INFO rinku_node: P2P mDNS discovery enabled (LAN peers)
+2026-01-21 16:51:06.901	
+2026-01-21T21:51:06.901589Z  INFO rinku_node: P2P bootstrap peers: ["/ip4/137.66.42.118/tcp/4001/p2p/12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS"]
+2026-01-21 16:51:06.901	
+2026-01-21T21:51:06.901529Z  INFO rinku_node: P2P listening on: /ip4/0.0.0.0/tcp/4001
+2026-01-21 16:51:06.901	
+2026-01-21T21:51:06.901489Z  INFO rinku_node: P2P network started with peer ID: 12D3KooWMC3XhN92To2GRvkeiruLwb7FHBXoBSiDcTt2REsHn9jS
+2026-01-21 16:51:06.901	
+2026-01-21T21:51:06.901167Z  INFO rinku_node::network: Local peer id: 12D3KooWMC3XhN92To2GRvkeiruLwb7FHBXoBSiDcTt2REsHn9jS
+2026-01-21 16:51:06.901	
+2026-01-21T21:51:06.901128Z  INFO rinku_node: Fork remediation service started
+2026-01-21 16:51:06.901	
+2026-01-21T21:51:06.900317Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+2026-01-21 16:51:06.901	
+2026-01-21T21:51:06.901097Z  INFO rinku_node::checkpoint: Genesis checkpoint signed: 9da4540a2a2cfa2d
+2026-01-21 16:51:06.900	
+2026-01-21T21:51:06.900412Z  INFO rinku_node::checkpoint: Signing genesis checkpoint with node's BLS key
+2026-01-21 16:51:06.900	
+2026-01-21T21:51:06.900266Z  INFO rinku_node: BLS public key: tdgYFpD3V9lIU26fjlvfmVAZqDcA6ph8...
+2026-01-21 16:51:06.900	
+2026-01-21T21:51:06.900104Z  INFO rinku_node: Leader election enabled for checkpoint creation
+2026-01-21 16:51:06.900	
+2026-01-21T21:51:06.900052Z  INFO rinku_node::dag_pruning: DAG pruning service initialized: retain 100 checkpoints, max 100000 nodes
+2026-01-21 16:51:06.899	
+2026-01-21T21:51:06.899828Z  INFO rinku_node: Validator identity service initialized (epoch: 0)
+2026-01-21 16:51:06.899	
+2026-01-21T21:51:06.899705Z  INFO rinku_node::validator_identity: Generated and saved new validator keys: 5fed24a3a6bb6e6f2c589e1eb3f97bf2f601d9ba
+2026-01-21 16:51:06.899	
+2026-01-21T21:51:06.899073Z  INFO rinku_node: Consensus service initialized with slashing integration
+2026-01-21 16:51:06.899	
+2026-01-21T21:51:06.899068Z  INFO rinku_node: Slashing service initialized
+2026-01-21 16:51:06.899	
+2026-01-21T21:51:06.899064Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+2026-01-21 16:51:06.899	
+2026-01-21T21:51:06.899061Z  INFO rinku_node: Rewards service initialized
+2026-01-21 16:51:06.899	
+2026-01-21T21:51:06.899053Z  INFO rinku_node: Gas service initialized
+2026-01-21 16:51:06.899	
+2026-01-21T21:51:06.899048Z  INFO rinku_node: Validator key loaded: 5a236c8f88e32773...
+2026-01-21 16:51:06.899	
+2026-01-21T21:51:06.898965Z  INFO rinku_node::validator: Generated new validator key: 5a236c8f88e32773...
+2026-01-21 16:51:06.898	
+2026-01-21T21:51:06.898314Z  WARN rinku_node::storage: No rewards snapshot found, starting fresh
+2026-01-21 16:51:06.897	
+2026-01-21T21:51:06.897590Z  INFO rinku_node::state: Genesis hash created: 09e098aed8eafdd5
+2026-01-21 16:51:06.897	
+2026-01-21T21:51:06.897582Z  INFO rinku_node::state: Genesis transaction created: 09e098aed8eafdd5
+2026-01-21 16:51:06.897	
+2026-01-21T21:51:06.897501Z  INFO rinku_node::state: Faucet account initialized with 1000000 RKU
+2026-01-21 16:51:06.897	
+2026-01-21T21:51:06.897493Z  INFO rinku_node::state: Creating fresh genesis (no peers available or pre-sync failed)
+2026-01-21 16:51:06.897	
+2026-01-21T21:51:06.897471Z  INFO rinku_node::state: PRE-SYNC: All bootstrap peers failed, will create genesis locally
+2026-01-21 16:51:06.897	
+2026-01-21T21:51:06.897428Z  WARN rinku_node::state: PRE-SYNC: Timeout waiting for peer 12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS
+2026-01-21 16:51:05.152	
+[PR03] could not find a good candidate within 1 attempts at load balancing. last error: [PC01] instance refused connection. is your app listening on 0.0.0.0:8080? make sure it is not only listening on 127.0.0.1 (hint: look at your startup logs, servers often print the address they are listening on)
+2026-01-21 16:50:54.543	
+[PR03] could not find a good candidate within 1 attempts at load balancing. last error: [PC01] instance refused connection. is your app listening on 0.0.0.0:8080? make sure it is not only listening on 127.0.0.1 (hint: look at your startup logs, servers often print the address they are listening on)
+2026-01-21 16:50:52.437	
+Health check 'health' on port 8080 has failed. Your app is not responding properly.
+2026-01-21 16:50:52.436	
+Health check 'metrics' on port 8080 has failed. Your app is not responding properly.
+2026-01-21 16:50:52.071	
+2026/01/21 21:50:52 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:a3:8121:ed00:2]:22
+2026-01-21 16:50:51.950	
+Machine created and started in 4.561s
+2026-01-21 16:50:51.918	
+2026-01-21T21:50:51.917572Z  INFO rinku_node::state: PRE-SYNC: Sent snapshot request to 12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS
+2026-01-21 16:50:51.918	
+2026-01-21T21:50:51.917546Z  INFO rinku_node::state: PRE-SYNC: Connected to 12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS
+2026-01-21 16:50:51.896	
+2026-01-21T21:50:51.896093Z  INFO rinku_node::state: PRE-SYNC: Dialing peer 12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS at /ip4/137.66.42.118/tcp/4001...
+2026-01-21 16:50:51.895	
+2026-01-21T21:50:51.895807Z  INFO rinku_node::state: PRE-SYNC: Temporary peer ID: 12D3KooWGkMDpbKeXxzXCw1fCLZm8X8KYooWtHBZZPUuFyrAsLXV
+2026-01-21 16:50:51.895	
+2026-01-21T21:50:51.894856Z  INFO rinku_node::state: PRE-SYNC: Parsed peer 12D3KooWCv7kxqmHTwbULWNusRPLu3e2fv8mmw9w8MJ4SWj1gytS at /ip4/137.66.42.118/tcp/4001
+2026-01-21 16:50:51.894	
+2026-01-21T21:50:51.894712Z  INFO rinku_node::state: PRE-SYNC: Attempting P2P sync from 1 bootstrap peer(s)...
+2026-01-21 16:50:51.894	
+2026-01-21T21:50:51.894591Z  WARN rinku_node::storage: No snapshot found in redb, starting fresh
+2026-01-21 16:50:51.894	
+2026-01-21T21:50:51.894430Z  INFO rinku_node::storage: Opened redb database at /data/redb.db
+2026-01-21 16:50:51.858	
+2026-01-21T21:50:51.858658Z  INFO rinku_node: Initializing node state...
+2026-01-21 16:50:51.858	
+2026-01-21T21:50:51.858194Z  INFO rinku_node: Data directory exists, checking for stale locks...
+2026-01-21 16:50:51.858	
+2026-01-21T21:50:51.858173Z  INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+2026-01-21 16:50:51.858	
+2026-01-21T21:50:51.858158Z  INFO rinku_node: Data dir: /data
+2026-01-21 16:50:51.855	
+2026-01-21T21:50:51.855004Z  INFO rinku_node: Node ID: 448a8a1aee1d8169
+2026-01-21 16:50:51.853	
+2026-01-21T21:50:51.853556Z  INFO rinku_node: Process PID: 649
+2026-01-21 16:50:51.853	
+2026-01-21T21:50:51.852871Z  INFO rinku_node: Starting Rinku Node v0.1.0
+2026-01-21 16:50:51.792	
+ INFO [fly api proxy] listening at /.fly/api
+2026-01-21 16:50:51.784	
+ INFO Preparing to run: `/app/rinku-node` as root
+2026-01-21 16:50:51.775	
+ INFO Resized /data to 1056964608 bytes
+2026-01-21 16:50:51.772	
+ INFO Mounting /dev/vdc at /data w/ uid: 0, gid: 0 and chmod 0755

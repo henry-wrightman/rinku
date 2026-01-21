@@ -114,6 +114,7 @@ pub struct NodeConfig {
     pub trust: TrustConfig,
     pub public_url: Option<String>,
     pub p2p: P2pConfig,
+    pub is_genesis_node: bool,
 }
 
 impl NodeConfig {
@@ -181,6 +182,14 @@ impl NodeConfig {
             trust: TrustConfig::from_env(),
             public_url: env::var("PUBLIC_URL").ok(),
             p2p: P2pConfig::from_env(),
+            is_genesis_node: env::var("IS_GENESIS_NODE")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or_else(|_| {
+                    // Auto-detect: If no bootstrap peers configured, assume genesis node
+                    env::var("P2P_BOOTSTRAP_PEERS")
+                        .map(|p| p.trim().is_empty())
+                        .unwrap_or(true)
+                }),
         }
     }
 }

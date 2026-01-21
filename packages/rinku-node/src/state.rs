@@ -21,8 +21,9 @@ use crate::network::{SyncRequest, SyncResponse, SnapshotData};
 
 /// Try to fetch a snapshot from configured P2P bootstrap peers before creating genesis
 /// This ensures non-genesis nodes sync from the network instead of creating their own chain
+/// Uses exponential backoff retry for robustness - genesis node may still be starting
 #[cfg(feature = "p2p")]
-async fn try_presync_from_peers(bootstrap_peers: &[String]) -> Option<SyncSnapshot> {
+async fn try_presync_from_peers(bootstrap_peers: &[String], is_genesis_node: bool) -> Option<SyncSnapshot> {
     use libp2p::{
         identity::Keypair,
         noise, tcp, yamux,
@@ -34,11 +35,53 @@ async fn try_presync_from_peers(bootstrap_peers: &[String]) -> Option<SyncSnapsh
     use std::time::Duration;
     
     if bootstrap_peers.is_empty() {
-        info!("No bootstrap peers configured, will create genesis locally");
+        if is_genesis_node {
+            info!("No bootstrap peers configured, will create genesis locally (IS_GENESIS_NODE=true)");
+        } else {
+            warn!("No bootstrap peers configured but not marked as genesis node!");
+        }
         return None;
     }
     
-    info!("PRE-SYNC: Attempting P2P sync from {} bootstrap peer(s)...", bootstrap_peers.len());
+    // Retry configuration - validators should wait for genesis to be ready
+    let max_retries = if is_genesis_node { 1 } else { 8 };
+    let base_delay_secs = 5;
+    
+    for attempt in 1..=max_retries {
+        info!("PRE-SYNC: Attempt {}/{} - syncing from {} bootstrap peer(s)...", 
+              attempt, max_retries, bootstrap_peers.len());
+        
+        if let Some(snapshot) = try_presync_attempt(bootstrap_peers).await {
+            return Some(snapshot);
+        }
+        
+        if attempt < max_retries {
+            let delay = base_delay_secs * (1 << (attempt - 1).min(4)); // Cap at 80s
+            info!("PRE-SYNC: Attempt {} failed, retrying in {}s...", attempt, delay);
+            tokio::time::sleep(Duration::from_secs(delay)).await;
+        }
+    }
+    
+    if !is_genesis_node {
+        warn!("PRE-SYNC: All {} attempts failed! Validator node cannot create genesis.", max_retries);
+    } else {
+        info!("PRE-SYNC: All bootstrap peers failed, will create genesis locally");
+    }
+    None
+}
+
+/// Single attempt to sync from bootstrap peers
+#[cfg(feature = "p2p")]
+async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot> {
+    use libp2p::{
+        identity::Keypair,
+        noise, tcp, yamux,
+        request_response::{self, cbor, ProtocolSupport},
+        swarm::SwarmEvent,
+        Multiaddr, PeerId, StreamProtocol,
+    };
+    use libp2p::futures::StreamExt;
+    use std::time::Duration;
     
     // Parse bootstrap peers to extract peer IDs and addresses
     let mut targets: Vec<(PeerId, Multiaddr)> = Vec::new();
@@ -290,7 +333,7 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
 
 /// Fallback for non-P2P builds
 #[cfg(not(feature = "p2p"))]
-async fn try_presync_from_peers(_bootstrap_peers: &[String]) -> Option<SyncSnapshot> {
+async fn try_presync_from_peers(_bootstrap_peers: &[String], _is_genesis_node: bool) -> Option<SyncSnapshot> {
     info!("PRE-SYNC: P2P feature not enabled, will create genesis locally");
     None
 }
@@ -515,7 +558,7 @@ impl NodeState {
             } else {
                 // Try to sync from P2P bootstrap peers BEFORE creating genesis
                 // This ensures non-genesis nodes join the existing network
-                if let Some(snapshot) = try_presync_from_peers(&config.p2p.bootstrap_peers).await {
+                if let Some(snapshot) = try_presync_from_peers(&config.p2p.bootstrap_peers, config.is_genesis_node).await {
                     // Use snapshot from peer instead of creating fresh genesis
                     info!("PRE-SYNC: Using state from network peer instead of creating new genesis");
                     
@@ -644,8 +687,17 @@ impl NodeState {
                     return Ok(node_state);
                 }
                 
-                // No peers available or pre-sync failed - create fresh genesis
-                info!("Creating fresh genesis (no peers available or pre-sync failed)");
+                // No peers available or pre-sync failed
+                // IMPORTANT: Only genesis nodes should create genesis. Validators must sync from network.
+                if !config.is_genesis_node && !config.p2p.bootstrap_peers.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "FATAL: Validator node failed to sync from bootstrap peers after retries. \
+                         Cannot create independent genesis. Ensure genesis node is running and accessible. \
+                         Set IS_GENESIS_NODE=true only for the first node in the network."
+                    ));
+                }
+                
+                info!("Creating fresh genesis (IS_GENESIS_NODE=true or no peers configured)");
                 
                 let genesis_time = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)?

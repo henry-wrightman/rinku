@@ -151,10 +151,32 @@ The explorer will proxy all `/api` requests to the Fly.io node.
 | `API_PORT` | HTTP API port (default: 8080) | No |
 | `P2P_PORT` | libp2p P2P port (default: 4001) | No |
 | `DATA_DIR` | Persistent data directory | Yes |
+| `IS_GENESIS_NODE` | If "true", node can create genesis. If "false", must sync from peers. Auto-detected from P2P_BOOTSTRAP_PEERS. | No |
 | `P2P_BOOTSTRAP_PEERS` | Multiaddr of bootstrap peer(s) | No (genesis) / Yes (validators) |
 | `GENESIS_VALIDATORS` | Trusted validator addresses with BLS keys | No (genesis) / Yes (validators) |
 | `RUST_LOG` | Log level filter | No |
 | `PUBLIC_URL` | Public URL for gossip peer discovery | Yes (for Fly.io) |
+
+### Bootstrap Sync Architecture
+
+How nodes join the network (following production blockchain patterns):
+
+1. **Genesis Node** (`IS_GENESIS_NODE=true`, no bootstrap peers):
+   - Creates genesis block with deterministic initial state
+   - Starts chain with faucet account (1M RKU)
+   - Other nodes sync from this genesis
+
+2. **Validator Nodes** (`IS_GENESIS_NODE=false`, bootstrap peers configured):
+   - **Retry with exponential backoff**: Up to 8 attempts over ~2 minutes
+   - Delays: 5s, 10s, 20s, 40s, 80s, 80s, 80s, 80s
+   - Connects via P2P (libp2p) to fetch snapshot from genesis
+   - Adopts genesis node's chain identity (genesis hash)
+   - **Fails with error if sync fails** - prevents accidental chain forks
+
+3. **Fork Prevention**:
+   - Validators NEVER create their own genesis
+   - Must successfully sync from genesis node before starting
+   - Genesis hash validation ensures all nodes are on same chain
 
 ### Automated Deployment Script
 
