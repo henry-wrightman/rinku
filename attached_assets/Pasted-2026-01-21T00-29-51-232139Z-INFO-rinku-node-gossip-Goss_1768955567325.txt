@@ -1,0 +1,57 @@
+2026-01-21T00:29:51.232139Z INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 2, p2p: false)
+2026-01-20 19:29:51.24
+f9bc3a52
+User
+2026-01-21T00:29:51.244622Z INFO rinku_node::api: API server listening on 0.0.0.0:5000
+2026-01-20 19:29:51.24
+f9bc3a52
+User
+2026-01-21T00:29:51.244585Z INFO rinku_node::api: Serving static files from "packages/explorer/dist"
+2026-01-20 19:29:51.24
+f9bc3a52
+User
+2026-01-21T00:29:51.245907Z INFO rinku_node: Rinku Node running on port 5000
+2026-01-20 19:29:51.24
+f9bc3a52
+User
+2026-01-21T00:29:51.245931Z INFO rinku_node: Static files enabled from: packages/explorer/dist
+2026-01-20 19:29:51.24
+f9bc3a52
+User
+2026-01-21T00:29:51.245923Z INFO rinku_node: API available at http://0.0.0.0:5000/api
+2026-01-20 19:29:51.47
+f9bc3a52
+User
+2026-01-21T00:29:51.473770Z INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev status: checkpoint_height=1, dag_size=1, tips=1
+2026-01-20 19:29:51.47
+f9bc3a52
+User
+2026-01-21T00:29:51.473817Z INFO rinku_node::gossip: Fetching sync status from peer: https://rinku-validator-1.fly.dev
+2026-01-20 19:29:51.63
+f9bc3a52
+User
+2026-01-21T00:29:51.633898Z INFO rinku_node::gossip: Initial sync complete
+2026-01-20 19:29:51.63
+f9bc3a52
+User
+2026-01-21T00:29:51.633863Z INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev status: checkpoint_height=1, dag_size=1, tips=1
+2026-01-20 19:30:17.67
+a32ac5f4
+User
+2026-01-21T00:30:17.672337Z INFO rinku_node::validator_identity: Epoch transition: 74 -> 75
+2026-01-20 19:30:17.67
+a32ac5f4
+User
+2026-01-21T00:30:17.676210Z INFO rinku_node::checkpoint: Epoch transition: 74 -> 75 (activated: 0, exited: 0)
+2026-01-20 19:30:21.75
+f9bc3a52
+User
+2026-01-21T00:30:21.752620Z INFO rinku_node::gossip: Broadcast peer list to 2 peers
+2026-01-20 19:30:25.53
+f9bc3a52
+User
+2026-01-21T00:30:25.539183Z INFO rinku_node::api: Faucet tx 1b5ede39e389f48e to c1786a4c0e48 broadcast to peers
+2026-01-20 19:30:25.55
+f9bc3a52
+User
+2026-01-21T00:30:25.557301Z INFO rinku_node::gossip: Propagating 1 pending transactions to 2 peers

@@ -1,0 +1,259 @@
+2026-01-21T00:33:46.964882Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:48
+2026-01-21T00:33:48.372641Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:48
+2026-01-21T00:33:48.572096Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:48
+2026-01-21T00:33:48.791325Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:48
+2026-01-21T00:33:48.963055Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:49
+2026-01-21T00:33:49.173306Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:49
+2026-01-21T00:33:49.375352Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:49
+2026-01-21T00:33:49.562038Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:49
+2026-01-21T00:33:49.765528Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:49
+2026-01-21T00:33:49.970389Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:50
+2026-01-21T00:33:50.165215Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:50
+2026-01-21T00:33:50.362398Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:50
+2026-01-21T00:33:50.561376Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:50
+2026-01-21T00:33:50.762074Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:50
+2026-01-21T00:33:50.964089Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:51
+2026-01-21T00:33:51.414896Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 1 checkpoint(s) ahead (cp: 21 vs 20), requesting snapshot sync...
+00:33:51
+2026-01-21T00:33:51.464544Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+00:33:51
+2026-01-21T00:33:51.475013Z  INFO rinku_node::gossip: Received snapshot: 2 accounts, 21 checkpoints, 3 dag txs, checkpoint height 21
+00:33:51
+2026-01-21T00:33:51.475088Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+00:33:51
+2026-01-21T00:33:51.475203Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 3 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+00:33:51
+2026-01-21T00:33:51.476888Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 1 transactions to peer (0 failed)
+00:33:51
+2026-01-21T00:33:51.476936Z  INFO rinku_node::state: Applying sync snapshot: 2 accounts, 21 checkpoints, 3 dag txs
+00:33:51
+2026-01-21T00:33:51.477020Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 2 total
+00:33:51
+2026-01-21T00:33:51.477179Z  INFO rinku_node::state: Applied rewards snapshot
+00:33:51
+2026-01-21T00:33:51.477207Z  INFO rinku_node::state: Applied emission snapshot
+00:33:51
+2026-01-21T00:33:51.477227Z  INFO rinku_node::state: Applied slashing snapshot
+00:33:51
+2026-01-21T00:33:51.477360Z  INFO rinku_node::state: Snapshot applied: 3 DAG txs, 0 validators, 21 checkpoints, 0 contracts
+00:33:51
+2026-01-21T00:33:51.477435Z  INFO rinku_node::gossip: Snapshot sync complete: applied 3 DAG transactions
+00:33:51
+2026-01-21T00:33:51.529852Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:51
+2026-01-21T00:33:51.601104Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:51
+2026-01-21T00:33:51.664642Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:51
+2026-01-21T00:33:51.773651Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:51
+2026-01-21T00:33:51.836025Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+00:33:51
+2026-01-21T00:33:51.973427Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:52
+2026-01-21T00:33:52.161527Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:52
+2026-01-21T00:33:52.378510Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:52
+2026-01-21T00:33:52.571068Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:52
+2026-01-21T00:33:52.765991Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:52
+2026-01-21T00:33:52.971008Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:53
+2026-01-21T00:33:53.173568Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:53
+2026-01-21T00:33:53.362019Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:53
+2026-01-21T00:33:53.573723Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:53
+2026-01-21T00:33:53.772760Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:53
+2026-01-21T00:33:53.962967Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:54
+2026-01-21T00:33:54.160831Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:54
+2026-01-21T00:33:54.363165Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:54
+2026-01-21T00:33:54.564844Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:54
+2026-01-21T00:33:54.767640Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:54
+2026-01-21T00:33:54.964990Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:55
+2026-01-21T00:33:55.162612Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:55
+2026-01-21T00:33:55.373999Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:55
+2026-01-21T00:33:55.564828Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:55
+2026-01-21T00:33:55.762957Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:55
+2026-01-21T00:33:55.973777Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:56
+2026-01-21T00:33:56.173423Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:56
+2026-01-21T00:33:56.363309Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:56
+2026-01-21T00:33:56.571236Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:56
+2026-01-21T00:33:56.762011Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:57
+2026-01-21T00:33:57.049333Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:57
+2026-01-21T00:33:57.172971Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:57
+2026-01-21T00:33:57.372378Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:57
+2026-01-21T00:33:57.563785Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:57
+2026-01-21T00:33:57.763917Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:57
+2026-01-21T00:33:57.967669Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:58
+2026-01-21T00:33:58.161228Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:58
+2026-01-21T00:33:58.371468Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:58
+2026-01-21T00:33:58.564154Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:58
+2026-01-21T00:33:58.772694Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:58
+2026-01-21T00:33:58.972732Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:59
+2026-01-21T00:33:59.171040Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:59
+2026-01-21T00:33:59.363464Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:59
+2026-01-21T00:33:59.562159Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:59
+2026-01-21T00:33:59.764203Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:33:59
+2026-01-21T00:33:59.971897Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:00
+2026-01-21T00:34:00.166893Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:00
+2026-01-21T00:34:00.363485Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:00
+2026-01-21T00:34:00.572627Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:00
+2026-01-21T00:34:00.763878Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:00
+2026-01-21T00:34:00.974456Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:01
+2026-01-21T00:34:01.242432Z  INFO rinku_node::gossip: Peer https://rinkuchan.com is 1 checkpoint(s) ahead (cp: 22 vs 21), requesting snapshot sync...
+00:34:01
+2026-01-21T00:34:01.293384Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinkuchan.com
+00:34:01
+2026-01-21T00:34:01.380745Z  INFO rinku_node::gossip: Received snapshot: 2 accounts, 22 checkpoints, 3 dag txs, checkpoint height 22
+00:34:01
+2026-01-21T00:34:01.380813Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+00:34:01
+2026-01-21T00:34:01.380910Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 3 local transactions to https://rinkuchan.com before snapshot sync
+00:34:01
+2026-01-21T00:34:01.430405Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 1 transactions to peer (0 failed)
+00:34:01
+2026-01-21T00:34:01.430502Z  INFO rinku_node::state: Applying sync snapshot: 2 accounts, 22 checkpoints, 3 dag txs
+00:34:01
+2026-01-21T00:34:01.430602Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 2 total
+00:34:01
+2026-01-21T00:34:01.430935Z  INFO rinku_node::state: Applied rewards snapshot
+00:34:01
+2026-01-21T00:34:01.430976Z  INFO rinku_node::state: Applied emission snapshot
+00:34:01
+2026-01-21T00:34:01.431092Z  INFO rinku_node::state: Applied slashing snapshot
+00:34:01
+2026-01-21T00:34:01.431125Z  INFO rinku_node::state: Snapshot applied: 3 DAG txs, 0 validators, 22 checkpoints, 0 contracts
+00:34:01
+2026-01-21T00:34:01.431245Z  INFO rinku_node::gossip: Snapshot sync complete: applied 3 DAG transactions
+00:34:01
+2026-01-21T00:34:01.668637Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:01
+2026-01-21T00:34:01.784760Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:01
+2026-01-21T00:34:01.836959Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:01
+2026-01-21T00:34:01.889900Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:01
+2026-01-21T00:34:01.963002Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:02
+2026-01-21T00:34:02.170125Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:02
+2026-01-21T00:34:02.371021Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:02
+2026-01-21T00:34:02.431366Z  INFO rinku_node::checkpoint: Created checkpoint 21bfd49a7ac898d0 at height 23 (2 txs finalized, 3.932411 RKU emitted)
+00:34:02
+2026-01-21T00:34:02.564587Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:02
+2026-01-21T00:34:02.770499Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:02
+2026-01-21T00:34:02.962037Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:03
+2026-01-21T00:34:03.163272Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:03
+2026-01-21T00:34:03.363161Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:03
+2026-01-21T00:34:03.563952Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:03
+2026-01-21T00:34:03.764631Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:03
+2026-01-21T00:34:03.980213Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:04
+2026-01-21T00:34:04.160885Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:04
+2026-01-21T00:34:04.373457Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:04
+2026-01-21T00:34:04.576630Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:04
+2026-01-21T00:34:04.770480Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:04
+2026-01-21T00:34:04.962427Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:05
+2026-01-21T00:34:05.172629Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:05
+2026-01-21T00:34:05.374538Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:05
+2026-01-21T00:34:05.564151Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:05
+2026-01-21T00:34:05.761908Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:05
+2026-01-21T00:34:05.973174Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:06
+2026-01-21T00:34:06.169271Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:06
+2026-01-21T00:34:06.372545Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:06
+2026-01-21T00:34:06.562476Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:06
+2026-01-21T00:34:06.763615Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:06
+2026-01-21T00:34:06.971748Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:07
+2026-01-21T00:34:07.163912Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:07
+2026-01-21T00:34:07.362635Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:07
+2026-01-21T00:34:07.569182Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:07
+2026-01-21T00:34:07.763276Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:07
+2026-01-21T00:34:07.972232Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:08
+2026-01-21T00:34:08.169977Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+00:34:08
+2026-01-21T00:34:08.370089Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
