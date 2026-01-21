@@ -206,6 +206,7 @@ struct BootstrapInfoResponse {
     bls_public_key: Option<String>,
     bootstrap_multiaddr: Option<String>,
     genesis_validator_env: Option<String>,
+    genesis_hash: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -418,6 +419,8 @@ struct SnapshotSyncResponse {
     slashing_snapshot: Option<crate::slashing::SlashingSnapshot>,
     total_burned: f64,
     total_to_validators: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    genesis_hash: Option<String>,
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -480,6 +483,8 @@ async fn get_bootstrap_info(State(state): State<NodeState>) -> Json<BootstrapInf
         _ => None,
     };
     
+    let genesis_hash = state.get_genesis_hash().await;
+    
     Json(BootstrapInfoResponse {
         peer_id,
         listen_addr,
@@ -487,6 +492,7 @@ async fn get_bootstrap_info(State(state): State<NodeState>) -> Json<BootstrapInf
         bls_public_key,
         bootstrap_multiaddr,
         genesis_validator_env,
+        genesis_hash,
     })
 }
 
@@ -659,6 +665,7 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncR
         slashing_snapshot: snapshot.slashing_snapshot,
         total_burned: snapshot.total_burned,
         total_to_validators: snapshot.total_to_validators,
+        genesis_hash: snapshot.genesis_hash,
     })
 }
 

@@ -487,6 +487,27 @@ impl RedbStorage {
         )))
     }
 
+    pub fn save_genesis_hash(&self, genesis_hash: &str) -> Result<()> {
+        let db = self.db_read();
+        let write_txn = db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(TABLE_METADATA)?;
+            table.insert(b"genesis_hash".as_slice(), genesis_hash.as_bytes())?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+    
+    pub fn load_genesis_hash(&self) -> Result<Option<String>> {
+        let db = self.db_read();
+        let read_txn = db.begin_read()?;
+        let table = read_txn.open_table(TABLE_METADATA)?;
+        match table.get(b"genesis_hash".as_slice())? {
+            Some(data) => Ok(Some(String::from_utf8_lossy(data.value()).to_string())),
+            None => Ok(None),
+        }
+    }
+
     pub fn save_rewards(&self, snapshot: &RewardsSnapshot) -> Result<()> {
         let data = serde_json::to_vec(snapshot)?;
         let db = self.db_read();

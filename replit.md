@@ -40,6 +40,7 @@ I want to work iteratively. Please ask before making major changes. I prefer det
 - **Testnet Tooling:** Scripts for proof generation/verification, size benchmarking, multi-node validation, and local testnet orchestration.
 - **Multi-Node Consensus Model:** Consensus is maintained by matching critical metrics like checkpoint Merkle roots and account balances. Fork prevention involves validating peer checkpoints, and automatic recovery triggers after consistent mismatches.
 - **Sync Trust Model:** Snapshot sync merges accounts from peers into local state. Delta sync fetches transactions since the last checkpoint. Both trust the connected peer, with options for checkpoint verification, peer allowlists, and stake-weighted trust for adversarial environments.
+- **Genesis Hash Validation:** Nodes validate genesis hash before accepting sync snapshots, preventing contamination from stale deployments or different chains. This ensures fresh Fly.io deployments won't sync data from old Replit deployments with different genesis.
 - **Local Multi-Node Testnet:** Scripts for local testnet orchestration (`scripts/local-testnet.sh`) with automatic port allocation (3011+/4011+), transaction propagation testing (10 accounts per node), and multi-node validation.
 - **Trust Bootstrap System:** A hybrid trust model combines genesis validators and stake-weighted verification, configurable via environment variables.
 - **P2P Networking Architecture:** Implements a production-grade P2P layer using libp2p with TCP transport, Noise encryption, Yamux multiplexing, mDNS, and Bootstrap peer configuration.
@@ -94,6 +95,7 @@ Response will include:
 - `peerId`: libp2p peer ID
 - `bootstrapMultiaddr`: Template for P2P_BOOTSTRAP_PEERS
 - `genesisValidatorEnv`: Format for GENESIS_VALIDATORS
+- `genesisHash`: Unique chain identity (nodes reject sync from peers with different genesis hash)
 
 ### Step 2: Deploy Additional Validator Nodes
 

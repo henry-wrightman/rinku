@@ -41,6 +41,8 @@ pub struct SyncSnapshot {
     pub total_burned: f64,
     #[serde(default)]
     pub total_to_validators: f64,
+    #[serde(default)]
+    pub genesis_hash: Option<String>,
 }
 
 /// Result of applying a sync snapshot, includes local-only accounts for push-back
@@ -93,6 +95,7 @@ pub struct StateInner {
     pub current_gas_price: f64,
     pub total_supply: f64,
     pub genesis_time: u64,
+    pub genesis_hash: Option<String>,
     pub total_burned: f64,
     pub total_to_validators: f64,
     pub txs_this_period: u64,
@@ -190,6 +193,10 @@ impl NodeState {
                     .map(|c| (c.contract_id.clone(), c))
                     .collect();
                 info!("Loaded {} contracts from storage", contracts.len());
+                
+                let stored_genesis_hash = storage.load_genesis_hash().unwrap_or(None);
+                info!("Loaded genesis hash: {:?}", stored_genesis_hash.as_ref().map(|h| &h[..16.min(h.len())]));
+                
                 StateInner {
                     dag,
                     accounts,
@@ -199,6 +206,7 @@ impl NodeState {
                     current_gas_price: gas_price,
                     total_supply: supply,
                     genesis_time: genesis,
+                    genesis_hash: stored_genesis_hash,
                     total_burned: 0.0,
                     total_to_validators: 0.0,
                     txs_this_period: 0,
@@ -308,6 +316,10 @@ impl NodeState {
                     signer_bitmap: None,
                 };
                 
+                info!("Genesis hash created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
+                
+                let _ = storage.save_genesis_hash(&genesis_hash);
+                
                 StateInner {
                     dag,
                     accounts,
@@ -317,6 +329,7 @@ impl NodeState {
                     current_gas_price: config.gas.min_gas_price,
                     total_supply: config.tokenomics.genesis_allocation,
                     genesis_time,
+                    genesis_hash: Some(genesis_hash),
                     total_burned: 0.0,
                     total_to_validators: 0.0,
                     txs_this_period: 0,
@@ -366,6 +379,19 @@ impl NodeState {
         
         // Recalculate DAG weights based on current account state
         node_state.recalculate_dag_weights().await;
+        
+        // Ensure genesis hash is computed and persisted if not already
+        // This handles upgrade from older databases that didn't store genesis hash
+        let needs_genesis_hash = {
+            let state = node_state.inner.read().await;
+            state.genesis_hash.is_none()
+        };
+        if needs_genesis_hash {
+            if let Some(hash) = node_state.get_genesis_hash().await {
+                node_state.set_genesis_hash(hash.clone()).await;
+                info!("Persisted genesis hash on startup: {}", &hash[..16.min(hash.len())]);
+            }
+        }
         
         Ok(node_state)
     }
@@ -535,6 +561,31 @@ impl NodeState {
             state.node_validator_address.clone(),
             state.node_bls_public_key.clone(),
         )
+    }
+    
+    pub async fn get_genesis_hash(&self) -> Option<String> {
+        let state = self.inner.read().await;
+        if let Some(ref hash) = state.genesis_hash {
+            return Some(hash.clone());
+        }
+        for node in state.dag.get_all_nodes() {
+            if node.tx.tx.from == "genesis" {
+                return Some(node.hash.clone());
+            }
+        }
+        if let Some(first_checkpoint) = state.checkpoints.first() {
+            return Some(first_checkpoint.tx_merkle_root.clone());
+        }
+        None
+    }
+    
+    pub async fn set_genesis_hash(&self, hash: String) {
+        let mut state = self.inner.write().await;
+        state.genesis_hash = Some(hash.clone());
+        drop(state);
+        if let Err(e) = self.storage.save_genesis_hash(&hash) {
+            warn!("Failed to persist genesis hash: {}", e);
+        }
     }
 
     pub async fn get_account(&self, address: &str) -> Option<Account> {
@@ -1839,6 +1890,25 @@ impl NodeState {
 
         // Re-acquire state lock to get the rest
         let state = self.inner.read().await;
+        
+        // Use persisted genesis hash if available, otherwise compute from DAG
+        let genesis_hash = if let Some(ref hash) = state.genesis_hash {
+            Some(hash.clone())
+        } else {
+            let mut found = None;
+            for node in state.dag.get_all_nodes() {
+                if node.tx.tx.from == "genesis" {
+                    found = Some(node.hash.clone());
+                    break;
+                }
+            }
+            if found.is_none() {
+                if let Some(first_checkpoint) = state.checkpoints.first() {
+                    found = Some(first_checkpoint.tx_merkle_root.clone());
+                }
+            }
+            found
+        };
 
         SyncSnapshot {
             accounts: state.accounts.clone(),
@@ -1855,6 +1925,7 @@ impl NodeState {
             slashing_snapshot,
             total_burned,
             total_to_validators,
+            genesis_hash,
         }
     }
 

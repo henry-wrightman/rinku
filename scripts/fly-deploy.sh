@@ -263,10 +263,18 @@ show_bootstrap_info() {
         local peer_id=$(echo "$info" | grep -o '"peerId":"[^"]*"' | cut -d'"' -f4)
         local genesis_ip=$(get_app_ipv4 "$GENESIS_APP")
         local genesis_val=$(echo "$info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
+        local genesis_hash=$(echo "$info" | grep -o '"genesisHash":"[^"]*"' | cut -d'"' -f4)
         
         echo -e "${YELLOW}=== For Validator Configuration ===${NC}"
         echo "P2P_BOOTSTRAP_PEERS=/ip4/${genesis_ip}/tcp/4001/p2p/${peer_id}"
         echo "GENESIS_VALIDATORS=${genesis_val}"
+        if [ -n "$genesis_hash" ]; then
+            echo ""
+            echo -e "${GREEN}=== Genesis Hash (Chain Identity) ===${NC}"
+            echo "GENESIS_HASH=${genesis_hash}"
+            echo ""
+            echo "Nodes with different genesis hashes will reject sync from this network."
+        fi
         echo ""
     fi
 }

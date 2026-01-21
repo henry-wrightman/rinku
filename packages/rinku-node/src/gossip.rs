@@ -245,6 +245,8 @@ struct SnapshotSyncResponse {
     total_burned: f64,
     #[serde(default)]
     total_to_validators: f64,
+    #[serde(default)]
+    genesis_hash: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -638,6 +640,30 @@ impl GossipService {
         let peer_fingerprints: std::collections::HashSet<String> = 
             snapshot_response.accounts.keys().cloned().collect();
 
+        // CRITICAL: Validate genesis hash before applying snapshot
+        // This prevents syncing from nodes on a different chain (e.g., old deployments)
+        let local_genesis_hash = self.state.get_genesis_hash().await;
+        let peer_genesis_hash = snapshot_response.genesis_hash.clone();
+        
+        if let (Some(local), Some(peer)) = (&local_genesis_hash, &peer_genesis_hash) {
+            if local != peer {
+                warn!(
+                    "GENESIS MISMATCH: Rejecting sync from peer {} - local genesis {} != peer genesis {}",
+                    peer, &local[..16.min(local.len())], &peer[..16.min(peer.len())]
+                );
+                anyhow::bail!(
+                    "Genesis hash mismatch: this node is on a different chain than peer {}",
+                    peer
+                );
+            }
+            info!("Genesis hash verified: {}", &local[..16.min(local.len())]);
+        } else if local_genesis_hash.is_some() && peer_genesis_hash.is_none() {
+            warn!(
+                "Peer {} does not provide genesis_hash - accepting snapshot (legacy peer)",
+                peer
+            );
+        }
+
         // Convert response to SyncSnapshot and apply
         let snapshot = SyncSnapshot {
             accounts: snapshot_response.accounts,
@@ -654,9 +680,15 @@ impl GossipService {
             slashing_snapshot: snapshot_response.slashing_snapshot,
             total_burned: snapshot_response.total_burned,
             total_to_validators: snapshot_response.total_to_validators,
+            genesis_hash: peer_genesis_hash.clone(),
         };
 
         let added = self.state.apply_sync_snapshot(snapshot).await?;
+        
+        if let Some(gh) = peer_genesis_hash {
+            self.state.set_genesis_hash(gh.clone()).await;
+            info!("Persisted peer genesis hash: {}", &gh[..16.min(gh.len())]);
+        }
         
         info!("Snapshot sync complete: applied {} DAG transactions", added);
 
@@ -762,6 +794,23 @@ impl GossipService {
             warn!("TESTNET MODE: Accepting snapshot without verification");
         }
 
+        // CRITICAL: Validate genesis hash before applying snapshot
+        let local_genesis_hash = self.state.get_genesis_hash().await;
+        let peer_genesis_hash = snapshot_response.genesis_hash.clone();
+        
+        if let (Some(local), Some(peer_gh)) = (&local_genesis_hash, &peer_genesis_hash) {
+            if local != peer_gh {
+                warn!(
+                    "GENESIS MISMATCH: Rejecting recovery sync from peer {} - local genesis {} != peer genesis {}",
+                    peer, &local[..16.min(local.len())], &peer_gh[..16.min(peer_gh.len())]
+                );
+                anyhow::bail!(
+                    "Genesis hash mismatch: this node is on a different chain than peer {}",
+                    peer
+                );
+            }
+        }
+
         let snapshot = SyncSnapshot {
             accounts: snapshot_response.accounts,
             validators: snapshot_response.validators,
@@ -777,6 +826,7 @@ impl GossipService {
             slashing_snapshot: snapshot_response.slashing_snapshot,
             total_burned: snapshot_response.total_burned,
             total_to_validators: snapshot_response.total_to_validators,
+            genesis_hash: peer_genesis_hash.clone(),
         };
 
         // Get our local accounts before applying snapshot (to push back local-only accounts)
@@ -786,6 +836,11 @@ impl GossipService {
         
         // Use force apply to bypass checkpoint count check
         let added = self.state.apply_sync_snapshot_force(snapshot).await?;
+        
+        if let Some(gh) = peer_genesis_hash {
+            self.state.set_genesis_hash(gh.clone()).await;
+            info!("Persisted peer genesis hash: {}", &gh[..16.min(gh.len())]);
+        }
         
         warn!("RECOVERY: Force snapshot sync complete - applied {} DAG transactions", added);
 
