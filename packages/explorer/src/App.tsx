@@ -187,7 +187,7 @@ function App() {
       ] = await Promise.all([
         fetch(`${NODE_URL}/dag/summary`),
         fetch(`${NODE_URL}/accounts`),
-        fetch(`${NODE_URL}/stats/network`),
+        fetch(`${NODE_URL}/network/stats`),
         fetch(`${NODE_URL}/gas/price`),
         fetch(`${NODE_URL}/gas/stats`),
         fetch(`${NODE_URL}/finality/metrics`),

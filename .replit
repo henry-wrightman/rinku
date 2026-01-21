@@ -118,10 +118,6 @@ externalPort = 3000
 localPort = 9999
 externalPort = 6000
 
-[[ports]]
-localPort = 9999
-externalPort = 6000
-
 [nix]
 channel = "stable-25_05"
 packages = [
