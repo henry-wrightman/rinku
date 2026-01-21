@@ -1,0 +1,98 @@
+01:01:14
+2026-01-21T01:01:14.828739Z  INFO rinku_node: Starting Rinku Node v0.1.0
+01:01:14
+2026-01-21T01:01:14.828895Z  INFO rinku_node: Process PID: 650
+01:01:14
+2026-01-21T01:01:14.834625Z  INFO rinku_node: Node ID: 2fa541c78f6e35b0
+01:01:14
+2026-01-21T01:01:14.834637Z  INFO rinku_node: Data dir: /data
+01:01:14
+2026-01-21T01:01:14.834647Z  INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+01:01:14
+2026-01-21T01:01:14.834657Z  INFO rinku_node: Data directory exists, checking for stale locks...
+01:01:14
+2026-01-21T01:01:14.835062Z  INFO rinku_node: Initializing node state...
+01:01:14
+2026-01-21T01:01:14.867005Z  INFO rinku_node::storage: Opened redb database at /data/redb.db
+01:01:14
+2026-01-21T01:01:14.867044Z  WARN rinku_node::storage: No snapshot found in redb, starting fresh
+01:01:14
+2026-01-21T01:01:14.867071Z  INFO rinku_node::state: Faucet account initialized with 1000000 RKU
+01:01:14
+2026-01-21T01:01:14.867134Z  INFO rinku_node::state: Genesis transaction created: 12713b89f8e113ab
+01:01:14
+2026-01-21T01:01:14.867147Z  WARN rinku_node::storage: No rewards snapshot found, starting fresh
+01:01:14
+2026-01-21T01:01:14.867500Z  INFO rinku_node::validator: Generated new validator key: 49d3964648540a85...
+01:01:14
+2026-01-21T01:01:14.867570Z  INFO rinku_node: Validator key loaded: 49d3964648540a85...
+01:01:14
+2026-01-21T01:01:14.867577Z  INFO rinku_node: Gas service initialized
+01:01:14
+2026-01-21T01:01:14.867580Z  INFO rinku_node: Rewards service initialized
+01:01:14
+2026-01-21T01:01:14.867583Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+01:01:14
+2026-01-21T01:01:14.867585Z  INFO rinku_node: Slashing service initialized
+01:01:14
+2026-01-21T01:01:14.867589Z  INFO rinku_node: Consensus service initialized with slashing integration
+01:01:14
+2026-01-21T01:01:14.868231Z  INFO rinku_node::validator_identity: Generated and saved new validator keys: 1e4f4a34d25ca2fea1ec2ce48ae05858a198cb33
+01:01:14
+2026-01-21T01:01:14.868310Z  INFO rinku_node: Validator identity service initialized (epoch: 0)
+01:01:14
+2026-01-21T01:01:14.868507Z  INFO rinku_node::dag_pruning: DAG pruning service initialized: retain 100 checkpoints, max 100000 nodes
+01:01:14
+2026-01-21T01:01:14.868540Z  INFO rinku_node: BLS public key: qH6y0rABoKDC0p-Mzwh8P6CxxvQLlyxb...
+01:01:14
+2026-01-21T01:01:14.868762Z  INFO rinku_node::checkpoint: Signing genesis checkpoint with node's BLS key
+01:01:14
+2026-01-21T01:01:14.869381Z  INFO rinku_node::checkpoint: Genesis checkpoint signed: d1ee19fea8ec86db
+01:01:14
+2026-01-21T01:01:14.869498Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+01:01:14
+2026-01-21T01:01:14.869529Z  INFO rinku_node: Fork remediation service started
+01:01:14
+2026-01-21T01:01:14.869618Z  INFO rinku_node::network: Local peer id: 12D3KooWSMJ1ukndjzE7jadjWdCEvA62weMH7Fjqce9iPLUR95sz
+01:01:14
+2026-01-21T01:01:14.874471Z  INFO rinku_node: P2P network started with peer ID: 12D3KooWSMJ1ukndjzE7jadjWdCEvA62weMH7Fjqce9iPLUR95sz
+01:01:14
+2026-01-21T01:01:14.874483Z  INFO rinku_node: P2P listening on: /ip4/0.0.0.0/tcp/4001
+01:01:14
+2026-01-21T01:01:14.874487Z  INFO rinku_node: P2P bootstrap peers: ["/ip4/137.66.42.118/tcp/4001/p2p/12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i"]
+01:01:14
+2026-01-21T01:01:14.874505Z  INFO rinku_node: P2P mDNS discovery enabled (LAN peers)
+01:01:14
+2026-01-21T01:01:14.876366Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+01:01:14
+2026-01-21T01:01:14.876594Z  INFO rinku_node::network: Dialing bootstrap peer: /ip4/137.66.42.118/tcp/4001/p2p/12D3KooWEXFn19GKs5VNamTXMAcsXbMrCsmsFvDUX81R6gpSW17i
+01:01:14
+2026-01-21T01:01:14.876683Z  INFO rinku_node::network: Network service started on /ip4/0.0.0.0/tcp/4001
+01:01:14
+2026-01-21T01:01:14.879638Z  INFO rinku_node::network: Listening on /ip4/127.0.0.1/tcp/4001
+01:01:14
+2026-01-21T01:01:14.879737Z  INFO rinku_node::network: Listening on /ip4/172.19.10.138/tcp/4001
+01:01:14
+2026-01-21T01:01:14.879771Z  INFO rinku_node::network: Listening on /ip4/172.19.10.139/tcp/4001
+01:01:14
+Machine created and started in 4.072s
+01:01:15
+2026-01-21T01:01:15.015132Z  INFO rinku_node: GossipService connected to libp2p network
+01:01:15
+2026-01-21T01:01:15.015239Z  INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 0, p2p: true)
+01:01:15
+2026-01-21T01:01:15.015308Z  INFO rinku_node::gossip: P2P message receiver started
+01:01:15
+2026-01-21T01:01:15.015403Z  INFO rinku_node: Gossip service started (200ms interval)
+01:01:15
+2026-01-21T01:01:15.015469Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 500, interval: 1000ms)
+01:01:15
+2026-01-21T01:01:15.015550Z  INFO rinku_node: Tip consolidation service started
+01:01:15
+2026-01-21T01:01:15.015730Z  INFO rinku_node: Snapshot persistence started (60s interval)
+01:01:15
+2026-01-21T01:01:15.015759Z  INFO rinku_node: STATIC_DIR config: None
+01:01:15
+2026-01-21T01:01:15.016611Z  INFO rinku_node::api: No STATIC_DIR configured, API-only mode with root health check
+01:01:15
+2026-01-21T01:01:15.017272Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080

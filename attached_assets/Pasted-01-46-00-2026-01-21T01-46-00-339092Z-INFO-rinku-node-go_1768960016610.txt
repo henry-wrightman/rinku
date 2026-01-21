@@ -1,0 +1,234 @@
+01:46:00
+2026-01-21T01:46:00.339092Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2290 vs 2231), requesting delta sync...
+01:46:00
+2026-01-21T01:46:00.574362Z  INFO rinku_node::gossip: Sync page: received 191/191 transactions, 7 account nonces (offset=0, has_more=false)
+01:46:00
+2026-01-21T01:46:00.574474Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+01:46:00
+2026-01-21T01:46:00.575502Z  INFO rinku_node::gossip: Delta sync complete: 59 added, 0 failed
+01:46:00
+2026-01-21T01:46:00.744342Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:00
+2026-01-21T01:46:00.807564Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:00
+2026-01-21T01:46:00.863189Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:00
+2026-01-21T01:46:00.929025Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:00
+2026-01-21T01:46:00.994808Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:01
+2026-01-21T01:46:01.123192Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:01
+2026-01-21T01:46:01.321922Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:01
+2026-01-21T01:46:01.522095Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:01
+2026-01-21T01:46:01.714470Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:01
+2026-01-21T01:46:01.976384Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:02
+2026-01-21T01:46:02.113767Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:02
+2026-01-21T01:46:02.327068Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:02
+2026-01-21T01:46:02.513820Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:02
+2026-01-21T01:46:02.711968Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:02
+2026-01-21T01:46:02.914562Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:03
+2026-01-21T01:46:03.122014Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:03
+2026-01-21T01:46:03.317263Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:03
+2026-01-21T01:46:03.513301Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:03
+2026-01-21T01:46:03.720191Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:03
+2026-01-21T01:46:03.913196Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:04
+2026-01-21T01:46:04.111196Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:04
+2026-01-21T01:46:04.268565Z  INFO rinku_node::api: Sync delta request: checkpoint=209, offset=0, limit=500
+01:46:04
+2026-01-21T01:46:04.270614Z  INFO rinku_node::api: Returning 500 of 2289 transactions with 15 account nonces (offset=0, has_more=true)
+01:46:04
+2026-01-21T01:46:04.316092Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:04
+2026-01-21T01:46:04.391889Z  INFO rinku_node::api: Sync delta request: checkpoint=209, offset=500, limit=500
+01:46:04
+2026-01-21T01:46:04.392604Z  INFO rinku_node::api: Returning 500 of 2289 transactions with 13 account nonces (offset=500, has_more=true)
+01:46:04
+2026-01-21T01:46:04.558432Z  INFO rinku_node::api: Sync delta request: checkpoint=209, offset=1000, limit=500
+01:46:04
+2026-01-21T01:46:04.559436Z  INFO rinku_node::api: Returning 500 of 2289 transactions with 9 account nonces (offset=1000, has_more=true)
+01:46:04
+2026-01-21T01:46:04.584895Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:04
+2026-01-21T01:46:04.711948Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:04
+2026-01-21T01:46:04.763084Z  INFO rinku_node::api: Sync delta request: checkpoint=209, offset=1500, limit=500
+01:46:04
+2026-01-21T01:46:04.763839Z  INFO rinku_node::api: Returning 500 of 2289 transactions with 13 account nonces (offset=1500, has_more=true)
+01:46:04
+2026-01-21T01:46:04.861317Z  INFO rinku_node::api: Sync delta request: checkpoint=209, offset=2000, limit=500
+01:46:04
+2026-01-21T01:46:04.862175Z  INFO rinku_node::api: Returning 289 of 2289 transactions with 7 account nonces (offset=2000, has_more=false)
+01:46:04
+2026-01-21T01:46:04.911476Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:05
+2026-01-21T01:46:05.125108Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:05
+2026-01-21T01:46:05.313912Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:05
+2026-01-21T01:46:05.515528Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:05
+2026-01-21T01:46:05.722157Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:05
+2026-01-21T01:46:05.922749Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:06
+2026-01-21T01:46:06.174526Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:06
+2026-01-21T01:46:06.396028Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:06
+2026-01-21T01:46:06.514897Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:06
+2026-01-21T01:46:06.710206Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:06
+2026-01-21T01:46:06.911839Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:07
+2026-01-21T01:46:07.112722Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:07
+2026-01-21T01:46:07.315265Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:07
+2026-01-21T01:46:07.513576Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:07
+2026-01-21T01:46:07.722142Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:07
+2026-01-21T01:46:07.912745Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:08
+2026-01-21T01:46:08.110997Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:08
+2026-01-21T01:46:08.310708Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:08
+2026-01-21T01:46:08.526232Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:08
+2026-01-21T01:46:08.720696Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:08
+2026-01-21T01:46:08.910645Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:09
+2026-01-21T01:46:09.120735Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:09
+2026-01-21T01:46:09.311438Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:09
+2026-01-21T01:46:09.510026Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:09
+2026-01-21T01:46:09.710022Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:09
+2026-01-21T01:46:09.913326Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+01:46:10
+2026-01-21T01:46:10.117934Z  INFO rinku_node::gossip: [AccountSync] Faucet balance differs from peer https://rinku-validator-1.fly.dev: local=992900.00, peer=992800.00, diff=100.00 - merging accounts
+01:46:10
+2026-01-21T01:46:10.119117Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+01:46:11
+2026-01-21T01:46:11.470159Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 997 transactions to peer (0 failed)
+01:46:11
+2026-01-21T01:46:11.523787Z  WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinku-validator-1.fly.dev to fix state divergence
+01:46:11
+2026-01-21T01:46:11.595053Z  WARN rinku_node::gossip: RECOVERY: Received snapshot: 83 accounts, 209 checkpoints, 2228 dag txs
+01:46:11
+2026-01-21T01:46:11.595158Z  WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+01:46:11
+2026-01-21T01:46:11.595275Z  WARN rinku_node::state: RECOVERY MODE: Force applying snapshot (83 accounts, 209 checkpoints) to fix state divergence
+01:46:11
+2026-01-21T01:46:11.595356Z  INFO rinku_node::state: Applying sync snapshot: 83 accounts, 209 checkpoints, 2228 dag txs
+01:46:11
+2026-01-21T01:46:11.595492Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 83 total
+01:46:11
+2026-01-21T01:46:11.616750Z  INFO rinku_node::state: Applied rewards snapshot
+01:46:11
+2026-01-21T01:46:11.616850Z  INFO rinku_node::state: Applied emission snapshot
+01:46:11
+2026-01-21T01:46:11.616892Z  INFO rinku_node::state: Applied slashing snapshot
+01:46:11
+2026-01-21T01:46:11.616990Z  INFO rinku_node::state: Snapshot applied: 2228 DAG txs, 0 validators, 209 checkpoints, 0 contracts
+01:46:11
+2026-01-21T01:46:11.621268Z  WARN rinku_node::gossip: RECOVERY: Force snapshot sync complete - applied 2228 DAG transactions
+01:46:11
+2026-01-21T01:46:11.760402Z  INFO rinku_node::gossip: Peer https://rinkuchan.com is 1 checkpoint(s) ahead (cp: 210 vs 209), requesting snapshot sync...
+01:46:11
+2026-01-21T01:46:11.812191Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinkuchan.com
+01:46:12
+2026-01-21T01:46:12.021370Z  INFO rinku_node::gossip: Received snapshot: 83 accounts, 210 checkpoints, 839 dag txs, checkpoint height 210
+01:46:12
+2026-01-21T01:46:12.021468Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+01:46:12
+2026-01-21T01:46:12.022471Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinkuchan.com before snapshot sync
+01:46:13
+2026-01-21T01:46:13.457324Z  INFO rinku_node::state: Pruned 2067 expired witness entries
+01:46:14
+2026-01-21T01:46:14.046003Z  INFO rinku_node::validator_identity: Epoch transition: 340 -> 341
+01:46:14
+2026-01-21T01:46:14.046273Z  INFO rinku_node::checkpoint: Epoch transition: 340 -> 341 (activated: 0, exited: 0)
+01:46:14
+2026-01-21T01:46:14.051363Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+01:46:14
+2026-01-21T01:46:14.052859Z  INFO rinku_node::checkpoint: Created checkpoint cae762c0f95244e5 at height 210 (2227 txs finalized, 3.932411 RKU emitted)
+01:46:27
+2026-01-21T01:46:27.662348Z  INFO rinku_node::api: Sync delta request: checkpoint=209, offset=0, limit=500
+01:46:27
+2026-01-21T01:46:27.662951Z  INFO rinku_node::api: Returning 500 of 2227 transactions with 11 account nonces (offset=0, has_more=true)
+01:46:38
+2026-01-21T01:46:38.990950Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=0, limit=500
+01:46:38
+2026-01-21T01:46:38.991548Z  INFO rinku_node::api: Returning 500 of 2227 transactions with 11 account nonces (offset=0, has_more=true)
+01:46:39
+2026-01-21T01:46:39.004495Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=500, limit=500
+01:46:39
+2026-01-21T01:46:39.005542Z  INFO rinku_node::api: Returning 500 of 2227 transactions with 17 account nonces (offset=500, has_more=true)
+01:46:39
+2026-01-21T01:46:39.018044Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=1000, limit=500
+01:46:39
+2026-01-21T01:46:39.018828Z  INFO rinku_node::api: Returning 500 of 2227 transactions with 9 account nonces (offset=1000, has_more=true)
+01:46:39
+2026-01-21T01:46:39.031694Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=1500, limit=500
+01:46:39
+2026-01-21T01:46:39.032414Z  INFO rinku_node::api: Returning 500 of 2227 transactions with 13 account nonces (offset=1500, has_more=true)
+01:46:39
+2026-01-21T01:46:39.044555Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=2000, limit=500
+01:46:39
+2026-01-21T01:46:39.045334Z  INFO rinku_node::api: Returning 227 of 2227 transactions with 7 account nonces (offset=2000, has_more=false)
+01:46:45
+2026-01-21T01:46:45.646918Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=0, limit=500
+01:46:45
+2026-01-21T01:46:45.647613Z  INFO rinku_node::api: Returning 500 of 2227 transactions with 11 account nonces (offset=0, has_more=true)
+01:46:45
+2026-01-21T01:46:45.661499Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=500, limit=500
+01:46:45
+2026-01-21T01:46:45.662572Z  INFO rinku_node::api: Returning 500 of 2227 transactions with 17 account nonces (offset=500, has_more=true)
+01:46:45
+2026-01-21T01:46:45.673072Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=1000, limit=500
+01:46:45
+2026-01-21T01:46:45.673887Z  INFO rinku_node::api: Returning 500 of 2227 transactions with 9 account nonces (offset=1000, has_more=true)
+01:46:45
+2026-01-21T01:46:45.684913Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=1500, limit=500
+01:46:45
+2026-01-21T01:46:45.685638Z  INFO rinku_node::api: Returning 500 of 2227 transactions with 13 account nonces (offset=1500, has_more=true)
+01:46:45
+2026-01-21T01:46:45.696346Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=2000, limit=500
+01:46:45
+2026-01-21T01:46:45.697197Z  INFO rinku_node::api: Returning 227 of 2227 transactions with 7 account nonces (offset=2000, has_more=false)
+01:46:48
+2026-01-21T01:46:48.763462Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=0, limit=500
+01:46:48
+2026-01-21T01:46:48.763969Z  INFO rinku_node::api: Returning 500 of 2255 transactions with 11 account nonces (offset=0, has_more=true)
+01:46:48
+2026-01-21T01:46:48.774309Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=500, limit=500
+01:46:48
+2026-01-21T01:46:48.775098Z  INFO rinku_node::api: Returning 500 of 2255 transactions with 17 account nonces (offset=500, has_more=true)
+01:46:48
+2026-01-21T01:46:48.785510Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=1000, limit=500
+01:46:48
+2026-01-21T01:46:48.786173Z  INFO rinku_node::api: Returning 500 of 2256 transactions with 9 account nonces (offset=1000, has_more=true)
+01:46:48
+2026-01-21T01:46:48.796473Z  INFO rinku_node::api: Sync delta request: checkpoint=210, offset=1500, limit=500

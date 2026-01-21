@@ -14,6 +14,7 @@ mod emission;
 mod fork_remediation;
 mod gas;
 mod gossip;
+mod leader_election;
 #[cfg(feature = "p2p")]
 mod network;
 mod persistence;
@@ -181,12 +182,20 @@ async fn main() -> Result<()> {
         validator_address.clone(),
         config.peers.clone(),
         config.trust.clone(),
-    );
+    )
+    .with_local_url(config.public_url.clone());
+    
     let checkpoint_service = if let Some(ref vi) = validator_identity {
         checkpoint_service.with_validator_identity(vi.clone())
     } else {
         checkpoint_service
     };
+    
+    if config.public_url.is_some() {
+        info!("Leader election enabled for checkpoint creation");
+    } else {
+        info!("Leader election disabled (no PUBLIC_URL set) - this node will create checkpoints independently");
+    }
     let bls_public_key = checkpoint_service.bls_public_key_base64();
     info!(
         "BLS public key: {}...",

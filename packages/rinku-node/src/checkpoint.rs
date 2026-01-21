@@ -15,6 +15,7 @@ use crate::bls::{
 use crate::config::TrustConfig;
 use crate::consensus::ConsensusService;
 use crate::dag_pruning::{DagPruningService, PruningConfig};
+use crate::leader_election::{LeaderElectionService, LeaderElectionConfig};
 #[cfg(feature = "p2p")]
 use crate::network::{CheckpointVoteRequest, CheckpointVoteResponse, NetworkHandle, SyncRequest, SyncResponse};
 use crate::slashing::SlashingService;
@@ -43,6 +44,10 @@ pub struct CheckpointService {
     network_handle: Option<Arc<NetworkHandle>>,
     /// Our validator's stake (for quorum calculation)
     our_stake: f64,
+    /// Leader election service for checkpoint creation
+    leader_election: Option<LeaderElectionService>,
+    /// Our public URL for leader election
+    local_url: Option<String>,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
@@ -74,6 +79,8 @@ impl CheckpointService {
             #[cfg(feature = "p2p")]
             network_handle: None,
             our_stake: 1000.0, // Default stake, should be set from validator identity
+            leader_election: None,
+            local_url: None,
         }
     }
 
@@ -107,6 +114,29 @@ impl CheckpointService {
     /// Set our validator's stake for quorum calculation
     pub fn with_stake(mut self, stake: f64) -> Self {
         self.our_stake = stake;
+        self
+    }
+    
+    /// Set the local URL for leader election (from PUBLIC_URL env var)
+    pub fn with_local_url(mut self, url: Option<String>) -> Self {
+        self.local_url = url.clone();
+        // Initialize leader election service with our address and URL
+        let config = LeaderElectionConfig::default();
+        self.leader_election = Some(LeaderElectionService::new(
+            self.validator_address.clone(),
+            url,
+            config,
+        ));
+        self
+    }
+    
+    /// Enable leader election with custom config
+    pub fn with_leader_election(mut self, config: LeaderElectionConfig) -> Self {
+        self.leader_election = Some(LeaderElectionService::new(
+            self.validator_address.clone(),
+            self.local_url.clone(),
+            config,
+        ));
         self
     }
 
@@ -789,6 +819,50 @@ impl CheckpointService {
 
             (unfinalized, tx_merkle_root, height, previous_hash)
         };
+
+        // LEADER ELECTION: Only the elected leader should create the checkpoint
+        // Other nodes should wait and sync from the leader
+        if let Some(ref leader_election) = self.leader_election {
+            let prev_hash_for_election = previous_hash.as_deref().unwrap_or("genesis");
+            let (should_create, election_result) = leader_election.should_create_checkpoint(
+                height,
+                prev_hash_for_election,
+                &self.peers,
+                self.local_url.as_deref(),
+            );
+            
+            if !should_create {
+                // We are not the leader - check if we should adopt a peer's checkpoint
+                // The leader should be creating the checkpoint; we wait and sync
+                debug!(
+                    "LEADER ELECTION: Not elected for checkpoint {} (leader: {}), waiting for peer checkpoint",
+                    height,
+                    election_result.leader_url.as_deref().unwrap_or(&election_result.leader_address)
+                );
+                
+                // Try to fetch and adopt the leader's checkpoint
+                if let Some(peer_checkpoint) = self.fetch_peer_checkpoint(height).await {
+                    let (adopted, _) = self.validate_and_adopt_peer_checkpoint(
+                        peer_checkpoint,
+                        &tx_merkle_root,
+                        previous_hash.as_deref(),
+                        &unfinalized_hashes,
+                    ).await;
+                    
+                    if adopted {
+                        self.reset_fork_failures();
+                        return Ok(());
+                    }
+                }
+                
+                // No checkpoint from leader yet - skip this round
+                // Leader might be behind or still creating
+                return Ok(());
+            }
+            
+            // We are the leader - record the checkpoint creation
+            leader_election.record_checkpoint_created();
+        }
 
         // FORK PREVENTION: Check if any peer already has a checkpoint at this height
         // If so, try to adopt their checkpoint instead of creating our own (with validation)

@@ -10,6 +10,7 @@ pub mod emission;
 pub mod fork_remediation;
 pub mod gas;
 pub mod gossip;
+pub mod leader_election;
 #[cfg(feature = "p2p")]
 pub mod network;
 pub mod persistence;
