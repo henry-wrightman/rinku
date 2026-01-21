@@ -60,6 +60,13 @@ interface GasStats {
   totalBurned: number;
 }
 
+interface PeerStats {
+  peersConnected: number;
+  messagesSent: number;
+  messagesReceived: number;
+  lastGossipAt: number;
+}
+
 interface FinalityStats {
   avgTimeToFinality: number;
   medianTimeToFinality: number;
@@ -150,6 +157,7 @@ function App() {
   const [finalityStats, setFinalityStats] = useState<FinalityStats | null>(
     null,
   );
+  const [peerStats, setPeerStats] = useState<PeerStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const { darkMode, toggleTheme } = useTheme();
@@ -184,6 +192,7 @@ function App() {
         gasPriceRes,
         gasStatsRes,
         finalityRes,
+        peerStatsRes
       ] = await Promise.all([
         fetch(`${NODE_URL}/dag/summary`),
         fetch(`${NODE_URL}/accounts`),
@@ -191,6 +200,7 @@ function App() {
         fetch(`${NODE_URL}/gas/price`),
         fetch(`${NODE_URL}/gas/stats`),
         fetch(`${NODE_URL}/finality/metrics`),
+        fetch(`${NODE_URL}/gossip/stats`),
       ]);
 
       const summaryData = await summaryRes.json();
@@ -220,6 +230,11 @@ function App() {
       if (finalityRes.ok) {
         const finalityData = await finalityRes.json();
         setFinalityStats(finalityData);
+      }
+
+      if (peerStatsRes.ok) {
+        const peerData = await peerStatsRes.json();
+        setPeerStats(peerData);
       }
 
       const versionRes = await fetch(`${NODE_URL}/version`);
@@ -284,6 +299,7 @@ function App() {
         connected={connected}
         protocolVersion={versionInfo?.protocolVersion}
         nodeVersion={versionInfo?.nodeVersion}
+        peersConnected={peerStats?.peersConnected || 0}
       />
 
       <div className="header-actions">
