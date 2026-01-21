@@ -1,0 +1,116 @@
+2026-01-21 15:11:26.88
+7dd44172
+User
+2026-01-21T20:11:26.883663Z INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+2026-01-21 15:11:26.88
+7dd44172
+User
+2026-01-21T20:11:26.884813Z INFO rinku_node::checkpoint: Genesis checkpoint signed: 4f1e809783f9d5da
+2026-01-21 15:11:26.93
+7dd44172
+User
+2026-01-21T20:11:26.937237Z INFO rinku_node::gossip: Fetching sync status from peer: https://rinku-validator-1.fly.dev
+2026-01-21 15:11:26.93
+7dd44172
+User
+2026-01-21T20:11:26.937231Z INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 500, interval: 1000ms)
+2026-01-21 15:11:26.93
+7dd44172
+User
+2026-01-21T20:11:26.937218Z INFO rinku_node: Snapshot persistence started (60s interval)
+2026-01-21 15:11:26.93
+7dd44172
+User
+2026-01-21T20:11:26.937171Z INFO rinku_node: Gossip service started (200ms interval)
+2026-01-21 15:11:26.93
+7dd44172
+User
+2026-01-21T20:11:26.937230Z INFO rinku_node: STATIC_DIR config: Some("packages/explorer/dist")
+2026-01-21 15:11:26.93
+7dd44172
+User
+2026-01-21T20:11:26.937228Z INFO rinku_node::gossip: Starting initial sync with peers...
+2026-01-21 15:11:26.93
+7dd44172
+User
+2026-01-21T20:11:26.937209Z INFO rinku_node: Tip consolidation service started
+2026-01-21 15:11:26.93
+7dd44172
+User
+2026-01-21T20:11:26.937205Z INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 2, p2p: false)
+2026-01-21 15:11:26.94
+7dd44172
+User
+2026-01-21T20:11:26.940601Z INFO rinku_node: Rinku Node running on port 5000
+2026-01-21 15:11:26.94
+7dd44172
+User
+2026-01-21T20:11:26.940615Z INFO rinku_node: API available at http://0.0.0.0:5000/api
+2026-01-21 15:11:26.94
+7dd44172
+User
+2026-01-21T20:11:26.939936Z INFO rinku_node::api: API server listening on 0.0.0.0:5000
+2026-01-21 15:11:26.94
+7dd44172
+User
+2026-01-21T20:11:26.939905Z INFO rinku_node::api: Serving static files from "packages/explorer/dist"
+2026-01-21 15:11:26.94
+7dd44172
+User
+2026-01-21T20:11:26.940626Z INFO rinku_node: Static files enabled from: packages/explorer/dist
+2026-01-21 15:11:32.60
+7dd44172
+User
+2026-01-21T20:11:32.202233Z WARN rinku_node::gossip: Failed to get status from peer https://rinku-genesis.fly.dev: error sending request for url (https://rinku-genesis.fly.dev/api/sync/status): operation timed out
+2026-01-21 15:11:37.01
+7dd44172
+User
+2026-01-21T20:11:37.014651Z WARN rinku_node::gossip: Failed to get status from peer https://rinku-validator-1.fly.dev: error sending request for url (https://rinku-validator-1.fly.dev/api/sync/status): operation timed out
+2026-01-21 15:11:37.01
+7dd44172
+User
+2026-01-21T20:11:37.014686Z INFO rinku_node::gossip: Fetching sync status from peer: https://rinku-genesis.fly.dev
+2026-01-21 15:11:52.71
+7dd44172
+User
+2026-01-21T20:11:52.419246Z INFO rinku_node::gossip: Initial sync complete
+2026-01-21 15:11:52.71
+7dd44172
+User
+2026-01-21T20:11:52.419214Z WARN rinku_node::gossip: Failed to get status from peer https://rinku-genesis.fly.dev: error sending request for url (https://rinku-genesis.fly.dev/api/sync/status): operation timed out
+2026-01-21 15:11:53.20
+7dd44172
+User
+2026-01-21T20:11:53.204407Z INFO rinku_node::gossip: Initial sync complete
+2026-01-21 15:11:53.20
+7dd44172
+User
+2026-01-21T20:11:53.204309Z WARN rinku_node::gossip: Failed to get status from peer https://rinku-validator-1.fly.dev: error sending request for url (https://rinku-validator-1.fly.dev/api/sync/status): operation timed out
+2026-01-21 15:12:24.14
+7dd44172
+User
+2026-01-21T20:12:24.147545Z WARN rinku_node::gossip: Peer https://rinku-validator-1.fly.dev failed 1 times, backoff for 20s
+2026-01-21 15:12:24.60
+7dd44172
+User
+2026-01-21T20:12:24.602653Z INFO rinku_node::validator_identity: Epoch transition: 0 -> 1
+2026-01-21 15:12:24.60
+7dd44172
+User
+2026-01-21T20:12:24.606159Z WARN rinku_node::gossip: Peer https://rinku-genesis.fly.dev failed 1 times, backoff for 20s
+2026-01-21 15:12:29.14
+7dd44172
+User
+2026-01-21T20:12:29.149227Z WARN rinku_node::gossip: Peer https://rinku-genesis.fly.dev failed 1 times, backoff for 20s
+2026-01-21 15:12:29.51
+7dd44172
+User
+2026-01-21T20:12:29.516246Z INFO rinku_node::checkpoint: Epoch transition: 0 -> 1 (activated: 0, exited: 0)
+2026-01-21 15:12:29.51
+7dd44172
+User
+2026-01-21T20:12:29.516046Z INFO rinku_node::validator_identity: Epoch transition: 0 -> 1
+2026-01-21 15:12:29.60
+7dd44172
+User
+2026-01-21T20:12:29.608095Z WARN rinku_node::gossip: Peer https://rinku-validator-1.fly.dev failed 1 times, backoff for 20s
