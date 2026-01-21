@@ -136,8 +136,7 @@ packages = [
 
 [deployment]
 deploymentTarget = "static"
-run = ["./rinku-node-bin"]
-build = ["bash", "-c", "npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
+build = ["npm run build -w @rinku/core -w @rinku/explorer"]
 publicDir = "packages/explorer/dist"
 
 [userenv]
