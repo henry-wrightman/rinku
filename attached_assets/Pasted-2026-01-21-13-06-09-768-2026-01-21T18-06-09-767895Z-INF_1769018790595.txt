@@ -1,0 +1,330 @@
+2026-01-21 13:06:09.768	
+2026-01-21T18:06:09.767895Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:06:09.768	
+2026-01-21T18:06:09.767838Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:06:05.964	
+2026-01-21T18:06:05.964336Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:05:59.729	
+2026-01-21T18:05:59.728696Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:05:59.729	
+2026-01-21T18:05:59.728648Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:05:51.002	
+2026-01-21T18:05:51.002335Z  INFO rinku_node::checkpoint: Epoch transition: 5 -> 6 (activated: 0, exited: 0)
+2026-01-21 13:05:51.002	
+2026-01-21T18:05:51.002167Z  INFO rinku_node::validator_identity: Epoch transition: 5 -> 6
+2026-01-21 13:05:49.650	
+2026-01-21T18:05:49.650213Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:05:49.650	
+2026-01-21T18:05:49.650145Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:05:39.819	
+2026-01-21T18:05:39.819562Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:05:39.819	
+2026-01-21T18:05:39.819512Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:05:36.109	
+2026-01-21T18:05:36.109523Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:05:29.730	
+2026-01-21T18:05:29.729692Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:05:29.730	
+2026-01-21T18:05:29.729646Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:05:20.015	
+2026-01-21T18:05:20.015255Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:05:20.015	
+2026-01-21T18:05:20.015207Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:05:09.812	
+2026-01-21T18:05:09.811578Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:05:09.812	
+2026-01-21T18:05:09.811531Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:05:05.655	
+2026-01-21T18:05:05.655481Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:04:59.722	
+2026-01-21T18:04:59.721474Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:04:59.722	
+2026-01-21T18:04:59.721384Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:04:51.017	
+2026-01-21T18:04:51.017131Z  INFO rinku_node::network: Identified peer 12D3KooWPNtG5HYKS1gsyurRMEoD3CssFHqkb82775iVnbnkkgoT: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 13:04:51.000	
+2026-01-21T18:04:50.999933Z  INFO rinku_node::checkpoint: Epoch transition: 4 -> 5 (activated: 0, exited: 0)
+2026-01-21 13:04:51.000	
+2026-01-21T18:04:50.999641Z  INFO rinku_node::validator_identity: Epoch transition: 4 -> 5
+2026-01-21 13:04:49.903	
+2026-01-21T18:04:49.902496Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:04:49.903	
+2026-01-21T18:04:49.902427Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:04:39.826	
+2026-01-21T18:04:39.825699Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:04:39.826	
+2026-01-21T18:04:39.825634Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:04:35.684	
+2026-01-21T18:04:35.684548Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:04:29.859	
+2026-01-21T18:04:29.858650Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:04:29.859	
+2026-01-21T18:04:29.858601Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:04:24.445	
+2026-01-21T18:04:24.445439Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 4 checkpoints, 4 dag txs
+2026-01-21 13:04:24.445	
+2026-01-21T18:04:24.445387Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:04:20.998	
+2026-01-21T18:04:20.997790Z  INFO rinku_node::checkpoint: Created checkpoint 3e7ff2316e86ca06 at height 4 (1 txs finalized, 3.932411 RKU emitted)
+2026-01-21 13:04:20.998	
+2026-01-21T18:04:20.996900Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 4 (peers: 1)
+2026-01-21 13:04:19.733	
+2026-01-21T18:04:19.733417Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 4 dag txs
+2026-01-21 13:04:19.733	
+2026-01-21T18:04:19.733221Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:04:19.612	
+2026-01-21T18:04:19.612373Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 3 peers
+2026-01-21 13:04:10.161	
+2026-01-21T18:04:10.161167Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:04:10.161	
+2026-01-21T18:04:10.161117Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:04:05.658	
+2026-01-21T18:04:05.658228Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:03:59.689	
+2026-01-21T18:03:59.688647Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:03:59.689	
+2026-01-21T18:03:59.688602Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:03:50.995	
+2026-01-21T18:03:50.995499Z  INFO rinku_node::checkpoint: Epoch transition: 3 -> 4 (activated: 0, exited: 0)
+2026-01-21 13:03:50.995	
+2026-01-21T18:03:50.995196Z  INFO rinku_node::validator_identity: Epoch transition: 3 -> 4
+2026-01-21 13:03:49.556	
+2026-01-21T18:03:49.555963Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:03:49.556	
+2026-01-21T18:03:49.555882Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:03:39.629	
+2026-01-21T18:03:39.629198Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:03:39.629	
+2026-01-21T18:03:39.629151Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:03:35.694	
+2026-01-21T18:03:35.694015Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:03:29.677	
+2026-01-21T18:03:29.676842Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:03:29.677	
+2026-01-21T18:03:29.676781Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:03:19.868	
+2026-01-21T18:03:19.868030Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:03:19.868	
+2026-01-21T18:03:19.867902Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:03:09.767	
+2026-01-21T18:03:09.766792Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:03:09.767	
+2026-01-21T18:03:09.766741Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:03:05.846	
+2026-01-21T18:03:05.845939Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:02:59.798	
+2026-01-21T18:02:59.798366Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:02:59.798	
+2026-01-21T18:02:59.798306Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:02:50.992	
+2026-01-21T18:02:50.992785Z  INFO rinku_node::checkpoint: Epoch transition: 2 -> 3 (activated: 0, exited: 0)
+2026-01-21 13:02:50.992	
+2026-01-21T18:02:50.992612Z  INFO rinku_node::validator_identity: Epoch transition: 2 -> 3
+2026-01-21 13:02:49.829	
+2026-01-21T18:02:49.829281Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:02:49.829	
+2026-01-21T18:02:49.829234Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:02:39.594	
+2026-01-21T18:02:39.594167Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:02:39.594	
+2026-01-21T18:02:39.594119Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:02:35.685	
+2026-01-21T18:02:35.685081Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:02:29.673	
+2026-01-21T18:02:29.673254Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:02:29.673	
+2026-01-21T18:02:29.673066Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:02:19.694	
+2026-01-21T18:02:19.694308Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:02:19.694	
+2026-01-21T18:02:19.694261Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:02:09.831	
+2026-01-21T18:02:09.830667Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:02:09.831	
+2026-01-21T18:02:09.830617Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:02:05.686	
+2026-01-21T18:02:05.685991Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:01:59.753	
+2026-01-21T18:01:59.753368Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:01:59.753	
+2026-01-21T18:01:59.753328Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:01:50.989	
+2026-01-21T18:01:50.989175Z  INFO rinku_node::checkpoint: Epoch transition: 1 -> 2 (activated: 0, exited: 0)
+2026-01-21 13:01:50.989	
+2026-01-21T18:01:50.988987Z  INFO rinku_node::validator_identity: Epoch transition: 1 -> 2
+2026-01-21 13:01:49.908	
+2026-01-21T18:01:49.908268Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:01:49.908	
+2026-01-21T18:01:49.908220Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:01:39.735	
+2026-01-21T18:01:39.735194Z  INFO rinku_node::api: Snapshot sync response: 2 accounts, 0 validators, 3 checkpoints, 3 dag txs
+2026-01-21 13:01:39.735	
+2026-01-21T18:01:39.735142Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 13:01:35.708	
+2026-01-21T18:01:35.708058Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:01:35.277	
+2026-01-21T18:01:35.277532Z  INFO rinku_node::gossip: Snapshot sync complete: applied 3 DAG transactions
+2026-01-21 13:01:35.277	
+2026-01-21T18:01:35.277474Z  INFO rinku_node::gossip: Persisted peer genesis hash: 328a1524cac6e141
+2026-01-21 13:01:35.276	
+2026-01-21T18:01:35.276791Z  INFO rinku_node::state: Snapshot applied: 3 DAG txs, 0 validators, 3 checkpoints, 0 contracts
+2026-01-21 13:01:35.276	
+2026-01-21T18:01:35.276682Z  INFO rinku_node::state: Merged emission snapshot: +7.864822 emitted, +0.000000 burned
+2026-01-21 13:01:35.276	
+2026-01-21T18:01:35.276650Z  INFO rinku_node::rewards: Merged rewards snapshot: 0 pending lowered (claims preserved), 2 lifetime raised
+2026-01-21 13:01:35.276	
+2026-01-21T18:01:35.276543Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 2 total
+2026-01-21 13:01:35.276	
+2026-01-21T18:01:35.276414Z  INFO rinku_node::state: Applying sync snapshot: 2 accounts, 3 checkpoints, 3 dag txs
+2026-01-21 13:01:35.276	
+2026-01-21T18:01:35.276343Z  INFO rinku_node::gossip: New node adopting peer genesis hash from https://rinku-validator-2.fly.dev (local 3c68688bc63735bb -> peer 328a1524cac6e141)
+2026-01-21 13:01:35.276	
+2026-01-21T18:01:35.276286Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 1 transactions to peer (0 failed)
+2026-01-21 13:01:35.272	
+2026-01-21T18:01:35.272766Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 2 local transactions to https://rinku-validator-2.fly.dev before snapshot sync
+2026-01-21 13:01:35.272	
+2026-01-21T18:01:35.272672Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 13:01:35.272	
+2026-01-21T18:01:35.272604Z  INFO rinku_node::gossip: Received snapshot: 2 accounts, 3 checkpoints, 3 dag txs, checkpoint height 3
+2026-01-21 13:01:35.263	
+2026-01-21T18:01:35.263060Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-2.fly.dev
+2026-01-21 13:01:35.212	
+2026-01-21T18:01:35.211479Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev is 2 checkpoint(s) ahead (cp: 3 vs 1), requesting snapshot sync...
+2026-01-21 13:01:27.395	
+2026-01-21T18:01:27.394735Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 3 peers
+2026-01-21 13:01:05.647	
+2026-01-21T18:01:05.647707Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:00:50.985	
+2026-01-21T18:00:50.985661Z  INFO rinku_node::checkpoint: Epoch transition: 0 -> 1 (activated: 0, exited: 0)
+2026-01-21 13:00:50.985	
+2026-01-21T18:00:50.985497Z  INFO rinku_node::validator_identity: Epoch transition: 0 -> 1
+2026-01-21 13:00:35.664	
+2026-01-21T18:00:35.664399Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 13:00:32.299	
+2026-01-21T18:00:32.299226Z  INFO rinku_node::gossip: PEER DISCOVERY: Adding new peer https://rinkuchan.com (total peers: 2)
+2026-01-21 13:00:05.719	
+2026-01-21T18:00:05.718997Z  INFO rinku_node::gossip: PEER DISCOVERY: Adding new peer https://rinku-validator-2.fly.dev (total peers: 1)
+2026-01-21 12:59:51.795	
+Health check 'health' on port 8080 is now passing.
+2026-01-21 12:59:51.794	
+Health check 'metrics' on port 8080 is now passing.
+2026-01-21 12:59:51.212	
+2026/01/21 17:59:51 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:4ef:49cb:c369:2]:22
+2026-01-21 12:59:51.175	
+Health check 'health' on port 8080 has failed. Your app is not responding properly.
+2026-01-21 12:59:51.175	
+Health check 'metrics' on port 8080 has failed. Your app is not responding properly.
+2026-01-21 12:59:51.137	
+2026-01-21T17:59:51.137372Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+2026-01-21 12:59:51.137	
+2026-01-21T17:59:51.137349Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+2026-01-21 12:59:51.137	
+2026-01-21T17:59:51.137314Z  INFO rinku_node: Rinku Node running on port 8080
+2026-01-21 12:59:51.137	
+2026-01-21T17:59:51.136754Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+2026-01-21 12:59:51.137	
+2026-01-21T17:59:51.136714Z  INFO rinku_node::api: No STATIC_DIR configured, API-only mode with root health check
+2026-01-21 12:59:51.136	
+2026-01-21T17:59:51.136202Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 500, interval: 1000ms)
+2026-01-21 12:59:51.136	
+2026-01-21T17:59:51.136174Z  INFO rinku_node::gossip: P2P message receiver started
+2026-01-21 12:59:51.136	
+2026-01-21T17:59:51.136123Z  INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 0, p2p: true)
+2026-01-21 12:59:51.136	
+2026-01-21T17:59:51.133008Z  INFO rinku_node::network: Peer 12D3KooWPNtG5HYKS1gsyurRMEoD3CssFHqkb82775iVnbnkkgoT subscribed to TopicHash { hash: "rinku/1.0.0" }
+2026-01-21 12:59:51.136	
+2026-01-21T17:59:51.135903Z  INFO rinku_node: STATIC_DIR config: None
+2026-01-21 12:59:51.136	
+2026-01-21T17:59:51.135897Z  INFO rinku_node: Snapshot persistence started (60s interval)
+2026-01-21 12:59:51.136	
+2026-01-21T17:59:51.135892Z  INFO rinku_node: Tip consolidation service started
+2026-01-21 12:59:51.136	
+2026-01-21T17:59:51.135879Z  INFO rinku_node: Gossip service started (200ms interval)
+2026-01-21 12:59:51.132	
+2026-01-21T17:59:51.132729Z  INFO rinku_node: GossipService connected to libp2p network
+2026-01-21 12:59:51.090	
+2026-01-21T17:59:51.090089Z  INFO rinku_node::network: Identified peer 12D3KooWPNtG5HYKS1gsyurRMEoD3CssFHqkb82775iVnbnkkgoT: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 12:59:51.012	
+2026-01-21T17:59:51.011675Z  INFO rinku_node::network: Connected to peer: 12D3KooWPNtG5HYKS1gsyurRMEoD3CssFHqkb82775iVnbnkkgoT via Dialer { address: /ip4/137.66.42.118/tcp/4001/p2p/12D3KooWPNtG5HYKS1gsyurRMEoD3CssFHqkb82775iVnbnkkgoT, role_override: Dialer, port_use: Reuse }
+2026-01-21 12:59:50.991	
+2026-01-21T17:59:50.990411Z  INFO rinku_node::network: Listening on /ip4/172.19.8.227/tcp/4001
+2026-01-21 12:59:50.991	
+2026-01-21T17:59:50.990375Z  INFO rinku_node::network: Listening on /ip4/172.19.8.226/tcp/4001
+2026-01-21 12:59:50.990	
+2026-01-21T17:59:50.990205Z  INFO rinku_node::network: Listening on /ip4/127.0.0.1/tcp/4001
+2026-01-21 12:59:50.988	
+2026-01-21T17:59:50.988426Z  INFO rinku_node::network: Network service started on /ip4/0.0.0.0/tcp/4001
+2026-01-21 12:59:50.988	
+2026-01-21T17:59:50.988367Z  INFO rinku_node::network: Dialing bootstrap peer: /ip4/137.66.42.118/tcp/4001/p2p/12D3KooWPNtG5HYKS1gsyurRMEoD3CssFHqkb82775iVnbnkkgoT
+2026-01-21 12:59:50.988	
+2026-01-21T17:59:50.988053Z  INFO rinku_node: P2P mDNS discovery enabled (LAN peers)
+2026-01-21 12:59:50.988	
+2026-01-21T17:59:50.988034Z  INFO rinku_node: P2P bootstrap peers: ["/ip4/137.66.42.118/tcp/4001/p2p/12D3KooWPNtG5HYKS1gsyurRMEoD3CssFHqkb82775iVnbnkkgoT"]
+2026-01-21 12:59:50.988	
+2026-01-21T17:59:50.988030Z  INFO rinku_node: P2P listening on: /ip4/0.0.0.0/tcp/4001
+2026-01-21 12:59:50.988	
+2026-01-21T17:59:50.988018Z  INFO rinku_node: P2P network started with peer ID: 12D3KooWT38D2GsqAVPrr5ocbvW4UQAwhjCDUntejwgkyt8QaaMX
+2026-01-21 12:59:50.983	
+2026-01-21T17:59:50.982115Z  INFO rinku_node::network: Local peer id: 12D3KooWT38D2GsqAVPrr5ocbvW4UQAwhjCDUntejwgkyt8QaaMX
+2026-01-21 12:59:50.983	
+2026-01-21T17:59:50.982172Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+2026-01-21 12:59:50.982	
+2026-01-21T17:59:50.981935Z  INFO rinku_node: Fork remediation service started
+2026-01-21 12:59:50.981	
+2026-01-21T17:59:50.981846Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+2026-01-21 12:59:50.981	
+2026-01-21T17:59:50.981810Z  INFO rinku_node::checkpoint: Genesis checkpoint signed: 31182ae359a6e0aa
+2026-01-21 12:59:50.981	
+2026-01-21T17:59:50.981144Z  INFO rinku_node::checkpoint: Signing genesis checkpoint with node's BLS key
+2026-01-21 12:59:50.981	
+2026-01-21T17:59:50.981028Z  INFO rinku_node: BLS public key: sNurgwAuXVbCRpn3x81lP5hvs-hU8bGK...
+2026-01-21 12:59:50.981	
+2026-01-21T17:59:50.980927Z  INFO rinku_node: Leader election enabled for checkpoint creation
+2026-01-21 12:59:50.980	
+2026-01-21T17:59:50.980892Z  INFO rinku_node::dag_pruning: DAG pruning service initialized: retain 100 checkpoints, max 100000 nodes
+2026-01-21 12:59:50.980	
+2026-01-21T17:59:50.980690Z  INFO rinku_node: Validator identity service initialized (epoch: 0)
+2026-01-21 12:59:50.980	
+2026-01-21T17:59:50.980593Z  INFO rinku_node::validator_identity: Generated and saved new validator keys: 6c2ea158bc9343cf9edbc33d923556689e2cdd75
+2026-01-21 12:59:50.980	
+2026-01-21T17:59:50.979978Z  INFO rinku_node: Consensus service initialized with slashing integration
+2026-01-21 12:59:50.980	
+2026-01-21T17:59:50.979967Z  INFO rinku_node: Slashing service initialized
+2026-01-21 12:59:50.980	
+2026-01-21T17:59:50.979963Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+2026-01-21 12:59:50.980	
+2026-01-21T17:59:50.979961Z  INFO rinku_node: Rewards service initialized
+2026-01-21 12:59:50.980	
+2026-01-21T17:59:50.979957Z  INFO rinku_node: Gas service initialized
+2026-01-21 12:59:50.980	
+2026-01-21T17:59:50.979947Z  INFO rinku_node: Validator key loaded: e25ec8f1fb883349...
+2026-01-21 12:59:50.977	
+Machine created and started in 6.565s
+2026-01-21 12:59:50.976	
+2026-01-21T17:59:50.976055Z  INFO rinku_node::validator: Generated new validator key: e25ec8f1fb883349...
+2026-01-21 12:59:50.975	
+2026-01-21T17:59:50.975504Z  WARN rinku_node::storage: No rewards snapshot found, starting fresh
+2026-01-21 12:59:50.975	
+2026-01-21T17:59:50.974922Z  INFO rinku_node::state: Genesis hash created: 3c68688bc63735bb
+2026-01-21 12:59:50.974	
+2026-01-21T17:59:50.974885Z  INFO rinku_node::state: Genesis transaction created: 3c68688bc63735bb
+2026-01-21 12:59:50.974	
+2026-01-21T17:59:50.974758Z  INFO rinku_node::state: Faucet account initialized with 1000000 RKU
+2026-01-21 12:59:50.974	
+2026-01-21T17:59:50.974643Z  WARN rinku_node::storage: No snapshot found in redb, starting fresh
+2026-01-21 12:59:50.974	
+2026-01-21T17:59:50.974537Z  INFO rinku_node::storage: Opened redb database at /data/redb.db
+2026-01-21 12:59:50.948	
+2026-01-21T17:59:50.948753Z  INFO rinku_node: Initializing node state...
+2026-01-21 12:59:50.948	
+2026-01-21T17:59:50.948083Z  INFO rinku_node: Data directory exists, checking for stale locks...
+2026-01-21 12:59:50.948	
+2026-01-21T17:59:50.948073Z  INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+2026-01-21 12:59:50.948	
+2026-01-21T17:59:50.948066Z  INFO rinku_node: Data dir: /data
+2026-01-21 12:59:50.948	
+2026-01-21T17:59:50.948055Z  INFO rinku_node: Node ID: 1189f68ddee83559
+2026-01-21 12:59:50.944	
+2026-01-21T17:59:50.942675Z  INFO rinku_node: Process PID: 648
+2026-01-21 12:59:50.944	
+2026-01-21T17:59:50.942569Z  INFO rinku_node: Starting Rinku Node v0.1.0
