@@ -309,9 +309,9 @@ deploy_fresh() {
     sleep 5
     
     log_info "Step 4: Wiping volumes..."
-    wipe_volume "$GENESIS_APP"
-    wipe_volume "$VALIDATOR1_APP"
-    wipe_volume "$VALIDATOR2_APP"
+    wipe_and_recreate_volume "$GENESIS_APP"
+    wipe_and_recreate_volume "$VALIDATOR1_APP"
+    wipe_and_recreate_volume "$VALIDATOR2_APP"
     
     log_info "Step 5: Deploying genesis node..."
     deploy_app "$GENESIS_APP"
@@ -382,7 +382,7 @@ deploy_fresh_genesis() {
         sleep 5
     fi
     
-    wipe_volume "$GENESIS_APP"
+    wipe_and_recreate_volume "$GENESIS_APP"
     deploy_app "$GENESIS_APP"
     
     log_success "Genesis deployed fresh!"
