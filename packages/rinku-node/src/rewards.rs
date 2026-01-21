@@ -654,6 +654,63 @@ impl RewardsService {
 
         service
     }
+
+    /// Merge rewards from a peer snapshot, preserving local claim state
+    /// This prevents the "double claim" exploit where syncing from a peer
+    /// that hasn't seen a claim yet could reset pending_rewards
+    pub fn merge_from(&mut self, snapshot: RewardsSnapshot) {
+        use tracing::info;
+        
+        let mut pending_lowered = 0;
+        let mut lifetime_raised = 0;
+        
+        // For pending_rewards: take MINIMUM (lower = already claimed)
+        for (addr, peer_pending) in &snapshot.pending_rewards {
+            let local_pending = self.pending_rewards.get(addr).copied().unwrap_or(0.0);
+            let merged = local_pending.min(*peer_pending);
+            if merged < local_pending {
+                pending_lowered += 1;
+            }
+            // Only insert if non-zero or already exists
+            if merged > 0.0 || self.pending_rewards.contains_key(addr) {
+                self.pending_rewards.insert(addr.clone(), merged);
+            }
+        }
+        
+        // For lifetime_rewards: take MAXIMUM (higher = more accumulated)
+        for (addr, peer_lifetime) in &snapshot.lifetime_rewards {
+            let local_lifetime = self.lifetime_rewards.get(addr).cloned().unwrap_or_default();
+            let peer_total = peer_lifetime.tip_rewards + peer_lifetime.stake_rewards + peer_lifetime.witness_rewards;
+            let local_total = local_lifetime.tip_rewards + local_lifetime.stake_rewards + local_lifetime.witness_rewards;
+            if peer_total > local_total {
+                self.lifetime_rewards.insert(addr.clone(), peer_lifetime.clone());
+                lifetime_raised += 1;
+            }
+        }
+        
+        // Merge rewards (take values we don't have locally)
+        for (addr, peer_rewards) in snapshot.rewards {
+            self.rewards.entry(addr).or_insert(peer_rewards);
+        }
+        
+        // Merge stakes (take peer version if we don't have it)
+        for (addr, peer_stake) in snapshot.stakes {
+            self.stakes.entry(addr).or_insert(peer_stake);
+        }
+        
+        // Merge witnessed txs (take newer timestamps)
+        for (key, peer_ts) in snapshot.witnessed_txs {
+            let local_ts = self.witnessed_txs.get(&key).copied().unwrap_or(0);
+            if peer_ts > local_ts {
+                self.witnessed_txs.insert(key, peer_ts);
+            }
+        }
+        
+        info!(
+            "Merged rewards snapshot: {} pending lowered (claims preserved), {} lifetime raised",
+            pending_lowered, lifetime_raised
+        );
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

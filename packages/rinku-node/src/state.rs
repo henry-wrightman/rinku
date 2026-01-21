@@ -2241,10 +2241,11 @@ impl NodeState {
         drop(state);
         
         // Apply service snapshots if provided
+        // Use merge_from for rewards to prevent double-claim exploit
+        // (syncing from a peer that hasn't seen a claim yet would reset pending_rewards)
         if let Some(rewards_snap) = rewards_to_apply {
             let mut rewards = self.rewards.write().await;
-            *rewards = crate::rewards::RewardsService::from_json(rewards_snap);
-            info!("Applied rewards snapshot");
+            rewards.merge_from(rewards_snap);
         }
         
         if let Some(emission_snap) = emission_to_apply {
