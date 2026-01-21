@@ -249,6 +249,8 @@ struct SnapshotSyncResponse {
     genesis_hash: Option<String>,
     #[serde(default)]
     finalized_tx_hashes: Vec<String>,
+    #[serde(default)]
+    tx_checkpoint_heights: std::collections::HashMap<String, u64>,
 }
 
 #[derive(Debug, Default)]
@@ -699,6 +701,7 @@ impl GossipService {
             total_to_validators: snapshot_response.total_to_validators,
             genesis_hash: peer_genesis_hash.clone(),
             finalized_tx_hashes: snapshot_response.finalized_tx_hashes,
+            tx_checkpoint_heights: snapshot_response.tx_checkpoint_heights,
         };
 
         let added = self.state.apply_sync_snapshot(snapshot).await?;
@@ -862,6 +865,7 @@ impl GossipService {
             total_to_validators: snapshot_response.total_to_validators,
             genesis_hash: peer_genesis_hash.clone(),
             finalized_tx_hashes: snapshot_response.finalized_tx_hashes,
+            tx_checkpoint_heights: snapshot_response.tx_checkpoint_heights,
         };
 
         // Get our local accounts before applying snapshot (to push back local-only accounts)

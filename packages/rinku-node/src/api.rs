@@ -423,6 +423,8 @@ struct SnapshotSyncResponse {
     genesis_hash: Option<String>,
     #[serde(default)]
     finalized_tx_hashes: Vec<String>,
+    #[serde(default)]
+    tx_checkpoint_heights: std::collections::HashMap<String, u64>,
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -669,6 +671,7 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncR
         total_to_validators: snapshot.total_to_validators,
         genesis_hash: snapshot.genesis_hash,
         finalized_tx_hashes: snapshot.finalized_tx_hashes,
+        tx_checkpoint_heights: snapshot.tx_checkpoint_heights,
     })
 }
 

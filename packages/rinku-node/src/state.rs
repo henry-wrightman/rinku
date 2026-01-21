@@ -45,6 +45,9 @@ pub struct SyncSnapshot {
     pub genesis_hash: Option<String>,
     #[serde(default)]
     pub finalized_tx_hashes: Vec<String>,
+    /// Maps transaction hash to checkpoint height for proper finality tracking
+    #[serde(default)]
+    pub tx_checkpoint_heights: HashMap<String, u64>,
 }
 
 /// Result of applying a sync snapshot, includes local-only accounts for push-back
@@ -1890,6 +1893,12 @@ impl NodeState {
             .filter(|n| n.finalized)
             .map(|n| n.hash.clone())
             .collect();
+        
+        // Map transaction hashes to their checkpoint heights for proper proof generation
+        let tx_checkpoint_heights: HashMap<String, u64> = all_nodes
+            .iter()
+            .filter_map(|n| n.checkpoint_height.map(|h| (n.hash.clone(), h)))
+            .collect();
 
         // Get contracts from state
         let contracts = state.contracts.clone();
@@ -1954,6 +1963,7 @@ impl NodeState {
             total_to_validators,
             genesis_hash,
             finalized_tx_hashes,
+            tx_checkpoint_heights,
         }
     }
 
@@ -2218,6 +2228,9 @@ impl NodeState {
             // Check if this transaction was finalized on the peer
             let is_finalized = finalized_hashes.contains(&tx.hash);
             
+            // Use the correct checkpoint height from the snapshot mapping
+            let checkpoint_height = snapshot.tx_checkpoint_heights.get(&tx.hash).copied();
+            
             let node = rinku_core::types::DagNode {
                 hash: tx.hash.clone(),
                 tx: tx.clone(),
@@ -2225,7 +2238,7 @@ impl NodeState {
                 children: Vec::new(),
                 weight: tx_weight,
                 finalized: is_finalized,
-                checkpoint_height: if is_finalized { Some(0) } else { None },
+                checkpoint_height,
             };
 
             if state.dag.add_node(node).is_ok() {
