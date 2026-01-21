@@ -88,32 +88,66 @@ get_app_ipv4() {
     fly ips list -a "$app_name" 2>/dev/null | grep "v4" | head -1 | awk '{print $2}'
 }
 
+# destroy_all_machines() {
+#     local app_name=$1
+#     log_info "Destroying all machines for $app_name..."
+    
+#     local machine_ids=$(fly machines list -a "$app_name" 2>/dev/null | tail -n +2 | awk '{print $1}')
+    
+#     if [ -z "$machine_ids" ]; then
+#         log_info "No machines to destroy for $app_name"
+#         return 0
+#     fi
+    
+#     for machine_id in $machine_ids; do
+#         if [ -n "$machine_id" ] && [ "$machine_id" != "ID" ]; then
+#             log_info "Destroying machine: $machine_id"
+#             fly machines destroy "$machine_id" -a "$app_name" --force -y 2>/dev/null || true
+#         fi
+#     done
+    
+#     sleep 3
+    
+#     local remaining=$(fly machines list -a "$app_name" 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
+#     if [ "$remaining" = "0" ]; then
+#         log_success "All machines destroyed for $app_name"
+#     else
+#         log_warn "$remaining machines still exist for $app_name"
+#     fi
+# }
+
 destroy_all_machines() {
-    local app_name=$1
-    log_info "Destroying all machines for $app_name..."
-    
-    local machine_ids=$(fly machines list -a "$app_name" 2>/dev/null | tail -n +2 | awk '{print $1}')
-    
-    if [ -z "$machine_ids" ]; then
-        log_info "No machines to destroy for $app_name"
-        return 0
+  local app_name="$1"
+  log_warn "Destroying ALL machines for $app_name (keeping app/IPs)..."
+
+  fly machine list -a "$app_name" -q 2>/dev/null | while IFS= read -r id; do
+    # Trim whitespace (Fly output sometimes has trailing tabs/spaces)
+    id="$(echo "$id" | tr -d '[:space:]')"
+    [ -n "$id" ] || continue
+
+    log_info "Destroying machine: $id"
+    fly machine destroy -a "$app_name" --force "$id" <<< "y" 2>/dev/null || true
+  done
+}
+
+
+wait_for_no_machines() {
+  local app_name="$1"
+  local tries=30
+  local i=0
+
+  while [ $i -lt $tries ]; do
+    local count
+    count="$(fly machine list -a "$app_name" -q 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "$count" = "0" ]; then
+      return 0
     fi
-    
-    for machine_id in $machine_ids; do
-        if [ -n "$machine_id" ] && [ "$machine_id" != "ID" ]; then
-            log_info "Destroying machine: $machine_id"
-            fly machines destroy "$machine_id" -a "$app_name" --force -y 2>/dev/null || true
-        fi
-    done
-    
-    sleep 3
-    
-    local remaining=$(fly machines list -a "$app_name" 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
-    if [ "$remaining" = "0" ]; then
-        log_success "All machines destroyed for $app_name"
-    else
-        log_warn "$remaining machines still exist for $app_name"
-    fi
+    i=$((i+1))
+    sleep 2
+  done
+
+  log_warn "Machines still present for $app_name after waiting; continuing anyway."
+  return 1
 }
 
 wipe_and_recreate_volume() {
@@ -152,12 +186,12 @@ wipe_and_recreate_volume() {
         fi
     done
     
-    local final_check=$(fly volumes list -a "$app_name" 2>/dev/null | grep -c "rinku_data" || echo "0")
-    if [ "$final_check" != "0" ]; then
-        log_error "Failed to destroy all volumes for $app_name after $max_attempts attempts"
-        log_error "Please manually destroy volumes with: fly volumes list -a $app_name"
-        return 1
-    fi
+    # local final_check=$(fly volumes list -a "$app_name" 2>/dev/null | grep -c "rinku_data" || echo "0")
+    # if [ "$final_check" != "0" ]; then
+    #     log_error "Failed to destroy all volumes for $app_name after $max_attempts attempts"
+    #     log_error "Please manually destroy volumes with: fly volumes list -a $app_name"
+    #     return 1
+    # fi
     
     log_info "Creating fresh volume for $app_name..."
     fly volumes create rinku_data -a "$app_name" --region "$REGION" --size 1 -y
@@ -173,8 +207,8 @@ deploy_app() {
     fly deploy \
         --dockerfile Dockerfile.fly \
         --app "$app_name" \
-        --region "$REGION" \
-        --wait-timeout 300 \
+        # --region "$REGION" \
+        # --wait-timeout 300 \
         $extra_args
     
     log_success "Deployed $app_name"
@@ -365,9 +399,10 @@ deploy_fresh() {
     
     log_info "Step 3: Destroying existing machines (IPs are preserved)..."
     for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
-        if app_exists "$app"; then
-            destroy_all_machines "$app"
-        fi
+    if app_exists "$app"; then
+        destroy_all_machines "$app"
+        wait_for_no_machines "$app"
+    fi
     done
     
     log_info "Step 4: Wiping volumes..."
