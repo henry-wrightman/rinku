@@ -1,0 +1,116 @@
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.014014Z INFO rinku_node: Gossip service started (200ms interval)
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.014043Z INFO rinku_node::gossip: Starting initial sync with peers...
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.014035Z INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 2, p2p: false)
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.014652Z INFO rinku_node::api: Serving static files from "packages/explorer/dist"
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.014660Z INFO rinku_node::api: API server listening on 0.0.0.0:5000
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.014049Z INFO rinku_node::gossip: Fetching sync status from peer: https://rinku-validator-1.fly.dev
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.014040Z INFO rinku_node: Snapshot persistence started (60s interval)
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.014062Z INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 500, interval: 1000ms)
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.015323Z INFO rinku_node: API available at http://0.0.0.0:5000/api
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.015327Z INFO rinku_node: Static files enabled from: packages/explorer/dist
+2026-01-21 11:37:03.01
+7853aab9
+User
+2026-01-21T16:37:03.015314Z INFO rinku_node: Rinku Node running on port 5000
+2026-01-21 11:37:03.14
+7853aab9
+User
+2026-01-21T16:37:03.143331Z INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev status: checkpoint_height=367, dag_size=6, tips=1
+2026-01-21 11:37:03.14
+7853aab9
+User
+2026-01-21T16:37:03.143365Z INFO rinku_node::gossip: Peer has more data, requesting bootstrap sync...
+2026-01-21 11:37:03.16
+7853aab9
+User
+2026-01-21T16:37:03.163342Z INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 11:37:03.46
+7853aab9
+User
+2026-01-21T16:37:03.463730Z INFO rinku_node::gossip: Fetching sync status from peer: https://rinku-genesis.fly.dev
+2026-01-21 11:37:03.46
+7853aab9
+User
+2026-01-21T16:37:03.463597Z WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting sync from peer https://rinku-validator-1.fly.dev - local genesis 7e3542ff957f810e != peer genesis 1cdbe44ce909a96b
+2026-01-21 11:37:03.46
+7853aab9
+User
+2026-01-21T16:37:03.463555Z INFO rinku_node::gossip: Received snapshot: 5 accounts, 367 checkpoints, 6 dag txs, checkpoint height 367
+2026-01-21 11:37:03.46
+7853aab9
+User
+2026-01-21T16:37:03.463585Z INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 11:37:03.46
+7853aab9
+User
+2026-01-21T16:37:03.463577Z WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 11:37:03.46
+7853aab9
+User
+2026-01-21T16:37:03.463721Z WARN rinku_node::gossip: Bootstrap sync from https://rinku-validator-1.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-validator-1.fly.dev
+2026-01-21 11:37:03.58
+7853aab9
+User
+2026-01-21T16:37:03.587166Z INFO rinku_node::gossip: Peer has more data, requesting bootstrap sync...
+2026-01-21 11:37:03.58
+7853aab9
+User
+2026-01-21T16:37:03.587091Z INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev status: checkpoint_height=367, dag_size=6, tips=1
+2026-01-21 11:37:03.60
+7853aab9
+User
+2026-01-21T16:37:03.603517Z INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+2026-01-21 11:37:03.96
+7853aab9
+User
+2026-01-21T16:37:03.965407Z WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 11:37:03.96
+7853aab9
+User
+2026-01-21T16:37:03.965428Z WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting sync from peer https://rinku-genesis.fly.dev - local genesis 7e3542ff957f810e != peer genesis 1cdbe44ce909a96b
+2026-01-21 11:37:03.96
+7853aab9
+User
+2026-01-21T16:37:03.965384Z INFO rinku_node::gossip: Received snapshot: 5 accounts, 367 checkpoints, 6 dag txs, checkpoint height 367
+2026-01-21 11:37:08.64
+5f58ee9e
+User
+2026-01-21T16:37:08.641185Z INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 11:37:12.24
+7853aab9
+User
+2026-01-21T16:37:12.241263Z INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 11:37:12.56
+7853aab9
+User
+2026-01-21T16:37:12.560741Z WARN rinku_node::gossip: Snapshot sync from https://rinku-validator-1.fly.dev failed: Genesis hash mismatch: this node is on a different chain than peer https://rinku-validator-1.fly.dev
