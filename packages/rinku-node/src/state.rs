@@ -331,11 +331,146 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
     }
 }
 
-/// Fallback for non-P2P builds
-#[cfg(not(feature = "p2p"))]
-async fn try_presync_from_peers(_bootstrap_peers: &[String], _is_genesis_node: bool) -> Option<SyncSnapshot> {
-    info!("PRE-SYNC: P2P feature not enabled, will create genesis locally");
+/// HTTP-based snapshot sync response (matches API response format)
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpSnapshotResponse {
+    accounts: HashMap<String, Account>,
+    validators: HashMap<String, Validator>,
+    checkpoints: Vec<Checkpoint>,
+    gas_price: f64,
+    total_supply: f64,
+    genesis_time: u64,
+    dag_transactions: Vec<SignedTransaction>,
+    total_transactions: u64,
+    #[allow(dead_code)]
+    checkpoint_height: u64,
+    #[serde(default)]
+    contracts: HashMap<String, crate::contracts::ContractState>,
+    #[serde(default)]
+    rewards_snapshot: Option<crate::rewards::RewardsSnapshot>,
+    #[serde(default)]
+    emission_snapshot: Option<crate::emission::EmissionSnapshot>,
+    #[serde(default)]
+    slashing_snapshot: Option<crate::slashing::SlashingSnapshot>,
+    #[serde(default)]
+    total_burned: f64,
+    #[serde(default)]
+    total_to_validators: f64,
+    #[serde(default)]
+    genesis_hash: Option<String>,
+    #[serde(default)]
+    finalized_tx_hashes: Vec<String>,
+    #[serde(default)]
+    tx_checkpoint_heights: HashMap<String, u64>,
+}
+
+/// Try HTTP-based sync from NODE_PEERS when P2P isn't available
+/// Uses exponential backoff retry for robustness
+async fn try_http_presync(http_peers: &[String], is_genesis_node: bool) -> Option<SyncSnapshot> {
+    if is_genesis_node {
+        info!("PRE-SYNC: Genesis node, skipping HTTP sync");
+        return None;
+    }
+    
+    if http_peers.is_empty() {
+        info!("PRE-SYNC: No HTTP peers configured (NODE_PEERS empty)");
+        return None;
+    }
+    
+    info!("PRE-SYNC: Attempting HTTP sync from {} peer(s)", http_peers.len());
+    
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .ok()?;
+    
+    // Retry with exponential backoff
+    let delays = [5, 10, 20, 40, 80, 80, 80, 80]; // Total ~6 min max
+    
+    for (attempt, delay) in delays.iter().enumerate() {
+        info!("PRE-SYNC: HTTP attempt {}/8...", attempt + 1);
+        
+        for peer in http_peers {
+            let url = format!("{}/api/sync/snapshot", peer.trim_end_matches('/'));
+            
+            match client.get(&url).send().await {
+                Ok(response) if response.status().is_success() => {
+                    match response.json::<HttpSnapshotResponse>().await {
+                        Ok(snapshot_resp) => {
+                            info!(
+                                "PRE-SYNC: HTTP received snapshot from {}: {} accounts, {} checkpoints",
+                                peer,
+                                snapshot_resp.accounts.len(),
+                                snapshot_resp.checkpoints.len()
+                            );
+                            
+                            return Some(SyncSnapshot {
+                                accounts: snapshot_resp.accounts,
+                                validators: snapshot_resp.validators,
+                                checkpoints: snapshot_resp.checkpoints,
+                                gas_price: snapshot_resp.gas_price,
+                                total_supply: snapshot_resp.total_supply,
+                                genesis_time: snapshot_resp.genesis_time,
+                                dag_transactions: snapshot_resp.dag_transactions,
+                                total_transactions: snapshot_resp.total_transactions,
+                                contracts: snapshot_resp.contracts,
+                                rewards_snapshot: snapshot_resp.rewards_snapshot,
+                                emission_snapshot: snapshot_resp.emission_snapshot,
+                                slashing_snapshot: snapshot_resp.slashing_snapshot,
+                                total_burned: snapshot_resp.total_burned,
+                                total_to_validators: snapshot_resp.total_to_validators,
+                                genesis_hash: snapshot_resp.genesis_hash,
+                                finalized_tx_hashes: snapshot_resp.finalized_tx_hashes,
+                                tx_checkpoint_heights: snapshot_resp.tx_checkpoint_heights,
+                            });
+                        }
+                        Err(e) => {
+                            warn!("PRE-SYNC: Failed to parse snapshot from {}: {}", peer, e);
+                        }
+                    }
+                }
+                Ok(response) => {
+                    warn!("PRE-SYNC: HTTP {} from {}: status {}", url, peer, response.status());
+                }
+                Err(e) => {
+                    warn!("PRE-SYNC: HTTP request to {} failed: {}", peer, e);
+                }
+            }
+        }
+        
+        if attempt < delays.len() - 1 {
+            info!("PRE-SYNC: Waiting {}s before retry...", delay);
+            tokio::time::sleep(std::time::Duration::from_secs(*delay)).await;
+        }
+    }
+    
     None
+}
+
+/// Fallback for non-P2P builds - tries HTTP sync from NODE_PEERS
+#[cfg(not(feature = "p2p"))]
+async fn try_presync_from_peers(_bootstrap_peers: &[String], is_genesis_node: bool) -> Option<SyncSnapshot> {
+    // Get HTTP peers from NODE_PEERS env var
+    let http_peers: Vec<String> = std::env::var("NODE_PEERS")
+        .map(|p| p.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect())
+        .unwrap_or_default();
+    
+    if http_peers.is_empty() {
+        if is_genesis_node {
+            info!("PRE-SYNC: Genesis node, creating new chain");
+        } else {
+            warn!("PRE-SYNC: P2P feature not enabled and no NODE_PEERS configured");
+            warn!("PRE-SYNC: Set NODE_PEERS to sync from existing network (e.g., NODE_PEERS=https://rinku-genesis.fly.dev)");
+        }
+        return None;
+    }
+    
+    info!("PRE-SYNC: P2P not enabled, using HTTP sync from NODE_PEERS");
+    try_http_presync(&http_peers, is_genesis_node).await
 }
 
 /// Snapshot of node state for efficient sync

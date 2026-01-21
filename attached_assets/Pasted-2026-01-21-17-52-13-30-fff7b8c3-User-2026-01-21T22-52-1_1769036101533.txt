@@ -1,0 +1,108 @@
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.303762Z INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.303779Z INFO rinku_node: Consensus service initialized with slashing integration
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.303756Z INFO rinku_node: Rewards service initialized
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.302737Z WARN rinku_node::storage: No rewards snapshot found, starting fresh
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.304646Z INFO rinku_node::validator_identity: Generated and saved new validator keys: f78681d6de0798edb2da0eea49003c9b0e4ceb50
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.305007Z INFO rinku_node::checkpoint: Signing genesis checkpoint with node's BLS key
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.302647Z INFO rinku_node::state: Genesis transaction created: 3d75599840daa6f5
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.302598Z INFO rinku_node::state: PRE-SYNC: P2P feature not enabled, will create genesis locally
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.302661Z INFO rinku_node::state: Genesis hash created: 3d75599840daa6f5
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.304823Z INFO rinku_node: Leader election enabled for checkpoint creation
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.303750Z INFO rinku_node: Gas service initialized
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.302562Z INFO rinku_node::storage: Opened redb database at .rinku-data/redb.db
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.305052Z INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.305897Z INFO rinku_node::checkpoint: Genesis checkpoint signed: 9a1648cb0433f833
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.304894Z INFO rinku_node: Fork remediation service started
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.304887Z INFO rinku_node: Checkpoint service started (15000ms interval)
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.304828Z INFO rinku_node: BLS public key: oVMNOzwwCWxcTeZHjkETVaAwmfFLLWRc...
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.303768Z INFO rinku_node: Slashing service initialized
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.303652Z INFO rinku_node::validator: Generated new validator key: e8dc8869ef78ae7d...
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.302612Z INFO rinku_node::state: Faucet account initialized with 1000000 RKU
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.304817Z INFO rinku_node::dag_pruning: DAG pruning service initialized: retain 100 checkpoints, max 100000 nodes
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.302590Z WARN rinku_node::storage: No snapshot found in redb, starting fresh
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.304666Z INFO rinku_node: Validator identity service initialized (epoch: 0)
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.302604Z INFO rinku_node::state: Creating fresh genesis (IS_GENESIS_NODE=true or no peers configured)
+2026-01-21 17:52:13.30
+fff7b8c3
+User
+2026-01-21T22:52:13.303743Z INFO rinku_node: Validator key loaded: e8dc8869ef78ae7d...
+2026-01-21 17:52:13.37
+fff7b8c3
+User
+2026-01-21T22:52:13.373817Z INFO rinku_node: Gossip service started (200ms interval)
+2026-01-21 17:52:13.37
+fff7b8c3
+User
+2026-01-21T22:52:13.373853Z INFO rinku_node: Snapshot persistence started (60s interval)

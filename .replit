@@ -137,11 +137,7 @@ packages = [
 [deployment]
 deploymentTarget = "autoscale"
 run = ["./rinku-node-bin"]
-build = [
-  "bash",
-  "-c",
-  "rm -f rinku-node-bin .rinku_data; cargo build --release -p rinku-node --no-default-features && cp target/release/rinku-node rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer",
-]
+build = ["bash", "-c", "rm -f rinku-node-bin .rinku_data; cargo build --release -p rinku-node && cp target/release/rinku-node rinku-node-bin && rm -rf target && npm run build -w @rinku/core && npm run build -w @rinku/explorer"]
 
 [userenv]
 
