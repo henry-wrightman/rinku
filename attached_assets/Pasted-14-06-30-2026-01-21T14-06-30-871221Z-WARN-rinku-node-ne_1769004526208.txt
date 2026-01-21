@@ -1,0 +1,54 @@
+14:06:30
+2026-01-21T14:06:30.871221Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:30
+2026-01-21T14:06:30.932895Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:31
+2026-01-21T14:06:31.047010Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:31
+2026-01-21T14:06:31.237803Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:31
+2026-01-21T14:06:31.447993Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:31
+2026-01-21T14:06:31.645876Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:31
+2026-01-21T14:06:31.842300Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:31
+2026-01-21T14:06:31.904306Z  INFO rinku_node::gossip: Broadcast peer list to 1 peers
+14:06:32
+2026-01-21T14:06:32.037248Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:32
+2026-01-21T14:06:32.246731Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:32
+2026-01-21T14:06:32.436007Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:32
+2026-01-21T14:06:32.655851Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:32
+2026-01-21T14:06:32.812531Z  INFO rinku_node::api: Snapshot sync request received
+14:06:32
+2026-01-21T14:06:32.812557Z  INFO rinku_node::api: Snapshot sync response: 1 accounts, 0 validators, 1 checkpoints, 1 dag txs
+14:06:32
+2026-01-21T14:06:32.837027Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:33
+2026-01-21T14:06:33.048351Z  WARN rinku_node::network: Failed to publish message: InsufficientPeers
+14:06:33
+2026-01-21T14:06:33.339353Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 2 vs 1), requesting delta sync...
+14:06:33
+2026-01-21T14:06:33.470771Z  INFO rinku_node::gossip: Sync page: received 1/1 transactions, 1 account nonces (offset=0, has_more=false)
+14:06:33
+2026-01-21T14:06:33.470850Z  INFO rinku_node::gossip: Applied 1 account nonces from peer
+14:06:33
+2026-01-21T14:06:33.470953Z  INFO rinku_node::gossip: Delta sync complete: 0 added, 1 failed
+14:06:33
+2026-01-21T14:06:33.470985Z  WARN rinku_node::gossip: Delta sync had 1 failures vs 0 added - forcing snapshot recovery
+14:06:33
+2026-01-21T14:06:33.471072Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1 local transactions to https://rinkuchan.com before snapshot sync
+14:06:33
+2026-01-21T14:06:33.517116Z  WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinkuchan.com to fix state divergence
+14:06:33
+2026-01-21T14:06:33.622063Z  WARN rinku_node::gossip: RECOVERY: Received snapshot: 2 accounts, 1 checkpoints, 2 dag txs
+14:06:33
+2026-01-21T14:06:33.622143Z  WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+14:06:33
+2026-01-21T14:06:33.622238Z  WARN rinku_node::gossip: GENESIS MISMATCH: Rejecting recovery sync from peer https://rinkuchan.com - local genesis 424afc11ce5d9313 != peer genesis 709ea9666c7f762f
+14:06:33
+2026-01-21T14:06:33.622359Z  WARN rinku_node::gossip: RECOVERY: Force snapshot sync from https://rinkuchan.com failed: Genesis hash mismatch: this node is on a different chain than peer https://rinkuchan.com
