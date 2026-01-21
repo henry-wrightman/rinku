@@ -2248,16 +2248,30 @@ impl NodeState {
             rewards.merge_from(rewards_snap);
         }
         
+        // Use merge_from for emission to prevent double-emission exploits
+        // (syncing from a peer with lower total_emitted would allow re-emission)
         if let Some(emission_snap) = emission_to_apply {
             let mut emission = self.emission.write().await;
-            *emission = crate::emission::EmissionService::from_json(emission_snap);
-            info!("Applied emission snapshot");
+            let (emitted_delta, burned_delta) = emission.merge_from(emission_snap);
+            if emitted_delta > 0.0 || burned_delta > 0.0 {
+                info!(
+                    "Merged emission snapshot: +{:.6} emitted, +{:.6} burned",
+                    emitted_delta, burned_delta
+                );
+            }
         }
         
+        // Use merge_from for slashing to prevent unbonding/slashing rollback exploits
+        // (syncing from a peer missing our unbonding request would lose it)
         if let Some(slashing_snap) = slashing_to_apply {
             let mut slashing = self.slashing.write().await;
-            *slashing = crate::slashing::SlashingService::from_json(slashing_snap);
-            info!("Applied slashing snapshot");
+            let result = slashing.merge_from(slashing_snap);
+            if result.events_added > 0 || result.unbonding_added > 0 || result.liveness_updated > 0 {
+                info!(
+                    "Merged slashing snapshot: {} events added, {} unbonding added, {} liveness updated, +{:.6} total_slashed",
+                    result.events_added, result.unbonding_added, result.liveness_updated, result.total_slashed_delta
+                );
+            }
         }
 
         info!(

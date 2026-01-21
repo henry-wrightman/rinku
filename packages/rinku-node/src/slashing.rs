@@ -408,12 +408,93 @@ impl SlashingService {
             next_slash_id,
         }
     }
+
+    /// Merge slashing state from peer snapshot.
+    /// Prevents rollback exploits by preserving local state:
+    /// - slash_events: merge by ID, keeping existing events
+    /// - unbonding_queue: merge by validator+amount, keep local unbonding entries
+    /// - liveness_failures: take maximum failure counts
+    /// - total_slashed: take maximum
+    /// Returns summary for logging.
+    pub fn merge_from(&mut self, snapshot: SlashingSnapshot) -> SlashingMergeResult {
+        let mut events_added = 0;
+        let mut unbonding_added = 0;
+        let mut liveness_updated = 0;
+        
+        // Merge slash events by ID - preserve existing, add new
+        let existing_ids: std::collections::HashSet<_> = 
+            self.slash_events.iter().map(|e| e.id.clone()).collect();
+        for event in snapshot.slash_events {
+            if !existing_ids.contains(&event.id) {
+                // Update next_slash_id if needed
+                if let Some(id_num) = event.id.strip_prefix("slash_").and_then(|s| s.parse::<u64>().ok()) {
+                    self.next_slash_id = self.next_slash_id.max(id_num + 1);
+                }
+                self.slash_events.push(event);
+                events_added += 1;
+            }
+        }
+        
+        // Merge unbonding queue - preserve local entries, add new ones
+        let existing_unbonding: std::collections::HashSet<_> = self.unbonding_queue
+            .iter()
+            .map(|e| (e.validator.clone(), e.started_at))
+            .collect();
+        for entry in snapshot.unbonding_queue {
+            if !existing_unbonding.contains(&(entry.validator.clone(), entry.started_at)) {
+                self.unbonding_queue.push(entry);
+                unbonding_added += 1;
+            }
+        }
+        
+        // Merge liveness failures - take maximum count
+        let peer_failures: std::collections::HashMap<String, LivenessInfo> = 
+            snapshot.liveness_failures.into_iter().collect();
+        for (validator, peer_info) in peer_failures {
+            match self.liveness_failures.get_mut(&validator) {
+                Some(local) => {
+                    if peer_info.count > local.count {
+                        local.count = peer_info.count;
+                        local.last_failure = peer_info.last_failure;
+                        liveness_updated += 1;
+                    }
+                }
+                None => {
+                    self.liveness_failures.insert(validator, LivenessRecord {
+                        count: peer_info.count,
+                        last_failure: peer_info.last_failure,
+                    });
+                    liveness_updated += 1;
+                }
+            }
+        }
+        
+        // Take maximum total_slashed
+        let old_total = self.total_slashed;
+        self.total_slashed = self.total_slashed.max(snapshot.total_slashed);
+        let total_slashed_delta = self.total_slashed - old_total;
+        
+        SlashingMergeResult {
+            events_added,
+            unbonding_added,
+            liveness_updated,
+            total_slashed_delta,
+        }
+    }
 }
 
 impl Default for SlashingService {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct SlashingMergeResult {
+    pub events_added: usize,
+    pub unbonding_added: usize,
+    pub liveness_updated: usize,
+    pub total_slashed_delta: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

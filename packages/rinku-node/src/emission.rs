@@ -161,6 +161,25 @@ impl EmissionService {
     pub fn from_json(snapshot: EmissionSnapshot) -> Self {
         Self::with_initial(snapshot.total_emitted, snapshot.total_burned)
     }
+
+    /// Merge emission state from peer snapshot.
+    /// Takes maximum values to prevent emission rollback exploits:
+    /// - total_emitted: higher = more tokens emitted (prevents double-emission)
+    /// - total_burned: higher = more tokens burned
+    /// Returns (emitted_delta, burned_delta) for logging.
+    pub fn merge_from(&mut self, snapshot: EmissionSnapshot) -> (f64, f64) {
+        let old_emitted = self.total_emitted;
+        let old_burned = self.total_burned;
+        
+        // Take maximum values - can't un-emit or un-burn tokens
+        self.total_emitted = self.total_emitted.max(snapshot.total_emitted);
+        self.total_burned = self.total_burned.max(snapshot.total_burned);
+        
+        let emitted_delta = self.total_emitted - old_emitted;
+        let burned_delta = self.total_burned - old_burned;
+        
+        (emitted_delta, burned_delta)
+    }
 }
 
 impl Default for EmissionService {
