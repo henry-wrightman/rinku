@@ -1,0 +1,2002 @@
+2026-01-21 12:31:00.345	
+2026-01-21T17:31:00.345772Z  INFO rinku_node::checkpoint: Epoch transition: 25 -> 26 (activated: 0, exited: 0)
+2026-01-21 12:31:00.345	
+2026-01-21T17:31:00.345553Z  INFO rinku_node::validator_identity: Epoch transition: 25 -> 26
+2026-01-21 12:30:47.590	
+2026-01-21T17:30:47.590423Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:30:22.149	
+2026-01-21T17:30:22.149268Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:30:12.322	
+2026-01-21T17:30:12.322095Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:30:01.838	
+2026-01-21T17:30:01.837474Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:30:00.340	
+2026-01-21T17:30:00.340368Z  INFO rinku_node::checkpoint: Adopted peer checkpoint 6ca8c34b16090be5 at height 61 (1 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:30:00.340	
+2026-01-21T17:30:00.340165Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 61 from https://rinku-validator-1.fly.dev: 6ca8c34b16090be5
+2026-01-21 12:30:00.257	
+2026-01-21T17:30:00.254416Z  INFO rinku_node::checkpoint: Epoch transition: 24 -> 25 (activated: 0, exited: 0)
+2026-01-21 12:30:00.257	
+2026-01-21T17:30:00.254198Z  INFO rinku_node::validator_identity: Epoch transition: 24 -> 25
+2026-01-21 12:29:59.068	
+2026-01-21T17:29:59.068581Z  WARN rinku_node::gossip: Failed to add gossiped tx b6d529793a97bdc748ce3eabb1497f51ccea237f58c1b39c028e6f3e6c0d26c6: Invalid nonce: expected 4, got 1
+2026-01-21 12:29:59.068	
+2026-01-21T17:29:59.068554Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 1
+2026-01-21 12:29:49.961	
+2026-01-21T17:29:49.960581Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:29:46.307	
+2026-01-21T17:29:46.307139Z  INFO rinku_node::network: Identified peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 12:29:45.307	
+2026-01-21T17:29:45.307643Z  INFO rinku_node::gossip: Delta sync complete: 1 added, 0 failed
+2026-01-21 12:29:45.307	
+2026-01-21T17:29:45.307419Z  INFO rinku_node::gossip: Applied 1 account nonces from peer
+2026-01-21 12:29:45.307	
+2026-01-21T17:29:45.307293Z  INFO rinku_node::gossip: Sync page: received 2/2 transactions, 1 account nonces (offset=0, has_more=false)
+2026-01-21 12:29:45.181	
+2026-01-21T17:29:45.180440Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 2772 vs 2771), requesting delta sync...
+2026-01-21 12:29:38.244	
+2026-01-21T17:29:38.244442Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:29:27.553	
+2026-01-21T17:29:27.553115Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:29:25.416	
+2026-01-21T17:29:25.416164Z  INFO rinku_node::gossip: Snapshot sync complete: applied 0 DAG transactions
+2026-01-21 12:29:25.416	
+2026-01-21T17:29:25.416113Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:29:25.412	
+2026-01-21T17:29:25.411751Z  INFO rinku_node::state: Skipping snapshot apply: local has 60 checkpoints, peer has 60
+2026-01-21 12:29:25.412	
+2026-01-21T17:29:25.411745Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:29:25.412	
+2026-01-21T17:29:25.411682Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 999 transactions to peer (0 failed)
+2026-01-21 12:29:00.250	
+2026-01-21T17:29:00.249917Z  INFO rinku_node::checkpoint: Epoch transition: 23 -> 24 (activated: 0, exited: 0)
+2026-01-21 12:29:00.250	
+2026-01-21T17:29:00.249714Z  INFO rinku_node::validator_identity: Epoch transition: 23 -> 24
+2026-01-21 12:28:30.247	
+2026-01-21T17:28:30.247776Z  INFO rinku_node::checkpoint: Adopted peer checkpoint c86c47ff4f4ed3ff at height 60 (1 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:28:30.247	
+2026-01-21T17:28:30.247542Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 60 from https://rinku-validator-1.fly.dev: c86c47ff4f4ed3ff
+2026-01-21 12:28:30.159	
+2026-01-21T17:28:30.155594Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 60 (peers: 3)
+2026-01-21 12:28:24.471	
+2026-01-21T17:28:24.470778Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinkuchan.com before snapshot sync
+2026-01-21 12:28:24.470	
+2026-01-21T17:28:24.469994Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:28:24.470	
+2026-01-21T17:28:24.469889Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 60 checkpoints, 2771 dag txs, checkpoint height 60
+2026-01-21 12:28:24.246	
+2026-01-21T17:28:24.245859Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinkuchan.com
+2026-01-21 12:28:24.183	
+2026-01-21T17:28:24.182142Z  INFO rinku_node::gossip: Peer https://rinkuchan.com is 1 checkpoint(s) ahead (cp: 60 vs 59), requesting snapshot sync...
+2026-01-21 12:28:16.423	
+2026-01-21T17:28:16.422899Z  INFO rinku_node::api: Returning 25 of 25 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:28:16.423	
+2026-01-21T17:28:16.422851Z  INFO rinku_node::api: Sync delta request: checkpoint=59, offset=0, limit=500
+2026-01-21 12:28:16.104	
+2026-01-21T17:28:16.103655Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:28:14.345	
+2026-01-21T17:28:14.344799Z  INFO rinku_node::gossip: Delta sync complete: 1 added, 0 failed
+2026-01-21 12:28:14.344	
+2026-01-21T17:28:14.344630Z  INFO rinku_node::gossip: Applied 1 account nonces from peer
+2026-01-21 12:28:14.344	
+2026-01-21T17:28:14.344529Z  INFO rinku_node::gossip: Sync page: received 1/1 transactions, 1 account nonces (offset=0, has_more=false)
+2026-01-21 12:28:14.191	
+2026-01-21T17:28:14.190299Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 2771 vs 2770), requesting delta sync...
+2026-01-21 12:28:04.981	
+2026-01-21T17:28:04.981329Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:28:00.154	
+2026-01-21T17:28:00.154038Z  INFO rinku_node::checkpoint: Epoch transition: 22 -> 23 (activated: 0, exited: 0)
+2026-01-21 12:28:00.154	
+2026-01-21T17:28:00.153776Z  INFO rinku_node::validator_identity: Epoch transition: 22 -> 23
+2026-01-21 12:27:54.933	
+2026-01-21T17:27:54.932884Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:27:44.010	
+2026-01-21T17:27:44.007718Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:27:32.884	
+2026-01-21T17:27:32.884125Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:27:22.154	
+2026-01-21T17:27:22.153539Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:27:11.273	
+2026-01-21T17:27:11.272917Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:27:00.150	
+2026-01-21T17:27:00.150645Z  INFO rinku_node::checkpoint: Epoch transition: 21 -> 22 (activated: 0, exited: 0)
+2026-01-21 12:27:00.150	
+2026-01-21T17:27:00.150434Z  INFO rinku_node::validator_identity: Epoch transition: 21 -> 22
+2026-01-21 12:26:59.377	
+2026-01-21T17:26:59.377004Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:26:48.707	
+2026-01-21T17:26:48.707048Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:26:36.020	
+2026-01-21T17:26:36.019585Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:26:31.218	
+2026-01-21T17:26:31.217900Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 59 checkpoints, 2770 dag txs
+2026-01-21 12:26:31.217	
+2026-01-21T17:26:31.213832Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:26:30.375	
+2026-01-21T17:26:30.375755Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 59 checkpoints, 2770 dag txs
+2026-01-21 12:26:30.368	
+2026-01-21T17:26:30.367817Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:26:30.222	
+2026-01-21T17:26:30.222317Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 59 checkpoints, 2770 dag txs
+2026-01-21 12:26:30.218	
+2026-01-21T17:26:30.218501Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:26:30.148	
+2026-01-21T17:26:30.148630Z  INFO rinku_node::checkpoint: Created checkpoint 62ed4dfe9a5ea045 at height 59 (24 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:26:30.148	
+2026-01-21T17:26:30.148486Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:26:30.078	
+2026-01-21T17:26:30.078502Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:30.078	
+2026-01-21T17:26:30.078401Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.879	
+2026-01-21T17:26:29.879262Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.879	
+2026-01-21T17:26:29.879133Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.813	
+2026-01-21T17:26:29.812985Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 59 (peers: 3)
+2026-01-21 12:26:29.741	
+2026-01-21T17:26:29.740990Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.741	
+2026-01-21T17:26:29.740952Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.622	
+2026-01-21T17:26:29.622165Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.622	
+2026-01-21T17:26:29.622008Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.613	
+2026-01-21T17:26:29.613499Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.613	
+2026-01-21T17:26:29.613394Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.449	
+2026-01-21T17:26:29.449040Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.449	
+2026-01-21T17:26:29.448852Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.425	
+2026-01-21T17:26:29.425812Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.425	
+2026-01-21T17:26:29.425664Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.268	
+2026-01-21T17:26:29.267863Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.268	
+2026-01-21T17:26:29.267824Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.245	
+2026-01-21T17:26:29.244951Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.245	
+2026-01-21T17:26:29.244757Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.085	
+2026-01-21T17:26:29.085784Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.085	
+2026-01-21T17:26:29.085662Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:29.070	
+2026-01-21T17:26:29.069858Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.070	
+2026-01-21T17:26:29.069818Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:26.280	
+2026-01-21T17:26:26.279468Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:26.280	
+2026-01-21T17:26:26.279423Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:24.513	
+2026-01-21T17:26:24.513588Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:24.513	
+2026-01-21T17:26:24.513485Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:24.485	
+2026-01-21T17:26:24.484775Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:24.484	
+2026-01-21T17:26:24.484605Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:24.349	
+2026-01-21T17:26:24.349098Z  INFO rinku_node::gossip: Propagating 48 pending transactions to 3 peers
+2026-01-21 12:26:21.229	
+2026-01-21T17:26:21.228018Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:21.229	
+2026-01-21T17:26:21.227983Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:16.276	
+2026-01-21T17:26:16.275836Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:16.276	
+2026-01-21T17:26:16.275801Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:11.225	
+2026-01-21T17:26:11.224322Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:11.225	
+2026-01-21T17:26:11.224289Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:08.716	
+2026-01-21T17:26:08.715472Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:08.716	
+2026-01-21T17:26:08.715430Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:01.305	
+2026-01-21T17:26:01.304901Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:01.305	
+2026-01-21T17:26:01.304867Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:25:59.810	
+2026-01-21T17:25:59.810442Z  INFO rinku_node::checkpoint: Created checkpoint 8b1e63ae2eae1506 at height 58 (18 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:25:59.810	
+2026-01-21T17:25:59.810388Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:25:59.809	
+2026-01-21T17:25:59.809669Z  WARN rinku_node::checkpoint: Peer checkpoint merkle root mismatch at height 58: peer=d8102446a220c037 vs local=76e9a598554c1288
+2026-01-21 12:25:59.745	
+2026-01-21T17:25:59.745188Z  INFO rinku_node::checkpoint: Peer checkpoint validation failed at height 58, attempting DAG sync before fallback
+2026-01-21 12:25:59.745	
+2026-01-21T17:25:59.745107Z  WARN rinku_node::checkpoint: Peer checkpoint merkle root mismatch at height 58: peer=d8102446a220c037 vs local=7fab2e7091779177
+2026-01-21 12:25:59.745	
+2026-01-21T17:25:59.744996Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 58 from https://rinku-validator-1.fly.dev: 9efe7bbde513cd79
+2026-01-21 12:25:59.656	
+2026-01-21T17:25:59.655364Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 58 (peers: 3)
+2026-01-21 12:25:59.656	
+2026-01-21T17:25:59.655186Z  INFO rinku_node::checkpoint: Epoch transition: 20 -> 21 (activated: 0, exited: 0)
+2026-01-21 12:25:59.656	
+2026-01-21T17:25:59.654957Z  INFO rinku_node::validator_identity: Epoch transition: 20 -> 21
+2026-01-21 12:25:50.997	
+2026-01-21T17:25:50.997366Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:50.997	
+2026-01-21T17:25:50.997249Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:50.934	
+2026-01-21T17:25:50.934031Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:50.934	
+2026-01-21T17:25:50.933925Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:46.477	
+2026-01-21T17:25:46.477769Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2746 DAG transactions
+2026-01-21 12:25:46.477	
+2026-01-21T17:25:46.477704Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:25:46.470	
+2026-01-21T17:25:46.470322Z  INFO rinku_node::state: Snapshot applied: 2746 DAG txs, 0 validators, 57 checkpoints, 0 contracts
+2026-01-21 12:25:46.470	
+2026-01-21T17:25:46.470300Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:25:46.470	
+2026-01-21T17:25:46.470274Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:25:46.470	
+2026-01-21T17:25:46.470179Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:25:46.444	
+2026-01-21T17:25:46.440897Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:25:46.444	
+2026-01-21T17:25:46.440876Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 57 checkpoints, 2746 dag txs
+2026-01-21 12:25:46.444	
+2026-01-21T17:25:46.440869Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:25:46.444	
+2026-01-21T17:25:46.440816Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 999 transactions to peer (0 failed)
+2026-01-21 12:25:45.866	
+2026-01-21T17:25:45.865899Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.865	
+2026-01-21T17:25:45.865787Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.789	
+2026-01-21T17:25:45.789368Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.789	
+2026-01-21T17:25:45.789247Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.715	
+2026-01-21T17:25:45.715704Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.715	
+2026-01-21T17:25:45.715594Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.660	
+2026-01-21T17:25:45.660525Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.660	
+2026-01-21T17:25:45.660433Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.582	
+2026-01-21T17:25:45.582383Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.582	
+2026-01-21T17:25:45.582274Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.519	
+2026-01-21T17:25:45.519161Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.519	
+2026-01-21T17:25:45.519050Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.471	
+2026-01-21T17:25:45.470857Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.470	
+2026-01-21T17:25:45.470752Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.972	
+2026-01-21T17:25:44.972228Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.972	
+2026-01-21T17:25:44.972090Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.930	
+2026-01-21T17:25:44.930750Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.930	
+2026-01-21T17:25:44.930552Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.884	
+2026-01-21T17:25:44.884279Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.884	
+2026-01-21T17:25:44.884079Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.841	
+2026-01-21T17:25:44.840889Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.841	
+2026-01-21T17:25:44.840790Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.834	
+2026-01-21T17:25:44.834034Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.834	
+2026-01-21T17:25:44.833932Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.787	
+2026-01-21T17:25:44.786597Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.786	
+2026-01-21T17:25:44.786487Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.759	
+2026-01-21T17:25:44.758904Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.759	
+2026-01-21T17:25:44.758791Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.709	
+2026-01-21T17:25:44.709192Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.709	
+2026-01-21T17:25:44.709150Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.709	
+2026-01-21T17:25:44.709043Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.709	
+2026-01-21T17:25:44.708975Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.702	
+2026-01-21T17:25:44.701852Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.702	
+2026-01-21T17:25:44.701758Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.636	
+2026-01-21T17:25:44.635918Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.636	
+2026-01-21T17:25:44.635778Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.482	
+2026-01-21T17:25:44.482027Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.482	
+2026-01-21T17:25:44.481929Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.437	
+2026-01-21T17:25:44.437685Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.437	
+2026-01-21T17:25:44.437596Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.375	
+2026-01-21T17:25:44.375705Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.375	
+2026-01-21T17:25:44.375620Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.365	
+2026-01-21T17:25:44.365333Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:25:44.271	
+2026-01-21T17:25:44.271196Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:44.177	
+2026-01-21T17:25:44.177148Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:25:44.136	
+2026-01-21T17:25:44.136518Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:25:44.135	
+2026-01-21T17:25:44.135261Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:25:44.135	
+2026-01-21T17:25:44.135153Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 57 checkpoints, 2746 dag txs, checkpoint height 57
+2026-01-21 12:25:44.044	
+2026-01-21T17:25:44.043920Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:25:43.988	
+2026-01-21T17:25:43.988735Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev is 4 checkpoint(s) ahead, using snapshot sync
+2026-01-21 12:25:43.977	
+2026-01-21T17:25:43.977002Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.977	
+2026-01-21T17:25:43.976963Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.977	
+2026-01-21T17:25:43.976866Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.977	
+2026-01-21T17:25:43.976768Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.908	
+2026-01-21T17:25:43.903894Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2746 DAG nodes vs our 2578 - spawning background sync
+2026-01-21 12:25:42.690	
+2026-01-21T17:25:42.689976Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.690	
+2026-01-21T17:25:42.689850Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.643	
+2026-01-21T17:25:42.642858Z  INFO rinku_node::api: Transaction c0a230a4c9012a3f broadcast to peers
+2026-01-21 12:25:42.629	
+2026-01-21T17:25:42.629551Z  INFO rinku_node::api: Transaction 085ce61efd319288 broadcast to peers
+2026-01-21 12:25:42.629	
+2026-01-21T17:25:42.629073Z  INFO rinku_node::api: Transaction aa8778083241fcbf broadcast to peers
+2026-01-21 12:25:42.628	
+2026-01-21T17:25:42.628724Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.628	
+2026-01-21T17:25:42.628614Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.615	
+2026-01-21T17:25:42.614994Z  INFO rinku_node::api: Transaction 453060657797cb70 broadcast to peers
+2026-01-21 12:25:42.615	
+2026-01-21T17:25:42.614490Z  INFO rinku_node::api: Transaction bc4a58b8a97c8197 broadcast to peers
+2026-01-21 12:25:42.120	
+2026-01-21T17:25:42.120431Z  INFO rinku_node::api: Transaction ad82e87de0e8713b broadcast to peers
+2026-01-21 12:25:42.120	
+2026-01-21T17:25:42.119895Z  INFO rinku_node::api: Transaction 0717c9202440cc2b broadcast to peers
+2026-01-21 12:25:42.119	
+2026-01-21T17:25:42.119430Z  INFO rinku_node::api: Transaction 4525b4d9d1ed8b22 broadcast to peers
+2026-01-21 12:25:42.119	
+2026-01-21T17:25:42.118782Z  INFO rinku_node::api: Transaction 594d717bde8cbe52 broadcast to peers
+2026-01-21 12:25:42.110	
+2026-01-21T17:25:42.110617Z  INFO rinku_node::api: Transaction f6050dea92f571ad broadcast to peers
+2026-01-21 12:25:41.947	
+2026-01-21T17:25:41.947619Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.947	
+2026-01-21T17:25:41.947501Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.898	
+2026-01-21T17:25:41.898169Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.898	
+2026-01-21T17:25:41.897972Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.829	
+2026-01-21T17:25:41.828962Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.829	
+2026-01-21T17:25:41.828867Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.770	
+2026-01-21T17:25:41.769706Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.769	
+2026-01-21T17:25:41.769595Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.710	
+2026-01-21T17:25:41.710326Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.710	
+2026-01-21T17:25:41.710234Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.621	
+2026-01-21T17:25:41.621691Z  INFO rinku_node::api: Transaction 25252f770bce2671 broadcast to peers
+2026-01-21 12:25:41.614	
+2026-01-21T17:25:41.614742Z  INFO rinku_node::api: Transaction 97550aa1f833ec88 broadcast to peers
+2026-01-21 12:25:41.608	
+2026-01-21T17:25:41.608372Z  INFO rinku_node::api: Transaction 19e8e9c56563b030 broadcast to peers
+2026-01-21 12:25:41.607	
+2026-01-21T17:25:41.607598Z  INFO rinku_node::api: Transaction 8fa786a31f4be0db broadcast to peers
+2026-01-21 12:25:41.595	
+2026-01-21T17:25:41.595790Z  INFO rinku_node::api: Transaction 0056cc1d3e649653 broadcast to peers
+2026-01-21 12:25:41.114	
+2026-01-21T17:25:41.113848Z  INFO rinku_node::api: Transaction 7358206a84e615a5 broadcast to peers
+2026-01-21 12:25:41.108	
+2026-01-21T17:25:41.107922Z  INFO rinku_node::api: Transaction 34683370c2676e22 broadcast to peers
+2026-01-21 12:25:41.107	
+2026-01-21T17:25:41.107308Z  INFO rinku_node::api: Transaction a6073e27e80f311f broadcast to peers
+2026-01-21 12:25:41.107	
+2026-01-21T17:25:41.107009Z  INFO rinku_node::api: Transaction 1da0305f1da67b64 broadcast to peers
+2026-01-21 12:25:41.106	
+2026-01-21T17:25:41.106530Z  INFO rinku_node::api: Transaction 1d44eca7fe9503c6 broadcast to peers
+2026-01-21 12:25:40.986	
+2026-01-21T17:25:40.984966Z  INFO rinku_node::api: Transaction 16da7b66b0e769d4 broadcast to peers
+2026-01-21 12:25:40.984	
+2026-01-21T17:25:40.982924Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.983	
+2026-01-21T17:25:40.982838Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.970	
+2026-01-21T17:25:40.970457Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.970	
+2026-01-21T17:25:40.970291Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.923	
+2026-01-21T17:25:40.923662Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.923	
+2026-01-21T17:25:40.923338Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.907	
+2026-01-21T17:25:40.907090Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.907	
+2026-01-21T17:25:40.906906Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.858	
+2026-01-21T17:25:40.857513Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.857	
+2026-01-21T17:25:40.857418Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.829	
+2026-01-21T17:25:40.828804Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.828	
+2026-01-21T17:25:40.828685Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.770	
+2026-01-21T17:25:40.770106Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.770	
+2026-01-21T17:25:40.770092Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.770	
+2026-01-21T17:25:40.770022Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.770	
+2026-01-21T17:25:40.769893Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.729	
+2026-01-21T17:25:40.728963Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.729	
+2026-01-21T17:25:40.728861Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.646	
+2026-01-21T17:25:40.646704Z  INFO rinku_node::api: Transaction 07803e0a3d155998 broadcast to peers
+2026-01-21 12:25:40.637	
+2026-01-21T17:25:40.637749Z  INFO rinku_node::api: Transaction 8f43a3e5027207a3 broadcast to peers
+2026-01-21 12:25:40.631	
+2026-01-21T17:25:40.631465Z  INFO rinku_node::api: Transaction b181e4bd31b051cd broadcast to peers
+2026-01-21 12:25:40.630	
+2026-01-21T17:25:40.630695Z  INFO rinku_node::api: Transaction 7a9dcaa327fc27a9 broadcast to peers
+2026-01-21 12:25:40.615	
+2026-01-21T17:25:40.615302Z  INFO rinku_node::api: Transaction e247460834147027 broadcast to peers
+2026-01-21 12:25:40.557	
+2026-01-21T17:25:40.557362Z  INFO rinku_node::api: Faucet tx 43eb0e77fe21b8bb to e053a797fb22 broadcast to peers
+2026-01-21 12:25:40.244	
+2026-01-21T17:25:40.244708Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:39.847	
+2026-01-21T17:25:39.847211Z  INFO rinku_node::api: Transaction 38e5d1a7cb73acca broadcast to peers
+2026-01-21 12:25:39.846	
+2026-01-21T17:25:39.846769Z  INFO rinku_node::api: Transaction 1205ecda66786f34 broadcast to peers
+2026-01-21 12:25:39.846	
+2026-01-21T17:25:39.846242Z  INFO rinku_node::api: Transaction 144b069b448ee95a broadcast to peers
+2026-01-21 12:25:39.845	
+2026-01-21T17:25:39.845560Z  INFO rinku_node::api: Transaction 1b6013c99948aae8 broadcast to peers
+2026-01-21 12:25:39.839	
+2026-01-21T17:25:39.839705Z  INFO rinku_node::api: Transaction 271dba16e740c200 broadcast to peers
+2026-01-21 12:25:39.678	
+2026-01-21T17:25:39.678079Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:25:39.485	
+2026-01-21T17:25:39.485042Z  INFO rinku_node::gossip: Propagating 577 pending transactions to 3 peers
+2026-01-21 12:25:39.457	
+2026-01-21T17:25:39.457495Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:25:39.349	
+2026-01-21T17:25:39.349467Z  INFO rinku_node::gossip: Snapshot sync complete: applied 0 DAG transactions
+2026-01-21 12:25:39.349	
+2026-01-21T17:25:39.349386Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:25:39.346	
+2026-01-21T17:25:39.346710Z  INFO rinku_node::state: Skipping snapshot apply: local has 53 checkpoints, peer has 53
+2026-01-21 12:25:39.346	
+2026-01-21T17:25:39.346680Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:25:39.346	
+2026-01-21T17:25:39.346522Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:25:39.173	
+2026-01-21T17:25:39.173146Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2539 DAG transactions
+2026-01-21 12:25:39.173	
+2026-01-21T17:25:39.173059Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:25:38.938	
+2026-01-21T17:25:38.938070Z  INFO rinku_node::state: Snapshot applied: 2539 DAG txs, 0 validators, 53 checkpoints, 0 contracts
+2026-01-21 12:25:38.938	
+2026-01-21T17:25:38.938030Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:25:38.938	
+2026-01-21T17:25:38.937905Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:25:38.937	
+2026-01-21T17:25:38.937817Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:25:38.378	
+2026-01-21T17:25:38.378737Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:25:38.378	
+2026-01-21T17:25:38.378634Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 53 checkpoints, 2539 dag txs
+2026-01-21 12:25:38.378	
+2026-01-21T17:25:38.378603Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:25:38.378	
+2026-01-21T17:25:38.378422Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:25:37.973	
+2026-01-21T17:25:37.973043Z  INFO rinku_node::api: Transaction 53afa3619d9aead5 broadcast to peers
+2026-01-21 12:25:37.893	
+2026-01-21T17:25:37.893673Z  INFO rinku_node::api: Transaction 959e4dee7585f243 broadcast to peers
+2026-01-21 12:25:37.893	
+2026-01-21T17:25:37.892905Z  INFO rinku_node::api: Transaction 39a792ed0f1a8345 broadcast to peers
+2026-01-21 12:25:37.415	
+2026-01-21T17:25:37.415194Z  INFO rinku_node::api: Transaction 1f742c2ca7ee38c5 broadcast to peers
+2026-01-21 12:25:37.414	
+2026-01-21T17:25:37.414731Z  INFO rinku_node::api: Transaction 0409c67c993980ed broadcast to peers
+2026-01-21 12:25:37.414	
+2026-01-21T17:25:37.414176Z  INFO rinku_node::api: Transaction f38a600dc739fe53 broadcast to peers
+2026-01-21 12:25:37.413	
+2026-01-21T17:25:37.413748Z  INFO rinku_node::api: Transaction 8ec9348ec58eafce broadcast to peers
+2026-01-21 12:25:37.413	
+2026-01-21T17:25:37.413237Z  INFO rinku_node::api: Transaction d056cb02de415abb broadcast to peers
+2026-01-21 12:25:37.334	
+2026-01-21T17:25:37.334273Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:25:36.535	
+2026-01-21T17:25:36.535499Z  INFO rinku_node::api: Transaction b45a3c12044b8463 broadcast to peers
+2026-01-21 12:25:36.535	
+2026-01-21T17:25:36.535122Z  INFO rinku_node::api: Transaction 0cb278eb1fab36ce broadcast to peers
+2026-01-21 12:25:36.534	
+2026-01-21T17:25:36.534777Z  INFO rinku_node::api: Transaction 43df6e5950799479 broadcast to peers
+2026-01-21 12:25:36.534	
+2026-01-21T17:25:36.534455Z  INFO rinku_node::api: Transaction 8a534b59188e0a6e broadcast to peers
+2026-01-21 12:25:36.534	
+2026-01-21T17:25:36.533996Z  INFO rinku_node::api: Transaction d40c311fb1b77fc8 broadcast to peers
+2026-01-21 12:25:36.060	
+2026-01-21T17:25:36.059825Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:25:36.058	
+2026-01-21T17:25:36.058506Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:25:34.614	
+2026-01-21T17:25:34.614103Z  INFO rinku_node::api: Transaction 02831f69f11446d0 broadcast to peers
+2026-01-21 12:25:34.613	
+2026-01-21T17:25:34.613651Z  INFO rinku_node::api: Transaction 98116da94cf4ac8c broadcast to peers
+2026-01-21 12:25:34.454	
+2026-01-21T17:25:34.454417Z  INFO rinku_node::api: Transaction 9ca73e4dfec49082 broadcast to peers
+2026-01-21 12:25:34.454	
+2026-01-21T17:25:34.454001Z  INFO rinku_node::api: Transaction b52f20e041946f13 broadcast to peers
+2026-01-21 12:25:34.453	
+2026-01-21T17:25:34.453435Z  INFO rinku_node::api: Transaction 68baf3c2de061153 broadcast to peers
+2026-01-21 12:25:34.053	
+2026-01-21T17:25:34.053559Z  INFO rinku_node::api: Transaction 20725f312a35a4aa broadcast to peers
+2026-01-21 12:25:33.812	
+2026-01-21T17:25:33.812652Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:33.812	
+2026-01-21T17:25:33.737379Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:33.733	
+2026-01-21T17:25:33.733092Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:33.733	
+2026-01-21T17:25:33.732966Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:33.336	
+2026-01-21T17:25:33.336862Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:33.336	
+2026-01-21T17:25:33.336285Z  INFO rinku_node::api: Transaction 7f474195be06d592 broadcast to peers
+2026-01-21 12:25:33.336	
+2026-01-21T17:25:33.335830Z  INFO rinku_node::api: Transaction e447018609c0f2c9 broadcast to peers
+2026-01-21 12:25:33.176	
+2026-01-21T17:25:33.176515Z  INFO rinku_node::api: Transaction 805cd7bc09d2b952 broadcast to peers
+2026-01-21 12:25:33.176	
+2026-01-21T17:25:33.176184Z  INFO rinku_node::api: Transaction 4d3662dfa462831a broadcast to peers
+2026-01-21 12:25:33.175	
+2026-01-21T17:25:33.175755Z  INFO rinku_node::api: Transaction 4a91e2391190fda9 broadcast to peers
+2026-01-21 12:25:32.857	
+2026-01-21T17:25:32.857796Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:32.857	
+2026-01-21T17:25:32.857736Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:32.853	
+2026-01-21T17:25:32.853495Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:32.853	
+2026-01-21T17:25:32.853386Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:32.774	
+2026-01-21T17:25:32.774009Z  INFO rinku_node::api: Transaction da013a8e79c1a187 broadcast to peers
+2026-01-21 12:25:32.773	
+2026-01-21T17:25:32.773150Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:32.773	
+2026-01-21T17:25:32.773040Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:32.056	
+2026-01-21T17:25:32.056633Z  INFO rinku_node::api: Transaction 284380b27be81f88 broadcast to peers
+2026-01-21 12:25:32.056	
+2026-01-21T17:25:32.056218Z  INFO rinku_node::api: Transaction 3bfa06bb1c98bf16 broadcast to peers
+2026-01-21 12:25:32.055	
+2026-01-21T17:25:32.055810Z  INFO rinku_node::api: Transaction bdb72ead90107d8f broadcast to peers
+2026-01-21 12:25:32.055	
+2026-01-21T17:25:32.055472Z  INFO rinku_node::api: Transaction 0605b71c1705c4a8 broadcast to peers
+2026-01-21 12:25:32.055	
+2026-01-21T17:25:32.054969Z  INFO rinku_node::api: Transaction bd6a5bc063b39609 broadcast to peers
+2026-01-21 12:25:31.895	
+2026-01-21T17:25:31.895094Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:25:30.213	
+2026-01-21T17:25:30.134735Z  INFO rinku_node::api: Transaction edddead553d7499f broadcast to peers
+2026-01-21 12:25:30.056	
+2026-01-21T17:25:30.056453Z  INFO rinku_node::api: Transaction a570ea986e8eeb69 broadcast to peers
+2026-01-21 12:25:30.056	
+2026-01-21T17:25:30.056099Z  INFO rinku_node::api: Transaction 81c1499084b851c4 broadcast to peers
+2026-01-21 12:25:30.056	
+2026-01-21T17:25:30.055740Z  INFO rinku_node::api: Transaction daf34160f4c26025 broadcast to peers
+2026-01-21 12:25:30.055	
+2026-01-21T17:25:30.055324Z  INFO rinku_node::api: Transaction 580e6f6598465a44 broadcast to peers
+2026-01-21 12:25:29.894	
+2026-01-21T17:25:29.893857Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:25:29.893	
+2026-01-21T17:25:29.892998Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:25:29.575	
+2026-01-21T17:25:29.575493Z  WARN rinku_node::checkpoint: Peer checkpoint merkle root mismatch at height 53: peer=99c59428260045d6 vs local=5a3fb6380e6c1f60
+2026-01-21 12:25:29.575	
+2026-01-21T17:25:29.575381Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 53 from https://rinku-genesis.fly.dev: ba356e626a68cd56
+2026-01-21 12:25:27.976	
+2026-01-21T17:25:27.975849Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.976	
+2026-01-21T17:25:27.975762Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:27.976	
+2026-01-21T17:25:27.975718Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.976	
+2026-01-21T17:25:27.975616Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:27.895	
+2026-01-21T17:25:27.894723Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.895	
+2026-01-21T17:25:27.894616Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:27.816	
+2026-01-21T17:25:27.815670Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.815	
+2026-01-21T17:25:27.815566Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:27.734	
+2026-01-21T17:25:27.733923Z  INFO rinku_node::api: Transaction df2a94fec675c0ff broadcast to peers
+2026-01-21 12:25:27.733	
+2026-01-21T17:25:27.733578Z  INFO rinku_node::api: Transaction 25090f41bd62186e broadcast to peers
+2026-01-21 12:25:27.733	
+2026-01-21T17:25:27.733229Z  INFO rinku_node::api: Transaction 1641d8ed8ce8d03c broadcast to peers
+2026-01-21 12:25:27.733	
+2026-01-21T17:25:27.732764Z  INFO rinku_node::api: Transaction c3abaa8dd9745d27 broadcast to peers
+2026-01-21 12:25:27.334	
+2026-01-21T17:25:27.334116Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:26.938	
+2026-01-21T17:25:26.938537Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:26.938	
+2026-01-21T17:25:26.938489Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:26.938	
+2026-01-21T17:25:26.938346Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:26.938	
+2026-01-21T17:25:26.938183Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:26.855	
+2026-01-21T17:25:26.854917Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:25:26.853	
+2026-01-21T17:25:26.853660Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:26.853	
+2026-01-21T17:25:26.853612Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:26.853	
+2026-01-21T17:25:26.853487Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:26.853	
+2026-01-21T17:25:26.853369Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:26.695	
+2026-01-21T17:25:26.694833Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:26.695	
+2026-01-21T17:25:26.694727Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:26.296	
+2026-01-21T17:25:26.295714Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:25:26.295	
+2026-01-21T17:25:26.295216Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:25:25.975	
+2026-01-21T17:25:25.975630Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:25.975	
+2026-01-21T17:25:25.975529Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:25.895	
+2026-01-21T17:25:25.895172Z  INFO rinku_node::api: Transaction dca7e9ec4ec5d047 broadcast to peers
+2026-01-21 12:25:25.895	
+2026-01-21T17:25:25.894741Z  INFO rinku_node::api: Transaction fd67078a5959a9da broadcast to peers
+2026-01-21 12:25:25.894	
+2026-01-21T17:25:25.893961Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:25.894	
+2026-01-21T17:25:25.893862Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:25.813	
+2026-01-21T17:25:25.813346Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:25.813	
+2026-01-21T17:25:25.813247Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:25.415	
+2026-01-21T17:25:25.415507Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:25:25.415	
+2026-01-21T17:25:25.414691Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:25:24.859	
+2026-01-21T17:25:24.859670Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:24.859	
+2026-01-21T17:25:24.859632Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:24.859	
+2026-01-21T17:25:24.859537Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:24.859	
+2026-01-21T17:25:24.859425Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:24.775	
+2026-01-21T17:25:24.775414Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:24.775	
+2026-01-21T17:25:24.775374Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:24.775	
+2026-01-21T17:25:24.775267Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:24.775	
+2026-01-21T17:25:24.775192Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:23.976	
+2026-01-21T17:25:23.976642Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:23.976	
+2026-01-21T17:25:23.976602Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:23.976	
+2026-01-21T17:25:23.976486Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:23.976	
+2026-01-21T17:25:23.976330Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:23.816	
+2026-01-21T17:25:23.816034Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:23.816	
+2026-01-21T17:25:23.815983Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:23.816	
+2026-01-21T17:25:23.815865Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:23.816	
+2026-01-21T17:25:23.815765Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:23.815	
+2026-01-21T17:25:23.815571Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:23.815	
+2026-01-21T17:25:23.815294Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:23.656	
+2026-01-21T17:25:23.655940Z  INFO rinku_node::api: Transaction caee647451ffbb02 broadcast to peers
+2026-01-21 12:25:23.655	
+2026-01-21T17:25:23.655484Z  INFO rinku_node::api: Transaction b3bae4337833b88f broadcast to peers
+2026-01-21 12:25:23.655	
+2026-01-21T17:25:23.655131Z  INFO rinku_node::api: Transaction 9a83dd16a6854b38 broadcast to peers
+2026-01-21 12:25:23.655	
+2026-01-21T17:25:23.654791Z  INFO rinku_node::api: Transaction 4362c6cdb0bcf56e broadcast to peers
+2026-01-21 12:25:23.654	
+2026-01-21T17:25:23.654292Z  INFO rinku_node::api: Transaction 05f1c869f4ac497f broadcast to peers
+2026-01-21 12:25:23.653	
+2026-01-21T17:25:23.653464Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:23.653	
+2026-01-21T17:25:23.653363Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:22.853	
+2026-01-21T17:25:22.853111Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:22.853	
+2026-01-21T17:25:22.853069Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:22.853	
+2026-01-21T17:25:22.852955Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:22.853	
+2026-01-21T17:25:22.852859Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:22.773	
+2026-01-21T17:25:22.773004Z  INFO rinku_node::api: Transaction b76bcffc34b20247 broadcast to peers
+2026-01-21 12:25:22.772	
+2026-01-21T17:25:22.772537Z  INFO rinku_node::api: Transaction f741202e406d8937 broadcast to peers
+2026-01-21 12:25:22.695	
+2026-01-21T17:25:22.695420Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:22.695	
+2026-01-21T17:25:22.695327Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:22.535	
+2026-01-21T17:25:22.535278Z  INFO rinku_node::api: Transaction 95fc3226d3825333 broadcast to peers
+2026-01-21 12:25:22.535	
+2026-01-21T17:25:22.534996Z  INFO rinku_node::api: Transaction 683fb7ec8589f7c4 broadcast to peers
+2026-01-21 12:25:22.534	
+2026-01-21T17:25:22.534662Z  INFO rinku_node::api: Transaction 27c98390828f93a7 broadcast to peers
+2026-01-21 12:25:22.296	
+2026-01-21T17:25:22.295799Z  INFO rinku_node::api: Transaction fb6e583db9c413cd broadcast to peers
+2026-01-21 12:25:22.295	
+2026-01-21T17:25:22.295397Z  INFO rinku_node::api: Transaction 06d176f3df15d581 broadcast to peers
+2026-01-21 12:25:22.212	
+2026-01-21T17:25:22.212657Z  INFO rinku_node::api: Transaction 17cf74c8aa8f4e88 broadcast to peers
+2026-01-21 12:25:22.136	
+2026-01-21T17:25:22.135936Z  INFO rinku_node::api: Transaction 9edd81475c0332b0 broadcast to peers
+2026-01-21 12:25:22.135	
+2026-01-21T17:25:22.134795Z  INFO rinku_node::api: Transaction 4514f808ff948151 broadcast to peers
+2026-01-21 12:25:21.895	
+2026-01-21T17:25:21.895065Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:21.895	
+2026-01-21T17:25:21.894935Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:21.815	
+2026-01-21T17:25:21.815055Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:21.815	
+2026-01-21T17:25:21.814931Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:21.741	
+2026-01-21T17:25:21.741269Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:21.741	
+2026-01-21T17:25:21.741176Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:21.495	
+2026-01-21T17:25:21.495584Z  INFO rinku_node::api: Transaction ebb5c14e80117ebb broadcast to peers
+2026-01-21 12:25:21.494	
+2026-01-21T17:25:21.494631Z  INFO rinku_node::api: Transaction 4a4ae64d59964b91 broadcast to peers
+2026-01-21 12:25:20.933	
+2026-01-21T17:25:20.933600Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:20.618	
+2026-01-21T17:25:20.618286Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:25:20.618	
+2026-01-21T17:25:20.617737Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:25:20.533	
+2026-01-21T17:25:20.533460Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:25:19.653	
+2026-01-21T17:25:19.653583Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:18.373	
+2026-01-21T17:25:18.373043Z  INFO rinku_node::api: Transaction c7b5f78118725d66 broadcast to peers
+2026-01-21 12:25:18.296	
+2026-01-21T17:25:18.295979Z  INFO rinku_node::api: Transaction b151ab2aecea1f99 broadcast to peers
+2026-01-21 12:25:18.216	
+2026-01-21T17:25:18.215935Z  INFO rinku_node::api: Transaction 30c6addeda3143b4 broadcast to peers
+2026-01-21 12:25:18.215	
+2026-01-21T17:25:18.215453Z  INFO rinku_node::api: Transaction a45f93a1cda79d0d broadcast to peers
+2026-01-21 12:25:18.215	
+2026-01-21T17:25:18.214846Z  INFO rinku_node::api: Transaction 09fd4afa3f366b61 broadcast to peers
+2026-01-21 12:25:17.256	
+2026-01-21T17:25:17.256733Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:25:17.255	
+2026-01-21T17:25:17.255728Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:16.857	
+2026-01-21T17:25:16.857495Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:25:16.372	
+2026-01-21T17:25:16.292576Z  INFO rinku_node::api: Transaction 8240c264dd9ad5f8 broadcast to peers
+2026-01-21 12:25:15.813	
+2026-01-21T17:25:15.813440Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:25:14.325	
+2026-01-21T17:25:14.324897Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:14.226	
+2026-01-21T17:25:14.226286Z  INFO rinku_node::api: Transaction 7fdab8b0baa5a28a broadcast to peers
+2026-01-21 12:25:14.222	
+2026-01-21T17:25:14.222039Z  INFO rinku_node::api: Transaction 97d7b3662d169959 broadcast to peers
+2026-01-21 12:25:14.213	
+2026-01-21T17:25:14.212912Z  INFO rinku_node::api: Transaction 47a794e9d13718c0 broadcast to peers
+2026-01-21 12:25:14.134	
+2026-01-21T17:25:14.134011Z  INFO rinku_node::api: Transaction b8ab571ffaac7514 broadcast to peers
+2026-01-21 12:25:13.972	
+2026-01-21T17:25:13.972649Z  INFO rinku_node::api: Transaction 8a239a64305b0588 broadcast to peers
+2026-01-21 12:25:13.894	
+2026-01-21T17:25:13.893761Z  INFO rinku_node::api: Transaction b4e0591c86ff9d9b broadcast to peers
+2026-01-21 12:25:13.254	
+2026-01-21T17:25:13.254196Z  INFO rinku_node::api: Transaction e4e9623dd5fc3199 broadcast to peers
+2026-01-21 12:25:13.253	
+2026-01-21T17:25:13.253678Z  INFO rinku_node::api: Transaction 1308c995dea7155f broadcast to peers
+2026-01-21 12:25:13.252	
+2026-01-21T17:25:13.252626Z  INFO rinku_node::api: Transaction 26f046217706fd5c broadcast to peers
+2026-01-21 12:25:13.203	
+2026-01-21T17:25:13.203065Z  INFO rinku_node::api: Transaction aea73ec621589fc2 broadcast to peers
+2026-01-21 12:25:13.202	
+2026-01-21T17:25:13.202403Z  INFO rinku_node::api: Transaction ecf62b80fa1ba713 broadcast to peers
+2026-01-21 12:25:12.056	
+2026-01-21T17:25:12.056346Z  INFO rinku_node::api: Transaction a9efa1c8bdf35dd3 broadcast to peers
+2026-01-21 12:25:12.056	
+2026-01-21T17:25:12.055893Z  INFO rinku_node::api: Transaction 15d657bcb6266641 broadcast to peers
+2026-01-21 12:25:12.055	
+2026-01-21T17:25:12.054990Z  INFO rinku_node::api: Transaction faecc5d4682ba405 broadcast to peers
+2026-01-21 12:25:11.654	
+2026-01-21T17:25:11.654550Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:11.653	
+2026-01-21T17:25:11.653709Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:25:10.396	
+2026-01-21T17:25:10.396723Z  INFO rinku_node::api: Transaction 3401fa8ce16dd2b5 broadcast to peers
+2026-01-21 12:25:10.396	
+2026-01-21T17:25:10.395893Z  INFO rinku_node::api: Transaction 6c09ea9ce193585c broadcast to peers
+2026-01-21 12:25:10.395	
+2026-01-21T17:25:10.395528Z  INFO rinku_node::api: Transaction 35e3d1d940927a5e broadcast to peers
+2026-01-21 12:25:10.395	
+2026-01-21T17:25:10.395028Z  INFO rinku_node::api: Transaction 262bdd9ad5b67247 broadcast to peers
+2026-01-21 12:25:10.394	
+2026-01-21T17:25:10.394271Z  INFO rinku_node::api: Transaction 3cc65b4be256a43a broadcast to peers
+2026-01-21 12:25:09.577	
+2026-01-21T17:25:09.577774Z  INFO rinku_node::api: Transaction 7a24536477ae556c broadcast to peers
+2026-01-21 12:25:09.577	
+2026-01-21T17:25:09.577466Z  INFO rinku_node::api: Transaction 76f00197d6b2e078 broadcast to peers
+2026-01-21 12:25:09.577	
+2026-01-21T17:25:09.577149Z  INFO rinku_node::api: Transaction 447e64bfe97dc70c broadcast to peers
+2026-01-21 12:25:09.576	
+2026-01-21T17:25:09.576681Z  INFO rinku_node::api: Transaction d65bf067075c9a33 broadcast to peers
+2026-01-21 12:25:09.093	
+2026-01-21T17:25:09.093091Z  INFO rinku_node::api: Transaction e3abfc2e7f5a597f broadcast to peers
+2026-01-21 12:25:09.015	
+2026-01-21T17:25:09.015526Z  INFO rinku_node::api: Transaction 23ecc78b0e532728 broadcast to peers
+2026-01-21 12:25:09.014	
+2026-01-21T17:25:09.014255Z  INFO rinku_node::api: Transaction 89a6336a184f7475 broadcast to peers
+2026-01-21 12:25:08.775	
+2026-01-21T17:25:08.775492Z  INFO rinku_node::api: Transaction c0cb913be8fccc16 broadcast to peers
+2026-01-21 12:25:08.775	
+2026-01-21T17:25:08.775088Z  INFO rinku_node::api: Transaction 110c7784830d5eec broadcast to peers
+2026-01-21 12:25:08.057	
+2026-01-21T17:25:08.056975Z  INFO rinku_node::api: Transaction 6bf123cff0e4febf broadcast to peers
+2026-01-21 12:25:08.056	
+2026-01-21T17:25:08.056677Z  INFO rinku_node::api: Transaction 08d8d3a8d55604af broadcast to peers
+2026-01-21 12:25:08.056	
+2026-01-21T17:25:08.056278Z  INFO rinku_node::api: Transaction 61154d4b54211687 broadcast to peers
+2026-01-21 12:25:08.055	
+2026-01-21T17:25:08.055845Z  INFO rinku_node::api: Transaction 72f0000469babff8 broadcast to peers
+2026-01-21 12:25:08.055	
+2026-01-21T17:25:08.055407Z  INFO rinku_node::api: Transaction 01d29374e5e336b3 broadcast to peers
+2026-01-21 12:25:07.256	
+2026-01-21T17:25:07.256017Z  INFO rinku_node::api: Transaction 34700a3d27fcc9e1 broadcast to peers
+2026-01-21 12:25:06.935	
+2026-01-21T17:25:06.934948Z  INFO rinku_node::api: Transaction 01aa5940923b5b87 broadcast to peers
+2026-01-21 12:25:06.934	
+2026-01-21T17:25:06.934652Z  INFO rinku_node::api: Transaction 8d68370cca6ede57 broadcast to peers
+2026-01-21 12:25:06.934	
+2026-01-21T17:25:06.934296Z  INFO rinku_node::api: Transaction b79c1f85464ac37f broadcast to peers
+2026-01-21 12:25:06.934	
+2026-01-21T17:25:06.933903Z  INFO rinku_node::api: Transaction 475b954afb7a8337 broadcast to peers
+2026-01-21 12:25:06.615	
+2026-01-21T17:25:06.615212Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:06.293	
+2026-01-21T17:25:06.293289Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:25:05.494	
+2026-01-21T17:25:05.494630Z  INFO rinku_node::api: Transaction e447ec0e2ddaef6b broadcast to peers
+2026-01-21 12:25:05.494	
+2026-01-21T17:25:05.494184Z  INFO rinku_node::api: Transaction 5df1fc20ff77a6b3 broadcast to peers
+2026-01-21 12:25:05.419	
+2026-01-21T17:25:05.415417Z  INFO rinku_node::api: Transaction d5ee85ee4838b0cb broadcast to peers
+2026-01-21 12:25:05.415	
+2026-01-21T17:25:05.414902Z  INFO rinku_node::api: Transaction 4cb7f16acc2a01c2 broadcast to peers
+2026-01-21 12:25:05.116	
+2026-01-21T17:25:05.115977Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:25:04.854	
+2026-01-21T17:25:04.854104Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:25:03.254	
+2026-01-21T17:25:03.254457Z  INFO rinku_node::api: Transaction f46145b730b72414 broadcast to peers
+2026-01-21 12:25:03.254	
+2026-01-21T17:25:03.254022Z  INFO rinku_node::api: Transaction c637b6e5c357ca4e broadcast to peers
+2026-01-21 12:25:03.253	
+2026-01-21T17:25:03.253682Z  INFO rinku_node::api: Transaction 1b337a913dc39488 broadcast to peers
+2026-01-21 12:25:03.253	
+2026-01-21T17:25:03.253226Z  INFO rinku_node::api: Transaction 246a9dc9d6c75aec broadcast to peers
+2026-01-21 12:25:03.193	
+2026-01-21T17:25:03.193192Z  INFO rinku_node::api: Transaction 4061a15389987054 broadcast to peers
+2026-01-21 12:25:03.014	
+2026-01-21T17:25:03.014800Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:25:03.014	
+2026-01-21T17:25:03.013885Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:25:01.815	
+2026-01-21T17:25:01.815116Z  INFO rinku_node::api: Transaction 662bf5041b19b926 broadcast to peers
+2026-01-21 12:25:01.814	
+2026-01-21T17:25:01.814776Z  INFO rinku_node::api: Transaction 1a51f2a45c1baf6e broadcast to peers
+2026-01-21 12:25:01.814	
+2026-01-21T17:25:01.814464Z  INFO rinku_node::api: Transaction 3539d4f6d150790b broadcast to peers
+2026-01-21 12:25:01.814	
+2026-01-21T17:25:01.814145Z  INFO rinku_node::api: Transaction ed7f89018a7d8db1 broadcast to peers
+2026-01-21 12:25:01.813	
+2026-01-21T17:25:01.813755Z  INFO rinku_node::api: Transaction 4fa85c9018a34f92 broadcast to peers
+2026-01-21 12:25:01.334	
+2026-01-21T17:25:01.334737Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:25:01.174	
+2026-01-21T17:25:01.174225Z  INFO rinku_node::api: Transaction a099eaa79c3fec06 broadcast to peers
+2026-01-21 12:25:00.853	
+2026-01-21T17:25:00.853260Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:25:00.774	
+2026-01-21T17:25:00.774254Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:25:00.773	
+2026-01-21T17:25:00.773623Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:59.812	
+2026-01-21T17:24:59.812407Z  INFO rinku_node::api: Transaction 0038a010335021dc broadcast to peers
+2026-01-21 12:24:59.740	
+2026-01-21T17:24:59.739894Z  INFO rinku_node::api: Transaction 3a297b2dc438ae56 broadcast to peers
+2026-01-21 12:24:59.739	
+2026-01-21T17:24:59.739426Z  INFO rinku_node::api: Transaction 89f4356ac8a50605 broadcast to peers
+2026-01-21 12:24:59.739	
+2026-01-21T17:24:59.739002Z  INFO rinku_node::api: Transaction 81d454f1ec6b1ea1 broadcast to peers
+2026-01-21 12:24:59.738	
+2026-01-21T17:24:59.738623Z  INFO rinku_node::api: Transaction 718fc71025126039 broadcast to peers
+2026-01-21 12:24:59.182	
+2026-01-21T17:24:59.182718Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:24:59.182	
+2026-01-21T17:24:59.181962Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:24:59.182	
+2026-01-21T17:24:59.181858Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 53 checkpoints, 2547 dag txs, checkpoint height 53
+2026-01-21 12:24:59.015	
+2026-01-21T17:24:59.015080Z  INFO rinku_node::api: Transaction ae9683af11e8e26f broadcast to peers
+2026-01-21 12:24:59.014	
+2026-01-21T17:24:59.014709Z  INFO rinku_node::api: Transaction 9599edb977c4054a broadcast to peers
+2026-01-21 12:24:58.937	
+2026-01-21T17:24:58.937685Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:24:58.937	
+2026-01-21T17:24:58.937026Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:24:58.937	
+2026-01-21T17:24:58.936930Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 53 checkpoints, 2539 dag txs, checkpoint height 53
+2026-01-21 12:24:58.053	
+2026-01-21T17:24:58.053738Z  WARN rinku_node::checkpoint: Peer checkpoint merkle root mismatch at height 53: peer=99c59428260045d6 vs local=142b331a2e0e562c
+2026-01-21 12:24:58.053	
+2026-01-21T17:24:58.053646Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 53 from https://rinku-genesis.fly.dev: ba356e626a68cd56
+2026-01-21 12:24:57.977	
+2026-01-21T17:24:57.977537Z  INFO rinku_node::api: Transaction 03cc55380fa15492 broadcast to peers
+2026-01-21 12:24:57.977	
+2026-01-21T17:24:57.977282Z  INFO rinku_node::api: Transaction 0b7c48c18ea4a8b5 broadcast to peers
+2026-01-21 12:24:57.977	
+2026-01-21T17:24:57.976931Z  INFO rinku_node::api: Transaction 8c60a49b157148ae broadcast to peers
+2026-01-21 12:24:57.900	
+2026-01-21T17:24:57.900541Z  INFO rinku_node::api: Transaction c55e994d5200ed9c broadcast to peers
+2026-01-21 12:24:57.900	
+2026-01-21T17:24:57.900107Z  INFO rinku_node::api: Transaction 5841c92553903a71 broadcast to peers
+2026-01-21 12:24:57.899	
+2026-01-21T17:24:57.899722Z  INFO rinku_node::api: Transaction 7a3612f4187d91f1 broadcast to peers
+2026-01-21 12:24:57.899	
+2026-01-21T17:24:57.899328Z  INFO rinku_node::api: Transaction 041365399a41b5a0 broadcast to peers
+2026-01-21 12:24:57.899	
+2026-01-21T17:24:57.898842Z  INFO rinku_node::api: Transaction 06354c0bd297c6e4 broadcast to peers
+2026-01-21 12:24:57.822	
+2026-01-21T17:24:57.822626Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:24:56.933	
+2026-01-21T17:24:56.933475Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead (cp: 53 vs 52), requesting snapshot sync...
+2026-01-21 12:24:56.783	
+2026-01-21T17:24:56.783879Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:56.782	
+2026-01-21T17:24:56.782718Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:55.895	
+2026-01-21T17:24:55.895512Z  INFO rinku_node::checkpoint: Epoch transition: 19 -> 20 (activated: 0, exited: 0)
+2026-01-21 12:24:55.895	
+2026-01-21T17:24:55.895124Z  INFO rinku_node::validator_identity: Epoch transition: 19 -> 20
+2026-01-21 12:24:55.735	
+2026-01-21T17:24:55.735462Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:24:54.457	
+2026-01-21T17:24:54.457422Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead, using snapshot sync
+2026-01-21 12:24:53.733	
+2026-01-21T17:24:53.733038Z  INFO rinku_node::gossip: Pushed accounts to peer https://rinku-genesis.fly.dev: 0 added, 0 updated
+2026-01-21 12:24:52.056	
+2026-01-21T17:24:52.055792Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2580 DAG nodes vs our 2381 - spawning background sync
+2026-01-21 12:24:51.495	
+2026-01-21T17:24:51.495632Z  INFO rinku_node::gossip: Pushing 1 local-only accounts back to peer https://rinku-genesis.fly.dev after sync
+2026-01-21 12:24:51.495	
+2026-01-21T17:24:51.495516Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2381 DAG transactions
+2026-01-21 12:24:51.495	
+2026-01-21T17:24:51.495427Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:24:51.333	
+2026-01-21T17:24:51.333450Z  INFO rinku_node::state: Snapshot applied: 2381 DAG txs, 0 validators, 52 checkpoints, 0 contracts
+2026-01-21 12:24:51.333	
+2026-01-21T17:24:51.333274Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:24:51.333	
+2026-01-21T17:24:51.333069Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:24:51.333	
+2026-01-21T17:24:51.332909Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:24:50.471	
+2026-01-21T17:24:50.471490Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 1 local-only to push back, 15 total
+2026-01-21 12:24:50.471	
+2026-01-21T17:24:50.471342Z  INFO rinku_node::state: Applying sync snapshot: 14 accounts, 52 checkpoints, 2381 dag txs
+2026-01-21 12:24:50.471	
+2026-01-21T17:24:50.471133Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:24:50.471	
+2026-01-21T17:24:50.471012Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:24:50.455	
+2026-01-21T17:24:50.455183Z  INFO rinku_node::api: Returning 463 of 463 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:50.455	
+2026-01-21T17:24:50.454679Z  INFO rinku_node::api: Sync delta request: checkpoint=53, offset=0, limit=500
+2026-01-21 12:24:50.403	
+2026-01-21T17:24:50.402999Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:24:50.054	
+2026-01-21T17:24:50.054467Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:50.054	
+2026-01-21T17:24:50.053936Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:50.053	
+2026-01-21T17:24:50.053147Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:24:49.013	
+2026-01-21T17:24:49.013568Z  INFO rinku_node::api: Transaction ebdf3107e716991c broadcast to peers
+2026-01-21 12:24:49.013	
+2026-01-21T17:24:49.012968Z  INFO rinku_node::api: Transaction 1d39ca0c666fb07d broadcast to peers
+2026-01-21 12:24:48.455	
+2026-01-21T17:24:48.455410Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:48.454	
+2026-01-21T17:24:48.454779Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:24:48.454	
+2026-01-21T17:24:48.454091Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:47.494	
+2026-01-21T17:24:47.494652Z  INFO rinku_node::api: Broadcast 5 transactions to peers
+2026-01-21 12:24:47.333	
+2026-01-21T17:24:47.333537Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:46.533	
+2026-01-21T17:24:46.533483Z  INFO rinku_node::api: Returning 434 of 434 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:46.533	
+2026-01-21T17:24:46.533257Z  INFO rinku_node::api: Sync delta request: checkpoint=53, offset=0, limit=500
+2026-01-21 12:24:46.311	
+2026-01-21T17:24:46.311777Z  INFO rinku_node::network: Identified peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 12:24:45.974	
+2026-01-21T17:24:45.974161Z  INFO rinku_node::api: Transaction 3e8442bf37d609e1 broadcast to peers
+2026-01-21 12:24:45.973	
+2026-01-21T17:24:45.973373Z  INFO rinku_node::api: Transaction 891a97aa84143472 broadcast to peers
+2026-01-21 12:24:45.972	
+2026-01-21T17:24:45.972679Z  INFO rinku_node::api: Transaction b62b17358e4a4a1f broadcast to peers
+2026-01-21 12:24:45.896	
+2026-01-21T17:24:45.895912Z  INFO rinku_node::api: Transaction ce6fd5a5d58760cd broadcast to peers
+2026-01-21 12:24:45.655	
+2026-01-21T17:24:45.654926Z  INFO rinku_node::api: Transaction 9a445a18eba95f52 broadcast to peers
+2026-01-21 12:24:45.654	
+2026-01-21T17:24:45.654113Z  INFO rinku_node::api: Transaction 6de602a35b1e2a60 broadcast to peers
+2026-01-21 12:24:45.255	
+2026-01-21T17:24:45.254672Z  INFO rinku_node::api: Transaction 1a9dc3a6a6b0d1d3 broadcast to peers
+2026-01-21 12:24:44.936	
+2026-01-21T17:24:44.935857Z  INFO rinku_node::api: Transaction ec59fb9130ed3c64 broadcast to peers
+2026-01-21 12:24:44.935	
+2026-01-21T17:24:44.935499Z  INFO rinku_node::api: Transaction ac9dfe5f4a3eab72 broadcast to peers
+2026-01-21 12:24:44.934	
+2026-01-21T17:24:44.933827Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:44.934	
+2026-01-21T17:24:44.933725Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:44.214	
+2026-01-21T17:24:44.214289Z  INFO rinku_node::api: Transaction 3fb42ea74f49d1c9 broadcast to peers
+2026-01-21 12:24:44.214	
+2026-01-21T17:24:44.213969Z  INFO rinku_node::api: Transaction 79200a0e8c1a0120 broadcast to peers
+2026-01-21 12:24:44.213	
+2026-01-21T17:24:44.213655Z  INFO rinku_node::api: Transaction 0db7f90efefac404 broadcast to peers
+2026-01-21 12:24:44.213	
+2026-01-21T17:24:44.213238Z  INFO rinku_node::api: Transaction 99f49447e4852e34 broadcast to peers
+2026-01-21 12:24:44.213	
+2026-01-21T17:24:44.212524Z  INFO rinku_node::api: Transaction 8ba6464d3a5a27f0 broadcast to peers
+2026-01-21 12:24:43.734	
+2026-01-21T17:24:43.734318Z  INFO rinku_node::api: Transaction 1ac1068571b868a0 broadcast to peers
+2026-01-21 12:24:43.734	
+2026-01-21T17:24:43.733947Z  INFO rinku_node::api: Transaction c3ef28c709946ece broadcast to peers
+2026-01-21 12:24:43.415	
+2026-01-21T17:24:43.415052Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:42.854	
+2026-01-21T17:24:42.854274Z  INFO rinku_node::api: Transaction b66b6dde99997135 broadcast to peers
+2026-01-21 12:24:42.853	
+2026-01-21T17:24:42.853482Z  INFO rinku_node::api: Transaction c158c705a656d148 broadcast to peers
+2026-01-21 12:24:42.713	
+2026-01-21T17:24:42.713550Z  INFO rinku_node::api: Transaction c6b5819dab4e7fa8 broadcast to peers
+2026-01-21 12:24:42.705	
+2026-01-21T17:24:42.705565Z  INFO rinku_node::api: Transaction 1e3cb0a7253f4fb3 broadcast to peers
+2026-01-21 12:24:42.694	
+2026-01-21T17:24:42.692897Z  INFO rinku_node::api: Transaction 3aa2be76b55b3e65 broadcast to peers
+2026-01-21 12:24:42.215	
+2026-01-21T17:24:42.215286Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:42.215	
+2026-01-21T17:24:42.214765Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:40.694	
+2026-01-21T17:24:40.693864Z  INFO rinku_node::api: Transaction e3cda0202e823643 broadcast to peers
+2026-01-21 12:24:40.693	
+2026-01-21T17:24:40.693396Z  INFO rinku_node::api: Transaction 70a3de7755524c24 broadcast to peers
+2026-01-21 12:24:40.692	
+2026-01-21T17:24:40.692613Z  INFO rinku_node::api: Faucet tx b0de158f661ae8a2 to 520816774516 broadcast to peers
+2026-01-21 12:24:40.373	
+2026-01-21T17:24:40.373006Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:40.295	
+2026-01-21T17:24:40.295360Z  INFO rinku_node::api: Transaction 527cffa557f0be16 broadcast to peers
+2026-01-21 12:24:40.295	
+2026-01-21T17:24:40.294906Z  INFO rinku_node::api: Transaction dafff4413d06187d broadcast to peers
+2026-01-21 12:24:40.133	
+2026-01-21T17:24:40.132755Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:24:39.176	
+2026-01-21T17:24:39.175960Z  INFO rinku_node::api: Transaction 6e444e72a14eb25a broadcast to peers
+2026-01-21 12:24:39.175	
+2026-01-21T17:24:39.175361Z  INFO rinku_node::api: Transaction 55cd8d046b6b04b7 broadcast to peers
+2026-01-21 12:24:39.175	
+2026-01-21T17:24:39.174800Z  INFO rinku_node::api: Transaction 8e3f8d0ac9960dfb broadcast to peers
+2026-01-21 12:24:39.174	
+2026-01-21T17:24:39.174127Z  INFO rinku_node::api: Transaction 57b6d2684616a947 broadcast to peers
+2026-01-21 12:24:37.598	
+2026-01-21T17:24:37.598219Z  INFO rinku_node::api: Transaction 5f0b047097230413 broadcast to peers
+2026-01-21 12:24:37.415	
+2026-01-21T17:24:37.415039Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:37.413	
+2026-01-21T17:24:37.413381Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:37.333	
+2026-01-21T17:24:37.333403Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:24:36.613	
+2026-01-21T17:24:36.610852Z  INFO rinku_node::api: Returning 382 of 382 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:36.613	
+2026-01-21T17:24:36.610779Z  INFO rinku_node::api: Sync delta request: checkpoint=52, offset=0, limit=500
+2026-01-21 12:24:36.218	
+2026-01-21T17:24:36.218149Z  INFO rinku_node::api: Transaction 2ce8e8b772faa350 broadcast to peers
+2026-01-21 12:24:36.217	
+2026-01-21T17:24:36.217835Z  INFO rinku_node::api: Transaction 71125b3dd6bd12fe broadcast to peers
+2026-01-21 12:24:36.217	
+2026-01-21T17:24:36.217525Z  INFO rinku_node::api: Transaction 36a88c8496297a55 broadcast to peers
+2026-01-21 12:24:36.217	
+2026-01-21T17:24:36.217084Z  INFO rinku_node::api: Transaction 2572a77cb85815da broadcast to peers
+2026-01-21 12:24:35.654	
+2026-01-21T17:24:35.654762Z  INFO rinku_node::api: Transaction 5355f6b388301367 broadcast to peers
+2026-01-21 12:24:35.496	
+2026-01-21T17:24:35.496677Z  INFO rinku_node::api: Transaction 4eb4af0dc0506ef4 broadcast to peers
+2026-01-21 12:24:35.496	
+2026-01-21T17:24:35.495898Z  INFO rinku_node::api: Transaction 20057f09ccf52583 broadcast to peers
+2026-01-21 12:24:35.415	
+2026-01-21T17:24:35.333617Z  INFO rinku_node::api: Transaction 8aae92b5191e035a broadcast to peers
+2026-01-21 12:24:34.482	
+2026-01-21T17:24:34.481934Z  INFO rinku_node::api: Transaction 10742e01d85aa062 broadcast to peers
+2026-01-21 12:24:34.374	
+2026-01-21T17:24:34.373404Z  INFO rinku_node::api: Transaction a83ecedb476a2d35 broadcast to peers
+2026-01-21 12:24:34.373	
+2026-01-21T17:24:34.373070Z  INFO rinku_node::api: Transaction 0c32c5e9edaef0f0 broadcast to peers
+2026-01-21 12:24:34.058	
+2026-01-21T17:24:34.058062Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:34.057	
+2026-01-21T17:24:34.057711Z  INFO rinku_node::api: Transaction 603cbed2a6a63ac9 broadcast to peers
+2026-01-21 12:24:34.057	
+2026-01-21T17:24:34.057417Z  INFO rinku_node::api: Transaction cb29be2e95c76d6a broadcast to peers
+2026-01-21 12:24:34.057	
+2026-01-21T17:24:34.057143Z  INFO rinku_node::api: Transaction 008379ac9202e5dd broadcast to peers
+2026-01-21 12:24:34.057	
+2026-01-21T17:24:34.056830Z  INFO rinku_node::api: Transaction 8c33039574f9537f broadcast to peers
+2026-01-21 12:24:33.496	
+2026-01-21T17:24:33.495870Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:24:32.855	
+2026-01-21T17:24:32.855820Z  INFO rinku_node::api: Transaction 9c3e28646caa96d3 broadcast to peers
+2026-01-21 12:24:32.855	
+2026-01-21T17:24:32.855381Z  INFO rinku_node::api: Transaction df9f96ae6d871c57 broadcast to peers
+2026-01-21 12:24:32.855	
+2026-01-21T17:24:32.854987Z  INFO rinku_node::api: Transaction 566268bdc0e99165 broadcast to peers
+2026-01-21 12:24:32.854	
+2026-01-21T17:24:32.854524Z  INFO rinku_node::api: Transaction 46ce0ef6b19ca11a broadcast to peers
+2026-01-21 12:24:32.053	
+2026-01-21T17:24:32.053592Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:31.333	
+2026-01-21T17:24:31.333750Z  INFO rinku_node::api: Transaction 2ab6019cae66bd24 broadcast to peers
+2026-01-21 12:24:31.333	
+2026-01-21T17:24:31.333254Z  INFO rinku_node::api: Transaction 9bed7436de15e465 broadcast to peers
+2026-01-21 12:24:31.255	
+2026-01-21T17:24:31.255205Z  INFO rinku_node::api: Transaction fbae7f97d0c75b51 broadcast to peers
+2026-01-21 12:24:31.255	
+2026-01-21T17:24:31.254798Z  INFO rinku_node::api: Transaction 58ee2e1aced86d7e broadcast to peers
+2026-01-21 12:24:31.096	
+2026-01-21T17:24:31.096427Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:30.458	
+2026-01-21T17:24:30.458377Z  INFO rinku_node::api: Transaction 6ac980b5fd8aea86 broadcast to peers
+2026-01-21 12:24:30.458	
+2026-01-21T17:24:30.458056Z  INFO rinku_node::api: Transaction 3061adab2745aeeb broadcast to peers
+2026-01-21 12:24:30.457	
+2026-01-21T17:24:30.457553Z  INFO rinku_node::api: Transaction 6c7ccffd079b09e8 broadcast to peers
+2026-01-21 12:24:30.457	
+2026-01-21T17:24:30.457190Z  INFO rinku_node::api: Transaction cf7b8988cab43dd2 broadcast to peers
+2026-01-21 12:24:28.934	
+2026-01-21T17:24:28.934130Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:28.777	
+2026-01-21T17:24:28.777740Z  INFO rinku_node::api: Transaction 5c6eb39a35762ee5 broadcast to peers
+2026-01-21 12:24:28.777	
+2026-01-21T17:24:28.777249Z  INFO rinku_node::api: Transaction 166e9a21edda601c broadcast to peers
+2026-01-21 12:24:28.535	
+2026-01-21T17:24:28.535369Z  INFO rinku_node::api: Transaction 9207bbb173093d1b broadcast to peers
+2026-01-21 12:24:28.535	
+2026-01-21T17:24:28.533719Z  INFO rinku_node::api: Transaction e68ae9a13b35c02e broadcast to peers
+2026-01-21 12:24:28.534	
+2026-01-21T17:24:28.472171Z  INFO rinku_node::api: Transaction 9b067ef01669e10a broadcast to peers
+2026-01-21 12:24:28.376	
+2026-01-21T17:24:28.375452Z  INFO rinku_node::api: Transaction 0b3428aac9f81b37 broadcast to peers
+2026-01-21 12:24:28.213	
+2026-01-21T17:24:28.213632Z  INFO rinku_node::api: Snapshot sync response: 14 accounts, 0 validators, 49 checkpoints, 2480 dag txs
+2026-01-21 12:24:28.170	
+2026-01-21T17:24:28.169654Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:24:27.333	
+2026-01-21T17:24:27.333189Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:27.253	
+2026-01-21T17:24:27.253836Z  INFO rinku_node::api: Transaction af7c9b5c25a8c826 broadcast to peers
+2026-01-21 12:24:27.253	
+2026-01-21T17:24:27.253128Z  INFO rinku_node::api: Transaction 0f89bc8ad39a2afd broadcast to peers
+2026-01-21 12:24:26.693	
+2026-01-21T17:24:26.693653Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:26.265	
+2026-01-21T17:24:26.265548Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:26.257	
+2026-01-21T17:24:26.254613Z  INFO rinku_node::api: Returning 320 of 320 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:26.257	
+2026-01-21T17:24:26.254547Z  INFO rinku_node::api: Sync delta request: checkpoint=52, offset=0, limit=500
+2026-01-21 12:24:25.335	
+2026-01-21T17:24:25.333211Z  INFO rinku_node::api: Transaction 28a08c811e3a9ca2 broadcast to peers
+2026-01-21 12:24:25.254	
+2026-01-21T17:24:25.254508Z  INFO rinku_node::api: Transaction 5765ef9154c3d2de broadcast to peers
+2026-01-21 12:24:25.254	
+2026-01-21T17:24:25.253970Z  INFO rinku_node::api: Transaction 943cd0b6d05edd2d broadcast to peers
+2026-01-21 12:24:25.173	
+2026-01-21T17:24:25.173620Z  INFO rinku_node::api: Transaction 21a22012f4add09f broadcast to peers
+2026-01-21 12:24:24.853	
+2026-01-21T17:24:24.853040Z  INFO rinku_node::api: Transaction c9cf70fa925c17e6 broadcast to peers
+2026-01-21 12:24:24.694	
+2026-01-21T17:24:24.694291Z  INFO rinku_node::api: Transaction f1ce5afc2d1e9a6e broadcast to peers
+2026-01-21 12:24:24.694	
+2026-01-21T17:24:24.693792Z  INFO rinku_node::api: Transaction df0b2b415d1ee1a5 broadcast to peers
+2026-01-21 12:24:24.693	
+2026-01-21T17:24:24.693397Z  INFO rinku_node::api: Transaction 1db1e9e501895bfe broadcast to peers
+2026-01-21 12:24:24.619	
+2026-01-21T17:24:24.619442Z  WARN rinku_node::checkpoint: Peer checkpoint previous_hash mismatch at height 50: peer=Some("61eeeec7158ad398") vs local=Some("e1ff730d401d98ff")
+2026-01-21 12:24:24.619	
+2026-01-21T17:24:24.619307Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 50 from https://rinku-genesis.fly.dev: 3e339bbb8785a5e5
+2026-01-21 12:24:23.814	
+2026-01-21T17:24:23.814107Z  INFO rinku_node::api: Transaction f8a91a11be24ce88 broadcast to peers
+2026-01-21 12:24:23.814	
+2026-01-21T17:24:23.813774Z  INFO rinku_node::api: Transaction cc43aff925323d7c broadcast to peers
+2026-01-21 12:24:23.813	
+2026-01-21T17:24:23.813330Z  INFO rinku_node::api: Transaction 4f98e1c94a3746e0 broadcast to peers
+2026-01-21 12:24:23.813	
+2026-01-21T17:24:23.812869Z  INFO rinku_node::api: Transaction 3ef4a5dbe2c2de11 broadcast to peers
+2026-01-21 12:24:23.174	
+2026-01-21T17:24:23.174396Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:22.871	
+2026-01-21T17:24:22.871161Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:22.853	
+2026-01-21T17:24:22.853530Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:21.654	
+2026-01-21T17:24:21.654466Z  INFO rinku_node::api: Transaction f640eda973e5abb4 broadcast to peers
+2026-01-21 12:24:21.654	
+2026-01-21T17:24:21.654097Z  INFO rinku_node::api: Transaction 132be0b4a81f220e broadcast to peers
+2026-01-21 12:24:21.653	
+2026-01-21T17:24:21.653626Z  INFO rinku_node::api: Transaction 4b4a19885483a690 broadcast to peers
+2026-01-21 12:24:21.653	
+2026-01-21T17:24:21.653142Z  INFO rinku_node::api: Transaction c871075d3dbcce1b broadcast to peers
+2026-01-21 12:24:21.173	
+2026-01-21T17:24:21.173347Z  INFO rinku_node::api: Transaction 2bead6271324fa4c broadcast to peers
+2026-01-21 12:24:21.095	
+2026-01-21T17:24:21.095376Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+2026-01-21 12:24:21.094	
+2026-01-21T17:24:21.094704Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:24:21.094	
+2026-01-21T17:24:21.094626Z  INFO rinku_node::gossip: Received snapshot: 14 accounts, 52 checkpoints, 2381 dag txs, checkpoint height 52
+2026-01-21 12:24:20.694	
+2026-01-21T17:24:20.693880Z  INFO rinku_node::api: Transaction 596f876b0fdce399 broadcast to peers
+2026-01-21 12:24:20.455	
+2026-01-21T17:24:20.455591Z  INFO rinku_node::api: Transaction 14eacca295136036 broadcast to peers
+2026-01-21 12:24:20.455	
+2026-01-21T17:24:20.455062Z  INFO rinku_node::api: Transaction 3cc7b8b4d8fe3d1d broadcast to peers
+2026-01-21 12:24:20.296	
+2026-01-21T17:24:20.296060Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:24:20.295	
+2026-01-21T17:24:20.295375Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:20.133	
+2026-01-21T17:24:20.133530Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:19.977	
+2026-01-21T17:24:19.977087Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+2026-01-21 12:24:19.014	
+2026-01-21T17:24:19.014038Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 3 checkpoint(s) ahead (cp: 52 vs 49), requesting snapshot sync...
+2026-01-21 12:24:19.013	
+2026-01-21T17:24:19.012972Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:16.295	
+2026-01-21T17:24:16.295209Z  INFO rinku_node::api: Returning 284 of 284 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:16.295	
+2026-01-21T17:24:16.295060Z  INFO rinku_node::api: Sync delta request: checkpoint=52, offset=0, limit=500
+2026-01-21 12:24:16.155	
+2026-01-21T17:24:16.154846Z  INFO rinku_node::api: Transaction 561cb57dce413bdc broadcast to peers
+2026-01-21 12:24:16.154	
+2026-01-21T17:24:16.154040Z  INFO rinku_node::api: Transaction 3682f68ab5642314 broadcast to peers
+2026-01-21 12:24:16.081	
+2026-01-21T17:24:16.081861Z  INFO rinku_node::api: Transaction 27b4b5a8d0c8ef47 broadcast to peers
+2026-01-21 12:24:16.073	
+2026-01-21T17:24:16.073603Z  INFO rinku_node::api: Transaction e29b9c34aa780315 broadcast to peers
+2026-01-21 12:24:15.893	
+2026-01-21T17:24:15.893377Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.893	
+2026-01-21T17:24:15.893287Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.812	
+2026-01-21T17:24:15.812864Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.812	
+2026-01-21T17:24:15.812775Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.478	
+2026-01-21T17:24:15.478333Z  INFO rinku_node::api: Transaction 933d50a33398c852 broadcast to peers
+2026-01-21 12:24:15.465	
+2026-01-21T17:24:15.465868Z  INFO rinku_node::api: Transaction 8da089778101c02f broadcast to peers
+2026-01-21 12:24:15.462	
+2026-01-21T17:24:15.462026Z  INFO rinku_node::api: Transaction 4a0354349dffb1c9 broadcast to peers
+2026-01-21 12:24:15.460	
+2026-01-21T17:24:15.460724Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:15.455	
+2026-01-21T17:24:15.454840Z  INFO rinku_node::api: Transaction a1b633422c2352f9 broadcast to peers
+2026-01-21 12:24:15.095	
+2026-01-21T17:24:15.095341Z  INFO rinku_node::api: Returning 272 of 272 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:15.095	
+2026-01-21T17:24:15.095155Z  INFO rinku_node::api: Sync delta request: checkpoint=52, offset=0, limit=500
+2026-01-21 12:24:15.093	
+2026-01-21T17:24:15.093603Z  INFO rinku_node::api: Transaction c9a74229748af6f4 broadcast to peers
+2026-01-21 12:24:14.973	
+2026-01-21T17:24:14.973360Z  INFO rinku_node::api: Transaction 3c4e92f2082cc984 broadcast to peers
+2026-01-21 12:24:14.958	
+2026-01-21T17:24:14.957877Z  INFO rinku_node::api: Transaction ea8b4fc7733b14a1 broadcast to peers
+2026-01-21 12:24:14.957	
+2026-01-21T17:24:14.957260Z  INFO rinku_node::api: Transaction d2d050816e9d4062 broadcast to peers
+2026-01-21 12:24:14.133	
+2026-01-21T17:24:14.133614Z  INFO rinku_node::api: Transaction 5d362c9fa75091a3 broadcast to peers
+2026-01-21 12:24:14.057	
+2026-01-21T17:24:14.056959Z  INFO rinku_node::api: Transaction 271b9979eeff7124 broadcast to peers
+2026-01-21 12:24:14.056	
+2026-01-21T17:24:14.056616Z  INFO rinku_node::api: Transaction 92ffecd45aba78b3 broadcast to peers
+2026-01-21 12:24:14.056	
+2026-01-21T17:24:14.055948Z  INFO rinku_node::api: Transaction 0309e8bdaedad19f broadcast to peers
+2026-01-21 12:24:13.893	
+2026-01-21T17:24:13.893374Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:13.837	
+2026-01-21T17:24:13.836348Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:13.178	
+2026-01-21T17:24:13.175794Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:13.098	
+2026-01-21T17:24:13.097301Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:12.783	
+2026-01-21T17:24:12.783137Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:12.783	
+2026-01-21T17:24:12.783080Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:12.779	
+2026-01-21T17:24:12.779521Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:12.779	
+2026-01-21T17:24:12.779435Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:12.712	
+2026-01-21T17:24:12.712482Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:12.712	
+2026-01-21T17:24:12.712418Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:12.698	
+2026-01-21T17:24:12.698740Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:12.698	
+2026-01-21T17:24:12.698674Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:12.614	
+2026-01-21T17:24:12.614022Z  INFO rinku_node::api: Transaction 0c753d0b3df662a9 broadcast to peers
+2026-01-21 12:24:12.453	
+2026-01-21T17:24:12.453144Z  INFO rinku_node::api: Transaction f2bb738f22733db2 broadcast to peers
+2026-01-21 12:24:12.453	
+2026-01-21T17:24:12.452871Z  INFO rinku_node::api: Transaction 3da7351be99fb1dc broadcast to peers
+2026-01-21 12:24:12.376	
+2026-01-21T17:24:12.376063Z  INFO rinku_node::api: Transaction 11ddb0af14733c91 broadcast to peers
+2026-01-21 12:24:11.734	
+2026-01-21T17:24:11.733551Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:11.096	
+2026-01-21T17:24:11.095873Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:24:11.095	
+2026-01-21T17:24:11.095395Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:10.934	
+2026-01-21T17:24:10.934250Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:10.135	
+2026-01-21T17:24:10.135581Z  INFO rinku_node::api: Transaction 4222119fa06a3153 broadcast to peers
+2026-01-21 12:24:10.135	
+2026-01-21T17:24:10.135268Z  INFO rinku_node::api: Transaction 6b14e5b5902edfb6 broadcast to peers
+2026-01-21 12:24:10.135	
+2026-01-21T17:24:10.134940Z  INFO rinku_node::api: Transaction 0825e664d97fb3a5 broadcast to peers
+2026-01-21 12:24:10.134	
+2026-01-21T17:24:10.134212Z  INFO rinku_node::api: Transaction 7f64c55956d82053 broadcast to peers
+2026-01-21 12:24:09.172	
+2026-01-21T17:24:09.172521Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:08.295	
+2026-01-21T17:24:08.295628Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:08.212	
+2026-01-21T17:24:08.212737Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:24:08.055	
+2026-01-21T17:24:08.055325Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:07.973	
+2026-01-21T17:24:07.973070Z  WARN rinku_node::gossip: Failed to propagate tx 35c71f6d21c13c94 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:07.894	
+2026-01-21T17:24:07.894391Z  WARN rinku_node::gossip: Failed to propagate tx d26f6527745f021e to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:07.657	
+2026-01-21T17:24:07.657581Z  WARN rinku_node::gossip: Failed to propagate tx 2c173c6d8decb4d1 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:07.340	
+2026-01-21T17:24:07.340100Z  WARN rinku_node::gossip: Failed to propagate tx 9214425ef098a288 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:07.096	
+2026-01-21T17:24:07.096030Z  WARN rinku_node::gossip: Failed to propagate tx 9e636da773971da0 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:06.933	
+2026-01-21T17:24:06.933418Z  WARN rinku_node::gossip: Failed to propagate tx 947b9e6320af6b89 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:06.778	
+2026-01-21T17:24:06.777492Z  WARN rinku_node::gossip: Failed to propagate tx 11679ebe6c8f49bf to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:06.776	
+2026-01-21T17:24:06.775968Z  INFO rinku_node::api: Returning 221 of 221 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:06.775	
+2026-01-21T17:24:06.775803Z  INFO rinku_node::api: Sync delta request: checkpoint=51, offset=0, limit=500
+2026-01-21 12:24:06.693	
+2026-01-21T17:24:06.692870Z  WARN rinku_node::gossip: Failed to propagate tx 2cdd230aea6b8a66 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:06.535	
+2026-01-21T17:24:06.535135Z  WARN rinku_node::gossip: Failed to propagate tx ed56cad9b67d12b4 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:06.534	
+2026-01-21T17:24:06.534827Z  INFO rinku_node::api: Transaction 0952717b0c167a1c broadcast to peers
+2026-01-21 12:24:06.294	
+2026-01-21T17:24:06.294543Z  INFO rinku_node::api: Transaction 75e91d2e3b43df38 broadcast to peers
+2026-01-21 12:24:06.294	
+2026-01-21T17:24:06.294052Z  INFO rinku_node::api: Transaction 4effd142dde381d4 broadcast to peers
+2026-01-21 12:24:06.293	
+2026-01-21T17:24:06.293714Z  WARN rinku_node::gossip: Failed to propagate tx 4b0739d0c2494d6c to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:06.293	
+2026-01-21T17:24:06.292816Z  INFO rinku_node::api: Transaction 8efbfb54fdb51f3c broadcast to peers
+2026-01-21 12:24:05.974	
+2026-01-21T17:24:05.973917Z  WARN rinku_node::gossip: Failed to propagate tx deb169545aa32745 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:05.813	
+2026-01-21T17:24:05.813378Z  WARN rinku_node::gossip: Failed to propagate tx ffd1a7026402f4e6 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:05.734	
+2026-01-21T17:24:05.733957Z  WARN rinku_node::gossip: Failed to propagate tx 77f4a32880405cd4 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:05.733	
+2026-01-21T17:24:05.733570Z  INFO rinku_node::api: Transaction 3af24ce8c985d211 broadcast to peers
+2026-01-21 12:24:05.660	
+2026-01-21T17:24:05.660307Z  WARN rinku_node::gossip: Failed to propagate tx 48975800a3b066a4 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:05.660	
+2026-01-21T17:24:05.659862Z  INFO rinku_node::api: Transaction 109f9f3090f36fb4 broadcast to peers
+2026-01-21 12:24:05.573	
+2026-01-21T17:24:05.573341Z  WARN rinku_node::gossip: Failed to propagate tx 337aabf844b618e4 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:05.500	
+2026-01-21T17:24:05.500118Z  INFO rinku_node::api: Transaction 40a8ae209aae3a7b broadcast to peers
+2026-01-21 12:24:05.499	
+2026-01-21T17:24:05.499779Z  INFO rinku_node::api: Transaction 34e09de5fc300de5 broadcast to peers
+2026-01-21 12:24:05.499	
+2026-01-21T17:24:05.499242Z  WARN rinku_node::gossip: Failed to propagate tx 6c63dfd90283dce9 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:05.335	
+2026-01-21T17:24:05.333517Z  INFO rinku_node::api: Transaction 2ee4ea79b177f3d7 broadcast to peers
+2026-01-21 12:24:05.099	
+2026-01-21T17:24:05.099175Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:05.098	
+2026-01-21T17:24:05.098287Z  WARN rinku_node::gossip: Failed to propagate tx f10fcd5a37fde241 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:04.778	
+2026-01-21T17:24:04.778426Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:04.778	
+2026-01-21T17:24:04.777979Z  WARN rinku_node::gossip: Failed to propagate tx 048549825e0c024f to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:04.456	
+2026-01-21T17:24:04.456227Z  WARN rinku_node::gossip: Failed to propagate tx e8adc5f807dad789 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:04.215	
+2026-01-21T17:24:04.215493Z  WARN rinku_node::gossip: Failed to propagate tx 34c772e55b80e740 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:04.214	
+2026-01-21T17:24:04.214096Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:04.213	
+2026-01-21T17:24:04.213472Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:24:03.976	
+2026-01-21T17:24:03.975777Z  WARN rinku_node::gossip: Failed to propagate tx 164487b47b4c526e to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:03.818	
+2026-01-21T17:24:03.818038Z  WARN rinku_node::gossip: Failed to propagate tx 79669c723776d087 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:03.654	
+2026-01-21T17:24:03.654554Z  WARN rinku_node::gossip: Failed to propagate tx d0742d02cc1d4943 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:03.413	
+2026-01-21T17:24:03.413195Z  WARN rinku_node::gossip: Failed to propagate tx 7aa4c7f963d7f49b to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:03.333	
+2026-01-21T17:24:03.333375Z  WARN rinku_node::gossip: Failed to propagate tx b328ddcd60738d09 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:03.253	
+2026-01-21T17:24:03.253080Z  WARN rinku_node::gossip: Failed to propagate tx e0ef175ec2bbb102 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:03.174	
+2026-01-21T17:24:03.174717Z  WARN rinku_node::gossip: Failed to propagate tx c44f7e98b4208fd5 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:03.087	
+2026-01-21T17:24:03.087550Z  WARN rinku_node::gossip: Failed to propagate tx 87d9b23ac4e7a295 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:03.028	
+2026-01-21T17:24:03.028536Z  WARN rinku_node::gossip: Failed to propagate tx 5d533f4a58d9ae44 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.976	
+2026-01-21T17:24:02.976157Z  WARN rinku_node::gossip: Failed to propagate tx e0e55ca2e28a9910 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.917	
+2026-01-21T17:24:02.917594Z  WARN rinku_node::gossip: Failed to propagate tx 43454aae5459cbda to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.862	
+2026-01-21T17:24:02.862637Z  WARN rinku_node::gossip: Failed to propagate tx a13edf7371380530 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.861	
+2026-01-21T17:24:02.861683Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:02.800	
+2026-01-21T17:24:02.800286Z  WARN rinku_node::gossip: Failed to propagate tx 7c471291442fdf84 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.722	
+2026-01-21T17:24:02.722731Z  WARN rinku_node::gossip: Failed to propagate tx 1b1547ce334199b8 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.683	
+2026-01-21T17:24:02.683315Z  INFO rinku_node::api: Returning 198 of 198 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:02.683	
+2026-01-21T17:24:02.683181Z  INFO rinku_node::api: Sync delta request: checkpoint=51, offset=0, limit=500
+2026-01-21 12:24:02.632	
+2026-01-21T17:24:02.632749Z  WARN rinku_node::gossip: Failed to propagate tx d6caa5db8f178d56 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.614	
+2026-01-21T17:24:02.613571Z  INFO rinku_node::api: Transaction 55ba4a51ffceff7c broadcast to peers
+2026-01-21 12:24:02.578	
+2026-01-21T17:24:02.578455Z  INFO rinku_node::api: Transaction 2c34421a72f56c5b broadcast to peers
+2026-01-21 12:24:02.577	
+2026-01-21T17:24:02.577781Z  INFO rinku_node::api: Transaction ed0e3afd050c9034 broadcast to peers
+2026-01-21 12:24:02.558	
+2026-01-21T17:24:02.558089Z  INFO rinku_node::api: Transaction c22c7e958e724bdc broadcast to peers
+2026-01-21 12:24:02.507	
+2026-01-21T17:24:02.507037Z  WARN rinku_node::gossip: Failed to propagate tx fa83bdbdf935a4f3 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.453	
+2026-01-21T17:24:02.453040Z  WARN rinku_node::gossip: Failed to propagate tx 50c988b7c0d99998 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.373	
+2026-01-21T17:24:02.372915Z  WARN rinku_node::gossip: Failed to propagate tx bd390bf68ff0cfcb to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.293	
+2026-01-21T17:24:02.293648Z  WARN rinku_node::gossip: Failed to propagate tx 67acff23e0dc4f79 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.179	
+2026-01-21T17:24:02.179452Z  WARN rinku_node::gossip: Failed to propagate tx c90f48cbd96aac4d to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.127	
+2026-01-21T17:24:02.127145Z  WARN rinku_node::gossip: Failed to propagate tx 7ee1480adbe854b1 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.072	
+2026-01-21T17:24:02.072574Z  WARN rinku_node::gossip: Failed to propagate tx 627f1e960a5d0ca2 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:02.019	
+2026-01-21T17:24:02.019228Z  WARN rinku_node::gossip: Failed to propagate tx c88aeec5ab62b114 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:01.967	
+2026-01-21T17:24:01.966842Z  WARN rinku_node::gossip: Failed to propagate tx 06dab2b3f7d2d027 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:01.893	
+2026-01-21T17:24:01.893763Z  WARN rinku_node::gossip: Failed to propagate tx d0fd8907e9341a23 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:01.814	
+2026-01-21T17:24:01.814407Z  WARN rinku_node::gossip: Failed to propagate tx 5457a70a3b1b22b8 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:01.735	
+2026-01-21T17:24:01.734950Z  WARN rinku_node::gossip: Failed to propagate tx 4406fd82be40ac27 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:01.655	
+2026-01-21T17:24:01.655494Z  WARN rinku_node::gossip: Failed to propagate tx da485a68892da2eb to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:01.534	
+2026-01-21T17:24:01.534724Z  WARN rinku_node::gossip: Failed to propagate tx 4f572f927c00483b to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:01.513	
+2026-01-21T17:24:01.513157Z  INFO rinku_node::api: Transaction a1b10534ae88f612 broadcast to peers
+2026-01-21 12:24:01.460	
+2026-01-21T17:24:01.460697Z  WARN rinku_node::gossip: Failed to propagate tx 66c5020ba2a6c1f6 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:01.382	
+2026-01-21T17:24:01.382709Z  WARN rinku_node::gossip: Failed to propagate tx a904f325e9bf5c3a to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:01.174	
+2026-01-21T17:24:01.174359Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:24:01.173	
+2026-01-21T17:24:01.173878Z  INFO rinku_node::api: Transaction 00dc884ec2ea3580 broadcast to peers
+2026-01-21 12:24:01.173	
+2026-01-21T17:24:01.173423Z  INFO rinku_node::api: Transaction 8f70815157ea1355 broadcast to peers
+2026-01-21 12:24:01.116	
+2026-01-21T17:24:01.116138Z  INFO rinku_node::api: Transaction 54c56cea0eb387b0 broadcast to peers
+2026-01-21 12:24:01.115	
+2026-01-21T17:24:01.115653Z  INFO rinku_node::api: Transaction f333f4bc1e253264 broadcast to peers
+2026-01-21 12:24:00.855	
+2026-01-21T17:24:00.855530Z  WARN rinku_node::gossip: Failed to propagate tx 3d3c3dba31899eba to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:00.695	
+2026-01-21T17:24:00.695415Z  WARN rinku_node::gossip: Failed to propagate tx 6aad2e2c16daedad to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:00.613	
+2026-01-21T17:24:00.612989Z  WARN rinku_node::gossip: Failed to propagate tx 667dfc38b1f369ea to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:00.376	
+2026-01-21T17:24:00.375714Z  WARN rinku_node::gossip: Failed to propagate tx 76995121372c5518 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:00.294	
+2026-01-21T17:24:00.294655Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:24:00.294	
+2026-01-21T17:24:00.294330Z  INFO rinku_node::api: Transaction e01af2c1e1b660dc broadcast to peers
+2026-01-21 12:24:00.294	
+2026-01-21T17:24:00.294043Z  INFO rinku_node::api: Transaction 836b404247d0156d broadcast to peers
+2026-01-21 12:24:00.293	
+2026-01-21T17:24:00.293744Z  INFO rinku_node::api: Transaction 72ceeba89de9b3de broadcast to peers
+2026-01-21 12:24:00.293	
+2026-01-21T17:24:00.293302Z  INFO rinku_node::api: Transaction 9802bd69a02efeb0 broadcast to peers
+2026-01-21 12:24:00.214	
+2026-01-21T17:24:00.212775Z  WARN rinku_node::gossip: Failed to propagate tx 8dfdf95dcb3deaab to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:24:00.136	
+2026-01-21T17:24:00.135667Z  WARN rinku_node::gossip: Failed to propagate tx d78818124a7422fe to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:59.895	
+2026-01-21T17:23:59.895171Z  WARN rinku_node::gossip: Failed to propagate tx ea9c0ae010ea7ea0 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:59.582	
+2026-01-21T17:23:59.581974Z  WARN rinku_node::gossip: Failed to propagate tx 947f8338151a1e25 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:59.414	
+2026-01-21T17:23:59.413300Z  WARN rinku_node::gossip: Failed to propagate tx 662e2647d916d02b to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:59.336	
+2026-01-21T17:23:59.336481Z  WARN rinku_node::gossip: Failed to propagate tx 7e43a04efee76139 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:59.280	
+2026-01-21T17:23:59.279854Z  INFO rinku_node::api: Transaction 6d750f93cbc28c3d broadcast to peers
+2026-01-21 12:23:59.279	
+2026-01-21T17:23:59.279058Z  INFO rinku_node::api: Transaction 3af76192b0845e7c broadcast to peers
+2026-01-21 12:23:59.253	
+2026-01-21T17:23:59.253192Z  WARN rinku_node::gossip: Failed to propagate tx 781f5f5486ed0b54 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:59.174	
+2026-01-21T17:23:59.174667Z  INFO rinku_node::api: Transaction 2d2f92276c8f7818 broadcast to peers
+2026-01-21 12:23:59.174	
+2026-01-21T17:23:59.174346Z  INFO rinku_node::api: Transaction faf51004fc048b4d broadcast to peers
+2026-01-21 12:23:58.776	
+2026-01-21T17:23:58.776133Z  WARN rinku_node::gossip: Failed to propagate tx 605a1c6d487a7452 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:58.618	
+2026-01-21T17:23:58.618383Z  INFO rinku_node::api: Transaction 8d2ced2c2d66f35e broadcast to peers
+2026-01-21 12:23:58.618	
+2026-01-21T17:23:58.618147Z  INFO rinku_node::api: Transaction 99558f5dd48021b3 broadcast to peers
+2026-01-21 12:23:58.618	
+2026-01-21T17:23:58.617786Z  INFO rinku_node::api: Transaction 1309f4f395bbf0d6 broadcast to peers
+2026-01-21 12:23:58.617	
+2026-01-21T17:23:58.617447Z  INFO rinku_node::api: Transaction 8d6bc4a16b89f57c broadcast to peers
+2026-01-21 12:23:58.533	
+2026-01-21T17:23:58.533100Z  WARN rinku_node::gossip: Failed to propagate tx f764cb7809ecb48d to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:58.213	
+2026-01-21T17:23:58.213425Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:23:58.135	
+2026-01-21T17:23:58.135680Z  WARN rinku_node::gossip: Failed to propagate tx 33ddcd5d3f549146 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:57.816	
+2026-01-21T17:23:57.816130Z  WARN rinku_node::gossip: Failed to propagate tx 30522ffba4f86557 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:57.492	
+2026-01-21T17:23:57.492759Z  WARN rinku_node::gossip: Failed to propagate tx f4c1b7a620f02c03 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:57.414	
+2026-01-21T17:23:57.414328Z  WARN rinku_node::gossip: Failed to propagate tx fe6bdcf85861aaed to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:57.413	
+2026-01-21T17:23:57.413820Z  INFO rinku_node::api: Transaction 74c3bf94cd433828 broadcast to peers
+2026-01-21 12:23:57.413	
+2026-01-21T17:23:57.413424Z  INFO rinku_node::api: Transaction 40002c00e55474a0 broadcast to peers
+2026-01-21 12:23:57.178	
+2026-01-21T17:23:57.176050Z  INFO rinku_node::api: Transaction 617816412ec066aa broadcast to peers
+2026-01-21 12:23:57.175	
+2026-01-21T17:23:57.174421Z  INFO rinku_node::api: Transaction 23c01660a7f898de broadcast to peers
+2026-01-21 12:23:57.175	
+2026-01-21T17:23:57.173636Z  WARN rinku_node::gossip: Failed to propagate tx 7059803ef345d466 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:56.860	
+2026-01-21T17:23:56.859958Z  INFO rinku_node::api: Returning 165 of 165 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:56.859	
+2026-01-21T17:23:56.859720Z  INFO rinku_node::api: Sync delta request: checkpoint=51, offset=0, limit=500
+2026-01-21 12:23:56.854	
+2026-01-21T17:23:56.854443Z  WARN rinku_node::gossip: Failed to propagate tx 0a186858249b67fa to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:56.853	
+2026-01-21T17:23:56.853810Z  INFO rinku_node::api: Transaction 8ec9d7a18d7ce8f5 broadcast to peers
+2026-01-21 12:23:56.853	
+2026-01-21T17:23:56.853336Z  INFO rinku_node::api: Transaction 1f45089cbdd123aa broadcast to peers
+2026-01-21 12:23:56.794	
+2026-01-21T17:23:56.794807Z  INFO rinku_node::api: Transaction 4f500b73d9098d9c broadcast to peers
+2026-01-21 12:23:56.794	
+2026-01-21T17:23:56.794082Z  INFO rinku_node::api: Transaction 62c43c55885a39b8 broadcast to peers
+2026-01-21 12:23:56.772	
+2026-01-21T17:23:56.772815Z  WARN rinku_node::gossip: Failed to propagate tx ffa8157ccddc68f8 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:56.693	
+2026-01-21T17:23:56.692854Z  WARN rinku_node::gossip: Failed to propagate tx 95db7e896a3499ba to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:56.613	
+2026-01-21T17:23:56.613599Z  WARN rinku_node::gossip: Failed to propagate tx 36eb3ad55883bf74 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:56.534	
+2026-01-21T17:23:56.534731Z  WARN rinku_node::gossip: Failed to propagate tx 6a4cea52cf1d0e06 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:56.453	
+2026-01-21T17:23:56.453730Z  INFO rinku_node::api: Transaction 65e7b0a877db64f3 broadcast to peers
+2026-01-21 12:23:56.297	
+2026-01-21T17:23:56.297543Z  WARN rinku_node::gossip: Failed to propagate tx 3ec78bea84e27bc2 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:56.134	
+2026-01-21T17:23:56.134733Z  WARN rinku_node::gossip: Failed to propagate tx 1b5364dcd8e3a640 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:56.133	
+2026-01-21T17:23:56.133886Z  INFO rinku_node::api: Transaction 6786b5e069c80caf broadcast to peers
+2026-01-21 12:23:56.133	
+2026-01-21T17:23:56.133536Z  INFO rinku_node::api: Transaction 8f73c9e15cf391ee broadcast to peers
+2026-01-21 12:23:56.133	
+2026-01-21T17:23:56.133137Z  INFO rinku_node::api: Transaction 78ff27d4b8a7ef8b broadcast to peers
+2026-01-21 12:23:56.133	
+2026-01-21T17:23:56.132852Z  INFO rinku_node::api: Transaction 0ab53d2bd7561342 broadcast to peers
+2026-01-21 12:23:55.815	
+2026-01-21T17:23:55.815633Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:55.814	
+2026-01-21T17:23:55.814076Z  WARN rinku_node::gossip: Failed to propagate tx ceb3e835a51cd622 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:55.494	
+2026-01-21T17:23:55.494198Z  WARN rinku_node::gossip: Failed to propagate tx 93895072e88b0ec4 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:55.414	
+2026-01-21T17:23:55.414303Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:23:55.174	
+2026-01-21T17:23:55.173849Z  WARN rinku_node::gossip: Failed to propagate tx 0ca9e0f473ebf3ab to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:54.933	
+2026-01-21T17:23:54.933258Z  WARN rinku_node::gossip: Failed to propagate tx 35b5e375c7f99b2a to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:54.856	
+2026-01-21T17:23:54.855667Z  WARN rinku_node::gossip: Failed to propagate tx ceec379c895734bd to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:54.695	
+2026-01-21T17:23:54.695109Z  INFO rinku_node::api: Transaction a36f5ab430155593 broadcast to peers
+2026-01-21 12:23:54.695	
+2026-01-21T17:23:54.694865Z  INFO rinku_node::api: Transaction 77cb91ca958c3492 broadcast to peers
+2026-01-21 12:23:54.694	
+2026-01-21T17:23:54.694474Z  INFO rinku_node::api: Transaction 13435535f69b78c2 broadcast to peers
+2026-01-21 12:23:54.694	
+2026-01-21T17:23:54.694154Z  INFO rinku_node::api: Transaction ba91d63c462c52b0 broadcast to peers
+2026-01-21 12:23:54.537	
+2026-01-21T17:23:54.537503Z  WARN rinku_node::gossip: Failed to propagate tx e1f7dd14c7c8bf98 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:54.293	
+2026-01-21T17:23:54.293165Z  WARN rinku_node::gossip: Failed to propagate tx 759cf31c5b474c4a to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:54.052	
+2026-01-21T17:23:54.052512Z  WARN rinku_node::gossip: Failed to propagate tx 5ff77633dbddec6f to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:53.975	
+2026-01-21T17:23:53.974713Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:53.895	
+2026-01-21T17:23:53.894998Z  WARN rinku_node::checkpoint: Peer checkpoint previous_hash mismatch at height 50: peer=Some("61eeeec7158ad398") vs local=Some("e1ff730d401d98ff")
+2026-01-21 12:23:53.895	
+2026-01-21T17:23:53.894913Z  INFO rinku_node::checkpoint: Found peer checkpoint at height 50 from https://rinku-genesis.fly.dev: 3e339bbb8785a5e5
+2026-01-21 12:23:53.736	
+2026-01-21T17:23:53.735690Z  WARN rinku_node::gossip: Failed to propagate tx 626d7cac33737406 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:52.458	
+2026-01-21T17:23:52.458114Z  INFO rinku_node::checkpoint: Epoch transition: 18 -> 19 (activated: 0, exited: 0)
+2026-01-21 12:23:52.458	
+2026-01-21T17:23:52.457826Z  INFO rinku_node::validator_identity: Epoch transition: 18 -> 19
+2026-01-21 12:23:52.453	
+2026-01-21T17:23:52.452755Z  WARN rinku_node::gossip: Failed to propagate tx 9c412f183aa3c348 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:52.414	
+2026-01-21T17:23:52.414577Z  INFO rinku_node::api: Transaction 90969ead048f9763 broadcast to peers
+2026-01-21 12:23:52.414	
+2026-01-21T17:23:52.413867Z  INFO rinku_node::api: Transaction f8a4b0c2963c9c2d broadcast to peers
+2026-01-21 12:23:52.373	
+2026-01-21T17:23:52.373510Z  WARN rinku_node::gossip: Failed to propagate tx c11b001f3d26360a to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:52.373	
+2026-01-21T17:23:52.372962Z  INFO rinku_node::api: Transaction 32527614b077fd59 broadcast to peers
+2026-01-21 12:23:52.317	
+2026-01-21T17:23:52.317345Z  INFO rinku_node::api: Transaction 4a96119e1cc203c8 broadcast to peers
+2026-01-21 12:23:52.293	
+2026-01-21T17:23:52.293299Z  WARN rinku_node::gossip: Failed to propagate tx 689afb29927a2247 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:52.133	
+2026-01-21T17:23:52.133375Z  WARN rinku_node::gossip: Failed to propagate tx 1261108f6575b4ea to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:51.972	
+2026-01-21T17:23:51.972457Z  WARN rinku_node::gossip: Failed to propagate tx f79b471ec9382e5f to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:51.495	
+2026-01-21T17:23:51.495447Z  WARN rinku_node::gossip: Failed to propagate tx 407e20498d90b9c6 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:51.097	
+2026-01-21T17:23:51.096962Z  WARN rinku_node::gossip: Failed to propagate tx 604aa52846f7053f to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:51.023	
+2026-01-21T17:23:51.022892Z  INFO rinku_node::api: Transaction 72dc7646bc7836db broadcast to peers
+2026-01-21 12:23:50.938	
+2026-01-21T17:23:50.937756Z  WARN rinku_node::gossip: Failed to propagate tx c463167fd9edd568 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:50.827	
+2026-01-21T17:23:50.827253Z  WARN rinku_node::gossip: Failed to propagate tx 4528909f69631bc8 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:50.780	
+2026-01-21T17:23:50.780285Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:50.779	
+2026-01-21T17:23:50.779412Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:23:50.778	
+2026-01-21T17:23:50.778467Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:50.736	
+2026-01-21T17:23:50.736626Z  WARN rinku_node::gossip: Failed to propagate tx 5b0ccbd6deb05acc to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:50.686	
+2026-01-21T17:23:50.686447Z  WARN rinku_node::gossip: Failed to propagate tx 12c77271e56deaad to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:50.684	
+2026-01-21T17:23:50.684586Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:23:50.215	
+2026-01-21T17:23:50.215235Z  WARN rinku_node::gossip: Failed to propagate tx 6f87e0e0e8b5890b to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:49.974	
+2026-01-21T17:23:49.974082Z  WARN rinku_node::gossip: Failed to propagate tx 46cf5d9ebcbf1200 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:49.733	
+2026-01-21T17:23:49.732887Z  WARN rinku_node::gossip: Failed to propagate tx 06e6ef5fbc5ee313 to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:49.496	
+2026-01-21T17:23:49.496085Z  WARN rinku_node::gossip: Failed to propagate tx 90f63677289a6e6f to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:49.335	
+2026-01-21T17:23:49.335094Z  WARN rinku_node::gossip: Failed to propagate tx ac7197b95b527f3d to https://rinku-genesis.fly.dev: Peer https://rinku-genesis.fly.dev is in backoff until 1769016248
+2026-01-21 12:23:49.254	
+2026-01-21T17:23:49.253905Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:49.253	
+2026-01-21T17:23:49.252750Z  INFO rinku_node::gossip: Propagating 157 pending transactions to 3 peers
+2026-01-21 12:23:49.094	
+2026-01-21T17:23:49.094251Z  INFO rinku_node::api: Transaction d6b28438a327eeca broadcast to peers
+2026-01-21 12:23:48.937	
+2026-01-21T17:23:48.937769Z  WARN rinku_node::gossip: Peer https://rinku-genesis.fly.dev failed 1 times, backoff for 20s
+2026-01-21 12:23:48.937	
+2026-01-21T17:23:48.937152Z  INFO rinku_node::api: Transaction 7ae89dcb90479b3b broadcast to peers
+2026-01-21 12:23:48.936	
+2026-01-21T17:23:48.936635Z  INFO rinku_node::api: Transaction b556b2ddb2d3cd8a broadcast to peers
+2026-01-21 12:23:48.614	
+2026-01-21T17:23:48.614382Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:23:48.614	
+2026-01-21T17:23:48.614323Z  INFO rinku_node::gossip: Sync page: received 119/119 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:48.613	
+2026-01-21T17:23:48.612921Z  INFO rinku_node::api: Transaction 1663ae0d230bceeb broadcast to peers
+2026-01-21 12:23:48.380	
+2026-01-21T17:23:48.380042Z  INFO rinku_node::api: Transaction 47b225179865c249 broadcast to peers
+2026-01-21 12:23:48.296	
+2026-01-21T17:23:48.295778Z  INFO rinku_node::api: Transaction 7fc3be953fb259ba broadcast to peers
+2026-01-21 12:23:48.217	
+2026-01-21T17:23:48.217150Z  INFO rinku_node::api: Returning 119 of 119 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:48.217	
+2026-01-21T17:23:48.217063Z  INFO rinku_node::api: Sync delta request: checkpoint=51, offset=0, limit=500
+2026-01-21 12:23:47.733	
+2026-01-21T17:23:47.732833Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev has more DAG data (dag: 2265 vs 2261), requesting delta sync...
+2026-01-21 12:23:46.540	
+2026-01-21T17:23:46.539880Z  INFO rinku_node::api: Transaction 56e00535c54eaced broadcast to peers
+2026-01-21 12:23:46.539	
+2026-01-21T17:23:46.539574Z  INFO rinku_node::api: Transaction c275a97dc61cf199 broadcast to peers
+2026-01-21 12:23:46.539	
+2026-01-21T17:23:46.539199Z  INFO rinku_node::api: Transaction ba260f00e396cb07 broadcast to peers
+2026-01-21 12:23:46.539	
+2026-01-21T17:23:46.538806Z  INFO rinku_node::api: Transaction 334edc528ea6b007 broadcast to peers
+2026-01-21 12:23:45.733	
+2026-01-21T17:23:45.733523Z  INFO rinku_node::gossip: Pushed accounts to peer https://rinku-genesis.fly.dev: 0 added, 0 updated
+2026-01-21 12:23:45.492	
+2026-01-21T17:23:45.419420Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:45.014	
+2026-01-21T17:23:45.014344Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:23:43.823	
+2026-01-21T17:23:43.823062Z  INFO rinku_node::gossip: Pushing 1 local-only accounts back to peer https://rinku-genesis.fly.dev after sync
+2026-01-21 12:23:43.823	
+2026-01-21T17:23:43.823032Z  INFO rinku_node::gossip: Snapshot sync complete: applied 0 DAG transactions
+2026-01-21 12:23:43.823	
+2026-01-21T17:23:43.822990Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:23:43.820	
+2026-01-21T17:23:43.819874Z  INFO rinku_node::state: Skipping snapshot apply: local has 49 checkpoints, peer has 49
+2026-01-21 12:23:43.820	
+2026-01-21T17:23:43.819845Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:23:43.820	
+2026-01-21T17:23:43.819757Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:23:43.732	
+2026-01-21T17:23:43.732406Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:23:43.661	
+2026-01-21T17:23:43.661521Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:43.661	
+2026-01-21T17:23:43.660933Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:23:42.293	
+2026-01-21T17:23:42.293704Z  INFO rinku_node::api: Transaction 0842fcd3a9bc8fec broadcast to peers
+2026-01-21 12:23:42.292	
+2026-01-21T17:23:42.216123Z  INFO rinku_node::api: Transaction 887f517b2262fb59 broadcast to peers
+2026-01-21 12:23:41.574	
+2026-01-21T17:23:41.574407Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:41.258	
+2026-01-21T17:23:41.257839Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:40.776	
+2026-01-21T17:23:40.776578Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:23:40.615	
+2026-01-21T17:23:40.615011Z  INFO rinku_node::api: Faucet tx 0fda23452a4f0cd6 to 07fa96098dd3 broadcast to peers
+2026-01-21 12:23:39.613	
+2026-01-21T17:23:39.612171Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:23:39.494	
+2026-01-21T17:23:39.494379Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:38.216	
+2026-01-21T17:23:38.215883Z  INFO rinku_node::api: Snapshot sync response: 13 accounts, 0 validators, 49 checkpoints, 2235 dag txs
+2026-01-21 12:23:38.213	
+2026-01-21T17:23:38.212880Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:23:38.054	
+2026-01-21T17:23:38.054630Z  INFO rinku_node::api: Returning 89 of 89 transactions with 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:38.054	
+2026-01-21T17:23:38.054412Z  INFO rinku_node::api: Sync delta request: checkpoint=50, offset=0, limit=500
+2026-01-21 12:23:37.734	
+2026-01-21T17:23:37.734270Z  INFO rinku_node::api: Transaction fc9e7c6e942cfa69 broadcast to peers
+2026-01-21 12:23:37.734	
+2026-01-21T17:23:37.733840Z  INFO rinku_node::api: Transaction b2bdd9de3410e349 broadcast to peers
+2026-01-21 12:23:37.733	
+2026-01-21T17:23:37.732840Z  INFO rinku_node::api: Transaction 0eaa401bff5db933 broadcast to peers
+2026-01-21 12:23:37.653	
+2026-01-21T17:23:37.653583Z  INFO rinku_node::api: Transaction cc0cea1560a9262a broadcast to peers
+2026-01-21 12:23:37.094	
+2026-01-21T17:23:37.094648Z  INFO rinku_node::api: Transaction adc381b74cc190a1 broadcast to peers
+2026-01-21 12:23:37.094	
+2026-01-21T17:23:37.094237Z  INFO rinku_node::api: Transaction 8d52c86fe0ed9bdd broadcast to peers
+2026-01-21 12:23:37.093	
+2026-01-21T17:23:37.093867Z  INFO rinku_node::api: Transaction cb12923c8828646e broadcast to peers
+2026-01-21 12:23:37.093	
+2026-01-21T17:23:37.093158Z  INFO rinku_node::api: Transaction 7df969869c3af3fd broadcast to peers
+2026-01-21 12:23:36.613	
+2026-01-21T17:23:36.613361Z  INFO rinku_node::api: Transaction 76ce16c092b2ec66 broadcast to peers
+2026-01-21 12:23:36.535	
+2026-01-21T17:23:36.535041Z  INFO rinku_node::api: Transaction a67825c9d1a7de64 broadcast to peers
+2026-01-21 12:23:36.534	
+2026-01-21T17:23:36.533910Z  INFO rinku_node::api: Transaction b71fc2fd380e45df broadcast to peers
+2026-01-21 12:23:36.454	
+2026-01-21T17:23:36.453954Z  INFO rinku_node::api: Transaction d2b2d4174e6ba026 broadcast to peers
+2026-01-21 12:23:35.765	
+2026-01-21T17:23:35.765247Z  INFO rinku_node::api: Transaction 53a38ac2563c8c5a broadcast to peers
+2026-01-21 12:23:35.734	
+2026-01-21T17:23:35.734393Z  INFO rinku_node::api: Transaction c7c151bb365b33dc broadcast to peers
+2026-01-21 12:23:35.653	
+2026-01-21T17:23:35.653685Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:35.593	
+2026-01-21T17:23:35.593652Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:23:34.696	
+2026-01-21T17:23:34.696256Z  INFO rinku_node::api: Transaction 35c71f6d21c13c94 broadcast to peers
+2026-01-21 12:23:34.695	
+2026-01-21T17:23:34.695420Z  INFO rinku_node::api: Transaction d26f6527745f021e broadcast to peers
+2026-01-21 12:23:34.695	
+2026-01-21T17:23:34.694766Z  INFO rinku_node::api: Transaction 2c173c6d8decb4d1 broadcast to peers
+2026-01-21 12:23:34.693	
+2026-01-21T17:23:34.693623Z  INFO rinku_node::api: Transaction 9214425ef098a288 broadcast to peers
+2026-01-21 12:23:33.572	
+2026-01-21T17:23:33.572735Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:33.093	
+2026-01-21T17:23:33.093279Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:23:32.954	
+2026-01-21T17:23:32.954241Z  INFO rinku_node::api: Transaction 4b0739d0c2494d6c broadcast to peers
+2026-01-21 12:23:32.947	
+2026-01-21T17:23:32.947649Z  INFO rinku_node::api: Transaction deb169545aa32745 broadcast to peers
+2026-01-21 12:23:32.947	
+2026-01-21T17:23:32.947074Z  INFO rinku_node::api: Transaction ffd1a7026402f4e6 broadcast to peers
+2026-01-21 12:23:32.946	
+2026-01-21T17:23:32.946345Z  INFO rinku_node::api: Transaction 77f4a32880405cd4 broadcast to peers
+2026-01-21 12:23:31.749	
+2026-01-21T17:23:31.749293Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:31.653	
+2026-01-21T17:23:31.653500Z  INFO rinku_node::api: Transaction 048549825e0c024f broadcast to peers
+2026-01-21 12:23:31.334	
+2026-01-21T17:23:31.334183Z  INFO rinku_node::api: Transaction e8adc5f807dad789 broadcast to peers
+2026-01-21 12:23:31.332	
+2026-01-21T17:23:31.332848Z  INFO rinku_node::api: Transaction 34c772e55b80e740 broadcast to peers
+2026-01-21 12:23:31.255	
+2026-01-21T17:23:31.255701Z  INFO rinku_node::api: Transaction 164487b47b4c526e broadcast to peers
+2026-01-21 12:23:31.093	
+2026-01-21T17:23:31.093636Z  INFO rinku_node::api: Transaction 79669c723776d087 broadcast to peers
+2026-01-21 12:23:29.975	
+2026-01-21T17:23:29.975521Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:29.574	
+2026-01-21T17:23:29.574173Z  INFO rinku_node::api: Transaction e0ef175ec2bbb102 broadcast to peers
+2026-01-21 12:23:29.573	
+2026-01-21T17:23:29.573803Z  INFO rinku_node::api: Transaction c44f7e98b4208fd5 broadcast to peers
+2026-01-21 12:23:29.573	
+2026-01-21T17:23:29.573505Z  INFO rinku_node::api: Transaction 87d9b23ac4e7a295 broadcast to peers
+2026-01-21 12:23:29.573	
+2026-01-21T17:23:29.573107Z  INFO rinku_node::api: Transaction 5d533f4a58d9ae44 broadcast to peers
+2026-01-21 12:23:28.693	
+2026-01-21T17:23:28.692961Z  INFO rinku_node::api: Transaction e0e55ca2e28a9910 broadcast to peers
+2026-01-21 12:23:28.294	
+2026-01-21T17:23:28.294090Z  INFO rinku_node::api: Transaction 43454aae5459cbda broadcast to peers
+2026-01-21 12:23:28.213	
+2026-01-21T17:23:28.212905Z  INFO rinku_node::api: Transaction a13edf7371380530 broadcast to peers
+2026-01-21 12:23:28.133	
+2026-01-21T17:23:28.133707Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:28.133	
+2026-01-21T17:23:28.133322Z  INFO rinku_node::api: Transaction fa83bdbdf935a4f3 broadcast to peers
+2026-01-21 12:23:27.653	
+2026-01-21T17:23:27.653313Z  INFO rinku_node::api: Broadcast 1 transactions to peers
+2026-01-21 12:23:27.173	
+2026-01-21T17:23:27.173387Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:26.214	
+2026-01-21T17:23:26.214219Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:25.974	
+2026-01-21T17:23:25.974253Z  INFO rinku_node::api: Broadcast 2 transactions to peers
+2026-01-21 12:23:25.746	
+2026-01-21T17:23:25.746040Z  INFO rinku_node::api: Returning 110 of 110 transactions with 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:25.746	
+2026-01-21T17:23:25.745767Z  INFO rinku_node::api: Sync delta request: checkpoint=49, offset=0, limit=500
+2026-01-21 12:23:25.652	
+2026-01-21T17:23:25.600114Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:24.854	
+2026-01-21T17:23:24.854596Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:24.376	
+2026-01-21T17:23:24.375578Z  INFO rinku_node::api: Broadcast 4 transactions to peers
+2026-01-21 12:23:24.002	
+2026-01-21T17:23:24.002239Z  INFO rinku_node::api: Transaction ea9c0ae010ea7ea0 broadcast to peers
+2026-01-21 12:23:23.521	
+2026-01-21T17:23:23.520773Z  INFO rinku_node::api: Broadcast 3 transactions to peers
+2026-01-21 12:23:22.694	
+2026-01-21T17:23:22.694356Z  INFO rinku_node::api: Transaction 781f5f5486ed0b54 broadcast to peers
+2026-01-21 12:23:22.534	
+2026-01-21T17:23:22.534768Z  INFO rinku_node::api: Transaction 605a1c6d487a7452 broadcast to peers
+
+
+2026-01-21 12:23:22.534	
+2026-01-21T17:23:22.534441Z  INFO rinku_node::api: Transaction f764cb7809ecb48d broadcast to peers
+2026-01-21 12:23:22.534	
+2026-01-21T17:23:22.534065Z  INFO rinku_node::api: Transaction 33ddcd5d3f549146 broadcast to peers
+2026-01-21 12:23:22.455	
+2026-01-21T17:23:22.454951Z  INFO rinku_node::checkpoint: Created checkpoint e1ff730d401d98ff at height 49 (87 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:23:22.455	
+2026-01-21T17:23:22.454794Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators

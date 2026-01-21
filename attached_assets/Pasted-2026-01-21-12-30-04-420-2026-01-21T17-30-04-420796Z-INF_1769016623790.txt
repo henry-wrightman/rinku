@@ -1,0 +1,2002 @@
+2026-01-21 12:30:04.420	
+2026-01-21T17:30:04.420796Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:30:04.420	
+2026-01-21T17:30:04.419953Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:30:04.420	
+2026-01-21T17:30:04.419834Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 61 checkpoints, 2772 dag txs, checkpoint height 61
+2026-01-21 12:30:04.318	
+2026-01-21T17:30:04.317840Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:30:04.259	
+2026-01-21T17:30:04.255785Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead (cp: 61 vs 60), requesting snapshot sync...
+2026-01-21 12:29:58.945	
+2026-01-21T17:29:58.945271Z  WARN rinku_node::gossip: Failed to add gossiped tx b6d529793a97bdc748ce3eabb1497f51ccea237f58c1b39c028e6f3e6c0d26c6: Invalid nonce: expected 4, got 1
+2026-01-21 12:29:58.945	
+2026-01-21T17:29:58.945248Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 1
+2026-01-21 12:29:46.357	
+2026-01-21T17:29:46.357647Z  INFO rinku_node::network: Identified peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 12:29:44.328	
+2026-01-21T17:29:44.328221Z  INFO rinku_node::gossip: Delta sync complete: 1 added, 0 failed
+2026-01-21 12:29:44.328	
+2026-01-21T17:29:44.328106Z  INFO rinku_node::gossip: Applied 1 account nonces from peer
+2026-01-21 12:29:44.328	
+2026-01-21T17:29:44.328020Z  INFO rinku_node::gossip: Sync page: received 2/2 transactions, 1 account nonces (offset=0, has_more=false)
+2026-01-21 12:29:44.255	
+2026-01-21T17:29:44.255474Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev has more DAG data (dag: 2772 vs 2771), requesting delta sync...
+2026-01-21 12:29:40.248	
+2026-01-21T17:29:40.247866Z  INFO rinku_node::checkpoint: Epoch transition: 25 -> 26 (activated: 0, exited: 0)
+2026-01-21 12:29:40.248	
+2026-01-21T17:29:40.247662Z  INFO rinku_node::validator_identity: Epoch transition: 25 -> 26
+2026-01-21 12:29:38.389	
+2026-01-21T17:29:38.389293Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:29:31.601	
+2026-01-21T17:29:31.601032Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:29:30.626	
+2026-01-21T17:29:30.626641Z  WARN rinku_node::gossip: Peer https://rinkuchan.com failed 1 times, backoff for 20s
+2026-01-21 12:29:29.243	
+2026-01-21T17:29:29.242800Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:29:28.449	
+2026-01-21T17:29:28.448901Z  INFO rinku_node::network: Identified peer 12D3KooWBdT44b2yjAZpsrRQHxCbb2WqiqtGJaXMky8jtPe7Ejon: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 12:29:24.321	
+2026-01-21T17:29:24.321400Z  INFO rinku_node::gossip: Snapshot sync complete: applied 0 DAG transactions
+2026-01-21 12:29:24.321	
+2026-01-21T17:29:24.321362Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:29:24.319	
+2026-01-21T17:29:24.318291Z  INFO rinku_node::state: Skipping snapshot apply: local has 60 checkpoints, peer has 60
+2026-01-21 12:29:24.319	
+2026-01-21T17:29:24.318287Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:29:24.319	
+2026-01-21T17:29:24.318229Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:28:40.243	
+2026-01-21T17:28:40.243638Z  INFO rinku_node::checkpoint: Created checkpoint c6190b4f9552e1d4 at height 60 (1 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:28:40.243	
+2026-01-21T17:28:40.243617Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:28:40.243	
+2026-01-21T17:28:40.242980Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 60 (peers: 1)
+2026-01-21 12:28:40.243	
+2026-01-21T17:28:40.242939Z  INFO rinku_node::checkpoint: Epoch transition: 24 -> 25 (activated: 0, exited: 0)
+2026-01-21 12:28:40.243	
+2026-01-21T17:28:40.242736Z  INFO rinku_node::validator_identity: Epoch transition: 24 -> 25
+2026-01-21 12:28:26.725	
+2026-01-21T17:28:26.724920Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinkuchan.com before snapshot sync
+2026-01-21 12:28:26.724	
+2026-01-21T17:28:26.724164Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:28:26.724	
+2026-01-21T17:28:26.724052Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 60 checkpoints, 2771 dag txs, checkpoint height 60
+2026-01-21 12:28:26.524	
+2026-01-21T17:28:26.524034Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinkuchan.com
+2026-01-21 12:28:26.454	
+2026-01-21T17:28:26.450825Z  INFO rinku_node::gossip: Peer https://rinkuchan.com is 1 checkpoint(s) ahead (cp: 60 vs 59), requesting snapshot sync...
+2026-01-21 12:28:21.241	
+2026-01-21T17:28:21.241076Z  INFO rinku_node::api: Returning 1 of 1 transactions with 1 account nonces (offset=0, has_more=false)
+2026-01-21 12:28:21.241	
+2026-01-21T17:28:21.241051Z  INFO rinku_node::api: Sync delta request: checkpoint=59, offset=0, limit=500
+2026-01-21 12:28:16.425	
+2026-01-21T17:28:16.424969Z  INFO rinku_node::gossip: Delta sync complete: 1 added, 0 failed
+2026-01-21 12:28:16.424	
+2026-01-21T17:28:16.424831Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:28:16.424	
+2026-01-21T17:28:16.424744Z  INFO rinku_node::gossip: Sync page: received 25/25 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:28:16.350	
+2026-01-21T17:28:16.346047Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2771 vs 2770), requesting delta sync...
+2026-01-21 12:28:08.489	
+2026-01-21T17:28:08.489258Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:27:40.241	
+2026-01-21T17:27:40.240793Z  INFO rinku_node::checkpoint: Epoch transition: 23 -> 24 (activated: 0, exited: 0)
+2026-01-21 12:27:40.241	
+2026-01-21T17:27:40.240589Z  INFO rinku_node::validator_identity: Epoch transition: 23 -> 24
+2026-01-21 12:27:38.489	
+2026-01-21T17:27:38.489744Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:27:08.494	
+2026-01-21T17:27:08.494393Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:26:45.280	
+2026-01-21T17:26:45.279802Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:26:40.238	
+2026-01-21T17:26:40.237822Z  INFO rinku_node::checkpoint: Epoch transition: 22 -> 23 (activated: 0, exited: 0)
+2026-01-21 12:26:40.238	
+2026-01-21T17:26:40.237633Z  INFO rinku_node::validator_identity: Epoch transition: 22 -> 23
+2026-01-21 12:26:34.820	
+2026-01-21T17:26:34.820489Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:26:32.468	
+2026-01-21T17:26:32.468160Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2770 DAG transactions
+2026-01-21 12:26:32.468	
+2026-01-21T17:26:32.468089Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:26:32.462	
+2026-01-21T17:26:32.462312Z  INFO rinku_node::state: Snapshot applied: 2770 DAG txs, 0 validators, 59 checkpoints, 0 contracts
+2026-01-21 12:26:32.462	
+2026-01-21T17:26:32.462289Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:26:32.462	
+2026-01-21T17:26:32.462200Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:26:32.462	
+2026-01-21T17:26:32.462098Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:26:32.437	
+2026-01-21T17:26:32.435811Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:26:32.437	
+2026-01-21T17:26:32.435798Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 59 checkpoints, 2770 dag txs
+2026-01-21 12:26:32.437	
+2026-01-21T17:26:32.435794Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:26:32.437	
+2026-01-21T17:26:32.435756Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 999 transactions to peer (0 failed)
+2026-01-21 12:26:30.466	
+2026-01-21T17:26:30.466112Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-2.fly.dev before snapshot sync
+2026-01-21 12:26:30.465	
+2026-01-21T17:26:30.465282Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:26:30.465	
+2026-01-21T17:26:30.465169Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 59 checkpoints, 2770 dag txs, checkpoint height 59
+2026-01-21 12:26:30.357	
+2026-01-21T17:26:30.357261Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-2.fly.dev
+2026-01-21 12:26:30.288	
+2026-01-21T17:26:30.288757Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev is 1 checkpoint(s) ahead, using snapshot sync
+2026-01-21 12:26:30.215	
+2026-01-21T17:26:30.215002Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:30.080	
+2026-01-21T17:26:30.080836Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:30.080	
+2026-01-21T17:26:30.080743Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:30.004	
+2026-01-21T17:26:30.004551Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:29.933	
+2026-01-21T17:26:29.933774Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.881	
+2026-01-21T17:26:29.881779Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.881	
+2026-01-21T17:26:29.881684Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.768	
+2026-01-21T17:26:29.768651Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:29.695	
+2026-01-21T17:26:29.694854Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.624	
+2026-01-21T17:26:29.624490Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.624	
+2026-01-21T17:26:29.624404Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.547	
+2026-01-21T17:26:29.547526Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:29.476	
+2026-01-21T17:26:29.476288Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.451	
+2026-01-21T17:26:29.451508Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.451	
+2026-01-21T17:26:29.451427Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.381	
+2026-01-21T17:26:29.381042Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:29.294	
+2026-01-21T17:26:29.294284Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.270	
+2026-01-21T17:26:29.270239Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.270	
+2026-01-21T17:26:29.270156Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.195	
+2026-01-21T17:26:29.195693Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:29.119	
+2026-01-21T17:26:29.119352Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.088	
+2026-01-21T17:26:29.088162Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.088	
+2026-01-21T17:26:29.088067Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.013	
+2026-01-21T17:26:29.013174Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:28.941	
+2026-01-21T17:26:28.937248Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:26.281	
+2026-01-21T17:26:26.281666Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:26.281	
+2026-01-21T17:26:26.281582Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:26.209	
+2026-01-21T17:26:26.205517Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2770 vs 2753), requesting delta sync...
+2026-01-21 12:26:24.679	
+2026-01-21T17:26:24.679183Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:26:24.516	
+2026-01-21T17:26:24.516270Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:24.516	
+2026-01-21T17:26:24.516182Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:24.424	
+2026-01-21T17:26:24.424685Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:24.341	
+2026-01-21T17:26:24.340565Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:16.278	
+2026-01-21T17:26:16.278110Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:16.278	
+2026-01-21T17:26:16.277987Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:16.205	
+2026-01-21T17:26:16.202193Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2770 vs 2753), requesting delta sync...
+2026-01-21 12:26:14.347	
+2026-01-21T17:26:14.346737Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:26:11.858	
+2026-01-21T17:26:11.857772Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:11.858	
+2026-01-21T17:26:11.857734Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:11.786	
+2026-01-21T17:26:11.786450Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:11.786	
+2026-01-21T17:26:11.786344Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:11.725	
+2026-01-21T17:26:11.725710Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:11.725	
+2026-01-21T17:26:11.725671Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:10.998	
+2026-01-21T17:26:10.998894Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.998	
+2026-01-21T17:26:10.998785Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:10.919	
+2026-01-21T17:26:10.919295Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.919	
+2026-01-21T17:26:10.919176Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:10.857	
+2026-01-21T17:26:10.857344Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.857	
+2026-01-21T17:26:10.857273Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:10.802	
+2026-01-21T17:26:10.802083Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.802	
+2026-01-21T17:26:10.801976Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:10.727	
+2026-01-21T17:26:10.727603Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.727	
+2026-01-21T17:26:10.727509Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:10.669	
+2026-01-21T17:26:10.669504Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.669	
+2026-01-21T17:26:10.669464Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:10.614	
+2026-01-21T17:26:10.613855Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.614	
+2026-01-21T17:26:10.613821Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:09.967	
+2026-01-21T17:26:09.966919Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.966	
+2026-01-21T17:26:09.966817Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:09.909	
+2026-01-21T17:26:09.908950Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.909	
+2026-01-21T17:26:09.908833Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:09.831	
+2026-01-21T17:26:09.830949Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.831	
+2026-01-21T17:26:09.830848Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:09.758	
+2026-01-21T17:26:09.758208Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.758	
+2026-01-21T17:26:09.758100Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:09.683	
+2026-01-21T17:26:09.683794Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.683	
+2026-01-21T17:26:09.683686Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:08.718	
+2026-01-21T17:26:08.718529Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:08.718	
+2026-01-21T17:26:08.718446Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:08.643	
+2026-01-21T17:26:08.642886Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2770 vs 2753), requesting delta sync...
+2026-01-21 12:26:08.557	
+2026-01-21T17:26:08.557868Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2753 DAG transactions
+2026-01-21 12:26:08.557	
+2026-01-21T17:26:08.557814Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:26:08.552	
+2026-01-21T17:26:08.552647Z  INFO rinku_node::state: Snapshot applied: 2753 DAG txs, 0 validators, 58 checkpoints, 0 contracts
+2026-01-21 12:26:08.552	
+2026-01-21T17:26:08.552549Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:26:08.552	
+2026-01-21T17:26:08.552511Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:26:08.552	
+2026-01-21T17:26:08.552390Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:26:08.533	
+2026-01-21T17:26:08.529565Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:26:08.533	
+2026-01-21T17:26:08.529553Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 58 checkpoints, 2753 dag txs
+2026-01-21 12:26:08.533	
+2026-01-21T17:26:08.529548Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:26:08.533	
+2026-01-21T17:26:08.529507Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 999 transactions to peer (0 failed)
+2026-01-21 12:26:06.986	
+2026-01-21T17:26:06.986412Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.986	
+2026-01-21T17:26:06.986259Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:06.929	
+2026-01-21T17:26:06.929297Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.929	
+2026-01-21T17:26:06.929163Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:06.874	
+2026-01-21T17:26:06.874340Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.874	
+2026-01-21T17:26:06.874191Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:06.819	
+2026-01-21T17:26:06.819442Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.819	
+2026-01-21T17:26:06.819324Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:06.763	
+2026-01-21T17:26:06.763628Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.763	
+2026-01-21T17:26:06.763513Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:06.709	
+2026-01-21T17:26:06.709230Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.709	
+2026-01-21T17:26:06.709077Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:06.290	
+2026-01-21T17:26:06.289864Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:26:06.289	
+2026-01-21T17:26:06.289092Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:26:06.289	
+2026-01-21T17:26:06.288987Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 58 checkpoints, 2753 dag txs, checkpoint height 58
+2026-01-21 12:26:06.201	
+2026-01-21T17:26:06.201544Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:26:06.136	
+2026-01-21T17:26:06.136710Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead (cp: 58 vs 57), requesting snapshot sync...
+2026-01-21 12:26:01.976	
+2026-01-21T17:26:01.976341Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:01.976	
+2026-01-21T17:26:01.976230Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:01.899	
+2026-01-21T17:26:01.899745Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:01.899	
+2026-01-21T17:26:01.899645Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:01.842	
+2026-01-21T17:26:01.841845Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:01.842	
+2026-01-21T17:26:01.841809Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:26:01.173	
+2026-01-21T17:26:01.172963Z  INFO rinku_node::api: Returning 42 of 42 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:01.173	
+2026-01-21T17:26:01.172801Z  INFO rinku_node::api: Sync delta request: checkpoint=58, offset=0, limit=500
+2026-01-21 12:26:01.094	
+2026-01-21T17:26:01.094587Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:26:00.943	
+2026-01-21T17:26:00.943071Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:26:00.943	
+2026-01-21T17:26:00.942949Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:59.938	
+2026-01-21T17:25:59.938316Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:59.938	
+2026-01-21T17:25:59.938206Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:59.867	
+2026-01-21T17:25:59.867740Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:59.867	
+2026-01-21T17:25:59.867639Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:59.811	
+2026-01-21T17:25:59.811575Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:59.811	
+2026-01-21T17:25:59.811517Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:59.806	
+2026-01-21T17:25:59.806836Z  INFO rinku_node::api: Returning 91 of 91 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:59.806	
+2026-01-21T17:25:59.806695Z  INFO rinku_node::api: Sync delta request: checkpoint=57, offset=0, limit=500
+2026-01-21 12:25:59.737	
+2026-01-21T17:25:59.737412Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:59.737	
+2026-01-21T17:25:59.737303Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:58.966	
+2026-01-21T17:25:58.966114Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:58.966	
+2026-01-21T17:25:58.965953Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:58.912	
+2026-01-21T17:25:58.912654Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:58.912	
+2026-01-21T17:25:58.912523Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:58.822	
+2026-01-21T17:25:58.822780Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:58.822	
+2026-01-21T17:25:58.822679Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:58.749	
+2026-01-21T17:25:58.749535Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:58.749	
+2026-01-21T17:25:58.749499Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:57.983	
+2026-01-21T17:25:57.983083Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.983	
+2026-01-21T17:25:57.982971Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:57.907	
+2026-01-21T17:25:57.907294Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.907	
+2026-01-21T17:25:57.907160Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:57.834	
+2026-01-21T17:25:57.834266Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.834	
+2026-01-21T17:25:57.834166Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:57.774	
+2026-01-21T17:25:57.774625Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.774	
+2026-01-21T17:25:57.774526Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:57.699	
+2026-01-21T17:25:57.699538Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.699	
+2026-01-21T17:25:57.699416Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:54.944	
+2026-01-21T17:25:54.944417Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:54.944	
+2026-01-21T17:25:54.944304Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:54.876	
+2026-01-21T17:25:54.875617Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:54.875	
+2026-01-21T17:25:54.875487Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:54.634	
+2026-01-21T17:25:54.633706Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:54.634	
+2026-01-21T17:25:54.633654Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:53.960	
+2026-01-21T17:25:53.960131Z  WARN rinku_node::network: Banning peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM for 300 secs: Repeated misbehavior
+2026-01-21 12:25:53.960	
+2026-01-21T17:25:53.959984Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM
+2026-01-21 12:25:51.217	
+2026-01-21T17:25:51.216217Z  INFO rinku_node::api: Returning 91 of 91 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:51.217	
+2026-01-21T17:25:51.216172Z  INFO rinku_node::api: Sync delta request: checkpoint=57, offset=0, limit=500
+2026-01-21 12:25:49.062	
+2026-01-21T17:25:49.062421Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:25:44.698	
+2026-01-21T17:25:44.698222Z  INFO rinku_node::gossip: Propagating 10 pending transactions to 4 peers
+2026-01-21 12:25:43.446	
+2026-01-21T17:25:43.445745Z  INFO rinku_node::gossip: Propagating 15 pending transactions to 4 peers
+2026-01-21 12:25:41.408	
+2026-01-21T17:25:41.408473Z  INFO rinku_node::gossip: Propagating 23 pending transactions to 4 peers
+2026-01-21 12:25:41.170	
+2026-01-21T17:25:41.170239Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 57 checkpoints, 2745 dag txs
+2026-01-21 12:25:41.169	
+2026-01-21T17:25:41.166760Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:25:40.233	
+2026-01-21T17:25:40.233928Z  INFO rinku_node::checkpoint: Created checkpoint cd93a7aedba4ff07 at height 57 (49 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:25:40.233	
+2026-01-21T17:25:40.233799Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:25:40.233	
+2026-01-21T17:25:40.233176Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 57 (peers: 1)
+2026-01-21 12:25:40.232	
+2026-01-21T17:25:40.232909Z  INFO rinku_node::checkpoint: Epoch transition: 21 -> 22 (activated: 0, exited: 0)
+2026-01-21 12:25:40.232	
+2026-01-21T17:25:40.232581Z  INFO rinku_node::validator_identity: Epoch transition: 21 -> 22
+2026-01-21 12:25:39.641	
+2026-01-21T17:25:39.641563Z  INFO rinku_node::gossip: Propagating 22 pending transactions to 4 peers
+2026-01-21 12:25:39.579	
+2026-01-21T17:25:39.578941Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:25:39.578	
+2026-01-21T17:25:39.578894Z  INFO rinku_node::gossip: Sync page: received 43/43 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:39.577	
+2026-01-21T17:25:39.577509Z  INFO rinku_node::api: Returning 43 of 43 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:39.577	
+2026-01-21T17:25:39.577346Z  INFO rinku_node::api: Sync delta request: checkpoint=56, offset=0, limit=500
+2026-01-21 12:25:39.501	
+2026-01-21T17:25:39.500967Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 2722 vs 2721), requesting delta sync...
+2026-01-21 12:25:38.791	
+2026-01-21T17:25:38.791355Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2721 DAG transactions
+2026-01-21 12:25:38.791	
+2026-01-21T17:25:38.791272Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:25:38.784	
+2026-01-21T17:25:38.784612Z  INFO rinku_node::state: Snapshot applied: 2721 DAG txs, 0 validators, 56 checkpoints, 0 contracts
+2026-01-21 12:25:38.784	
+2026-01-21T17:25:38.784592Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:25:38.784	
+2026-01-21T17:25:38.784568Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:25:38.784	
+2026-01-21T17:25:38.784442Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:25:38.761	
+2026-01-21T17:25:38.758344Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:25:38.761	
+2026-01-21T17:25:38.758324Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 56 checkpoints, 2721 dag txs
+2026-01-21 12:25:38.761	
+2026-01-21T17:25:38.758318Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:25:38.761	
+2026-01-21T17:25:38.758270Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:25:36.706	
+2026-01-21T17:25:36.706187Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:25:36.705	
+2026-01-21T17:25:36.704908Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:25:36.705	
+2026-01-21T17:25:36.704778Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 56 checkpoints, 2721 dag txs, checkpoint height 56
+2026-01-21 12:25:36.628	
+2026-01-21T17:25:36.628025Z  WARN rinku_node::gossip: Failed to add gossiped tx 43df6e59507994797e269ba4c2eaa5beaada49a9952dcaf63721990ad2dc756a: Invalid nonce: expected 554, got 553
+2026-01-21 12:25:36.628	
+2026-01-21T17:25:36.627933Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 554, got 553
+2026-01-21 12:25:36.588	
+2026-01-21T17:25:36.588373Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:25:36.509	
+2026-01-21T17:25:36.508031Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead (cp: 56 vs 55), requesting snapshot sync...
+2026-01-21 12:25:34.527	
+2026-01-21T17:25:34.526497Z  INFO rinku_node::gossip: Propagating 10 pending transactions to 4 peers
+2026-01-21 12:25:33.436	
+2026-01-21T17:25:33.436549Z  WARN rinku_node::gossip: Failed to add gossiped tx 1c3c40f65c55ecf655ce2c9003eabea0d803dc4a38e88ecc402dcfc1b608bb6a: Invalid nonce: expected 553, got 552
+2026-01-21 12:25:33.436	
+2026-01-21T17:25:33.436439Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 553, got 552
+2026-01-21 12:25:33.390	
+2026-01-21T17:25:33.389655Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:25:32.516	
+2026-01-21T17:25:32.515335Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:25:32.110	
+2026-01-21T17:25:32.109791Z  INFO rinku_node::gossip: Propagating 2 pending transactions to 4 peers
+2026-01-21 12:25:31.229	
+2026-01-21T17:25:31.229754Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:25:29.956	
+2026-01-21T17:25:29.955861Z  INFO rinku_node::gossip: Propagating 9 pending transactions to 4 peers
+2026-01-21 12:25:29.571	
+2026-01-21T17:25:29.569999Z  INFO rinku_node::api: Returning 102 of 102 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:29.571	
+2026-01-21T17:25:29.569958Z  INFO rinku_node::api: Sync delta request: checkpoint=56, offset=0, limit=500
+2026-01-21 12:25:27.554	
+2026-01-21T17:25:27.554127Z  INFO rinku_node::gossip: Propagating 10 pending transactions to 4 peers
+2026-01-21 12:25:26.472	
+2026-01-21T17:25:26.472280Z  WARN rinku_node::gossip: Failed to add gossiped tx 22309f028dc639fbccbb78d32860bb9782f35c3d5db37de3090fa470df49b029: Invalid nonce: expected 548, got 547
+2026-01-21 12:25:26.472	
+2026-01-21T17:25:26.471976Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 548, got 547
+2026-01-21 12:25:25.955	
+2026-01-21T17:25:25.955398Z  INFO rinku_node::gossip: Propagating 10 pending transactions to 4 peers
+2026-01-21 12:25:25.513	
+2026-01-21T17:25:25.510783Z  WARN rinku_node::gossip: Failed to add gossiped tx f31a6cd9f86600bd810459c5458bea17b56e4d9d0e5b48b848879b94008b7e26: Invalid nonce: expected 547, got 546
+2026-01-21 12:25:25.510	
+2026-01-21T17:25:25.510684Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 547, got 546
+2026-01-21 12:25:23.627	
+2026-01-21T17:25:23.626965Z  INFO rinku_node::gossip: Propagating 12 pending transactions to 4 peers
+2026-01-21 12:25:21.475	
+2026-01-21T17:25:21.475440Z  INFO rinku_node::gossip: Propagating 15 pending transactions to 4 peers
+2026-01-21 12:25:20.712	
+2026-01-21T17:25:20.710333Z  WARN rinku_node::gossip: Failed to add gossiped tx bd256662b2f3cfc7b6308c02fa6f9436b3552f3fdd7bec90063c513df9ee571b: Invalid nonce: expected 20, got 19
+2026-01-21 12:25:20.710	
+2026-01-21T17:25:20.710236Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 20, got 19
+2026-01-21 12:25:18.592	
+2026-01-21T17:25:18.592030Z  INFO rinku_node::gossip: Propagating 20 pending transactions to 4 peers
+2026-01-21 12:25:14.773	
+2026-01-21T17:25:14.773728Z  INFO rinku_node::gossip: Propagating 31 pending transactions to 4 peers
+2026-01-21 12:25:14.405	
+2026-01-21T17:25:14.405033Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:25:14.405	
+2026-01-21T17:25:14.404951Z  INFO rinku_node::gossip: Sync page: received 97/97 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:14.303	
+2026-01-21T17:25:14.302954Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev has more DAG data (dag: 2639 vs 2620), requesting delta sync...
+2026-01-21 12:25:12.383	
+2026-01-21T17:25:12.383599Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 55 checkpoints, 2612 dag txs
+2026-01-21 12:25:12.379	
+2026-01-21T17:25:12.379739Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:25:11.852	
+2026-01-21T17:25:11.852077Z  WARN rinku_node::gossip: Failed to add gossiped tx 08cc4120c8a904f438771de1dbac189dcf4eb3bd5b115297687fb18ddd91ad3b: Invalid nonce: expected 231, got 230
+2026-01-21 12:25:11.852	
+2026-01-21T17:25:11.851996Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 231, got 230
+2026-01-21 12:25:11.844	
+2026-01-21T17:25:11.840488Z  WARN rinku_node::gossip: Failed to add gossiped tx b60b6118975e1884c73acef69fb029652ce0706ebcc93289a9b87b31bdbb9f8f: Invalid nonce: expected 15, got 14
+2026-01-21 12:25:11.840	
+2026-01-21T17:25:11.840377Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 15, got 14
+2026-01-21 12:25:10.230	
+2026-01-21T17:25:10.230608Z  INFO rinku_node::checkpoint: Created checkpoint a2997afc82b65f11 at height 55 (50 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:25:10.230	
+2026-01-21T17:25:10.230479Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:25:10.230	
+2026-01-21T17:25:10.229500Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 55 (peers: 1)
+2026-01-21 12:25:09.793	
+2026-01-21T17:25:09.793084Z  INFO rinku_node::gossip: Propagating 33 pending transactions to 4 peers
+2026-01-21 12:25:03.493	
+2026-01-21T17:25:03.492940Z  INFO rinku_node::gossip: Propagating 43 pending transactions to 4 peers
+2026-01-21 12:25:03.419	
+2026-01-21T17:25:03.419572Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:25:03.419	
+2026-01-21T17:25:03.419520Z  INFO rinku_node::gossip: Sync page: received 17/17 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:03.418	
+2026-01-21T17:25:03.418582Z  INFO rinku_node::api: Returning 17 of 17 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:03.418	
+2026-01-21T17:25:03.418470Z  INFO rinku_node::api: Sync delta request: checkpoint=54, offset=0, limit=500
+2026-01-21 12:25:03.339	
+2026-01-21T17:25:03.339269Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 2563 vs 2560), requesting delta sync...
+2026-01-21 12:25:02.954	
+2026-01-21T17:25:02.954471Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2554 DAG transactions
+2026-01-21 12:25:02.954	
+2026-01-21T17:25:02.954380Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:25:02.947	
+2026-01-21T17:25:02.947111Z  INFO rinku_node::state: Snapshot applied: 2554 DAG txs, 0 validators, 54 checkpoints, 0 contracts
+2026-01-21 12:25:02.947	
+2026-01-21T17:25:02.946922Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:25:02.947	
+2026-01-21T17:25:02.946899Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:25:02.947	
+2026-01-21T17:25:02.946762Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:25:02.924	
+2026-01-21T17:25:02.921955Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:25:02.924	
+2026-01-21T17:25:02.921942Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 54 checkpoints, 2554 dag txs
+2026-01-21 12:25:02.924	
+2026-01-21T17:25:02.921938Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:25:02.924	
+2026-01-21T17:25:02.921893Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 999 transactions to peer (0 failed)
+2026-01-21 12:25:01.355	
+2026-01-21T17:25:01.354202Z  WARN rinku_node::gossip: Failed to add gossiped tx 90b1b3b4776cbe4ec98bf373ef2a6e746a8006215ef683de5541b914dc0dfecc: Invalid nonce: expected 522, got 521
+2026-01-21 12:25:01.355	
+2026-01-21T17:25:01.354090Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 522, got 521
+2026-01-21 12:25:00.587	
+2026-01-21T17:25:00.587390Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:25:00.586	
+2026-01-21T17:25:00.586578Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:25:00.586	
+2026-01-21T17:25:00.586452Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 54 checkpoints, 2554 dag txs, checkpoint height 54
+2026-01-21 12:25:00.504	
+2026-01-21T17:25:00.503967Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:25:00.436	
+2026-01-21T17:25:00.435235Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead (cp: 54 vs 53), requesting snapshot sync...
+2026-01-21 12:24:53.497	
+2026-01-21T17:24:53.497203Z  INFO rinku_node::api: Merge accounts request: 1 accounts from peer
+2026-01-21 12:24:52.292	
+2026-01-21T17:24:52.292210Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:24:52.292	
+2026-01-21T17:24:52.292123Z  INFO rinku_node::gossip: Sync page: received 44/44 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:52.210	
+2026-01-21T17:24:52.210262Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:24:52.134	
+2026-01-21T17:24:52.133898Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2580 DAG nodes vs our 2551 - spawning background sync
+2026-01-21 12:24:50.759	
+2026-01-21T17:24:50.758933Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:24:50.759	
+2026-01-21T17:24:50.758846Z  INFO rinku_node::gossip: Sync page: received 44/44 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:50.684	
+2026-01-21T17:24:50.684438Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:24:50.608	
+2026-01-21T17:24:50.608025Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2580 DAG nodes vs our 2551 - spawning background sync
+2026-01-21 12:24:50.507	
+2026-01-21T17:24:50.506759Z  INFO rinku_node::gossip: Propagating 18 pending transactions to 4 peers
+2026-01-21 12:24:50.422	
+2026-01-21T17:24:50.422064Z  WARN rinku_node::gossip: Failed to add gossiped tx 7acd48301bd940b230aeb4757f8e13ca9226d59683786d68bb373aa1b3fa5e04: Invalid nonce: expected 37, got 36
+2026-01-21 12:24:50.422	
+2026-01-21T17:24:50.421930Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 37, got 36
+2026-01-21 12:24:50.076	
+2026-01-21T17:24:50.075624Z  WARN rinku_node::gossip: Failed to add gossiped tx 704821a70f49cea1b346dc95dfb99abb5ba481df0124e0655122b9156406bef0: Invalid nonce: expected 37, got 36
+2026-01-21 12:24:50.075	
+2026-01-21T17:24:50.075481Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 37, got 36
+2026-01-21 12:24:48.540	
+2026-01-21T17:24:48.540423Z  WARN rinku_node::gossip: Failed to add gossiped tx c1a5250725d882e5aaffd0a50bf616223af1f63e3c5a5f9eb70230c2a90217e7: Invalid nonce: expected 223, got 222
+2026-01-21 12:24:48.540	
+2026-01-21T17:24:48.540337Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 223, got 222
+2026-01-21 12:24:48.470	
+2026-01-21T17:24:48.470803Z  WARN rinku_node::gossip: Failed to add gossiped tx 472c5be60a2e076d395bcc1a25342e8306de79909c28b7c1779749e967162f59: Invalid nonce: expected 36, got 35
+2026-01-21 12:24:48.470	
+2026-01-21T17:24:48.470723Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 36, got 35
+2026-01-21 12:24:47.779	
+2026-01-21T17:24:47.779494Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 53 checkpoints, 2533 dag txs
+2026-01-21 12:24:47.775	
+2026-01-21T17:24:47.775649Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:24:47.566	
+2026-01-21T17:24:47.566600Z  INFO rinku_node::gossip: Propagating 14 pending transactions to 4 peers
+2026-01-21 12:24:47.514	
+2026-01-21T17:24:47.513934Z  WARN rinku_node::gossip: Failed to add gossiped tx 955ea685a834a05bd6179eb2f77f20ba63351df02404110cefbb9145a232cbf8: Invalid nonce: expected 172, got 171
+2026-01-21 12:24:47.513	
+2026-01-21T17:24:47.513839Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 172, got 171
+2026-01-21 12:24:47.487	
+2026-01-21T17:24:47.487916Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:24:47.487	
+2026-01-21T17:24:47.487867Z  INFO rinku_node::gossip: Sync page: received 195/195 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:47.483	
+2026-01-21T17:24:47.483438Z  INFO rinku_node::api: Returning 195 of 195 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:47.483	
+2026-01-21T17:24:47.483343Z  INFO rinku_node::api: Sync delta request: checkpoint=53, offset=0, limit=500
+2026-01-21 12:24:47.483	
+2026-01-21T17:24:47.482927Z  WARN rinku_node::gossip: Failed to add gossiped tx bfb204cba7ade54c9883c32c559eca1ebb29ff5dc95ac19cfda9850ada09da7f: Invalid nonce: expected 222, got 221
+2026-01-21 12:24:47.482	
+2026-01-21T17:24:47.482863Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 222, got 221
+2026-01-21 12:24:47.406	
+2026-01-21T17:24:47.406749Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 2529 vs 2528), requesting delta sync...
+2026-01-21 12:24:47.180	
+2026-01-21T17:24:47.178143Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:24:47.178	
+2026-01-21T17:24:47.177997Z  INFO rinku_node::gossip: Sync page: received 434/434 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:46.374	
+2026-01-21T17:24:46.374610Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2580 vs 2528), requesting delta sync...
+2026-01-21 12:24:46.373	
+2026-01-21T17:24:46.373716Z  INFO rinku_node::network: Identified peer 12D3KooWMiqxxVTQCC1toHcf8LtEa2BR4RiE24CQQQt1Zr84vKyM: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 12:24:46.220	
+2026-01-21T17:24:46.220109Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:24:46.220	
+2026-01-21T17:24:46.220017Z  INFO rinku_node::gossip: Sync page: received 429/429 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:46.128	
+2026-01-21T17:24:46.125424Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev has more DAG data (dag: 2575 vs 2528), requesting delta sync...
+2026-01-21 12:24:44.987	
+2026-01-21T17:24:44.986242Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:24:44.027	
+2026-01-21T17:24:44.026632Z  INFO rinku_node::gossip: Propagating 6 pending transactions to 4 peers
+2026-01-21 12:24:43.232	
+2026-01-21T17:24:43.232213Z  INFO rinku_node::gossip: Propagating 2 pending transactions to 4 peers
+2026-01-21 12:24:42.757	
+2026-01-21T17:24:42.757456Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:42.278	
+2026-01-21T17:24:42.277667Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:41.396	
+2026-01-21T17:24:41.395450Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:40.424	
+2026-01-21T17:24:40.424579Z  INFO rinku_node::gossip: Propagating 7 pending transactions to 4 peers
+2026-01-21 12:24:40.227	
+2026-01-21T17:24:40.227388Z  INFO rinku_node::checkpoint: Created checkpoint ba356e626a68cd56 at height 53 (159 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:24:40.227	
+2026-01-21T17:24:40.227202Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:24:40.226	
+2026-01-21T17:24:40.226538Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 53 (peers: 1)
+2026-01-21 12:24:40.226	
+2026-01-21T17:24:40.225993Z  INFO rinku_node::checkpoint: Epoch transition: 20 -> 21 (activated: 0, exited: 0)
+2026-01-21 12:24:40.225	
+2026-01-21T17:24:40.225716Z  INFO rinku_node::validator_identity: Epoch transition: 20 -> 21
+2026-01-21 12:24:39.305	
+2026-01-21T17:24:39.304965Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:38.827	
+2026-01-21T17:24:38.827282Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:37.490	
+2026-01-21T17:24:37.490358Z  INFO rinku_node::gossip: Propagating 8 pending transactions to 4 peers
+2026-01-21 12:24:37.437	
+2026-01-21T17:24:37.437683Z  WARN rinku_node::gossip: Failed to add gossiped tx bde894308f96d67ec1c6579bea4c2b6ef054cef59584003389c4a0634944275b: Invalid nonce: expected 524, got 523
+2026-01-21 12:24:37.437	
+2026-01-21T17:24:37.437598Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 524, got 523
+2026-01-21 12:24:36.985	
+2026-01-21T17:24:36.985741Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:36.618	
+2026-01-21T17:24:36.618794Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:24:36.618	
+2026-01-21T17:24:36.618696Z  INFO rinku_node::gossip: Sync page: received 382/382 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:36.527	
+2026-01-21T17:24:36.526820Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2528 vs 2477), requesting delta sync...
+2026-01-21 12:24:36.446	
+2026-01-21T17:24:36.446751Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:24:36.446	
+2026-01-21T17:24:36.446649Z  INFO rinku_node::gossip: Sync page: received 378/378 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:36.362	
+2026-01-21T17:24:36.362057Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev has more DAG data (dag: 2524 vs 2477), requesting delta sync...
+2026-01-21 12:24:35.864	
+2026-01-21T17:24:35.864029Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:35.553	
+2026-01-21T17:24:35.553154Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:34.748	
+2026-01-21T17:24:34.748482Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:34.119	
+2026-01-21T17:24:34.118845Z  INFO rinku_node::gossip: Propagating 6 pending transactions to 4 peers
+2026-01-21 12:24:33.646	
+2026-01-21T17:24:33.645999Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:33.003	
+2026-01-21T17:24:33.003292Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:32.190	
+2026-01-21T17:24:32.190450Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:31.556	
+2026-01-21T17:24:31.552420Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:31.158	
+2026-01-21T17:24:31.157587Z  INFO rinku_node::gossip: Propagating 2 pending transactions to 4 peers
+2026-01-21 12:24:30.666	
+2026-01-21T17:24:30.665887Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:29.389	
+2026-01-21T17:24:29.388828Z  INFO rinku_node::gossip: Propagating 6 pending transactions to 4 peers
+2026-01-21 12:24:28.667	
+2026-01-21T17:24:28.666495Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:28.489	
+2026-01-21T17:24:28.489652Z  INFO rinku_node::network: Identified peer 12D3KooWBdT44b2yjAZpsrRQHxCbb2WqiqtGJaXMky8jtPe7Ejon: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 12:24:28.429	
+2026-01-21T17:24:28.429272Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:27.544	
+2026-01-21T17:24:27.543660Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:27.309	
+2026-01-21T17:24:27.309050Z  INFO rinku_node::gossip: Propagating 2 pending transactions to 4 peers
+2026-01-21 12:24:26.906	
+2026-01-21T17:24:26.905935Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:26.541	
+2026-01-21T17:24:26.541729Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:26.261	
+2026-01-21T17:24:26.261749Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:24:26.261	
+2026-01-21T17:24:26.261659Z  INFO rinku_node::gossip: Sync page: received 320/320 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:26.180	
+2026-01-21T17:24:26.178753Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2466 vs 2415), requesting delta sync...
+2026-01-21 12:24:25.628	
+2026-01-21T17:24:25.627766Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:25.311	
+2026-01-21T17:24:25.311262Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:25.146	
+2026-01-21T17:24:25.145845Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:24.829	
+2026-01-21T17:24:24.828663Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:23.947	
+2026-01-21T17:24:23.946472Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:23.468	
+2026-01-21T17:24:23.468222Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:22.905	
+2026-01-21T17:24:22.904616Z  INFO rinku_node::gossip: Propagating 6 pending transactions to 4 peers
+2026-01-21 12:24:22.425	
+2026-01-21T17:24:22.425104Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:24:21.314	
+2026-01-21T17:24:21.312813Z  INFO rinku_node::api: Returning 229 of 229 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:21.314	
+2026-01-21T17:24:21.312759Z  INFO rinku_node::api: Sync delta request: checkpoint=48, offset=0, limit=500
+2026-01-21 12:24:21.169	
+2026-01-21T17:24:21.168369Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:20.775	
+2026-01-21T17:24:20.775543Z  WARN rinku_node::gossip: Failed to propagate tx 4bbc72db57fda7a5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:20.695	
+2026-01-21T17:24:20.695048Z  WARN rinku_node::gossip: Failed to propagate tx ed93d86e6aa03bb4 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:20.456	
+2026-01-21T17:24:20.456016Z  WARN rinku_node::gossip: Failed to propagate tx 93de4d7c2f03bc30 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:20.378	
+2026-01-21T17:24:20.377861Z  WARN rinku_node::gossip: Failed to propagate tx 9c7d864a3c459020 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:20.332	
+2026-01-21T17:24:20.332191Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:20.300	
+2026-01-21T17:24:20.299752Z  INFO rinku_node::api: Snapshot sync response: 14 accounts, 0 validators, 52 checkpoints, 2381 dag txs
+2026-01-21 12:24:20.300	
+2026-01-21T17:24:20.296359Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:24:20.134	
+2026-01-21T17:24:20.134613Z  WARN rinku_node::gossip: Failed to propagate tx 555270ab7d222fc9 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:19.983	
+2026-01-21T17:24:19.982891Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:18.858	
+2026-01-21T17:24:18.858225Z  WARN rinku_node::gossip: Failed to propagate tx 561cb57dce413bdc to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:18.776	
+2026-01-21T17:24:18.776130Z  WARN rinku_node::gossip: Failed to propagate tx 3682f68ab5642314 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:17.657	
+2026-01-21T17:24:17.656854Z  WARN rinku_node::gossip: Failed to propagate tx 27b4b5a8d0c8ef47 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:17.574	
+2026-01-21T17:24:17.574371Z  WARN rinku_node::gossip: Failed to propagate tx e29b9c34aa780315 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:17.497	
+2026-01-21T17:24:17.496723Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:16.302	
+2026-01-21T17:24:16.302423Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:24:16.302	
+2026-01-21T17:24:16.302299Z  INFO rinku_node::gossip: Sync page: received 284/284 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:16.220	
+2026-01-21T17:24:16.219723Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2430 vs 2375), requesting delta sync...
+2026-01-21 12:24:15.814	
+2026-01-21T17:24:15.814670Z  WARN rinku_node::gossip: Failed to propagate tx 933d50a33398c852 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.736	
+2026-01-21T17:24:15.736315Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:15.654	
+2026-01-21T17:24:15.654202Z  WARN rinku_node::gossip: Failed to propagate tx 8da089778101c02f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.584	
+2026-01-21T17:24:15.584634Z  WARN rinku_node::gossip: Failed to propagate tx 4a0354349dffb1c9 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.575	
+2026-01-21T17:24:15.575177Z  WARN rinku_node::gossip: Failed to propagate tx 8bc815236f623fa9 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.529	
+2026-01-21T17:24:15.529717Z  WARN rinku_node::gossip: Failed to propagate tx 81004ca0dbcee50f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.513	
+2026-01-21T17:24:15.513717Z  WARN rinku_node::gossip: Failed to propagate tx ee2ed510ffae726d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.505	
+2026-01-21T17:24:15.504987Z  WARN rinku_node::gossip: Failed to propagate tx 77b73cfa008d0566 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.495	
+2026-01-21T17:24:15.495555Z  WARN rinku_node::gossip: Failed to propagate tx a1b633422c2352f9 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.484	
+2026-01-21T17:24:15.484321Z  INFO rinku_node::gossip: Propagating 7 pending transactions to 4 peers
+2026-01-21 12:24:15.278	
+2026-01-21T17:24:15.278108Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:24:15.174	
+2026-01-21T17:24:15.174346Z  WARN rinku_node::gossip: Failed to propagate tx c9a74229748af6f4 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.122	
+2026-01-21T17:24:15.122466Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:15.117	
+2026-01-21T17:24:15.116920Z  WARN rinku_node::gossip: Failed to propagate tx 3c4e92f2082cc984 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.108	
+2026-01-21T17:24:15.107901Z  WARN rinku_node::gossip: Failed to propagate tx ea8b4fc7733b14a1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.099	
+2026-01-21T17:24:15.099030Z  WARN rinku_node::gossip: Failed to propagate tx d2d050816e9d4062 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:15.015	
+2026-01-21T17:24:15.015622Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:14.455	
+2026-01-21T17:24:14.454513Z  WARN rinku_node::gossip: Failed to propagate tx 5d362c9fa75091a3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:14.382	
+2026-01-21T17:24:14.382515Z  WARN rinku_node::gossip: Failed to propagate tx 92ffecd45aba78b3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:14.375	
+2026-01-21T17:24:14.375299Z  WARN rinku_node::gossip: Failed to propagate tx 271b9979eeff7124 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:14.298	
+2026-01-21T17:24:14.298757Z  WARN rinku_node::gossip: Failed to propagate tx 0309e8bdaedad19f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:14.227	
+2026-01-21T17:24:14.227484Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:14.221	
+2026-01-21T17:24:14.221260Z  WARN rinku_node::gossip: Failed to propagate tx 65b7bbd618a2077c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:14.214	
+2026-01-21T17:24:14.213943Z  WARN rinku_node::gossip: Failed to propagate tx 2add1f899794d9e0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:14.134	
+2026-01-21T17:24:14.134653Z  WARN rinku_node::gossip: Failed to propagate tx 5338343261b7b3b3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:14.061	
+2026-01-21T17:24:14.061290Z  WARN rinku_node::gossip: Failed to propagate tx 1969d464943db90d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:13.977	
+2026-01-21T17:24:13.977602Z  WARN rinku_node::gossip: Failed to propagate tx b29237a6e3d5ece0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:13.910	
+2026-01-21T17:24:13.909139Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:24:13.910	
+2026-01-21T17:24:13.908970Z  WARN rinku_node::gossip: Failed to add gossiped tx e3e4fb175bdf98dee2ceaab2e60d31a5c77047a50ef754bbbbd8ffc549d184b8: Invalid nonce: expected 464, got 463
+2026-01-21 12:24:13.910	
+2026-01-21T17:24:13.908943Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 464, got 463
+2026-01-21 12:24:13.494	
+2026-01-21T17:24:13.494561Z  WARN rinku_node::gossip: Failed to propagate tx 1483872e8bac2914 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:13.337	
+2026-01-21T17:24:13.336991Z  WARN rinku_node::gossip: Failed to propagate tx 81f89870a3a651eb to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:13.272	
+2026-01-21T17:24:13.272191Z  WARN rinku_node::gossip: Failed to propagate tx a7ae697b8c01c782 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:13.266	
+2026-01-21T17:24:13.265962Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:13.257	
+2026-01-21T17:24:13.257206Z  WARN rinku_node::gossip: Failed to propagate tx 549fed4548cdf378 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:13.174	
+2026-01-21T17:24:13.174100Z  WARN rinku_node::gossip: Failed to propagate tx d7b5d67c68ac0c2e to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:13.126	
+2026-01-21T17:24:13.126554Z  WARN rinku_node::gossip: Failed to propagate tx 7288df062fcf3dc2 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:13.113	
+2026-01-21T17:24:13.113665Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:12.797	
+2026-01-21T17:24:12.797761Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:24:12.786	
+2026-01-21T17:24:12.786580Z  WARN rinku_node::gossip: Failed to propagate tx 0c753d0b3df662a9 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:12.775	
+2026-01-21T17:24:12.775294Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:12.717	
+2026-01-21T17:24:12.716221Z  WARN rinku_node::gossip: Failed to propagate tx 11ddb0af14733c91 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:12.704	
+2026-01-21T17:24:12.702561Z  WARN rinku_node::gossip: Failed to propagate tx 3da7351be99fb1dc to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:12.661	
+2026-01-21T17:24:12.661596Z  INFO rinku_node::api: Snapshot sync response: 14 accounts, 0 validators, 52 checkpoints, 2347 dag txs
+2026-01-21 12:24:12.658	
+2026-01-21T17:24:12.658407Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:24:12.616	
+2026-01-21T17:24:12.616045Z  WARN rinku_node::gossip: Failed to propagate tx f2bb738f22733db2 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:12.473	
+2026-01-21T17:24:12.472804Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:12.217	
+2026-01-21T17:24:12.217401Z  WARN rinku_node::gossip: Failed to propagate tx de73adc68bc460b5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:12.136	
+2026-01-21T17:24:12.135860Z  WARN rinku_node::gossip: Failed to propagate tx 4f5cdbf5b447fcf1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:11.895	
+2026-01-21T17:24:11.895690Z  WARN rinku_node::gossip: Failed to propagate tx 2c7ac861478121b5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:11.824	
+2026-01-21T17:24:11.824017Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:11.748	
+2026-01-21T17:24:11.745943Z  WARN rinku_node::gossip: Failed to propagate tx 4c2c7203438990b5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:11.748	
+2026-01-21T17:24:11.745784Z  WARN rinku_node::gossip: Failed to add gossiped tx d376cda13c9b01b08166348ff39c7f9eab6868841550bff864e733ade9460c46: Invalid nonce: expected 345, got 343
+2026-01-21 12:24:11.745	
+2026-01-21T17:24:11.745699Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 345, got 343
+2026-01-21 12:24:11.661	
+2026-01-21T17:24:11.661369Z  WARN rinku_node::gossip: Failed to propagate tx e3c33eddee91ae6e to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:11.577	
+2026-01-21T17:24:11.577810Z  WARN rinku_node::gossip: Failed to propagate tx e44d004d99fb00b1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:11.499	
+2026-01-21T17:24:11.499038Z  WARN rinku_node::gossip: Failed to propagate tx 5dfa2a91a32fe09d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:11.417	
+2026-01-21T17:24:11.417052Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:11.335	
+2026-01-21T17:24:11.335045Z  WARN rinku_node::gossip: Failed to propagate tx a65f0ec16aea0b96 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:11.268	
+2026-01-21T17:24:11.268507Z  WARN rinku_node::gossip: Failed to propagate tx 0b9aeb404fc61bf8 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:11.174	
+2026-01-21T17:24:11.174294Z  WARN rinku_node::gossip: Failed to propagate tx 3d7fe3ba73dcd573 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:11.033	
+2026-01-21T17:24:11.032849Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:10.536	
+2026-01-21T17:24:10.536421Z  WARN rinku_node::gossip: Failed to propagate tx 7f64c55956d82053 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:10.457	
+2026-01-21T17:24:10.456596Z  WARN rinku_node::gossip: Failed to propagate tx 0825e664d97fb3a5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:10.375	
+2026-01-21T17:24:10.375526Z  WARN rinku_node::gossip: Failed to propagate tx 6b14e5b5902edfb6 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:10.299	
+2026-01-21T17:24:10.298968Z  WARN rinku_node::gossip: Failed to propagate tx 4222119fa06a3153 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:10.220	
+2026-01-21T17:24:10.220770Z  INFO rinku_node::checkpoint: Created checkpoint 50a0b989b17420cd at height 52 (139 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:24:10.220	
+2026-01-21T17:24:10.220609Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:24:10.220	
+2026-01-21T17:24:10.219918Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 52 (peers: 1)
+2026-01-21 12:24:10.215	
+2026-01-21T17:24:10.215612Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:09.975	
+2026-01-21T17:24:09.975702Z  WARN rinku_node::gossip: Failed to propagate tx 42f37a14b052ed16 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:09.736	
+2026-01-21T17:24:09.735928Z  WARN rinku_node::gossip: Failed to propagate tx a076a28e48a2999a to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:09.497	
+2026-01-21T17:24:09.496927Z  WARN rinku_node::gossip: Failed to propagate tx cea6e8daea609f42 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:09.421	
+2026-01-21T17:24:09.420893Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:09.257	
+2026-01-21T17:24:09.257378Z  WARN rinku_node::gossip: Failed to propagate tx 33e7f9b72639ccd3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:09.192	
+2026-01-21T17:24:09.192079Z  WARN rinku_node::gossip: Failed to add gossiped tx c198e45e25205cc89d2c12fec11ed3e31c6cd73f047f4d557b9600998038bcc7: Invalid nonce: expected 342, got 341
+2026-01-21 12:24:09.192	
+2026-01-21T17:24:09.191909Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 342, got 341
+2026-01-21 12:24:09.097	
+2026-01-21T17:24:09.097310Z  WARN rinku_node::gossip: Failed to propagate tx aff8bebb352401f2 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:08.937	
+2026-01-21T17:24:08.937301Z  WARN rinku_node::gossip: Failed to propagate tx 8e4c32f4599eef38 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:08.775	
+2026-01-21T17:24:08.775531Z  WARN rinku_node::gossip: Failed to propagate tx 4c561b3977fe657d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:08.623	
+2026-01-21T17:24:08.622836Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:08.455	
+2026-01-21T17:24:08.454924Z  WARN rinku_node::gossip: Failed to propagate tx 1af01b95f1732595 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:08.376	
+2026-01-21T17:24:08.376090Z  WARN rinku_node::gossip: Failed to propagate tx d4e63ab389b8e45b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:08.311	
+2026-01-21T17:24:08.311012Z  WARN rinku_node::gossip: Failed to propagate tx 9dde2db9a25a4af6 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:08.229	
+2026-01-21T17:24:08.229259Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:24:08.139	
+2026-01-21T17:24:08.139455Z  WARN rinku_node::gossip: Failed to propagate tx 6a674a461b115d4b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:08.065	
+2026-01-21T17:24:08.064592Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:07.575	
+2026-01-21T17:24:07.575142Z  WARN rinku_node::gossip: Failed to propagate tx 0952717b0c167a1c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:07.415	
+2026-01-21T17:24:07.415111Z  WARN rinku_node::gossip: Failed to propagate tx 8efbfb54fdb51f3c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:07.334	
+2026-01-21T17:24:07.334262Z  WARN rinku_node::gossip: Failed to propagate tx 4effd142dde381d4 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:07.097	
+2026-01-21T17:24:07.097295Z  WARN rinku_node::gossip: Failed to propagate tx 75e91d2e3b43df38 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:07.021	
+2026-01-21T17:24:07.021269Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:06.781	
+2026-01-21T17:24:06.781131Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:24:06.781	
+2026-01-21T17:24:06.781044Z  INFO rinku_node::gossip: Sync page: received 221/221 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:06.620	
+2026-01-21T17:24:06.620258Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2367 vs 2318), requesting delta sync...
+2026-01-21 12:24:06.378	
+2026-01-21T17:24:06.378480Z  WARN rinku_node::gossip: Failed to propagate tx 3af24ce8c985d211 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:06.217	
+2026-01-21T17:24:06.217488Z  WARN rinku_node::gossip: Failed to propagate tx 109f9f3090f36fb4 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:06.061	
+2026-01-21T17:24:06.061456Z  WARN rinku_node::gossip: Failed to propagate tx 34e09de5fc300de5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:05.974	
+2026-01-21T17:24:05.974672Z  WARN rinku_node::gossip: Failed to propagate tx 40a8ae209aae3a7b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:05.906	
+2026-01-21T17:24:05.905989Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:05.895	
+2026-01-21T17:24:05.895009Z  WARN rinku_node::gossip: Failed to propagate tx 2ee4ea79b177f3d7 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:05.814	
+2026-01-21T17:24:05.814463Z  WARN rinku_node::gossip: Failed to propagate tx 4fedd190aa47ad91 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:05.734	
+2026-01-21T17:24:05.734746Z  WARN rinku_node::gossip: Failed to propagate tx b5edcc6df0708be6 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:05.661	
+2026-01-21T17:24:05.661063Z  WARN rinku_node::gossip: Failed to propagate tx 39899af93b35bf11 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:05.577	
+2026-01-21T17:24:05.577277Z  WARN rinku_node::gossip: Failed to propagate tx 4753eb7fc6b74ee6 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:05.510	
+2026-01-21T17:24:05.510370Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:24:05.340	
+2026-01-21T17:24:05.340494Z  WARN rinku_node::gossip: Failed to propagate tx 57ff4dabcb640a19 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:05.105	
+2026-01-21T17:24:05.105755Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:24:04.940	
+2026-01-21T17:24:04.939807Z  WARN rinku_node::gossip: Failed to propagate tx 06aedbaf03183b94 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:04.779	
+2026-01-21T17:24:04.779301Z  WARN rinku_node::gossip: Failed to propagate tx a55b90f3e1fe3a0d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:04.616	
+2026-01-21T17:24:04.615834Z  WARN rinku_node::gossip: Failed to propagate tx 7c41a152ce883fc7 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:04.457	
+2026-01-21T17:24:04.457113Z  WARN rinku_node::gossip: Failed to propagate tx d3de59c3cae487bc to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:04.298	
+2026-01-21T17:24:04.298787Z  WARN rinku_node::gossip: Failed to propagate tx c8280d15cf66f31f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:04.237	
+2026-01-21T17:24:04.236892Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:24:03.026	
+2026-01-21T17:24:03.026226Z  WARN rinku_node::gossip: Failed to propagate tx fc614988e7b09892 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:03.020	
+2026-01-21T17:24:03.019962Z  WARN rinku_node::gossip: Failed to propagate tx 7146de9db5e18a8a to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:03.012	
+2026-01-21T17:24:03.012664Z  WARN rinku_node::gossip: Failed to propagate tx 028c1e376164ccb5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:03.010	
+2026-01-21T17:24:03.010300Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:24:03.010	
+2026-01-21T17:24:03.010220Z  INFO rinku_node::gossip: Sync page: received 90/90 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:02.998	
+2026-01-21T17:24:02.998199Z  WARN rinku_node::gossip: Failed to propagate tx 0691450bdb1ab355 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:02.927	
+2026-01-21T17:24:02.927525Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:24:02.912	
+2026-01-21T17:24:02.912488Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:02.823	
+2026-01-21T17:24:02.823652Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2322 DAG nodes vs our 2296 - spawning background sync
+2026-01-21 12:24:02.751	
+2026-01-21T17:24:02.750931Z  WARN rinku_node::gossip: Failed to propagate tx 55ba4a51ffceff7c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:02.690	
+2026-01-21T17:24:02.690743Z  WARN rinku_node::gossip: Failed to propagate tx 2c34421a72f56c5b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:02.682	
+2026-01-21T17:24:02.682663Z  WARN rinku_node::gossip: Failed to propagate tx ed0e3afd050c9034 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:02.675	
+2026-01-21T17:24:02.675699Z  WARN rinku_node::gossip: Failed to propagate tx c22c7e958e724bdc to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:02.620	
+2026-01-21T17:24:02.619472Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:24:01.934	
+2026-01-21T17:24:01.934530Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:24:01.895	
+2026-01-21T17:24:01.894878Z  WARN rinku_node::gossip: Failed to propagate tx a1b10534ae88f612 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.840	
+2026-01-21T17:24:01.840384Z  WARN rinku_node::gossip: Failed to propagate tx 00dc884ec2ea3580 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.831	
+2026-01-21T17:24:01.831815Z  WARN rinku_node::gossip: Failed to propagate tx 86e869131111ad22 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.824	
+2026-01-21T17:24:01.823928Z  WARN rinku_node::gossip: Failed to propagate tx a29bbe3d1bef1a2a to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.815	
+2026-01-21T17:24:01.815313Z  WARN rinku_node::gossip: Failed to propagate tx 1f8a6ae3f9f2c606 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.763	
+2026-01-21T17:24:01.763070Z  WARN rinku_node::gossip: Failed to propagate tx 744d9380aebb0c28 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.753	
+2026-01-21T17:24:01.753726Z  WARN rinku_node::gossip: Failed to propagate tx 8f70815157ea1355 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.745	
+2026-01-21T17:24:01.745036Z  WARN rinku_node::gossip: Failed to propagate tx 54c56cea0eb387b0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.736	
+2026-01-21T17:24:01.736078Z  WARN rinku_node::gossip: Failed to propagate tx f333f4bc1e253264 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.682	
+2026-01-21T17:24:01.682430Z  WARN rinku_node::gossip: Failed to propagate tx 9802bd69a02efeb0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.675	
+2026-01-21T17:24:01.675092Z  WARN rinku_node::gossip: Failed to propagate tx 72ceeba89de9b3de to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.666	
+2026-01-21T17:24:01.666251Z  WARN rinku_node::gossip: Failed to propagate tx 836b404247d0156d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.656	
+2026-01-21T17:24:01.656492Z  WARN rinku_node::gossip: Failed to propagate tx e01af2c1e1b660dc to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.585	
+2026-01-21T17:24:01.584953Z  WARN rinku_node::gossip: Failed to propagate tx e906095e4fd72375 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.575	
+2026-01-21T17:24:01.575522Z  WARN rinku_node::gossip: Failed to propagate tx f10505ec711aed84 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016261
+2026-01-21 12:24:01.563	
+2026-01-21T17:24:01.563174Z  INFO rinku_node::gossip: Propagating 15 pending transactions to 4 peers
+2026-01-21 12:24:01.562	
+2026-01-21T17:24:01.561970Z  WARN rinku_node::gossip: Peer https://rinkuchan.com failed 1 times, backoff for 20s
+2026-01-21 12:24:00.394	
+2026-01-21T17:24:00.394037Z  WARN rinku_node::gossip: Failed to add gossiped tx 7489887c72e28da0296cdbecf4a97d5034304ddd7d68e1fece49b503b23358e6: Invalid nonce: expected 504, got 503
+2026-01-21 12:24:00.394	
+2026-01-21T17:24:00.393929Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 504, got 503
+2026-01-21 12:24:00.189	
+2026-01-21T17:24:00.188525Z  INFO rinku_node::gossip: Propagating 9 pending transactions to 4 peers
+2026-01-21 12:24:00.148	
+2026-01-21T17:24:00.147829Z  INFO rinku_node::api: Snapshot sync response: 14 accounts, 0 validators, 51 checkpoints, 2277 dag txs
+2026-01-21 12:24:00.148	
+2026-01-21T17:24:00.144530Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:23:57.479	
+2026-01-21T17:23:57.478788Z  INFO rinku_node::gossip: Propagating 18 pending transactions to 4 peers
+2026-01-21 12:23:57.176	
+2026-01-21T17:23:57.176196Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:23:57.176	
+2026-01-21T17:23:57.176116Z  INFO rinku_node::gossip: Sync page: received 165/165 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:56.774	
+2026-01-21T17:23:56.774094Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2307 vs 2260), requesting delta sync...
+2026-01-21 12:23:56.660	
+2026-01-21T17:23:56.660465Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:23:56.660	
+2026-01-21T17:23:56.660370Z  INFO rinku_node::gossip: Sync page: received 159/159 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:56.588	
+2026-01-21T17:23:56.585005Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev has more DAG data (dag: 2304 vs 2259), requesting delta sync...
+2026-01-21 12:23:54.920	
+2026-01-21T17:23:54.920228Z  INFO rinku_node::gossip: Propagating 11 pending transactions to 4 peers
+2026-01-21 12:23:51.396	
+2026-01-21T17:23:51.395969Z  INFO rinku_node::gossip: Propagating 17 pending transactions to 4 peers
+2026-01-21 12:23:50.809	
+2026-01-21T17:23:50.809782Z  WARN rinku_node::gossip: Failed to add gossiped tx 399c8427c0e99820bc2a10cca936300a41d89d5a50075468b517a7d40f520ee5: Invalid nonce: expected 5, got 4
+2026-01-21 12:23:50.809	
+2026-01-21T17:23:50.809779Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 5, got 4
+2026-01-21 12:23:50.809	
+2026-01-21T17:23:50.809742Z  WARN rinku_node::gossip: Failed to add gossiped tx 33af651a575f4c537118e8bd6877a1e4373b7a8f1cdf1e9d5e4166733ccac687: Invalid nonce: expected 500, got 499
+2026-01-21 12:23:50.809	
+2026-01-21T17:23:50.809653Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 500, got 499
+2026-01-21 12:23:48.595	
+2026-01-21T17:23:48.594839Z  INFO rinku_node::gossip: Propagating 18 pending transactions to 4 peers
+2026-01-21 12:23:48.296	
+2026-01-21T17:23:48.294891Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:23:48.296	
+2026-01-21T17:23:48.294866Z  INFO rinku_node::gossip: Sync page: received 119/119 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:47.416	
+2026-01-21T17:23:47.414420Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2265 vs 2216), requesting delta sync...
+2026-01-21 12:23:46.581	
+2026-01-21T17:23:46.581246Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:23:46.581	
+2026-01-21T17:23:46.581158Z  INFO rinku_node::gossip: Sync page: received 115/115 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:46.508	
+2026-01-21T17:23:46.506632Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev has more DAG data (dag: 2261 vs 2216), requesting delta sync...
+2026-01-21 12:23:45.420	
+2026-01-21T17:23:45.420366Z  INFO rinku_node::api: Merge accounts request: 1 accounts from peer
+2026-01-21 12:23:42.281	
+2026-01-21T17:23:42.281051Z  INFO rinku_node::gossip: Propagating 14 pending transactions to 4 peers
+2026-01-21 12:23:40.215	
+2026-01-21T17:23:40.215137Z  INFO rinku_node::checkpoint: Created checkpoint 45032aec4b055ed5 at height 51 (35 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:23:40.215	
+2026-01-21T17:23:40.215099Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:23:40.215	
+2026-01-21T17:23:40.214550Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 51 (peers: 1)
+2026-01-21 12:23:40.215	
+2026-01-21T17:23:40.214402Z  INFO rinku_node::checkpoint: Epoch transition: 19 -> 20 (activated: 0, exited: 0)
+2026-01-21 12:23:40.215	
+2026-01-21T17:23:40.214206Z  INFO rinku_node::validator_identity: Epoch transition: 19 -> 20
+2026-01-21 12:23:38.668	
+2026-01-21T17:23:38.667639Z  INFO rinku_node::gossip: Propagating 20 pending transactions to 4 peers
+2026-01-21 12:23:38.062	
+2026-01-21T17:23:38.062405Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:38.062	
+2026-01-21T17:23:38.062321Z  INFO rinku_node::gossip: Sync page: received 89/89 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:37.974	
+2026-01-21T17:23:37.974818Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2235 vs 2190), requesting delta sync...
+2026-01-21 12:23:37.853	
+2026-01-21T17:23:37.853249Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2190 DAG transactions
+2026-01-21 12:23:37.853	
+2026-01-21T17:23:37.853197Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:23:37.848	
+2026-01-21T17:23:37.848853Z  INFO rinku_node::state: Snapshot applied: 2190 DAG txs, 0 validators, 50 checkpoints, 0 contracts
+2026-01-21 12:23:37.848	
+2026-01-21T17:23:37.848825Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:23:37.848	
+2026-01-21T17:23:37.848706Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:23:37.848	
+2026-01-21T17:23:37.848578Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:23:37.832	
+2026-01-21T17:23:37.829049Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 13 total
+2026-01-21 12:23:37.832	
+2026-01-21T17:23:37.829034Z  INFO rinku_node::state: Applying sync snapshot: 13 accounts, 50 checkpoints, 2190 dag txs
+2026-01-21 12:23:37.829	
+2026-01-21T17:23:37.828954Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:23:37.829	
+2026-01-21T17:23:37.828858Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:23:35.522	
+2026-01-21T17:23:35.522451Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:23:35.521	
+2026-01-21T17:23:35.521753Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:23:35.521	
+2026-01-21T17:23:35.521638Z  INFO rinku_node::gossip: Received snapshot: 13 accounts, 50 checkpoints, 2190 dag txs, checkpoint height 50
+2026-01-21 12:23:35.442	
+2026-01-21T17:23:35.442086Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:23:35.380	
+2026-01-21T17:23:35.379474Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead (cp: 50 vs 49), requesting snapshot sync...
+2026-01-21 12:23:34.748	
+2026-01-21T17:23:34.748269Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:23:33.632	
+2026-01-21T17:23:33.631964Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:23:33.386	
+2026-01-21T17:23:33.385499Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:23:32.985	
+2026-01-21T17:23:32.985159Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:23:31.867	
+2026-01-21T17:23:31.866303Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:23:31.709	
+2026-01-21T17:23:31.709352Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:23:31.386	
+2026-01-21T17:23:31.385453Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:23:31.151	
+2026-01-21T17:23:31.150817Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:23:30.188	
+2026-01-21T17:23:30.188174Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:23:29.710	
+2026-01-21T17:23:29.709340Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:23:28.425	
+2026-01-21T17:23:28.424879Z  INFO rinku_node::gossip: Propagating 14 pending transactions to 4 peers
+2026-01-21 12:23:26.192	
+2026-01-21T17:23:26.192119Z  INFO rinku_node::gossip: Propagating 24 pending transactions to 4 peers
+2026-01-21 12:23:26.117	
+2026-01-21T17:23:26.117505Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:26.117	
+2026-01-21T17:23:26.117442Z  INFO rinku_node::gossip: Sync page: received 102/102 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:26.115	
+2026-01-21T17:23:26.115056Z  INFO rinku_node::api: Returning 102 of 102 transactions with 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:26.115	
+2026-01-21T17:23:26.114915Z  INFO rinku_node::api: Sync delta request: checkpoint=49, offset=0, limit=500
+2026-01-21 12:23:26.039	
+2026-01-21T17:23:26.039679Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 2161 vs 2159), requesting delta sync...
+2026-01-21 12:23:25.814	
+2026-01-21T17:23:25.814742Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:25.814	
+2026-01-21T17:23:25.814658Z  INFO rinku_node::gossip: Sync page: received 110/110 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:25.665	
+2026-01-21T17:23:25.665628Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2169 vs 2157), requesting delta sync...
+2026-01-21 12:23:25.665	
+2026-01-21T17:23:25.665332Z  WARN rinku_node::gossip: Failed to add gossiped tx 4f572f927c00483bb3dcdebbadab6bd3f16b675683a5b9eaba760df495263a93: Invalid nonce: expected 320, got 319
+2026-01-21 12:23:25.665	
+2026-01-21T17:23:25.665245Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 320, got 319
+2026-01-21 12:23:22.376	
+2026-01-21T17:23:22.374739Z  INFO rinku_node::api: Returning 81 of 81 transactions with 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:22.376	
+2026-01-21T17:23:22.374697Z  INFO rinku_node::api: Sync delta request: checkpoint=48, offset=0, limit=500
+2026-01-21 12:23:20.364	
+2026-01-21T17:23:20.364145Z  INFO rinku_node::gossip: Propagating 21 pending transactions to 4 peers
+2026-01-21 12:23:18.304	
+2026-01-21T17:23:18.304875Z  WARN rinku_node::gossip: Failed to add gossiped tx 3ec78bea84e27bc2743a375dce77dec76c8f7e53d9ea8364aa3d6b7a252cd964: Invalid nonce: expected 172, got 171
+2026-01-21 12:23:18.304	
+2026-01-21T17:23:18.304773Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 172, got 171
+2026-01-21 12:23:17.611	
+2026-01-21T17:23:17.610814Z  INFO rinku_node::api: Snapshot sync response: 13 accounts, 0 validators, 49 checkpoints, 2124 dag txs
+2026-01-21 12:23:17.611	
+2026-01-21T17:23:17.608138Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:23:15.921	
+2026-01-21T17:23:15.921040Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:15.921	
+2026-01-21T17:23:15.920944Z  INFO rinku_node::gossip: Sync page: received 88/88 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:15.839	
+2026-01-21T17:23:15.839147Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:15.767	
+2026-01-21T17:23:15.767526Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2146 DAG nodes vs our 2123 - spawning background sync
+2026-01-21 12:23:15.720	
+2026-01-21T17:23:15.720412Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:15.720	
+2026-01-21T17:23:15.720303Z  INFO rinku_node::gossip: Sync page: received 87/87 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:15.626	
+2026-01-21T17:23:15.626538Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:15.555	
+2026-01-21T17:23:15.551244Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2146 DAG nodes vs our 2122 - spawning background sync
+2026-01-21 12:23:14.980	
+2026-01-21T17:23:14.980589Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:14.980	
+2026-01-21T17:23:14.980502Z  INFO rinku_node::gossip: Sync page: received 83/83 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:14.902	
+2026-01-21T17:23:14.902398Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:14.829	
+2026-01-21T17:23:14.829529Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2141 DAG nodes vs our 2118 - spawning background sync
+2026-01-21 12:23:14.828	
+2026-01-21T17:23:14.828023Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:14.828	
+2026-01-21T17:23:14.827938Z  INFO rinku_node::gossip: Sync page: received 83/83 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:14.751	
+2026-01-21T17:23:14.751419Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:14.675	
+2026-01-21T17:23:14.672011Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2141 DAG nodes vs our 2118 - spawning background sync
+2026-01-21 12:23:14.188	
+2026-01-21T17:23:14.188433Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:14.188	
+2026-01-21T17:23:14.188352Z  INFO rinku_node::gossip: Sync page: received 81/81 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:14.108	
+2026-01-21T17:23:14.108376Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:14.031	
+2026-01-21T17:23:14.031133Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2140 DAG nodes vs our 2116 - spawning background sync
+2026-01-21 12:23:14.030	
+2026-01-21T17:23:14.029442Z  INFO rinku_node::gossip: Propagating 19 pending transactions to 4 peers
+2026-01-21 12:23:12.699	
+2026-01-21T17:23:12.696268Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:12.699	
+2026-01-21T17:23:12.696243Z  INFO rinku_node::gossip: Sync page: received 62/62 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:12.238	
+2026-01-21T17:23:12.238436Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:12.238	
+2026-01-21T17:23:12.238349Z  INFO rinku_node::gossip: Sync page: received 78/78 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:12.158	
+2026-01-21T17:23:12.158183Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:12.081	
+2026-01-21T17:23:12.080784Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2137 DAG nodes vs our 2113 - spawning background sync
+2026-01-21 12:23:12.048	
+2026-01-21T17:23:12.048095Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:12.048	
+2026-01-21T17:23:12.047990Z  INFO rinku_node::gossip: Sync page: received 78/78 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:11.963	
+2026-01-21T17:23:11.963021Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:11.886	
+2026-01-21T17:23:11.886824Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2137 DAG nodes vs our 2113 - spawning background sync
+2026-01-21 12:23:11.817	
+2026-01-21T17:23:11.817722Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2121 vs 2110), requesting delta sync...
+2026-01-21 12:23:11.704	
+2026-01-21T17:23:11.704389Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:11.704	
+2026-01-21T17:23:11.704299Z  INFO rinku_node::gossip: Sync page: received 75/75 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:11.625	
+2026-01-21T17:23:11.625313Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev has more DAG data (dag: 2134 vs 2110), requesting delta sync...
+2026-01-21 12:23:11.263	
+2026-01-21T17:23:11.263683Z  INFO rinku_node::api: Snapshot sync response: 13 accounts, 0 validators, 49 checkpoints, 2110 dag txs
+2026-01-21 12:23:11.263	
+2026-01-21T17:23:11.260910Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:23:11.243	
+2026-01-21T17:23:11.243561Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:11.243	
+2026-01-21T17:23:11.243470Z  INFO rinku_node::gossip: Sync page: received 75/75 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:11.163	
+2026-01-21T17:23:11.163688Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:11.067	
+2026-01-21T17:23:11.067552Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2130 DAG nodes vs our 2106 - spawning background sync
+2026-01-21 12:23:10.714	
+2026-01-21T17:23:10.714839Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:10.714	
+2026-01-21T17:23:10.714757Z  INFO rinku_node::gossip: Sync page: received 71/71 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:10.638	
+2026-01-21T17:23:10.637838Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:10.561	
+2026-01-21T17:23:10.561360Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2130 DAG nodes vs our 2106 - spawning background sync
+2026-01-21 12:23:10.495	
+2026-01-21T17:23:10.495425Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:10.495	
+2026-01-21T17:23:10.495288Z  INFO rinku_node::gossip: Sync page: received 71/71 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:10.408	
+2026-01-21T17:23:10.408547Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:10.335	
+2026-01-21T17:23:10.333189Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2130 DAG nodes vs our 2106 - spawning background sync
+2026-01-21 12:23:10.213	
+2026-01-21T17:23:10.212985Z  INFO rinku_node::checkpoint: Created checkpoint 61eeeec7158ad398 at height 49 (47 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:23:10.212	
+2026-01-21T17:23:10.212849Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:23:10.212	
+2026-01-21T17:23:10.212125Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 49 (peers: 1)
+2026-01-21 12:23:10.089	
+2026-01-21T17:23:10.089571Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:10.089	
+2026-01-21T17:23:10.089474Z  INFO rinku_node::gossip: Sync page: received 168/168 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:10.007	
+2026-01-21T17:23:10.007821Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:09.918	
+2026-01-21T17:23:09.918041Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2126 DAG nodes vs our 2102 - spawning background sync
+2026-01-21 12:23:09.690	
+2026-01-21T17:23:09.690838Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:09.690	
+2026-01-21T17:23:09.690770Z  INFO rinku_node::gossip: Sync page: received 164/164 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:09.600	
+2026-01-21T17:23:09.599933Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:09.501	
+2026-01-21T17:23:09.501381Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2122 DAG nodes vs our 2098 - spawning background sync
+2026-01-21 12:23:09.461	
+2026-01-21T17:23:09.461765Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:09.461	
+2026-01-21T17:23:09.461680Z  INFO rinku_node::gossip: Sync page: received 160/160 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:09.364	
+2026-01-21T17:23:09.363832Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:09.269	
+2026-01-21T17:23:09.269737Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2121 DAG nodes vs our 2097 - spawning background sync
+2026-01-21 12:23:09.253	
+2026-01-21T17:23:09.253689Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:09.253	
+2026-01-21T17:23:09.253592Z  INFO rinku_node::gossip: Sync page: received 159/159 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:09.169	
+2026-01-21T17:23:09.169177Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:09.071	
+2026-01-21T17:23:09.071075Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2121 DAG nodes vs our 2097 - spawning background sync
+2026-01-21 12:23:08.988	
+2026-01-21T17:23:08.988266Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:08.988	
+2026-01-21T17:23:08.988174Z  INFO rinku_node::gossip: Sync page: received 158/158 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:08.907	
+2026-01-21T17:23:08.907177Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:08.831	
+2026-01-21T17:23:08.831604Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2119 DAG nodes vs our 2097 - spawning background sync
+2026-01-21 12:23:08.733	
+2026-01-21T17:23:08.732962Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:08.733	
+2026-01-21T17:23:08.732869Z  INFO rinku_node::gossip: Sync page: received 157/157 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:08.655	
+2026-01-21T17:23:08.654959Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:08.580	
+2026-01-21T17:23:08.580273Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2118 DAG nodes vs our 2097 - spawning background sync
+2026-01-21 12:23:08.556	
+2026-01-21T17:23:08.556750Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:08.556	
+2026-01-21T17:23:08.556651Z  INFO rinku_node::gossip: Sync page: received 156/156 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:08.480	
+2026-01-21T17:23:08.480260Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:08.404	
+2026-01-21T17:23:08.403872Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2118 DAG nodes vs our 2097 - spawning background sync
+2026-01-21 12:23:08.385	
+2026-01-21T17:23:08.385788Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:08.385	
+2026-01-21T17:23:08.385702Z  INFO rinku_node::gossip: Sync page: received 156/156 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:08.306	
+2026-01-21T17:23:08.306044Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:08.227	
+2026-01-21T17:23:08.227259Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2118 DAG nodes vs our 2097 - spawning background sync
+2026-01-21 12:23:08.214	
+2026-01-21T17:23:08.214736Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:08.214	
+2026-01-21T17:23:08.214644Z  INFO rinku_node::gossip: Sync page: received 156/156 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:08.132	
+2026-01-21T17:23:08.132490Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:08.056	
+2026-01-21T17:23:08.056536Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2118 DAG nodes vs our 2097 - spawning background sync
+2026-01-21 12:23:08.022	
+2026-01-21T17:23:08.022540Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:08.022	
+2026-01-21T17:23:08.022439Z  INFO rinku_node::gossip: Sync page: received 156/156 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:07.939	
+2026-01-21T17:23:07.938953Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:07.855	
+2026-01-21T17:23:07.855042Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2118 DAG nodes vs our 2097 - spawning background sync
+2026-01-21 12:23:07.754	
+2026-01-21T17:23:07.754850Z  INFO rinku_node::gossip: Propagating 27 pending transactions to 4 peers
+2026-01-21 12:23:07.511	
+2026-01-21T17:23:07.511364Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:07.511	
+2026-01-21T17:23:07.511276Z  INFO rinku_node::gossip: Sync page: received 151/151 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:07.400	
+2026-01-21T17:23:07.400556Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:07.323	
+2026-01-21T17:23:07.320786Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2113 DAG nodes vs our 2089 - spawning background sync
+2026-01-21 12:23:07.226	
+2026-01-21T17:23:07.226219Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:07.226	
+2026-01-21T17:23:07.226128Z  INFO rinku_node::gossip: Sync page: received 151/151 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:07.146	
+2026-01-21T17:23:07.146529Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:07.063	
+2026-01-21T17:23:07.063301Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2113 DAG nodes vs our 2089 - spawning background sync
+2026-01-21 12:23:06.894	
+2026-01-21T17:23:06.894194Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:06.894	
+2026-01-21T17:23:06.894085Z  INFO rinku_node::gossip: Sync page: received 149/149 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:06.802	
+2026-01-21T17:23:06.801981Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:06.711	
+2026-01-21T17:23:06.711648Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2111 DAG nodes vs our 2087 - spawning background sync
+2026-01-21 12:23:06.463	
+2026-01-21T17:23:06.463296Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:06.463	
+2026-01-21T17:23:06.463213Z  INFO rinku_node::gossip: Sync page: received 145/145 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:06.385	
+2026-01-21T17:23:06.385778Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:06.301	
+2026-01-21T17:23:06.301337Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2104 DAG nodes vs our 2083 - spawning background sync
+2026-01-21 12:23:05.969	
+2026-01-21T17:23:05.969153Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:05.969	
+2026-01-21T17:23:05.969059Z  INFO rinku_node::gossip: Sync page: received 142/142 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:05.886	
+2026-01-21T17:23:05.886725Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:05.805	
+2026-01-21T17:23:05.805241Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2104 DAG nodes vs our 2080 - spawning background sync
+2026-01-21 12:23:05.584	
+2026-01-21T17:23:05.584393Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:05.584	
+2026-01-21T17:23:05.584306Z  INFO rinku_node::gossip: Sync page: received 142/142 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:05.478	
+2026-01-21T17:23:05.478495Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:05.387	
+2026-01-21T17:23:05.384911Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2101 DAG nodes vs our 2077 - spawning background sync
+2026-01-21 12:23:05.335	
+2026-01-21T17:23:05.335079Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:05.335	
+2026-01-21T17:23:05.334965Z  INFO rinku_node::gossip: Sync page: received 139/139 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:05.258	
+2026-01-21T17:23:05.258376Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:05.174	
+2026-01-21T17:23:05.174162Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2101 DAG nodes vs our 2077 - spawning background sync
+2026-01-21 12:23:05.125	
+2026-01-21T17:23:05.125701Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:05.125	
+2026-01-21T17:23:05.125603Z  INFO rinku_node::gossip: Sync page: received 139/139 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:05.045	
+2026-01-21T17:23:05.045580Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:04.963	
+2026-01-21T17:23:04.961779Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2101 DAG nodes vs our 2077 - spawning background sync
+2026-01-21 12:23:04.740	
+2026-01-21T17:23:04.740310Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:04.740	
+2026-01-21T17:23:04.740225Z  INFO rinku_node::gossip: Sync page: received 139/139 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:04.661	
+2026-01-21T17:23:04.661461Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:04.564	
+2026-01-21T17:23:04.563936Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2100 DAG nodes vs our 2076 - spawning background sync
+2026-01-21 12:23:04.410	
+2026-01-21T17:23:04.410739Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:04.410	
+2026-01-21T17:23:04.410654Z  INFO rinku_node::gossip: Sync page: received 132/132 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:04.331	
+2026-01-21T17:23:04.331241Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:04.254	
+2026-01-21T17:23:04.253911Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2094 DAG nodes vs our 2070 - spawning background sync
+2026-01-21 12:23:04.201	
+2026-01-21T17:23:04.201751Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:04.201	
+2026-01-21T17:23:04.201664Z  INFO rinku_node::gossip: Sync page: received 132/132 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:04.119	
+2026-01-21T17:23:04.119706Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:04.042	
+2026-01-21T17:23:04.041972Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2094 DAG nodes vs our 2070 - spawning background sync
+2026-01-21 12:23:03.768	
+2026-01-21T17:23:03.768318Z  INFO rinku_node::gossip: Propagating 31 pending transactions to 4 peers
+2026-01-21 12:23:03.727	
+2026-01-21T17:23:03.727734Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:03.727	
+2026-01-21T17:23:03.727529Z  INFO rinku_node::gossip: Sync page: received 132/132 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:03.647	
+2026-01-21T17:23:03.647429Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:03.562	
+2026-01-21T17:23:03.561897Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2094 DAG nodes vs our 2070 - spawning background sync
+2026-01-21 12:23:03.559	
+2026-01-21T17:23:03.559463Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:23:03.559	
+2026-01-21T17:23:03.559421Z  INFO rinku_node::gossip: Sync page: received 11/11 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:03.558	
+2026-01-21T17:23:03.558622Z  INFO rinku_node::api: Returning 11 of 11 transactions with 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:03.558	
+2026-01-21T17:23:03.558537Z  INFO rinku_node::api: Sync delta request: checkpoint=48, offset=0, limit=500
+2026-01-21 12:23:03.553	
+2026-01-21T17:23:03.553432Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:03.553	
+2026-01-21T17:23:03.553337Z  INFO rinku_node::gossip: Sync page: received 129/129 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:03.467	
+2026-01-21T17:23:03.466870Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 2064 vs 2063), requesting delta sync...
+2026-01-21 12:23:03.382	
+2026-01-21T17:23:03.382631Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:03.305	
+2026-01-21T17:23:03.305138Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2087 DAG nodes vs our 2063 - spawning background sync
+2026-01-21 12:23:03.201	
+2026-01-21T17:23:03.201772Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:03.201	
+2026-01-21T17:23:03.201681Z  INFO rinku_node::gossip: Sync page: received 125/125 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:03.109	
+2026-01-21T17:23:03.109098Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:03.036	
+2026-01-21T17:23:03.036101Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2087 DAG nodes vs our 2063 - spawning background sync
+2026-01-21 12:23:03.034	
+2026-01-21T17:23:03.034190Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:23:03.034	
+2026-01-21T17:23:03.033969Z  INFO rinku_node::gossip: Sync page: received 125/125 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:02.963	
+2026-01-21T17:23:02.963222Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:23:02.963	
+2026-01-21T17:23:02.963137Z  INFO rinku_node::gossip: Sync page: received 12/12 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:02.878	
+2026-01-21T17:23:02.878433Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2071 vs 2063), requesting delta sync...
+2026-01-21 12:23:02.807	
+2026-01-21T17:23:02.807178Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:23:02.721	
+2026-01-21T17:23:02.720923Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2087 DAG nodes vs our 2063 - spawning background sync
+2026-01-21 12:23:02.650	
+2026-01-21T17:23:02.650569Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2063 DAG transactions
+2026-01-21 12:23:02.650	
+2026-01-21T17:23:02.650487Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:23:02.645	
+2026-01-21T17:23:02.645437Z  INFO rinku_node::state: Snapshot applied: 2063 DAG txs, 0 validators, 48 checkpoints, 0 contracts
+2026-01-21 12:23:02.645	
+2026-01-21T17:23:02.645413Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:23:02.645	
+2026-01-21T17:23:02.645301Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:23:02.645	
+2026-01-21T17:23:02.645172Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:23:02.627	
+2026-01-21T17:23:02.625589Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 13 total
+2026-01-21 12:23:02.627	
+2026-01-21T17:23:02.625572Z  INFO rinku_node::state: Applying sync snapshot: 13 accounts, 48 checkpoints, 2063 dag txs
+2026-01-21 12:23:02.627	
+2026-01-21T17:23:02.625568Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:23:02.627	
+2026-01-21T17:23:02.625526Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:23:00.540	
+2026-01-21T17:23:00.540847Z  INFO rinku_node::api: Returning 182 of 182 transactions with 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:23:00.540	
+2026-01-21T17:23:00.540676Z  INFO rinku_node::api: Sync delta request: checkpoint=47, offset=0, limit=500
+2026-01-21 12:22:59.632	
+2026-01-21T17:22:59.632339Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:22:59.632	
+2026-01-21T17:22:59.631356Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:22:59.631	
+2026-01-21T17:22:59.631213Z  INFO rinku_node::gossip: Received snapshot: 13 accounts, 48 checkpoints, 2063 dag txs, checkpoint height 48
+2026-01-21 12:22:59.176	
+2026-01-21T17:22:59.175918Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:22:59.111	
+2026-01-21T17:22:59.110482Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead (cp: 48 vs 47), requesting snapshot sync...
+2026-01-21 12:22:58.515	
+2026-01-21T17:22:58.514588Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:58.127	
+2026-01-21T17:22:58.127725Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:57.786	
+2026-01-21T17:22:57.785921Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:22:57.562	
+2026-01-21T17:22:57.561982Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:22:56.860	
+2026-01-21T17:22:56.860324Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:56.667	
+2026-01-21T17:22:56.667401Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:22:56.361	
+2026-01-21T17:22:56.361083Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:56.240	
+2026-01-21T17:22:56.240579Z  INFO rinku_node::api: Returning 149 of 149 transactions with 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:56.240	
+2026-01-21T17:22:56.240445Z  INFO rinku_node::api: Sync delta request: checkpoint=47, offset=0, limit=500
+2026-01-21 12:22:56.081	
+2026-01-21T17:22:56.081500Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:22:55.964	
+2026-01-21T17:22:55.964262Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:22:55.230	
+2026-01-21T17:22:55.230393Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:22:54.906	
+2026-01-21T17:22:54.906522Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:22:54.365	
+2026-01-21T17:22:54.365741Z  INFO rinku_node::gossip: Propagating 8 pending transactions to 4 peers
+2026-01-21 12:22:53.384	
+2026-01-21T17:22:53.383477Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:52.815	
+2026-01-21T17:22:52.815039Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:22:51.832	
+2026-01-21T17:22:51.831708Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:51.307	
+2026-01-21T17:22:51.307023Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:50.833	
+2026-01-21T17:22:50.833400Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:22:50.343	
+2026-01-21T17:22:50.342386Z  INFO rinku_node::api: Returning 111 of 111 transactions with 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:50.343	
+2026-01-21T17:22:50.342343Z  INFO rinku_node::api: Sync delta request: checkpoint=47, offset=0, limit=500
+2026-01-21 12:22:49.889	
+2026-01-21T17:22:49.889590Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:49.482	
+2026-01-21T17:22:49.482031Z  INFO rinku_node::gossip: Propagating 5 pending transactions to 4 peers
+2026-01-21 12:22:47.994	
+2026-01-21T17:22:47.994649Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:22:47.874	
+2026-01-21T17:22:47.874574Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:22:47.569	
+2026-01-21T17:22:47.569607Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:22:47.448	
+2026-01-21T17:22:47.447852Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:22:47.149	
+2026-01-21T17:22:47.148354Z  INFO rinku_node::gossip: Propagating 1 pending transactions to 4 peers
+2026-01-21 12:22:46.860	
+2026-01-21T17:22:46.860093Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:22:46.533	
+2026-01-21T17:22:46.532108Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:46.181	
+2026-01-21T17:22:46.180917Z  INFO rinku_node::api: Snapshot sync response: 13 accounts, 0 validators, 47 checkpoints, 1995 dag txs
+2026-01-21 12:22:46.178	
+2026-01-21T17:22:46.177936Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:22:45.990	
+2026-01-21T17:22:45.990725Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:45.882	
+2026-01-21T17:22:45.882324Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:22:45.882	
+2026-01-21T17:22:45.882230Z  INFO rinku_node::gossip: Sync page: received 95/95 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:45.785	
+2026-01-21T17:22:45.785379Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:45.662	
+2026-01-21T17:22:45.662265Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 2004 DAG nodes vs our 1991 - spawning background sync
+2026-01-21 12:22:45.519	
+2026-01-21T17:22:45.518915Z  INFO rinku_node::gossip: Propagating 4 pending transactions to 4 peers
+2026-01-21 12:22:44.884	
+2026-01-21T17:22:44.884583Z  INFO rinku_node::gossip: Propagating 9 pending transactions to 4 peers
+2026-01-21 12:22:43.838	
+2026-01-21T17:22:43.838680Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:22:43.838	
+2026-01-21T17:22:43.838579Z  INFO rinku_node::gossip: Sync page: received 82/82 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:43.745	
+2026-01-21T17:22:43.745040Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:43.721	
+2026-01-21T17:22:43.721497Z  INFO rinku_node::gossip: Propagating 13 pending transactions to 4 peers
+2026-01-21 12:22:43.654	
+2026-01-21T17:22:43.654789Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1989 DAG nodes vs our 1978 - spawning background sync
+2026-01-21 12:22:43.319	
+2026-01-21T17:22:43.319562Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:22:43.319	
+2026-01-21T17:22:43.319303Z  INFO rinku_node::gossip: Sync page: received 80/80 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:43.229	
+2026-01-21T17:22:43.229401Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:43.146	
+2026-01-21T17:22:43.146637Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1989 DAG nodes vs our 1978 - spawning background sync
+2026-01-21 12:22:43.100	
+2026-01-21T17:22:43.100365Z  INFO rinku_node::gossip: Applied 9 account nonces from peer
+2026-01-21 12:22:43.100	
+2026-01-21T17:22:43.100176Z  INFO rinku_node::gossip: Sync page: received 80/80 transactions, 9 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:42.899	
+2026-01-21T17:22:42.899338Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:42.475	
+2026-01-21T17:22:42.473381Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1982 DAG nodes vs our 1970 - spawning background sync
+2026-01-21 12:22:42.271	
+2026-01-21T17:22:42.271403Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:22:42.271	
+2026-01-21T17:22:42.271317Z  INFO rinku_node::gossip: Sync page: received 73/73 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:42.185	
+2026-01-21T17:22:42.185490Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:42.106	
+2026-01-21T17:22:42.106680Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1982 DAG nodes vs our 1969 - spawning background sync
+2026-01-21 12:22:41.876	
+2026-01-21T17:22:41.876271Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:22:41.876	
+2026-01-21T17:22:41.876182Z  INFO rinku_node::gossip: Sync page: received 73/73 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:41.796	
+2026-01-21T17:22:41.796295Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:41.586	
+2026-01-21T17:22:41.585978Z  INFO rinku_node::api: Snapshot sync response: 13 accounts, 0 validators, 47 checkpoints, 1966 dag txs
+2026-01-21 12:22:41.583	
+2026-01-21T17:22:41.583557Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:22:41.513	
+2026-01-21T17:22:41.513230Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1979 DAG nodes vs our 1966 - spawning background sync
+2026-01-21 12:22:41.453	
+2026-01-21T17:22:41.453301Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:22:41.453	
+2026-01-21T17:22:41.453201Z  INFO rinku_node::gossip: Sync page: received 70/70 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:41.380	
+2026-01-21T17:22:41.379964Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:41.303	
+2026-01-21T17:22:41.302603Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1979 DAG nodes vs our 1966 - spawning background sync
+2026-01-21 12:22:41.252	
+2026-01-21T17:22:41.252067Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:22:41.252	
+2026-01-21T17:22:41.251979Z  INFO rinku_node::gossip: Sync page: received 70/70 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:41.168	
+2026-01-21T17:22:41.167944Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:41.083	
+2026-01-21T17:22:41.083646Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1979 DAG nodes vs our 1966 - spawning background sync
+2026-01-21 12:22:40.920	
+2026-01-21T17:22:40.920436Z  INFO rinku_node::gossip: Applied 8 account nonces from peer
+2026-01-21 12:22:40.920	
+2026-01-21T17:22:40.920338Z  INFO rinku_node::gossip: Sync page: received 70/70 transactions, 8 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:40.639	
+2026-01-21T17:22:40.639539Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:40.427	
+2026-01-21T17:22:40.426546Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1977 DAG nodes vs our 1965 - spawning background sync
+2026-01-21 12:22:40.399	
+2026-01-21T17:22:40.399609Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:40.399	
+2026-01-21T17:22:40.399508Z  INFO rinku_node::gossip: Sync page: received 68/68 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:40.388	
+2026-01-21T17:22:40.388392Z  INFO rinku_node::gossip: Propagating 19 pending transactions to 4 peers
+2026-01-21 12:22:40.294	
+2026-01-21T17:22:40.294638Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:40.221	
+2026-01-21T17:22:40.221005Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1973 DAG nodes vs our 1962 - spawning background sync
+2026-01-21 12:22:40.211	
+2026-01-21T17:22:40.211245Z  INFO rinku_node::checkpoint: Created checkpoint b5e4b375ea758043 at height 47 (53 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:22:40.211	
+2026-01-21T17:22:40.211103Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:22:40.210	
+2026-01-21T17:22:40.210427Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 47 (peers: 1)
+2026-01-21 12:22:40.210	
+2026-01-21T17:22:40.210153Z  INFO rinku_node::checkpoint: Epoch transition: 18 -> 19 (activated: 0, exited: 0)
+2026-01-21 12:22:40.209	
+2026-01-21T17:22:40.209811Z  INFO rinku_node::validator_identity: Epoch transition: 18 -> 19
+2026-01-21 12:22:40.157	
+2026-01-21T17:22:40.156954Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:40.157	
+2026-01-21T17:22:40.156867Z  INFO rinku_node::gossip: Sync page: received 144/144 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:40.150	
+2026-01-21T17:22:40.150163Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:40.150	
+2026-01-21T17:22:40.150103Z  INFO rinku_node::gossip: Sync page: received 53/53 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:40.148	
+2026-01-21T17:22:40.148637Z  INFO rinku_node::api: Returning 53 of 53 transactions with 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:40.148	
+2026-01-21T17:22:40.148547Z  INFO rinku_node::api: Sync delta request: checkpoint=46, offset=0, limit=500
+2026-01-21 12:22:40.065	
+2026-01-21T17:22:40.064761Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:39.983	
+2026-01-21T17:22:39.983303Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 1962 vs 1960), requesting delta sync...
+2026-01-21 12:22:39.749	
+2026-01-21T17:22:39.749538Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1971 DAG nodes vs our 1960 - spawning background sync
+2026-01-21 12:22:39.594	
+2026-01-21T17:22:39.594796Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:39.594	
+2026-01-21T17:22:39.594698Z  INFO rinku_node::gossip: Sync page: received 142/142 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:39.565	
+2026-01-21T17:22:39.565648Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:39.565	
+2026-01-21T17:22:39.565533Z  INFO rinku_node::gossip: Sync page: received 141/141 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:39.482	
+2026-01-21T17:22:39.482036Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev has more DAG data (dag: 1970 vs 1955), requesting delta sync...
+2026-01-21 12:22:39.398	
+2026-01-21T17:22:39.398486Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:39.234	
+2026-01-21T17:22:39.234184Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1968 DAG nodes vs our 1955 - spawning background sync
+2026-01-21 12:22:38.964	
+2026-01-21T17:22:38.964875Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:38.964	
+2026-01-21T17:22:38.964789Z  INFO rinku_node::gossip: Sync page: received 136/136 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:38.876	
+2026-01-21T17:22:38.876707Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:38.784	
+2026-01-21T17:22:38.783950Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1965 DAG nodes vs our 1952 - spawning background sync
+2026-01-21 12:22:38.733	
+2026-01-21T17:22:38.733302Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:38.733	
+2026-01-21T17:22:38.733208Z  INFO rinku_node::gossip: Sync page: received 136/136 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:38.652	
+2026-01-21T17:22:38.652230Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:38.570	
+2026-01-21T17:22:38.570406Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1965 DAG nodes vs our 1952 - spawning background sync
+2026-01-21 12:22:38.558	
+2026-01-21T17:22:38.558684Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:38.558	
+2026-01-21T17:22:38.558485Z  INFO rinku_node::gossip: Sync page: received 136/136 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:38.478	
+2026-01-21T17:22:38.478312Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:38.399	
+2026-01-21T17:22:38.397653Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1964 DAG nodes vs our 1952 - spawning background sync
+2026-01-21 12:22:37.906	
+2026-01-21T17:22:37.905967Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:37.906	
+2026-01-21T17:22:37.905865Z  INFO rinku_node::gossip: Sync page: received 133/133 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:37.824	
+2026-01-21T17:22:37.824601Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:37.732	
+2026-01-21T17:22:37.731839Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1962 DAG nodes vs our 1949 - spawning background sync
+2026-01-21 12:22:37.450	
+2026-01-21T17:22:37.449841Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:37.450	
+2026-01-21T17:22:37.449753Z  INFO rinku_node::gossip: Sync page: received 133/133 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:37.351	
+2026-01-21T17:22:37.351387Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:37.341	
+2026-01-21T17:22:37.341125Z  INFO rinku_node::gossip: Propagating 20 pending transactions to 4 peers
+2026-01-21 12:22:37.242	
+2026-01-21T17:22:37.241869Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1959 DAG nodes vs our 1946 - spawning background sync
+2026-01-21 12:22:36.246	
+2026-01-21T17:22:36.246780Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:36.246	
+2026-01-21T17:22:36.246691Z  INFO rinku_node::gossip: Sync page: received 120/120 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:36.105	
+2026-01-21T17:22:36.105283Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:35.972	
+2026-01-21T17:22:35.972411Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1949 DAG nodes vs our 1936 - spawning background sync
+2026-01-21 12:22:35.688	
+2026-01-21T17:22:35.688255Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:35.688	
+2026-01-21T17:22:35.688169Z  INFO rinku_node::gossip: Sync page: received 120/120 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:35.613	
+2026-01-21T17:22:35.613697Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:35.537	
+2026-01-21T17:22:35.537166Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1949 DAG nodes vs our 1936 - spawning background sync
+2026-01-21 12:22:35.528	
+2026-01-21T17:22:35.528009Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:35.528	
+2026-01-21T17:22:35.527924Z  INFO rinku_node::gossip: Sync page: received 120/120 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:35.447	
+2026-01-21T17:22:35.446857Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:35.367	
+2026-01-21T17:22:35.363850Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1949 DAG nodes vs our 1936 - spawning background sync
+2026-01-21 12:22:35.130	
+2026-01-21T17:22:35.130773Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:35.130	
+2026-01-21T17:22:35.130565Z  INFO rinku_node::gossip: Sync page: received 120/120 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:35.054	
+2026-01-21T17:22:35.054564Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:34.968	
+2026-01-21T17:22:34.968537Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1947 DAG nodes vs our 1936 - spawning background sync
+2026-01-21 12:22:34.892	
+2026-01-21T17:22:34.892286Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:34.892	
+2026-01-21T17:22:34.892182Z  INFO rinku_node::gossip: Sync page: received 117/117 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:34.802	
+2026-01-21T17:22:34.802668Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:34.699	
+2026-01-21T17:22:34.699641Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1946 DAG nodes vs our 1933 - spawning background sync
+2026-01-21 12:22:34.549	
+2026-01-21T17:22:34.549357Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:34.549	
+2026-01-21T17:22:34.549272Z  INFO rinku_node::gossip: Sync page: received 117/117 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:34.471	
+2026-01-21T17:22:34.471568Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:34.381	
+2026-01-21T17:22:34.381253Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1944 DAG nodes vs our 1931 - spawning background sync
+2026-01-21 12:22:34.175	
+2026-01-21T17:22:34.175648Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:34.175	
+2026-01-21T17:22:34.175557Z  INFO rinku_node::gossip: Sync page: received 115/115 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:34.079	
+2026-01-21T17:22:34.078830Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:33.979	
+2026-01-21T17:22:33.979543Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1939 DAG nodes vs our 1926 - spawning background sync
+2026-01-21 12:22:33.932	
+2026-01-21T17:22:33.932399Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:33.932	
+2026-01-21T17:22:33.932303Z  INFO rinku_node::gossip: Sync page: received 110/110 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:33.851	
+2026-01-21T17:22:33.851294Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:33.766	
+2026-01-21T17:22:33.766405Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1939 DAG nodes vs our 1926 - spawning background sync
+2026-01-21 12:22:33.451	
+2026-01-21T17:22:33.451501Z  INFO rinku_node::gossip: Propagating 27 pending transactions to 4 peers
+2026-01-21 12:22:33.188	
+2026-01-21T17:22:33.188064Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:33.188	
+2026-01-21T17:22:33.187983Z  INFO rinku_node::gossip: Sync page: received 110/110 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:33.105	
+2026-01-21T17:22:33.104958Z  INFO rinku_node::gossip: Applied 7 account nonces from peer
+2026-01-21 12:22:33.105	
+2026-01-21T17:22:33.104871Z  INFO rinku_node::gossip: Sync page: received 12/12 transactions, 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:33.023	
+2026-01-21T17:22:33.023501Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 1921 vs 1920), requesting delta sync...
+2026-01-21 12:22:32.950	
+2026-01-21T17:22:32.950316Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-1.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:22:32.837	
+2026-01-21T17:22:32.837524Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-1.fly.dev has 1933 DAG nodes vs our 1920 - spawning background sync
+2026-01-21 12:22:32.768	
+2026-01-21T17:22:32.768750Z  INFO rinku_node::gossip: Snapshot sync complete: applied 1920 DAG transactions
+2026-01-21 12:22:32.768	
+2026-01-21T17:22:32.768702Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:22:32.764	
+2026-01-21T17:22:32.764512Z  INFO rinku_node::state: Snapshot applied: 1920 DAG txs, 0 validators, 46 checkpoints, 0 contracts
+2026-01-21 12:22:32.764	
+2026-01-21T17:22:32.764429Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:22:32.764	
+2026-01-21T17:22:32.764403Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:22:32.764	
+2026-01-21T17:22:32.764299Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:22:32.747	
+2026-01-21T17:22:32.745964Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 12 total
+2026-01-21 12:22:32.747	
+2026-01-21T17:22:32.745950Z  INFO rinku_node::state: Applying sync snapshot: 12 accounts, 46 checkpoints, 1920 dag txs
+
+
+2026-01-21 12:22:32.747	
+2026-01-21T17:22:32.745946Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:22:32.747	
+2026-01-21T17:22:32.745902Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:22:30.461	
+2026-01-21T17:22:30.459608Z  INFO rinku_node::api: Returning 160 of 160 transactions with 7 account nonces (offset=0, has_more=false)
+2026-01-21 12:22:30.459	
+2026-01-21T17:22:30.459443Z  INFO rinku_node::api: Sync delta request: checkpoint=45, offset=0, limit=500
+2026-01-21 12:22:30.208	
+2026-01-21T17:22:30.207932Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-1.fly.dev before snapshot sync
+2026-01-21 12:22:30.207	
+2026-01-21T17:22:30.207052Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:22:30.207	
+2026-01-21T17:22:30.206939Z  INFO rinku_node::gossip: Received snapshot: 12 accounts, 46 checkpoints, 1920 dag txs, checkpoint height 46
+2026-01-21 12:22:30.113	
+2026-01-21T17:22:30.112928Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-1.fly.dev
+2026-01-21 12:22:30.047	
+2026-01-21T17:22:30.045623Z  INFO rinku_node::gossip: Peer https://rinku-validator-1.fly.dev is 1 checkpoint(s) ahead (cp: 46 vs 45), requesting snapshot sync...
+2026-01-21 12:22:28.824	
+2026-01-21T17:22:28.824020Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:22:28.367	
+2026-01-21T17:22:28.367128Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:22:27.939	
+2026-01-21T17:22:27.939260Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers
+2026-01-21 12:22:27.759	
+2026-01-21T17:22:27.759304Z  INFO rinku_node::gossip: Broadcast peer list to 4 peers
+2026-01-21 12:22:27.269	
+2026-01-21T17:22:27.269063Z  INFO rinku_node::gossip: Propagating 3 pending transactions to 4 peers

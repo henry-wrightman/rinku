@@ -1,0 +1,2000 @@
+2026-01-21 12:30:46.035	
+2026-01-21T17:30:46.034923Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:30:28.548	
+2026-01-21T17:30:28.548375Z  INFO rinku_node::checkpoint: Epoch transition: 25 -> 26 (activated: 0, exited: 0)
+2026-01-21 12:30:28.548	
+2026-01-21T17:30:28.548176Z  INFO rinku_node::validator_identity: Epoch transition: 25 -> 26
+2026-01-21 12:30:16.010	
+2026-01-21T17:30:16.010353Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:30:04.330	
+2026-01-21T17:30:04.330165Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 61 checkpoints, 2772 dag txs
+2026-01-21 12:30:04.327	
+2026-01-21T17:30:04.326193Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:29:59.593	
+2026-01-21T17:29:59.593264Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 61 checkpoints, 2772 dag txs
+2026-01-21 12:29:59.591	
+2026-01-21T17:29:59.587543Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:29:59.006	
+2026-01-21T17:29:59.005891Z  WARN rinku_node::gossip: Failed to add gossiped tx b6d529793a97bdc748ce3eabb1497f51ccea237f58c1b39c028e6f3e6c0d26c6: Invalid nonce: expected 4, got 1
+2026-01-21 12:29:59.005	
+2026-01-21T17:29:59.005590Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 4, got 1
+2026-01-21 12:29:58.498	
+2026-01-21T17:29:58.496430Z  INFO rinku_node::checkpoint: Created checkpoint 6ca8c34b16090be5 at height 61 (1 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:29:58.498	
+2026-01-21T17:29:58.496413Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:29:58.498	
+2026-01-21T17:29:58.495559Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 61 (peers: 1)
+2026-01-21 12:29:46.016	
+2026-01-21T17:29:46.016816Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:29:44.326	
+2026-01-21T17:29:44.326021Z  INFO rinku_node::api: Returning 2 of 2 transactions with 1 account nonces (offset=0, has_more=false)
+2026-01-21 12:29:44.326	
+2026-01-21T17:29:44.325992Z  INFO rinku_node::api: Sync delta request: checkpoint=60, offset=0, limit=500
+2026-01-21 12:29:41.509	
+2026-01-21T17:29:41.509419Z  INFO rinku_node::gossip: Delta sync complete: 1 added, 0 failed
+2026-01-21 12:29:41.509	
+2026-01-21T17:29:41.509282Z  INFO rinku_node::gossip: Applied 1 account nonces from peer
+2026-01-21 12:29:41.509	
+2026-01-21T17:29:41.509192Z  INFO rinku_node::gossip: Sync page: received 2/2 transactions, 1 account nonces (offset=0, has_more=false)
+2026-01-21 12:29:41.359	
+2026-01-21T17:29:41.355819Z  INFO rinku_node::gossip: Peer https://rinkuchan.com has more DAG data (dag: 2772 vs 2771), requesting delta sync...
+2026-01-21 12:29:28.494	
+2026-01-21T17:29:28.494270Z  INFO rinku_node::checkpoint: Epoch transition: 24 -> 25 (activated: 0, exited: 0)
+2026-01-21 12:29:28.494	
+2026-01-21T17:29:28.493961Z  INFO rinku_node::validator_identity: Epoch transition: 24 -> 25
+2026-01-21 12:29:28.376	
+2026-01-21T17:29:28.375884Z  INFO rinku_node::network: Identified peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 12:29:27.052	
+[PU01] client problem: no host specified in headers or uri
+2026-01-21 12:29:16.045	
+2026-01-21T17:29:16.045380Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:28:46.031	
+2026-01-21T17:28:46.031385Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:28:28.491	
+2026-01-21T17:28:28.491495Z  INFO rinku_node::checkpoint: Created checkpoint c86c47ff4f4ed3ff at height 60 (1 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:28:28.491	
+2026-01-21T17:28:28.491428Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:28:28.491	
+2026-01-21T17:28:28.490331Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 60 (peers: 1)
+2026-01-21 12:28:28.491	
+2026-01-21T17:28:28.490292Z  INFO rinku_node::checkpoint: Epoch transition: 23 -> 24 (activated: 0, exited: 0)
+2026-01-21 12:28:28.490	
+2026-01-21T17:28:28.490090Z  INFO rinku_node::validator_identity: Epoch transition: 23 -> 24
+2026-01-21 12:28:21.241	
+2026-01-21T17:28:21.241424Z  INFO rinku_node::gossip: Delta sync complete: 1 added, 0 failed
+2026-01-21 12:28:21.241	
+2026-01-21T17:28:21.241385Z  INFO rinku_node::gossip: Applied 1 account nonces from peer
+2026-01-21 12:28:21.241	
+2026-01-21T17:28:21.241283Z  INFO rinku_node::gossip: Sync page: received 1/1 transactions, 1 account nonces (offset=0, has_more=false)
+2026-01-21 12:28:21.175	
+2026-01-21T17:28:21.175745Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 2771 vs 2770), requesting delta sync...
+2026-01-21 12:28:16.027	
+2026-01-21T17:28:16.027571Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:27:46.012	
+2026-01-21T17:27:46.012341Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:27:28.487	
+2026-01-21T17:27:28.487403Z  INFO rinku_node::checkpoint: Epoch transition: 22 -> 23 (activated: 0, exited: 0)
+2026-01-21 12:27:28.487	
+2026-01-21T17:27:28.487084Z  INFO rinku_node::validator_identity: Epoch transition: 22 -> 23
+2026-01-21 12:27:24.483	
+2026-01-21T17:27:24.483193Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:27:13.662	
+2026-01-21T17:27:13.662021Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:27:06.571	
+2026-01-21T17:27:06.571584Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 59 checkpoints, 2770 dag txs
+2026-01-21 12:27:06.570	
+2026-01-21T17:27:06.567344Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:27:02.927	
+2026-01-21T17:27:02.926649Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:26:52.888	
+2026-01-21T17:26:52.888317Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:26:43.356	
+2026-01-21T17:26:43.355917Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:26:32.893	
+2026-01-21T17:26:32.893728Z  INFO rinku_node::gossip: Snapshot sync complete: applied 0 DAG transactions
+2026-01-21 12:26:32.893	
+2026-01-21T17:26:32.893694Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:26:32.893	
+2026-01-21T17:26:32.891056Z  INFO rinku_node::state: Skipping snapshot apply: local has 59 checkpoints, peer has 59
+2026-01-21 12:26:32.893	
+2026-01-21T17:26:32.890988Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:26:32.890	
+2026-01-21T17:26:32.890760Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:26:32.260	
+2026-01-21T17:26:32.259953Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2770 DAG transactions
+2026-01-21 12:26:32.260	
+2026-01-21T17:26:32.259908Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:26:32.252	
+2026-01-21T17:26:32.252732Z  INFO rinku_node::state: Snapshot applied: 2770 DAG txs, 0 validators, 59 checkpoints, 0 contracts
+2026-01-21 12:26:32.252	
+2026-01-21T17:26:32.252642Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:26:32.252	
+2026-01-21T17:26:32.252611Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:26:32.252	
+2026-01-21T17:26:32.252515Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:26:32.221	
+2026-01-21T17:26:32.218399Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:26:32.221	
+2026-01-21T17:26:32.218385Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 59 checkpoints, 2770 dag txs
+2026-01-21 12:26:32.221	
+2026-01-21T17:26:32.218379Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:26:32.221	
+2026-01-21T17:26:32.218336Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:26:31.299	
+2026-01-21T17:26:31.299798Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-2.fly.dev before snapshot sync
+2026-01-21 12:26:31.299	
+2026-01-21T17:26:31.299107Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:26:31.299	
+2026-01-21T17:26:31.298988Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 59 checkpoints, 2770 dag txs, checkpoint height 59
+2026-01-21 12:26:31.203	
+2026-01-21T17:26:31.203789Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-2.fly.dev
+2026-01-21 12:26:31.153	
+2026-01-21T17:26:31.153148Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev is 1 checkpoint(s) ahead (cp: 59 vs 58), requesting snapshot sync...
+2026-01-21 12:26:30.302	
+2026-01-21T17:26:30.302062Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-2.fly.dev before snapshot sync
+2026-01-21 12:26:30.301	
+2026-01-21T17:26:30.301392Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:26:30.301	
+2026-01-21T17:26:30.301327Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 59 checkpoints, 2770 dag txs, checkpoint height 59
+2026-01-21 12:26:30.209	
+2026-01-21T17:26:30.209389Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-validator-2.fly.dev
+2026-01-21 12:26:30.152	
+2026-01-21T17:26:30.152790Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev is 1 checkpoint(s) ahead, using snapshot sync
+2026-01-21 12:26:29.881	
+2026-01-21T17:26:29.879356Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.742	
+2026-01-21T17:26:29.742059Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.742	
+2026-01-21T17:26:29.741986Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.678	
+2026-01-21T17:26:29.678291Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:29.617	
+2026-01-21T17:26:29.617494Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.614	
+2026-01-21T17:26:29.614681Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.614	
+2026-01-21T17:26:29.614606Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.552	
+2026-01-21T17:26:29.552686Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:29.477	
+2026-01-21T17:26:29.477683Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.427	
+2026-01-21T17:26:29.427403Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.427	
+2026-01-21T17:26:29.427325Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.364	
+2026-01-21T17:26:29.364717Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:29.296	
+2026-01-21T17:26:29.295954Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.246	
+2026-01-21T17:26:29.246244Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.246	
+2026-01-21T17:26:29.246167Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.184	
+2026-01-21T17:26:29.183997Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:29.120	
+2026-01-21T17:26:29.120787Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:29.071	
+2026-01-21T17:26:29.071236Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:29.071	
+2026-01-21T17:26:29.071157Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:29.004	
+2026-01-21T17:26:29.004650Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:28.941	
+2026-01-21T17:26:28.940168Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:28.557	
+2026-01-21T17:26:28.557745Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:26:28.484	
+2026-01-21T17:26:28.484008Z  INFO rinku_node::checkpoint: Epoch transition: 21 -> 22 (activated: 0, exited: 0)
+2026-01-21 12:26:28.484	
+2026-01-21T17:26:28.483818Z  INFO rinku_node::validator_identity: Epoch transition: 21 -> 22
+2026-01-21 12:26:24.486	
+2026-01-21T17:26:24.486001Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:24.486	
+2026-01-21T17:26:24.485917Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:24.425	
+2026-01-21T17:26:24.424874Z  INFO rinku_node::gossip: Background sync: peer https://rinku-validator-2.fly.dev at same checkpoint, using delta sync
+2026-01-21 12:26:24.349	
+2026-01-21T17:26:24.347696Z  INFO rinku_node::gossip: TipAnnouncement: peer https://rinku-validator-2.fly.dev has 2770 DAG nodes vs our 2753 - spawning background sync
+2026-01-21 12:26:21.229	
+2026-01-21T17:26:21.229120Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:21.229	
+2026-01-21T17:26:21.229034Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:21.165	
+2026-01-21T17:26:21.164143Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2770 vs 2753), requesting delta sync...
+2026-01-21 12:26:18.313	
+2026-01-21T17:26:18.312880Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:26:11.861	
+2026-01-21T17:26:11.861623Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:11.861	
+2026-01-21T17:26:11.861518Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:11.790	
+2026-01-21T17:26:11.790437Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:11.790	
+2026-01-21T17:26:11.790333Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:11.729	
+2026-01-21T17:26:11.729146Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:11.729	
+2026-01-21T17:26:11.729038Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:11.674	
+2026-01-21T17:26:11.674430Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:11.674	
+2026-01-21T17:26:11.674307Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:11.227	
+2026-01-21T17:26:11.227823Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:11.227	
+2026-01-21T17:26:11.227739Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:11.163	
+2026-01-21T17:26:11.163626Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2770 vs 2753), requesting delta sync...
+2026-01-21 12:26:10.922	
+2026-01-21T17:26:10.922507Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.922	
+2026-01-21T17:26:10.922418Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:10.860	
+2026-01-21T17:26:10.860398Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.860	
+2026-01-21T17:26:10.860308Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:10.806	
+2026-01-21T17:26:10.806504Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.806	
+2026-01-21T17:26:10.806394Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:10.731	
+2026-01-21T17:26:10.730977Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.731	
+2026-01-21T17:26:10.730891Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:10.674	
+2026-01-21T17:26:10.673500Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.673	
+2026-01-21T17:26:10.673399Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:10.618	
+2026-01-21T17:26:10.617806Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:10.618	
+2026-01-21T17:26:10.617769Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:09.971	
+2026-01-21T17:26:09.970961Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.971	
+2026-01-21T17:26:09.970850Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:09.912	
+2026-01-21T17:26:09.912232Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.912	
+2026-01-21T17:26:09.912124Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:09.834	
+2026-01-21T17:26:09.834263Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.834	
+2026-01-21T17:26:09.834229Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:09.761	
+2026-01-21T17:26:09.761382Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.761	
+2026-01-21T17:26:09.761295Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:09.687	
+2026-01-21T17:26:09.687821Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.687	
+2026-01-21T17:26:09.687701Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:09.613	
+2026-01-21T17:26:09.613397Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.613	
+2026-01-21T17:26:09.613292Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:09.559	
+2026-01-21T17:26:09.558196Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:09.559	
+2026-01-21T17:26:09.558039Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:08.516	
+2026-01-21T17:26:08.516671Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:26:06.990	
+2026-01-21T17:26:06.990648Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.990	
+2026-01-21T17:26:06.990546Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:06.933	
+2026-01-21T17:26:06.933456Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.933	
+2026-01-21T17:26:06.933325Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:06.877	
+2026-01-21T17:26:06.877807Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.877	
+2026-01-21T17:26:06.877712Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:06.823	
+2026-01-21T17:26:06.823062Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.823	
+2026-01-21T17:26:06.822952Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:06.767	
+2026-01-21T17:26:06.767189Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.767	
+2026-01-21T17:26:06.767093Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:06.712	
+2026-01-21T17:26:06.712679Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:06.712	
+2026-01-21T17:26:06.712579Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:06.212	
+2026-01-21T17:26:06.212306Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 58 checkpoints, 2753 dag txs
+2026-01-21 12:26:06.209	
+2026-01-21T17:26:06.208683Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:26:02.048	
+2026-01-21T17:26:02.048059Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 58 checkpoints, 2753 dag txs
+2026-01-21 12:26:02.043	
+2026-01-21T17:26:02.043292Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:26:01.979	
+2026-01-21T17:26:01.979625Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:01.979	
+2026-01-21T17:26:01.979521Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:01.903	
+2026-01-21T17:26:01.903789Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:01.903	
+2026-01-21T17:26:01.903681Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:01.845	
+2026-01-21T17:26:01.845718Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:01.845	
+2026-01-21T17:26:01.845684Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:26:01.306	
+2026-01-21T17:26:01.305957Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:01.306	
+2026-01-21T17:26:01.305875Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:01.240	
+2026-01-21T17:26:01.240490Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2770 vs 2753), requesting delta sync...
+2026-01-21 12:26:01.176	
+2026-01-21T17:26:01.176264Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:26:01.176	
+2026-01-21T17:26:01.176155Z  INFO rinku_node::gossip: Sync page: received 42/42 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:26:01.111	
+2026-01-21T17:26:01.111531Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 2770 vs 2753), requesting delta sync...
+2026-01-21 12:26:00.947	
+2026-01-21T17:26:00.947326Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:26:00.947	
+2026-01-21T17:26:00.947214Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:59.942	
+2026-01-21T17:25:59.942263Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:59.942	
+2026-01-21T17:25:59.942162Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:59.871	
+2026-01-21T17:25:59.871253Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:59.871	
+2026-01-21T17:25:59.871149Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:59.815	
+2026-01-21T17:25:59.815793Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:59.815	
+2026-01-21T17:25:59.815681Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:59.741	
+2026-01-21T17:25:59.741062Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:59.741	
+2026-01-21T17:25:59.740957Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:58.970	
+2026-01-21T17:25:58.970139Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:58.970	
+2026-01-21T17:25:58.970098Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:58.916	
+2026-01-21T17:25:58.915866Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:58.915	
+2026-01-21T17:25:58.915774Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:58.827	
+2026-01-21T17:25:58.826949Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:58.827	
+2026-01-21T17:25:58.826818Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:58.753	
+2026-01-21T17:25:58.753701Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:58.753	
+2026-01-21T17:25:58.753603Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:58.482	
+2026-01-21T17:25:58.482274Z  INFO rinku_node::checkpoint: Created checkpoint 9efe7bbde513cd79 at height 58 (25 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:25:58.482	
+2026-01-21T17:25:58.482134Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:25:58.481	
+2026-01-21T17:25:58.481242Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 58 (peers: 1)
+2026-01-21 12:25:57.987	
+2026-01-21T17:25:57.987280Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.987	
+2026-01-21T17:25:57.987141Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:57.911	
+2026-01-21T17:25:57.911389Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.911	
+2026-01-21T17:25:57.911283Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:57.838	
+2026-01-21T17:25:57.838466Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.838	
+2026-01-21T17:25:57.838366Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:57.779	
+2026-01-21T17:25:57.778767Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.778	
+2026-01-21T17:25:57.778669Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:57.703	
+2026-01-21T17:25:57.703466Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:57.703	
+2026-01-21T17:25:57.703363Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:57.284	
+2026-01-21T17:25:57.283971Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 12:25:54.948	
+2026-01-21T17:25:54.948447Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:54.948	
+2026-01-21T17:25:54.948339Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:54.878	
+2026-01-21T17:25:54.878731Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:54.878	
+2026-01-21T17:25:54.878642Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:54.637	
+2026-01-21T17:25:54.637214Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:54.637	
+2026-01-21T17:25:54.637119Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:53.964	
+2026-01-21T17:25:53.964404Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:53.964	
+2026-01-21T17:25:53.964298Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:53.908	
+2026-01-21T17:25:53.908777Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:53.908	
+2026-01-21T17:25:53.908677Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:53.853	
+2026-01-21T17:25:53.853583Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:53.853	
+2026-01-21T17:25:53.853544Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:53.798	
+2026-01-21T17:25:53.797788Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:53.797	
+2026-01-21T17:25:53.797667Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:53.743	
+2026-01-21T17:25:53.742776Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:53.742	
+2026-01-21T17:25:53.742674Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:51.219	
+2026-01-21T17:25:51.219327Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:25:51.219	
+2026-01-21T17:25:51.219245Z  INFO rinku_node::gossip: Sync page: received 91/91 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:51.155	
+2026-01-21T17:25:51.155670Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 2770 vs 2753), requesting delta sync...
+2026-01-21 12:25:50.954	
+2026-01-21T17:25:50.953927Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:50.954	
+2026-01-21T17:25:50.953874Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:50.881	
+2026-01-21T17:25:50.880954Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:50.881	
+2026-01-21T17:25:50.880866Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:50.826	
+2026-01-21T17:25:50.825801Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:50.826	
+2026-01-21T17:25:50.825766Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:50.770	
+2026-01-21T17:25:50.770552Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:50.770	
+2026-01-21T17:25:50.770449Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:50.699	
+2026-01-21T17:25:50.699053Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:50.699	
+2026-01-21T17:25:50.698899Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:50.624	
+2026-01-21T17:25:50.624342Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:50.624	
+2026-01-21T17:25:50.624229Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:50.597	
+2026-01-21T17:25:50.596875Z  INFO rinku_node::gossip: Propagating 7 pending transactions to 3 peers
+2026-01-21 12:25:47.995	
+2026-01-21T17:25:47.995168Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:47.995	
+2026-01-21T17:25:47.995065Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:47.933	
+2026-01-21T17:25:47.933477Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:47.933	
+2026-01-21T17:25:47.933352Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:47.851	
+2026-01-21T17:25:47.851252Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:47.851	
+2026-01-21T17:25:47.851164Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:47.795	
+2026-01-21T17:25:47.795710Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:47.795	
+2026-01-21T17:25:47.795593Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:47.739	
+2026-01-21T17:25:47.739306Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:47.739	
+2026-01-21T17:25:47.739200Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:47.667	
+2026-01-21T17:25:47.667436Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:47.667	
+2026-01-21T17:25:47.667347Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:46.986	
+2026-01-21T17:25:46.986025Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:46.986	
+2026-01-21T17:25:46.985987Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:46.929	
+2026-01-21T17:25:46.929668Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:46.929	
+2026-01-21T17:25:46.929632Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.970	
+2026-01-21T17:25:45.969745Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.969	
+2026-01-21T17:25:45.969629Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.915	
+2026-01-21T17:25:45.915337Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.915	
+2026-01-21T17:25:45.915199Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.860	
+2026-01-21T17:25:45.860707Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.860	
+2026-01-21T17:25:45.860606Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.804	
+2026-01-21T17:25:45.804013Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.804	
+2026-01-21T17:25:45.803896Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.748	
+2026-01-21T17:25:45.748396Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.748	
+2026-01-21T17:25:45.748307Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.677	
+2026-01-21T17:25:45.677363Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.677	
+2026-01-21T17:25:45.677258Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.620	
+2026-01-21T17:25:45.620700Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.620	
+2026-01-21T17:25:45.620587Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.562	
+2026-01-21T17:25:45.562836Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:45.562	
+2026-01-21T17:25:45.562734Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:45.394	
+2026-01-21T17:25:45.394425Z  WARN rinku_node::gossip: Failed to add gossiped tx 97e8858cea2568c77522258d2b91b337137d14c626078d5431bddb3519656fd4: Invalid nonce: expected 514, got 515
+2026-01-21 12:25:45.394	
+2026-01-21T17:25:45.394400Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 514, got 515
+2026-01-21 12:25:45.058	
+2026-01-21T17:25:45.058754Z  WARN rinku_node::gossip: Failed to add gossiped tx d9a1fd21d9bde0c5a9b567fd42f93dfd92f3283b4d914e26e55e662a93712254: Invalid nonce: expected 249, got 252
+2026-01-21 12:25:45.058	
+2026-01-21T17:25:45.058642Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 249, got 252
+2026-01-21 12:25:44.998	
+2026-01-21T17:25:44.997970Z  WARN rinku_node::gossip: Failed to add gossiped tx 6e2d317747867ee9654fb241c08c25d80c38f12d256e33b7674f2b4c79827b0c: Invalid nonce: expected 100, got 101
+2026-01-21 12:25:44.998	
+2026-01-21T17:25:44.997869Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 100, got 101
+2026-01-21 12:25:44.985	
+2026-01-21T17:25:44.985648Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.985	
+2026-01-21T17:25:44.985554Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.942	
+2026-01-21T17:25:44.942149Z  WARN rinku_node::gossip: Failed to add gossiped tx beb5f338b180ba961a66bfe33c27a10113d4f295f1443c0fb9df1d1d44a7f689: Invalid nonce: expected 393, got 394
+2026-01-21 12:25:44.942	
+2026-01-21T17:25:44.942067Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 393, got 394
+2026-01-21 12:25:44.941	
+2026-01-21T17:25:44.941751Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.941	
+2026-01-21T17:25:44.941660Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.920	
+2026-01-21T17:25:44.920432Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.920	
+2026-01-21T17:25:44.920350Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.910	
+2026-01-21T17:25:44.910045Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.910	
+2026-01-21T17:25:44.909949Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.880	
+2026-01-21T17:25:44.880549Z  WARN rinku_node::gossip: Failed to add gossiped tx abe470d3120f1a76086cae88c1b93c621af0959e658800cf9b2528a83ce6a9db: Invalid nonce: expected 34, got 35
+2026-01-21 12:25:44.880	
+2026-01-21T17:25:44.880476Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 34, got 35
+2026-01-21 12:25:44.862	
+2026-01-21T17:25:44.862287Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.862	
+2026-01-21T17:25:44.862182Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.817	
+2026-01-21T17:25:44.817490Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.817	
+2026-01-21T17:25:44.817347Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.777	
+2026-01-21T17:25:44.776334Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.776	
+2026-01-21T17:25:44.776076Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.760	
+2026-01-21T17:25:44.759635Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.759	
+2026-01-21T17:25:44.759388Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.718	
+2026-01-21T17:25:44.718546Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.718	
+2026-01-21T17:25:44.718432Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.707	
+2026-01-21T17:25:44.707548Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.707	
+2026-01-21T17:25:44.707499Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.707	
+2026-01-21T17:25:44.707354Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.707	
+2026-01-21T17:25:44.707214Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.638	
+2026-01-21T17:25:44.638705Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.638	
+2026-01-21T17:25:44.638598Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.437	
+2026-01-21T17:25:44.437652Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.437	
+2026-01-21T17:25:44.437584Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.428	
+2026-01-21T17:25:44.428064Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.428	
+2026-01-21T17:25:44.427965Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.384	
+2026-01-21T17:25:44.383924Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.383	
+2026-01-21T17:25:44.383859Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.379	
+2026-01-21T17:25:44.379460Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.379	
+2026-01-21T17:25:44.379391Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.375	
+2026-01-21T17:25:44.374922Z  WARN rinku_node::gossip: Failed to add gossiped tx 085ce61efd3192881ed6fdf2df479d46ff2d9f87ea8c3d73dd318956c4eb1896: Invalid nonce: expected 249, got 251
+2026-01-21 12:25:44.374	
+2026-01-21T17:25:44.374872Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 249, got 251
+2026-01-21 12:25:44.374	
+2026-01-21T17:25:44.374492Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.374	
+2026-01-21T17:25:44.374413Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.364	
+2026-01-21T17:25:44.364899Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.364	
+2026-01-21T17:25:44.364807Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.322	
+2026-01-21T17:25:44.321864Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.321	
+2026-01-21T17:25:44.321815Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.321	
+2026-01-21T17:25:44.321673Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.321	
+2026-01-21T17:25:44.321568Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.303	
+2026-01-21T17:25:44.303440Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.303	
+2026-01-21T17:25:44.303401Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.303	
+2026-01-21T17:25:44.303299Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.303	
+2026-01-21T17:25:44.303237Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.296	
+2026-01-21T17:25:44.296030Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.296	
+2026-01-21T17:25:44.295952Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.295	
+2026-01-21T17:25:44.295909Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.295	
+2026-01-21T17:25:44.295820Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.295	
+2026-01-21T17:25:44.295713Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:44.295	
+2026-01-21T17:25:44.295594Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:44.196	
+2026-01-21T17:25:44.196824Z  WARN rinku_node::gossip: Failed to add gossiped tx 6426997e2a202be6e130c461821e5b3c1d16321a17090c4c5f86d537b9cd8f6f: Invalid nonce: expected 558, got 559
+2026-01-21 12:25:44.196	
+2026-01-21T17:25:44.196744Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 558, got 559
+2026-01-21 12:25:44.196	
+2026-01-21T17:25:44.196640Z  WARN rinku_node::gossip: Failed to add gossiped tx b9792d7d841c55b00f6be931c6925b597c46231feca9e10ae4b39f0293e67e7c: Invalid nonce: expected 543, got 544
+2026-01-21 12:25:44.196	
+2026-01-21T17:25:44.196540Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 543, got 544
+2026-01-21 12:25:44.058	
+2026-01-21T17:25:44.058027Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 57 checkpoints, 2746 dag txs
+2026-01-21 12:25:44.054	
+2026-01-21T17:25:44.054169Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:25:43.987	
+2026-01-21T17:25:43.986969Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.987	
+2026-01-21T17:25:43.986860Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.954	
+2026-01-21T17:25:43.954085Z  INFO rinku_node::gossip: Propagating 68 pending transactions to 3 peers
+2026-01-21 12:25:43.946	
+2026-01-21T17:25:43.946458Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.946	
+2026-01-21T17:25:43.946365Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.897	
+2026-01-21T17:25:43.897654Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.897	
+2026-01-21T17:25:43.897586Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.888	
+2026-01-21T17:25:43.888192Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.888	
+2026-01-21T17:25:43.888093Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.840	
+2026-01-21T17:25:43.839924Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.839	
+2026-01-21T17:25:43.839849Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.830	
+2026-01-21T17:25:43.830245Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.830	
+2026-01-21T17:25:43.830156Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.767	
+2026-01-21T17:25:43.767610Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.767	
+2026-01-21T17:25:43.767537Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.758	
+2026-01-21T17:25:43.758863Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.758	
+2026-01-21T17:25:43.758777Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.700	
+2026-01-21T17:25:43.700445Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2745 DAG transactions
+2026-01-21 12:25:43.700	
+2026-01-21T17:25:43.700366Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:25:43.694	
+2026-01-21T17:25:43.694033Z  INFO rinku_node::state: Snapshot applied: 2745 DAG txs, 0 validators, 57 checkpoints, 0 contracts
+2026-01-21 12:25:43.694	
+2026-01-21T17:25:43.694012Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:25:43.694	
+2026-01-21T17:25:43.693987Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:25:43.694	
+2026-01-21T17:25:43.693880Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:25:43.663	
+2026-01-21T17:25:43.663755Z  INFO rinku_node::state: Account merge: 0 added from peer, 3 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:25:43.663	
+2026-01-21T17:25:43.663665Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 57 checkpoints, 2745 dag txs
+2026-01-21 12:25:43.663	
+2026-01-21T17:25:43.663627Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:25:43.663	
+2026-01-21T17:25:43.663501Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:25:43.661	
+2026-01-21T17:25:43.661320Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.661	
+2026-01-21T17:25:43.661231Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.645	
+2026-01-21T17:25:43.645732Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.645	
+2026-01-21T17:25:43.645626Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.590	
+2026-01-21T17:25:43.590080Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.590	
+2026-01-21T17:25:43.590003Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.582	
+2026-01-21T17:25:43.581947Z  WARN rinku_node::gossip: Failed to add gossiped tx 19e8e9c56563b03005342063dae274f0fff9781e6cd99150c461d8e77c679125: Invalid nonce: expected 248, got 249
+2026-01-21 12:25:43.582	
+2026-01-21T17:25:43.581792Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 248, got 249
+2026-01-21 12:25:43.579	
+2026-01-21T17:25:43.579417Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.579	
+2026-01-21T17:25:43.579304Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.533	
+2026-01-21T17:25:43.533328Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.533	
+2026-01-21T17:25:43.533216Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.517	
+2026-01-21T17:25:43.517907Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.517	
+2026-01-21T17:25:43.517815Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:43.477	
+2026-01-21T17:25:43.476899Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:43.476	
+2026-01-21T17:25:43.476786Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.987	
+2026-01-21T17:25:42.987176Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.987	
+2026-01-21T17:25:42.987086Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.913	
+2026-01-21T17:25:42.913798Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.913	
+2026-01-21T17:25:42.913688Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.839	
+2026-01-21T17:25:42.839362Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.839	
+2026-01-21T17:25:42.839252Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.782	
+2026-01-21T17:25:42.781953Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.782	
+2026-01-21T17:25:42.781924Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.712	
+2026-01-21T17:25:42.712518Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.712	
+2026-01-21T17:25:42.712357Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.698	
+2026-01-21T17:25:42.698442Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.698	
+2026-01-21T17:25:42.698346Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.693	
+2026-01-21T17:25:42.693420Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.693	
+2026-01-21T17:25:42.693292Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.693	
+2026-01-21T17:25:42.693096Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.693	
+2026-01-21T17:25:42.692956Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.646	
+2026-01-21T17:25:42.646356Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.646	
+2026-01-21T17:25:42.646261Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.636	
+2026-01-21T17:25:42.636571Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.636	
+2026-01-21T17:25:42.636512Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.631	
+2026-01-21T17:25:42.630970Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.631	
+2026-01-21T17:25:42.630902Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.627	
+2026-01-21T17:25:42.626920Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.626	
+2026-01-21T17:25:42.626859Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.625	
+2026-01-21T17:25:42.623016Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.623	
+2026-01-21T17:25:42.622904Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.591	
+2026-01-21T17:25:42.591157Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.591	
+2026-01-21T17:25:42.591023Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.564	
+2026-01-21T17:25:42.564135Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.564	
+2026-01-21T17:25:42.564036Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.534	
+2026-01-21T17:25:42.534882Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.534	
+2026-01-21T17:25:42.534781Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.503	
+2026-01-21T17:25:42.503651Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.503	
+2026-01-21T17:25:42.503559Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.478	
+2026-01-21T17:25:42.478554Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.478	
+2026-01-21T17:25:42.478457Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.439	
+2026-01-21T17:25:42.439575Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.439	
+2026-01-21T17:25:42.439484Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.421	
+2026-01-21T17:25:42.421143Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.421	
+2026-01-21T17:25:42.420968Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.381	
+2026-01-21T17:25:42.381453Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.381	
+2026-01-21T17:25:42.381373Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.365	
+2026-01-21T17:25:42.365518Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.365	
+2026-01-21T17:25:42.365418Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.315	
+2026-01-21T17:25:42.315517Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.315	
+2026-01-21T17:25:42.315411Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.293	
+2026-01-21T17:25:42.293163Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.293	
+2026-01-21T17:25:42.293095Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.259	
+2026-01-21T17:25:42.258948Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.259	
+2026-01-21T17:25:42.258876Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.222	
+2026-01-21T17:25:42.222219Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.222	
+2026-01-21T17:25:42.222127Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.200	
+2026-01-21T17:25:42.200345Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.200	
+2026-01-21T17:25:42.200237Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.167	
+2026-01-21T17:25:42.167092Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:42.167	
+2026-01-21T17:25:42.166980Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:42.156	
+2026-01-21T17:25:42.155585Z  WARN rinku_node::gossip: Failed to add gossiped tx 4525b4d9d1ed8b22007c8e6cc5f641f8ec3dc11529ff67e029b096cda9b198ba: Invalid nonce: expected 391, got 393
+2026-01-21 12:25:42.156	
+2026-01-21T17:25:42.155579Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 391, got 393
+2026-01-21 12:25:42.156	
+2026-01-21T17:25:42.155568Z  WARN rinku_node::gossip: Failed to add gossiped tx ad82e87de0e8713bbb95223ac7a59d2eff067d1f01a640fd4399671f60fdd86c: Invalid nonce: expected 98, got 100
+2026-01-21 12:25:42.156	
+2026-01-21T17:25:42.155562Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 98, got 100
+2026-01-21 12:25:42.156	
+2026-01-21T17:25:42.155551Z  WARN rinku_node::gossip: Failed to add gossiped tx 0717c9202440cc2be0bc9cff32fa625a721fac9fbb03cd5cde18a8f854746919: Invalid nonce: expected 33, got 34
+2026-01-21 12:25:42.156	
+2026-01-21T17:25:42.155544Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 33, got 34
+2026-01-21 12:25:42.156	
+2026-01-21T17:25:42.155533Z  WARN rinku_node::gossip: Failed to add gossiped tx 594d717bde8cbe52f56b48d26bcc0728e65508fe0e8a1e15e4449205e1a82975: Invalid nonce: expected 511, got 514
+2026-01-21 12:25:42.156	
+2026-01-21T17:25:42.155525Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 511, got 514
+2026-01-21 12:25:42.156	
+2026-01-21T17:25:42.155452Z  WARN rinku_node::gossip: Failed to add gossiped tx f6050dea92f571add6134ff5da2316fdbf634ff2fc4218b0d9dd812f79930350: Invalid nonce: expected 248, got 250
+2026-01-21 12:25:42.155	
+2026-01-21T17:25:42.155251Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 248, got 250
+2026-01-21 12:25:41.957	
+2026-01-21T17:25:41.957539Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.957	
+2026-01-21T17:25:41.957473Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.947	
+2026-01-21T17:25:41.947789Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.947	
+2026-01-21T17:25:41.947691Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.900	
+2026-01-21T17:25:41.900261Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.900	
+2026-01-21T17:25:41.900170Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.889	
+2026-01-21T17:25:41.889514Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.889	
+2026-01-21T17:25:41.889412Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.842	
+2026-01-21T17:25:41.841869Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.841	
+2026-01-21T17:25:41.841778Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.828	
+2026-01-21T17:25:41.828777Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.828	
+2026-01-21T17:25:41.828671Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.782	
+2026-01-21T17:25:41.782249Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.782	
+2026-01-21T17:25:41.782156Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.769	
+2026-01-21T17:25:41.769477Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.769	
+2026-01-21T17:25:41.769443Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.750	
+2026-01-21T17:25:41.750244Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.750	
+2026-01-21T17:25:41.750115Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.708	
+2026-01-21T17:25:41.708133Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.708	
+2026-01-21T17:25:41.708023Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.655	
+2026-01-21T17:25:41.655186Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.655	
+2026-01-21T17:25:41.655132Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.651	
+2026-01-21T17:25:41.651143Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.651	
+2026-01-21T17:25:41.651081Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.639	
+2026-01-21T17:25:41.639733Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.639	
+2026-01-21T17:25:41.639696Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.639	
+2026-01-21T17:25:41.639585Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.639	
+2026-01-21T17:25:41.639498Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.639	
+2026-01-21T17:25:41.639457Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.639	
+2026-01-21T17:25:41.639372Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.621	
+2026-01-21T17:25:41.621358Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.621	
+2026-01-21T17:25:41.621279Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.603	
+2026-01-21T17:25:41.603602Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.603	
+2026-01-21T17:25:41.603539Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.591	
+2026-01-21T17:25:41.591651Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.591	
+2026-01-21T17:25:41.591591Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.586	
+2026-01-21T17:25:41.586141Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.586	
+2026-01-21T17:25:41.586053Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.532	
+2026-01-21T17:25:41.532725Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.532	
+2026-01-21T17:25:41.532670Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.528	
+2026-01-21T17:25:41.528516Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.528	
+2026-01-21T17:25:41.528428Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.474	
+2026-01-21T17:25:41.473915Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.474	
+2026-01-21T17:25:41.473824Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.457	
+2026-01-21T17:25:41.457107Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.457	
+2026-01-21T17:25:41.457011Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.417	
+2026-01-21T17:25:41.417681Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.417	
+2026-01-21T17:25:41.417582Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.417	
+2026-01-21T17:25:41.417444Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.417	
+2026-01-21T17:25:41.417335Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.401	
+2026-01-21T17:25:41.401545Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.401	
+2026-01-21T17:25:41.401429Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.346	
+2026-01-21T17:25:41.345914Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.346	
+2026-01-21T17:25:41.345825Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.285	
+2026-01-21T17:25:41.285027Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.285	
+2026-01-21T17:25:41.284934Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.270	
+2026-01-21T17:25:41.270293Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.270	
+2026-01-21T17:25:41.270171Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.246	
+2026-01-21T17:25:41.246867Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:41.246	
+2026-01-21T17:25:41.246786Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:41.243	
+2026-01-21T17:25:41.242859Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+2026-01-21 12:25:41.242	
+2026-01-21T17:25:41.242126Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:25:41.242	
+2026-01-21T17:25:41.242038Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 57 checkpoints, 2745 dag txs, checkpoint height 57
+2026-01-21 12:25:41.161	
+2026-01-21T17:25:41.160946Z  WARN rinku_node::gossip: Failed to add gossiped tx 7358206a84e615a577c59a9e811f758a32136c352d3cb045004e4c27b5ac632e: Invalid nonce: expected 510, got 512
+2026-01-21 12:25:41.161	
+2026-01-21T17:25:41.160915Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 510, got 512
+2026-01-21 12:25:41.160	
+2026-01-21T17:25:41.160832Z  WARN rinku_node::gossip: Failed to add gossiped tx 34683370c2676e2265c315a1589ff0d82533945e0a5c2fa71487a74101c7dad0: Invalid nonce: expected 247, got 248
+2026-01-21 12:25:41.160	
+2026-01-21T17:25:41.160799Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 247, got 248
+2026-01-21 12:25:41.160	
+2026-01-21T17:25:41.160635Z  WARN rinku_node::gossip: Failed to add gossiped tx 1da0305f1da67b6440395453f1ff50b20440f1802390d3e2a438a65d498f65b8: Invalid nonce: expected 391, got 392
+2026-01-21 12:25:41.160	
+2026-01-21T17:25:41.160531Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 391, got 392
+2026-01-21 12:25:41.137	
+2026-01-21T17:25:41.137314Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+2026-01-21 12:25:41.085	
+2026-01-21T17:25:41.081336Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 1 checkpoint(s) ahead (cp: 57 vs 56), requesting snapshot sync...
+2026-01-21 12:25:40.993	
+2026-01-21T17:25:40.993782Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.993	
+2026-01-21T17:25:40.993693Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.985	
+2026-01-21T17:25:40.985710Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.985	
+2026-01-21T17:25:40.985613Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.985	
+2026-01-21T17:25:40.985504Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.985	
+2026-01-21T17:25:40.985405Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.959	
+2026-01-21T17:25:40.959112Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.959	
+2026-01-21T17:25:40.958989Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.920	
+2026-01-21T17:25:40.920378Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.920	
+2026-01-21T17:25:40.920280Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.889	
+2026-01-21T17:25:40.889428Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.889	
+2026-01-21T17:25:40.889324Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.842	
+2026-01-21T17:25:40.841964Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.842	
+2026-01-21T17:25:40.841874Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.803	
+2026-01-21T17:25:40.803727Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.803	
+2026-01-21T17:25:40.803629Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.762	
+2026-01-21T17:25:40.762287Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.762	
+2026-01-21T17:25:40.762204Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.750	
+2026-01-21T17:25:40.750259Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.750	
+2026-01-21T17:25:40.750154Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.706	
+2026-01-21T17:25:40.705703Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.706	
+2026-01-21T17:25:40.705668Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.697	
+2026-01-21T17:25:40.697417Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.697	
+2026-01-21T17:25:40.697271Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.667	
+2026-01-21T17:25:40.667510Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.667	
+2026-01-21T17:25:40.667412Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.663	
+2026-01-21T17:25:40.663105Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.663	
+2026-01-21T17:25:40.663044Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.662	
+2026-01-21T17:25:40.662885Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.662	
+2026-01-21T17:25:40.662792Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.647	
+2026-01-21T17:25:40.647391Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.647	
+2026-01-21T17:25:40.647315Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.642	
+2026-01-21T17:25:40.642224Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.642	
+2026-01-21T17:25:40.642177Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.642	
+2026-01-21T17:25:40.642077Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.642	
+2026-01-21T17:25:40.641978Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.641	
+2026-01-21T17:25:40.641806Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.641	
+2026-01-21T17:25:40.641689Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.418	
+2026-01-21T17:25:40.418856Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.418	
+2026-01-21T17:25:40.418755Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.410	
+2026-01-21T17:25:40.410182Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.410	
+2026-01-21T17:25:40.410062Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.355	
+2026-01-21T17:25:40.355082Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.355	
+2026-01-21T17:25:40.354978Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.353	
+2026-01-21T17:25:40.350453Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.353	
+2026-01-21T17:25:40.350415Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.302	
+2026-01-21T17:25:40.302434Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.302	
+2026-01-21T17:25:40.302336Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.288	
+2026-01-21T17:25:40.288234Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.288	
+2026-01-21T17:25:40.288164Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:40.279	
+2026-01-21T17:25:40.279103Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:40.279	
+2026-01-21T17:25:40.278951Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:36.651	
+2026-01-21T17:25:36.651668Z  WARN rinku_node::gossip: Failed to add gossiped tx 43df6e59507994797e269ba4c2eaa5beaada49a9952dcaf63721990ad2dc756a: Invalid nonce: expected 554, got 553
+2026-01-21 12:25:36.651	
+2026-01-21T17:25:36.651557Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 554, got 553
+2026-01-21 12:25:36.602	
+2026-01-21T17:25:36.602447Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 56 checkpoints, 2721 dag txs
+2026-01-21 12:25:36.601	
+2026-01-21T17:25:36.598901Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:25:34.992	
+2026-01-21T17:25:34.992246Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:34.992	
+2026-01-21T17:25:34.992136Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:33.712	
+2026-01-21T17:25:33.712721Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:33.712	
+2026-01-21T17:25:33.712634Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:33.634	
+2026-01-21T17:25:33.634656Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:33.634	
+2026-01-21T17:25:33.634549Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:33.491	
+2026-01-21T17:25:33.491381Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:33.491	
+2026-01-21T17:25:33.491290Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:33.465	
+2026-01-21T17:25:33.464969Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:33.465	
+2026-01-21T17:25:33.464889Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:33.460	
+2026-01-21T17:25:33.460462Z  WARN rinku_node::gossip: Failed to add gossiped tx 1c3c40f65c55ecf655ce2c9003eabea0d803dc4a38e88ecc402dcfc1b608bb6a: Invalid nonce: expected 554, got 552
+2026-01-21 12:25:33.460	
+2026-01-21T17:25:33.460346Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 554, got 552
+2026-01-21 12:25:30.109	
+2026-01-21T17:25:30.108425Z  INFO rinku_node::gossip: Propagating 72 pending transactions to 3 peers
+2026-01-21 12:25:29.572	
+2026-01-21T17:25:29.572215Z  INFO rinku_node::gossip: Delta sync complete: 4 added, 0 failed
+2026-01-21 12:25:29.572	
+2026-01-21T17:25:29.571944Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:25:29.572	
+2026-01-21T17:25:29.571853Z  INFO rinku_node::gossip: Sync page: received 102/102 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:29.485	
+2026-01-21T17:25:29.481932Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev has more DAG data (dag: 2699 vs 2679), requesting delta sync...
+2026-01-21 12:25:28.476	
+2026-01-21T17:25:28.476333Z  INFO rinku_node::checkpoint: Created checkpoint 13e8cee1b43c9189 at height 56 (82 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:25:28.476	
+2026-01-21T17:25:28.476254Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:25:28.476	
+2026-01-21T17:25:28.475521Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 56 (peers: 1)
+2026-01-21 12:25:28.476	
+2026-01-21T17:25:28.475187Z  INFO rinku_node::checkpoint: Epoch transition: 20 -> 21 (activated: 0, exited: 0)
+2026-01-21 12:25:28.476	
+2026-01-21T17:25:28.474950Z  INFO rinku_node::validator_identity: Epoch transition: 20 -> 21
+2026-01-21 12:25:27.958	
+2026-01-21T17:25:27.958044Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.958	
+2026-01-21T17:25:27.957951Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:27.876	
+2026-01-21T17:25:27.876790Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.876	
+2026-01-21T17:25:27.876703Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:27.809	
+2026-01-21T17:25:27.808806Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.809	
+2026-01-21T17:25:27.808794Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:27.809	
+2026-01-21T17:25:27.808782Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.809	
+2026-01-21T17:25:27.808771Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:27.809	
+2026-01-21T17:25:27.808756Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.809	
+2026-01-21T17:25:27.808742Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:27.809	
+2026-01-21T17:25:27.808676Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:25:27.808	
+2026-01-21T17:25:27.808559Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:25:26.488	
+2026-01-21T17:25:26.488772Z  WARN rinku_node::gossip: Failed to add gossiped tx 22309f028dc639fbccbb78d32860bb9782f35c3d5db37de3090fa470df49b029: Invalid nonce: expected 548, got 547
+2026-01-21 12:25:26.488	
+2026-01-21T17:25:26.488672Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 548, got 547
+2026-01-21 12:25:25.977	
+2026-01-21T17:25:25.976829Z  WARN rinku_node::gossip: Failed to propagate tx 26f046217706fd5c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:25.896	
+2026-01-21T17:25:25.896328Z  WARN rinku_node::gossip: Failed to propagate tx aea73ec621589fc2 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:25.815	
+2026-01-21T17:25:25.814675Z  WARN rinku_node::gossip: Failed to propagate tx ecf62b80fa1ba713 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:25.734	
+2026-01-21T17:25:25.733932Z  WARN rinku_node::gossip: Failed to propagate tx a9efa1c8bdf35dd3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:25.654	
+2026-01-21T17:25:25.654026Z  WARN rinku_node::gossip: Failed to propagate tx 15d657bcb6266641 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:25.573	
+2026-01-21T17:25:25.573793Z  WARN rinku_node::gossip: Failed to propagate tx faecc5d4682ba405 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:25.523	
+2026-01-21T17:25:25.523614Z  WARN rinku_node::gossip: Failed to add gossiped tx f31a6cd9f86600bd810459c5458bea17b56e4d9d0e5b48b848879b94008b7e26: Invalid nonce: expected 548, got 546
+2026-01-21 12:25:25.523	
+2026-01-21T17:25:25.523531Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 548, got 546
+2026-01-21 12:25:25.506	
+2026-01-21T17:25:25.506678Z  WARN rinku_node::gossip: Failed to propagate tx f11d245c600c113a to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:25.254	
+2026-01-21T17:25:25.254737Z  WARN rinku_node::gossip: Failed to propagate tx a50b1e587413abd0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:25.174	
+2026-01-21T17:25:25.173919Z  WARN rinku_node::gossip: Failed to propagate tx 892b51544b415731 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:25.096	
+2026-01-21T17:25:25.095854Z  WARN rinku_node::gossip: Failed to propagate tx 03eb8d39c0e6f0ba to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:24.933	
+2026-01-21T17:25:24.933173Z  WARN rinku_node::gossip: Failed to propagate tx 926f3f195ba9d3ca to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:24.777	
+2026-01-21T17:25:24.776809Z  WARN rinku_node::gossip: Failed to propagate tx 109137f70f056259 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:24.616	
+2026-01-21T17:25:24.616338Z  WARN rinku_node::gossip: Failed to propagate tx 2b16696099c46c6f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:24.536	
+2026-01-21T17:25:24.536233Z  WARN rinku_node::gossip: Failed to propagate tx 262bdd9ad5b67247 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:24.376	
+2026-01-21T17:25:24.375811Z  WARN rinku_node::gossip: Failed to propagate tx 6c09ea9ce193585c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:24.294	
+2026-01-21T17:25:24.294480Z  WARN rinku_node::gossip: Failed to propagate tx 35e3d1d940927a5e to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:24.134	
+2026-01-21T17:25:24.134340Z  WARN rinku_node::gossip: Failed to propagate tx 3401fa8ce16dd2b5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:23.978	
+2026-01-21T17:25:23.978078Z  WARN rinku_node::gossip: Failed to propagate tx 3cc65b4be256a43a to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:23.894	
+2026-01-21T17:25:23.893335Z  WARN rinku_node::gossip: Failed to propagate tx 7a24536477ae556c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:23.654	
+2026-01-21T17:25:23.654757Z  WARN rinku_node::gossip: Failed to propagate tx 76f00197d6b2e078 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:23.573	
+2026-01-21T17:25:23.573687Z  WARN rinku_node::gossip: Failed to propagate tx 447e64bfe97dc70c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:23.496	
+2026-01-21T17:25:23.495863Z  WARN rinku_node::gossip: Failed to propagate tx d65bf067075c9a33 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:23.334	
+2026-01-21T17:25:23.334401Z  WARN rinku_node::gossip: Failed to propagate tx e3abfc2e7f5a597f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:23.178	
+2026-01-21T17:25:23.178450Z  WARN rinku_node::gossip: Failed to propagate tx 23ecc78b0e532728 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:23.094	
+2026-01-21T17:25:23.094615Z  WARN rinku_node::gossip: Failed to propagate tx 89a6336a184f7475 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:23.014	
+2026-01-21T17:25:23.014498Z  WARN rinku_node::gossip: Failed to propagate tx 110c7784830d5eec to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:22.976	
+2026-01-21T17:25:22.976414Z  WARN rinku_node::gossip: Failed to propagate tx c0cb913be8fccc16 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:22.696	
+2026-01-21T17:25:22.696785Z  WARN rinku_node::gossip: Failed to propagate tx 6bf123cff0e4febf to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:22.534	
+2026-01-21T17:25:22.534709Z  WARN rinku_node::gossip: Failed to propagate tx 08d8d3a8d55604af to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:22.455	
+2026-01-21T17:25:22.455355Z  WARN rinku_node::gossip: Failed to propagate tx 61154d4b54211687 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:22.296	
+2026-01-21T17:25:22.295902Z  WARN rinku_node::gossip: Failed to propagate tx 72f0000469babff8 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:22.144	
+2026-01-21T17:25:22.144276Z  WARN rinku_node::gossip: Failed to propagate tx 01d29374e5e336b3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.896	
+2026-01-21T17:25:21.896207Z  WARN rinku_node::gossip: Failed to propagate tx 34700a3d27fcc9e1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.817	
+2026-01-21T17:25:21.816917Z  WARN rinku_node::gossip: Failed to propagate tx 01aa5940923b5b87 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.755	
+2026-01-21T17:25:21.755307Z  WARN rinku_node::gossip: Failed to propagate tx 8d68370cca6ede57 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.734	
+2026-01-21T17:25:21.733749Z  WARN rinku_node::gossip: Failed to propagate tx b79c1f85464ac37f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.664	
+2026-01-21T17:25:21.664814Z  WARN rinku_node::gossip: Failed to propagate tx 475b954afb7a8337 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.655	
+2026-01-21T17:25:21.655104Z  WARN rinku_node::gossip: Failed to propagate tx 4aa14603c52e4f2b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.573	
+2026-01-21T17:25:21.573339Z  WARN rinku_node::gossip: Failed to propagate tx 84286df6f0f841c0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.495	
+2026-01-21T17:25:21.495031Z  WARN rinku_node::gossip: Failed to propagate tx d2ea61a6136ff0c9 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.417	
+2026-01-21T17:25:21.416854Z  WARN rinku_node::gossip: Failed to propagate tx 3b5bf8853f3608b1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.344	
+2026-01-21T17:25:21.344035Z  WARN rinku_node::gossip: Failed to propagate tx 3224635ecd6c3a83 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.336	
+2026-01-21T17:25:21.336265Z  WARN rinku_node::gossip: Failed to propagate tx d6895bea23a7d537 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.177	
+2026-01-21T17:25:21.177302Z  WARN rinku_node::gossip: Failed to propagate tx 5df1fc20ff77a6b3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:21.095	
+2026-01-21T17:25:21.095494Z  WARN rinku_node::gossip: Failed to propagate tx e447ec0e2ddaef6b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.933	
+2026-01-21T17:25:20.932889Z  WARN rinku_node::gossip: Failed to propagate tx d5ee85ee4838b0cb to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.855	
+2026-01-21T17:25:20.855464Z  WARN rinku_node::gossip: Failed to propagate tx 4cb7f16acc2a01c2 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.777	
+2026-01-21T17:25:20.776076Z  WARN rinku_node::gossip: Failed to propagate tx 7edb254c06064481 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.722	
+2026-01-21T17:25:20.722775Z  WARN rinku_node::gossip: Failed to add gossiped tx bd256662b2f3cfc7b6308c02fa6f9436b3552f3fdd7bec90063c513df9ee571b: Invalid nonce: expected 20, got 19
+2026-01-21 12:25:20.722	
+2026-01-21T17:25:20.722694Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 20, got 19
+2026-01-21 12:25:20.697	
+2026-01-21T17:25:20.697307Z  WARN rinku_node::gossip: Failed to propagate tx f49c04ef4a558780 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.618	
+2026-01-21T17:25:20.618216Z  WARN rinku_node::gossip: Failed to propagate tx a5d28e6425d6247e to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.533	
+2026-01-21T17:25:20.533352Z  WARN rinku_node::gossip: Failed to propagate tx 396e90cf37583024 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.475	
+2026-01-21T17:25:20.475326Z  WARN rinku_node::gossip: Failed to propagate tx 246a9dc9d6c75aec to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.469	
+2026-01-21T17:25:20.469579Z  WARN rinku_node::gossip: Failed to propagate tx f46145b730b72414 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.464	
+2026-01-21T17:25:20.464170Z  WARN rinku_node::gossip: Failed to propagate tx c637b6e5c357ca4e to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.214	
+2026-01-21T17:25:20.214519Z  WARN rinku_node::gossip: Failed to propagate tx 1b337a913dc39488 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.154	
+2026-01-21T17:25:20.154573Z  WARN rinku_node::gossip: Failed to propagate tx 4061a15389987054 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:20.005	
+2026-01-21T17:25:20.005171Z  WARN rinku_node::gossip: Failed to propagate tx 599b1748135ffa23 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:19.824	
+2026-01-21T17:25:19.823682Z  WARN rinku_node::gossip: Failed to propagate tx fd7189ca36f82d0d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:19.586	
+2026-01-21T17:25:19.586264Z  WARN rinku_node::gossip: Failed to propagate tx acf779f359fa510b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:19.503	
+2026-01-21T17:25:19.503691Z  WARN rinku_node::gossip: Failed to propagate tx da98c0454e8b9221 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:19.496	
+2026-01-21T17:25:19.496186Z  WARN rinku_node::gossip: Failed to propagate tx 6ec770ccfc75929d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:19.335	
+2026-01-21T17:25:19.335776Z  WARN rinku_node::gossip: Failed to propagate tx 662bf5041b19b926 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:19.177	
+2026-01-21T17:25:19.176895Z  WARN rinku_node::gossip: Failed to propagate tx 1a51f2a45c1baf6e to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:19.013	
+2026-01-21T17:25:19.013255Z  WARN rinku_node::gossip: Failed to propagate tx 3539d4f6d150790b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.853	
+2026-01-21T17:25:18.853318Z  WARN rinku_node::gossip: Failed to propagate tx ed7f89018a7d8db1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.693	
+2026-01-21T17:25:18.692673Z  WARN rinku_node::gossip: Failed to propagate tx 4fa85c9018a34f92 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.535	
+2026-01-21T17:25:18.535366Z  WARN rinku_node::gossip: Failed to propagate tx cef298f4c25fc284 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.454	
+2026-01-21T17:25:18.454720Z  WARN rinku_node::gossip: Failed to propagate tx 90b1b3b4776cbe4e to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.375	
+2026-01-21T17:25:18.375467Z  WARN rinku_node::gossip: Failed to propagate tx 20d6810b80162b18 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.296	
+2026-01-21T17:25:18.296558Z  WARN rinku_node::gossip: Failed to propagate tx a98add8a13789674 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.215	
+2026-01-21T17:25:18.215139Z  WARN rinku_node::gossip: Failed to propagate tx a099eaa79c3fec06 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.146	
+2026-01-21T17:25:18.145940Z  WARN rinku_node::gossip: Failed to propagate tx d9d5589fdb6d4090 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.141	
+2026-01-21T17:25:18.141644Z  WARN rinku_node::gossip: Failed to propagate tx d15a99651cdbd64f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.135	
+2026-01-21T17:25:18.135356Z  WARN rinku_node::gossip: Failed to propagate tx 8222f184abdc8db5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:18.130	
+2026-01-21T17:25:18.130628Z  WARN rinku_node::gossip: Failed to propagate tx 23e6af3133decbcc to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.925	
+2026-01-21T17:25:17.924082Z  WARN rinku_node::gossip: Failed to propagate tx ca5e6717c67d9b6d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.574	
+2026-01-21T17:25:17.573986Z  WARN rinku_node::gossip: Failed to propagate tx 222dd27a00a8df9c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.495	
+2026-01-21T17:25:17.495173Z  WARN rinku_node::gossip: Failed to propagate tx 0038a010335021dc to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.416	
+2026-01-21T17:25:17.415848Z  WARN rinku_node::gossip: Failed to propagate tx 3a297b2dc438ae56 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.333	
+2026-01-21T17:25:17.333632Z  WARN rinku_node::gossip: Failed to propagate tx 89f4356ac8a50605 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.256	
+2026-01-21T17:25:17.255941Z  WARN rinku_node::gossip: Failed to propagate tx 81d454f1ec6b1ea1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.183	
+2026-01-21T17:25:17.183156Z  WARN rinku_node::gossip: Failed to propagate tx 718fc71025126039 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.175	
+2026-01-21T17:25:17.175154Z  WARN rinku_node::gossip: Failed to propagate tx ae9683af11e8e26f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.102	
+2026-01-21T17:25:17.102387Z  WARN rinku_node::gossip: Failed to propagate tx 9599edb977c4054a to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.094	
+2026-01-21T17:25:17.094158Z  WARN rinku_node::gossip: Failed to propagate tx 03cc55380fa15492 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.030	
+2026-01-21T17:25:17.030125Z  WARN rinku_node::gossip: Failed to propagate tx 0b7c48c18ea4a8b5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.026	
+2026-01-21T17:25:17.026666Z  WARN rinku_node::gossip: Failed to propagate tx 8c60a49b157148ae to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:17.017	
+2026-01-21T17:25:17.016618Z  WARN rinku_node::gossip: Failed to propagate tx c55e994d5200ed9c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:16.774	
+2026-01-21T17:25:16.773744Z  WARN rinku_node::gossip: Failed to propagate tx 5841c92553903a71 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:16.695	
+2026-01-21T17:25:16.695654Z  WARN rinku_node::gossip: Failed to propagate tx 7a3612f4187d91f1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:16.533	
+2026-01-21T17:25:16.533230Z  WARN rinku_node::gossip: Failed to propagate tx 041365399a41b5a0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:16.376	
+2026-01-21T17:25:16.376199Z  WARN rinku_node::gossip: Failed to propagate tx 06354c0bd297c6e4 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:16.293	
+2026-01-21T17:25:16.293830Z  WARN rinku_node::gossip: Failed to propagate tx 4e622b0f9c589db8 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:16.262	
+2026-01-21T17:25:16.262563Z  WARN rinku_node::gossip: Failed to propagate tx 3ab96f60de957a15 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:16.106	
+2026-01-21T17:25:16.106659Z  INFO rinku_node::gossip: Propagating 111 pending transactions to 3 peers
+2026-01-21 12:25:15.780	
+2026-01-21T17:25:15.780702Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2612 DAG transactions
+2026-01-21 12:25:15.780	
+2026-01-21T17:25:15.780620Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:25:15.772	
+2026-01-21T17:25:15.772337Z  INFO rinku_node::state: Snapshot applied: 2612 DAG txs, 0 validators, 55 checkpoints, 0 contracts
+2026-01-21 12:25:15.772	
+2026-01-21T17:25:15.772247Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:25:15.772	
+2026-01-21T17:25:15.772217Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:25:15.772	
+2026-01-21T17:25:15.772100Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:25:15.741	
+2026-01-21T17:25:15.739691Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:25:15.741	
+2026-01-21T17:25:15.739663Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 55 checkpoints, 2612 dag txs
+2026-01-21 12:25:15.741	
+2026-01-21T17:25:15.739653Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:25:15.741	
+2026-01-21T17:25:15.739578Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 999 transactions to peer (0 failed)
+2026-01-21 12:25:14.402	
+2026-01-21T17:25:14.400804Z  INFO rinku_node::api: Returning 97 of 97 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:25:14.400	
+2026-01-21T17:25:14.400707Z  INFO rinku_node::api: Sync delta request: checkpoint=55, offset=0, limit=500
+2026-01-21 12:25:12.462	
+2026-01-21T17:25:12.462048Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+2026-01-21 12:25:12.461	
+2026-01-21T17:25:12.461473Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:25:12.461	
+2026-01-21T17:25:12.461390Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 55 checkpoints, 2612 dag txs, checkpoint height 55
+2026-01-21 12:25:12.368	
+2026-01-21T17:25:12.368623Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+2026-01-21 12:25:12.311	
+2026-01-21T17:25:12.311537Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 1 checkpoint(s) ahead (cp: 55 vs 54), requesting snapshot sync...
+2026-01-21 12:25:12.214	
+2026-01-21T17:25:12.214613Z  WARN rinku_node::gossip: Failed to propagate tx 9f079526c4ff92c0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:12.055	
+2026-01-21T17:25:12.055656Z  WARN rinku_node::gossip: Failed to propagate tx 8a6c9ebab15cbfb0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:11.877	
+2026-01-21T17:25:11.877588Z  WARN rinku_node::gossip: Failed to add gossiped tx 08cc4120c8a904f438771de1dbac189dcf4eb3bd5b115297687fb18ddd91ad3b: Invalid nonce: expected 231, got 230
+2026-01-21 12:25:11.877	
+2026-01-21T17:25:11.877539Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 231, got 230
+2026-01-21 12:25:11.877	
+2026-01-21T17:25:11.877314Z  WARN rinku_node::gossip: Failed to add gossiped tx b60b6118975e1884c73acef69fb029652ce0706ebcc93289a9b87b31bdbb9f8f: Invalid nonce: expected 15, got 14
+2026-01-21 12:25:11.877	
+2026-01-21T17:25:11.877215Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 15, got 14
+2026-01-21 12:25:11.815	
+2026-01-21T17:25:11.814670Z  WARN rinku_node::gossip: Failed to propagate tx b34679dd1bc4cc29 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:11.653	
+2026-01-21T17:25:11.653445Z  WARN rinku_node::gossip: Failed to propagate tx f19ea37bdb0ccc32 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:11.420	
+2026-01-21T17:25:11.419904Z  WARN rinku_node::gossip: Failed to propagate tx 725d22bcbd6da2a2 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:11.336	
+2026-01-21T17:25:11.335872Z  WARN rinku_node::gossip: Failed to propagate tx 3c833f560b20d944 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:11.100	
+2026-01-21T17:25:11.099973Z  WARN rinku_node::gossip: Failed to propagate tx bb7a24339b603c59 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:11.014	
+2026-01-21T17:25:11.014440Z  WARN rinku_node::gossip: Failed to propagate tx 0654c336a3310f0a to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:10.778	
+2026-01-21T17:25:10.777235Z  WARN rinku_node::gossip: Failed to propagate tx a795219448a0a451 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:10.696	
+2026-01-21T17:25:10.695985Z  WARN rinku_node::gossip: Failed to propagate tx ebdf3107e716991c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:10.614	
+2026-01-21T17:25:10.613785Z  WARN rinku_node::gossip: Failed to propagate tx 1d39ca0c666fb07d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:10.543	
+2026-01-21T17:25:10.543054Z  WARN rinku_node::gossip: Failed to propagate tx 81c72bafe42f2d18 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:10.444	
+2026-01-21T17:25:10.444447Z  WARN rinku_node::gossip: Failed to propagate tx 767e902a446e3e7a to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:10.055	
+2026-01-21T17:25:10.055588Z  WARN rinku_node::gossip: Failed to propagate tx ee305102b95cc9b9 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.894	
+2026-01-21T17:25:09.894649Z  WARN rinku_node::gossip: Failed to propagate tx 6d3ab28f669a43a1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.814	
+2026-01-21T17:25:09.814800Z  WARN rinku_node::gossip: Failed to propagate tx 499061846320cca6 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.735	
+2026-01-21T17:25:09.734740Z  WARN rinku_node::gossip: Failed to propagate tx 76194406657bf975 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.665	
+2026-01-21T17:25:09.665054Z  WARN rinku_node::gossip: Failed to propagate tx b6284f09d830b7b8 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.582	
+2026-01-21T17:25:09.582140Z  WARN rinku_node::gossip: Failed to propagate tx 09f376ec7dcb7b7f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.576	
+2026-01-21T17:25:09.576622Z  WARN rinku_node::gossip: Failed to propagate tx 955ea685a834a05b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.498	
+2026-01-21T17:25:09.498694Z  WARN rinku_node::gossip: Failed to propagate tx f7f34678a8a2004f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.493	
+2026-01-21T17:25:09.493607Z  WARN rinku_node::gossip: Failed to propagate tx 21ea6343a2753e96 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.440	
+2026-01-21T17:25:09.440346Z  WARN rinku_node::gossip: Failed to propagate tx ef161ff558e882cf to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.403	
+2026-01-21T17:25:09.403701Z  WARN rinku_node::gossip: Failed to propagate tx 3e8442bf37d609e1 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:09.014	
+2026-01-21T17:25:09.014049Z  WARN rinku_node::gossip: Failed to propagate tx 891a97aa84143472 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:08.775	
+2026-01-21T17:25:08.774619Z  WARN rinku_node::gossip: Failed to propagate tx b62b17358e4a4a1f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:08.614	
+2026-01-21T17:25:08.614208Z  WARN rinku_node::gossip: Failed to propagate tx ce6fd5a5d58760cd to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:08.533	
+2026-01-21T17:25:08.532896Z  WARN rinku_node::gossip: Failed to propagate tx 9a445a18eba95f52 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:08.308	
+2026-01-21T17:25:08.308299Z  WARN rinku_node::gossip: Failed to propagate tx 6de602a35b1e2a60 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:08.068	
+2026-01-21T17:25:08.068453Z  WARN rinku_node::gossip: Failed to propagate tx 1a9dc3a6a6b0d1d3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:07.818	
+2026-01-21T17:25:07.818070Z  WARN rinku_node::gossip: Failed to propagate tx ac9dfe5f4a3eab72 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:07.659	
+2026-01-21T17:25:07.659541Z  WARN rinku_node::gossip: Failed to propagate tx ec59fb9130ed3c64 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:07.573	
+2026-01-21T17:25:07.573487Z  WARN rinku_node::gossip: Failed to propagate tx 3fb42ea74f49d1c9 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:07.418	
+2026-01-21T17:25:07.418244Z  WARN rinku_node::gossip: Failed to propagate tx 79200a0e8c1a0120 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:07.334	
+2026-01-21T17:25:07.334123Z  WARN rinku_node::gossip: Failed to propagate tx 0db7f90efefac404 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016326
+2026-01-21 12:25:07.250	
+2026-01-21T17:25:07.249636Z  WARN rinku_node::gossip: Failed to propagate tx 99f49447e4852e34 to https://rinkuchan.com: Failed to send to peer
+2026-01-21 12:25:07.250	
+2026-01-21T17:25:07.249603Z  WARN rinku_node::gossip: Peer https://rinkuchan.com failed 1 times, backoff for 20s
+2026-01-21 12:25:01.373	
+2026-01-21T17:25:01.370288Z  WARN rinku_node::gossip: Failed to add gossiped tx 0575c3ab3cf54c286e37cb8c02d617b2f91938c5cc80a26f5c07e92b6042527d: Invalid nonce: expected 522, got 521
+2026-01-21 12:25:01.370	
+2026-01-21T17:25:01.370189Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 522, got 521
+2026-01-21 12:25:00.518	
+2026-01-21T17:25:00.518828Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 54 checkpoints, 2554 dag txs
+2026-01-21 12:25:00.517	
+2026-01-21T17:25:00.514965Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:24:58.471	
+2026-01-21T17:24:58.471731Z  INFO rinku_node::checkpoint: Created checkpoint 993c62e06c13644e at height 54 (54 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:24:58.471	
+2026-01-21T17:24:58.471582Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:24:58.470	
+2026-01-21T17:24:58.470731Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 54 (peers: 1)
+2026-01-21 12:24:58.057	
+2026-01-21T17:24:58.057097Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 53 checkpoints, 2547 dag txs
+2026-01-21 12:24:58.053	
+2026-01-21T17:24:58.053805Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:24:57.902	
+2026-01-21T17:24:57.902292Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 53 checkpoints, 2539 dag txs
+2026-01-21 12:24:57.901	
+2026-01-21T17:24:57.899088Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:24:52.301	
+2026-01-21T17:24:52.301057Z  INFO rinku_node::api: Snapshot sync response: 15 accounts, 0 validators, 53 checkpoints, 2537 dag txs
+2026-01-21 12:24:52.297	
+2026-01-21T17:24:52.296860Z  INFO rinku_node::api: Snapshot sync request received
+2026-01-21 12:24:52.289	
+2026-01-21T17:24:52.289027Z  INFO rinku_node::api: Returning 44 of 44 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:52.289	
+2026-01-21T17:24:52.288869Z  INFO rinku_node::api: Sync delta request: checkpoint=53, offset=0, limit=500
+2026-01-21 12:24:52.125	
+2026-01-21T17:24:52.124107Z  INFO rinku_node::gossip: Propagating 116 pending transactions to 3 peers
+2026-01-21 12:24:50.756	
+2026-01-21T17:24:50.755836Z  INFO rinku_node::api: Returning 44 of 44 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:50.756	
+2026-01-21T17:24:50.755791Z  INFO rinku_node::api: Sync delta request: checkpoint=53, offset=0, limit=500
+2026-01-21 12:24:50.470	
+2026-01-21T17:24:50.469975Z  INFO rinku_node::gossip: Applied 11 account nonces from peer
+2026-01-21 12:24:50.470	
+2026-01-21T17:24:50.469910Z  INFO rinku_node::gossip: Sync page: received 463/463 transactions, 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:50.444	
+2026-01-21T17:24:50.444294Z  WARN rinku_node::gossip: Failed to add gossiped tx 7acd48301bd940b230aeb4757f8e13ca9226d59683786d68bb373aa1b3fa5e04: Invalid nonce: expected 37, got 36
+2026-01-21 12:24:50.444	
+2026-01-21T17:24:50.444215Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 37, got 36
+2026-01-21 12:24:50.374	
+2026-01-21T17:24:50.373888Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2604 vs 2533), requesting delta sync...
+2026-01-21 12:24:50.280	
+2026-01-21T17:24:50.279985Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2533 DAG transactions
+2026-01-21 12:24:50.280	
+2026-01-21T17:24:50.279933Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:24:50.276	
+2026-01-21T17:24:50.273542Z  INFO rinku_node::state: Snapshot applied: 2533 DAG txs, 0 validators, 53 checkpoints, 0 contracts
+2026-01-21 12:24:50.273	
+2026-01-21T17:24:50.273392Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:24:50.273	
+2026-01-21T17:24:50.273360Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:24:50.273	
+2026-01-21T17:24:50.273254Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:24:50.245	
+2026-01-21T17:24:50.245187Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 15 total
+2026-01-21 12:24:50.245	
+2026-01-21T17:24:50.245092Z  INFO rinku_node::state: Applying sync snapshot: 15 accounts, 53 checkpoints, 2533 dag txs
+2026-01-21 12:24:50.245	
+2026-01-21T17:24:50.245006Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:24:50.245	
+2026-01-21T17:24:50.244814Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:24:50.101	
+2026-01-21T17:24:50.100386Z  WARN rinku_node::gossip: Failed to add gossiped tx 704821a70f49cea1b346dc95dfb99abb5ba481df0124e0655122b9156406bef0: Invalid nonce: expected 37, got 36
+2026-01-21 12:24:50.100	
+2026-01-21T17:24:50.100277Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 37, got 36
+2026-01-21 12:24:48.541	
+2026-01-21T17:24:48.541161Z  WARN rinku_node::gossip: Failed to add gossiped tx c1a5250725d882e5aaffd0a50bf616223af1f63e3c5a5f9eb70230c2a90217e7: Invalid nonce: expected 223, got 222
+2026-01-21 12:24:48.541	
+2026-01-21T17:24:48.541095Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 223, got 222
+2026-01-21 12:24:48.483	
+2026-01-21T17:24:48.483050Z  WARN rinku_node::gossip: Failed to add gossiped tx 472c5be60a2e076d395bcc1a25342e8306de79909c28b7c1779749e967162f59: Invalid nonce: expected 36, got 35
+2026-01-21 12:24:48.483	
+2026-01-21T17:24:48.482942Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 36, got 35
+2026-01-21 12:24:47.871	
+2026-01-21T17:24:47.871312Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+2026-01-21 12:24:47.870	
+2026-01-21T17:24:47.870645Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:24:47.870	
+2026-01-21T17:24:47.870538Z  INFO rinku_node::gossip: Received snapshot: 15 accounts, 53 checkpoints, 2533 dag txs, checkpoint height 53
+2026-01-21 12:24:47.765	
+2026-01-21T17:24:47.765122Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+2026-01-21 12:24:47.713	
+2026-01-21T17:24:47.713290Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 4 checkpoint(s) ahead (cp: 53 vs 49), requesting snapshot sync...
+2026-01-21 12:24:47.540	
+2026-01-21T17:24:47.540820Z  WARN rinku_node::gossip: Failed to add gossiped tx ebe0fd34cf79ff876e00da569ab52d27e38753a465905fe5b68dc0bc23a687b5: Invalid nonce: expected 172, got 171
+2026-01-21 12:24:47.540	
+2026-01-21T17:24:47.540733Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 172, got 171
+2026-01-21 12:24:47.482	
+2026-01-21T17:24:47.481989Z  WARN rinku_node::gossip: Failed to add gossiped tx bfb204cba7ade54c9883c32c559eca1ebb29ff5dc95ac19cfda9850ada09da7f: Invalid nonce: expected 222, got 221
+2026-01-21 12:24:47.482	
+2026-01-21T17:24:47.481905Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 222, got 221
+2026-01-21 12:24:46.204	
+2026-01-21T17:24:46.204075Z  INFO rinku_node::api: Returning 429 of 429 transactions with 11 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:46.203	
+2026-01-21T17:24:46.203661Z  INFO rinku_node::api: Sync delta request: checkpoint=53, offset=0, limit=500
+2026-01-21 12:24:44.996	
+2026-01-21T17:24:44.996714Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:44.996	
+2026-01-21T17:24:44.996658Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:44.996	
+2026-01-21T17:24:44.996493Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:44.996	
+2026-01-21T17:24:44.996388Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:44.754	
+2026-01-21T17:24:44.752950Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:44.753	
+2026-01-21T17:24:44.752756Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:37.829	
+2026-01-21T17:24:37.828853Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:37.829	
+2026-01-21T17:24:37.828719Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:37.716	
+2026-01-21T17:24:37.716679Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:37.716	
+2026-01-21T17:24:37.716583Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:37.635	
+2026-01-21T17:24:37.634799Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:37.634	
+2026-01-21T17:24:37.634654Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:37.607	
+2026-01-21T17:24:37.607695Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:37.607	
+2026-01-21T17:24:37.607538Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:37.458	
+2026-01-21T17:24:37.458219Z  WARN rinku_node::gossip: Failed to add gossiped tx bde894308f96d67ec1c6579bea4c2b6ef054cef59584003389c4a0634944275b: Invalid nonce: expected 524, got 523
+2026-01-21 12:24:37.458	
+2026-01-21T17:24:37.458122Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 524, got 523
+2026-01-21 12:24:36.441	
+2026-01-21T17:24:36.438030Z  INFO rinku_node::api: Returning 378 of 378 transactions with 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:36.441	
+2026-01-21T17:24:36.437946Z  INFO rinku_node::api: Sync delta request: checkpoint=52, offset=0, limit=500
+2026-01-21 12:24:34.996	
+2026-01-21T17:24:34.996817Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.996	
+2026-01-21T17:24:34.996710Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:34.835	
+2026-01-21T17:24:34.835384Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.835	
+2026-01-21T17:24:34.835272Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:34.758	
+2026-01-21T17:24:34.757654Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.758	
+2026-01-21T17:24:34.757638Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:34.758	
+2026-01-21T17:24:34.757571Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.757	
+2026-01-21T17:24:34.757467Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:34.594	
+2026-01-21T17:24:34.594412Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.594	
+2026-01-21T17:24:34.594309Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:34.517	
+2026-01-21T17:24:34.517462Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.517	
+2026-01-21T17:24:34.517365Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:34.490	
+2026-01-21T17:24:34.490734Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.490	
+2026-01-21T17:24:34.490627Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:34.439	
+2026-01-21T17:24:34.439498Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.439	
+2026-01-21T17:24:34.439409Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:34.430	
+2026-01-21T17:24:34.429650Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.429	
+2026-01-21T17:24:34.429473Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:34.385	
+2026-01-21T17:24:34.385619Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:34.385	
+2026-01-21T17:24:34.385520Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:33.871	
+2026-01-21T17:24:33.870868Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:33.871	
+2026-01-21T17:24:33.870740Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:32.966	
+2026-01-21T17:24:32.966570Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:32.966	
+2026-01-21T17:24:32.966555Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:32.966	
+2026-01-21T17:24:32.966540Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:32.966	
+2026-01-21T17:24:32.966523Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:32.966	
+2026-01-21T17:24:32.966446Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:32.966	
+2026-01-21T17:24:32.966309Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:31.872	
+2026-01-21T17:24:31.872549Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:31.872	
+2026-01-21T17:24:31.872455Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:31.792	
+2026-01-21T17:24:31.791971Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:31.792	
+2026-01-21T17:24:31.791878Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:31.632	
+2026-01-21T17:24:31.632399Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:31.632	
+2026-01-21T17:24:31.632309Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:28.849	
+2026-01-21T17:24:28.848915Z  INFO rinku_node::gossip: Propagating 138 pending transactions to 3 peers
+2026-01-21 12:24:28.836	
+2026-01-21T17:24:28.836354Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:28.836	
+2026-01-21T17:24:28.836254Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:28.597	
+2026-01-21T17:24:28.597093Z  WARN rinku_node::gossip: RECOVERY: Force snapshot sync complete - applied 2480 DAG transactions
+2026-01-21 12:24:28.597	
+2026-01-21T17:24:28.597041Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:24:28.591	
+2026-01-21T17:24:28.591696Z  INFO rinku_node::state: Snapshot applied: 2480 DAG txs, 0 validators, 49 checkpoints, 0 contracts
+2026-01-21 12:24:28.591	
+2026-01-21T17:24:28.591600Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:24:28.591	
+2026-01-21T17:24:28.591576Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:24:28.591	
+2026-01-21T17:24:28.591477Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:24:28.569	
+2026-01-21T17:24:28.569301Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 14 total
+2026-01-21 12:24:28.569	
+2026-01-21T17:24:28.569199Z  INFO rinku_node::state: Applying sync snapshot: 14 accounts, 49 checkpoints, 2480 dag txs
+2026-01-21 12:24:28.569	
+2026-01-21T17:24:28.569170Z  WARN rinku_node::state: RECOVERY MODE: Force applying snapshot (14 accounts, 49 checkpoints) to fix state divergence
+2026-01-21 12:24:28.569	
+2026-01-21T17:24:28.569076Z  WARN rinku_node::gossip: TESTNET MODE: Accepting snapshot without verification
+2026-01-21 12:24:28.569	
+2026-01-21T17:24:28.568985Z  WARN rinku_node::gossip: RECOVERY: Received snapshot: 14 accounts, 49 checkpoints, 2480 dag txs
+2026-01-21 12:24:28.469	
+2026-01-21T17:24:28.469220Z  INFO rinku_node::checkpoint: Created checkpoint c0b15328493a9bb6 at height 53 (79 txs finalized, 3.932411 RKU emitted)
+2026-01-21 12:24:28.469	
+2026-01-21T17:24:28.468896Z  INFO rinku_node::checkpoint: Distributed 3.932411 RKU to 1 validators
+2026-01-21 12:24:28.468	
+2026-01-21T17:24:28.467969Z  INFO rinku_node::leader_election: LEADER ELECTION: This node elected as leader for checkpoint 53 (peers: 1)
+2026-01-21 12:24:28.468	
+2026-01-21T17:24:28.467671Z  INFO rinku_node::checkpoint: Epoch transition: 19 -> 20 (activated: 0, exited: 0)
+2026-01-21 12:24:28.467	
+2026-01-21T17:24:28.467301Z  INFO rinku_node::validator_identity: Epoch transition: 19 -> 20
+2026-01-21 12:24:28.371	
+2026-01-21T17:24:28.371399Z  INFO rinku_node::network: Identified peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 12:24:28.159	
+2026-01-21T17:24:28.158962Z  WARN rinku_node::gossip: RECOVERY: Forcing snapshot sync from peer https://rinku-validator-2.fly.dev to fix state divergence
+2026-01-21 12:24:28.086	
+2026-01-21T17:24:28.086180Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 998 transactions to peer (0 failed)
+2026-01-21 12:24:27.952	
+2026-01-21T17:24:27.951636Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:27.951	
+2026-01-21T17:24:27.951499Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:27.870	
+2026-01-21T17:24:27.870563Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:27.870	
+2026-01-21T17:24:27.870446Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.743	
+2026-01-21T17:24:15.743534Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.743	
+2026-01-21T17:24:15.743415Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.743	
+2026-01-21T17:24:15.743315Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.743	
+2026-01-21T17:24:15.743210Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.589	
+2026-01-21T17:24:15.589741Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.589	
+2026-01-21T17:24:15.589673Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.582	
+2026-01-21T17:24:15.582599Z  INFO rinku_node::api: Merge accounts request: 1 accounts from peer
+2026-01-21 12:24:15.579	
+2026-01-21T17:24:15.579644Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.579	
+2026-01-21T17:24:15.579548Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.534	
+2026-01-21T17:24:15.534290Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.534	
+2026-01-21T17:24:15.534203Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.528	
+2026-01-21T17:24:15.528803Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.528	
+2026-01-21T17:24:15.528720Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.509	
+2026-01-21T17:24:15.509700Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.509	
+2026-01-21T17:24:15.509627Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.504	
+2026-01-21T17:24:15.504107Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.504	
+2026-01-21T17:24:15.504037Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.500	
+2026-01-21T17:24:15.500230Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.500	
+2026-01-21T17:24:15.500191Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.500	
+2026-01-21T17:24:15.500090Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.500	
+2026-01-21T17:24:15.500040Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.499	
+2026-01-21T17:24:15.499915Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.499	
+2026-01-21T17:24:15.499832Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.489	
+2026-01-21T17:24:15.489345Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.489	
+2026-01-21T17:24:15.489303Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.489	
+2026-01-21T17:24:15.489196Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:15.489	
+2026-01-21T17:24:15.489093Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:15.111	
+2026-01-21T17:24:15.111664Z  WARN rinku_node::gossip: Failed to add gossiped tx 3c4e92f2082cc98438c9051704b1a25806e51f387ea79150d8bb848fe6f9e78b: Invalid nonce: expected 203, got 202
+2026-01-21 12:24:15.111	
+2026-01-21T17:24:15.111612Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 203, got 202
+2026-01-21 12:24:15.109	
+2026-01-21T17:24:15.109824Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-validator-2.fly.dev before snapshot sync
+2026-01-21 12:24:15.109	
+2026-01-21T17:24:15.109032Z  WARN rinku_node::gossip: Delta sync had 1 failures vs 0 added - forcing snapshot recovery
+2026-01-21 12:24:15.109	
+2026-01-21T17:24:15.108926Z  INFO rinku_node::gossip: Delta sync complete: 0 added, 1 failed
+2026-01-21 12:24:15.108	
+2026-01-21T17:24:15.108359Z  INFO rinku_node::gossip: Applied 10 account nonces from peer
+2026-01-21 12:24:15.108	
+2026-01-21T17:24:15.108265Z  INFO rinku_node::gossip: Sync page: received 272/272 transactions, 10 account nonces (offset=0, has_more=false)
+2026-01-21 12:24:15.012	
+2026-01-21T17:24:15.012827Z  INFO rinku_node::gossip: Peer https://rinku-validator-2.fly.dev has more DAG data (dag: 2417 vs 2347), requesting delta sync...
+2026-01-21 12:24:14.991	
+2026-01-21T17:24:14.991382Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:14.991	
+2026-01-21T17:24:14.991341Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:14.991	
+2026-01-21T17:24:14.991249Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:14.991	
+2026-01-21T17:24:14.991120Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:14.991	
+2026-01-21T17:24:14.990868Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:14.990	
+2026-01-21T17:24:14.990740Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:14.920	
+2026-01-21T17:24:14.920076Z  INFO rinku_node::gossip: Snapshot sync complete: applied 2347 DAG transactions
+2026-01-21 12:24:14.920	
+2026-01-21T17:24:14.919994Z  INFO rinku_node::gossip: Persisted peer genesis hash: f119c0240d1ca46b
+2026-01-21 12:24:14.913	
+2026-01-21T17:24:14.913656Z  INFO rinku_node::state: Snapshot applied: 2347 DAG txs, 0 validators, 52 checkpoints, 0 contracts
+2026-01-21 12:24:14.913	
+2026-01-21T17:24:14.913625Z  INFO rinku_node::state: Applied slashing snapshot
+2026-01-21 12:24:14.913	
+2026-01-21T17:24:14.913508Z  INFO rinku_node::state: Applied emission snapshot
+2026-01-21 12:24:14.913	
+2026-01-21T17:24:14.913401Z  INFO rinku_node::state: Applied rewards snapshot
+2026-01-21 12:24:14.892	
+2026-01-21T17:24:14.888563Z  INFO rinku_node::state: Account merge: 0 added from peer, 0 updated (higher nonce), 0 local-only to push back, 14 total
+2026-01-21 12:24:14.892	
+2026-01-21T17:24:14.888529Z  INFO rinku_node::state: Applying sync snapshot: 14 accounts, 52 checkpoints, 2347 dag txs
+2026-01-21 12:24:14.892	
+2026-01-21T17:24:14.888523Z  INFO rinku_node::gossip: Genesis hash verified: f119c0240d1ca46b
+2026-01-21 12:24:14.892	
+2026-01-21T17:24:14.888484Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Sent 999 transactions to peer (0 failed)
+2026-01-21 12:24:14.387	
+2026-01-21T17:24:14.387615Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:14.387	
+2026-01-21T17:24:14.387546Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:14.381	
+2026-01-21T17:24:14.380921Z  WARN rinku_node::network: Banning peer 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh for 300 secs: Repeated misbehavior
+2026-01-21 12:24:14.380	
+2026-01-21T17:24:14.380821Z  WARN rinku_node::network: Rate limit exceeded for peer: 12D3KooWN325XezkfUx6fWbtDKS7Pd846AuZq497ZPZ6hACfTqDh
+2026-01-21 12:24:13.924	
+2026-01-21T17:24:13.921725Z  WARN rinku_node::gossip: Failed to add gossiped tx e3e4fb175bdf98dee2ceaab2e60d31a5c77047a50ef754bbbbd8ffc549d184b8: Invalid nonce: expected 464, got 463
+2026-01-21 12:24:13.921	
+2026-01-21T17:24:13.921646Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 464, got 463
+2026-01-21 12:24:12.728	
+2026-01-21T17:24:12.728894Z  INFO rinku_node::gossip: PRE-SYNC FLUSH: Broadcasting 1000 local transactions to https://rinku-genesis.fly.dev before snapshot sync
+2026-01-21 12:24:12.728	
+2026-01-21T17:24:12.728304Z  WARN rinku_node::gossip: No trust configuration set - accepting snapshot without verification (TESTNET MODE)
+2026-01-21 12:24:12.728	
+2026-01-21T17:24:12.728217Z  INFO rinku_node::gossip: Received snapshot: 14 accounts, 52 checkpoints, 2347 dag txs, checkpoint height 52
+2026-01-21 12:24:12.646	
+2026-01-21T17:24:12.646490Z  INFO rinku_node::gossip: Requesting snapshot sync from peer: https://rinku-genesis.fly.dev
+2026-01-21 12:24:12.583	
+2026-01-21T17:24:12.583851Z  INFO rinku_node::gossip: Peer https://rinku-genesis.fly.dev is 1 checkpoint(s) ahead (cp: 52 vs 51), requesting snapshot sync...
+2026-01-21 12:24:12.457	
+2026-01-21T17:24:12.457560Z  WARN rinku_node::gossip: Failed to propagate tx 55ba4a51ffceff7c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:12.376	
+2026-01-21T17:24:12.375669Z  WARN rinku_node::gossip: Failed to propagate tx 2c34421a72f56c5b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:12.216	
+2026-01-21T17:24:12.216066Z  WARN rinku_node::gossip: Failed to propagate tx ed0e3afd050c9034 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:12.134	
+2026-01-21T17:24:12.134245Z  WARN rinku_node::gossip: Failed to propagate tx c22c7e958e724bdc to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.895	
+2026-01-21T17:24:11.894636Z  WARN rinku_node::gossip: Failed to propagate tx a1b10534ae88f612 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.818	
+2026-01-21T17:24:11.817837Z  WARN rinku_node::gossip: Failed to propagate tx 8f70815157ea1355 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.758	
+2026-01-21T17:24:11.757919Z  WARN rinku_node::gossip: Failed to add gossiped tx d376cda13c9b01b08166348ff39c7f9eab6868841550bff864e733ade9460c46: Invalid nonce: expected 344, got 343
+2026-01-21 12:24:11.758	
+2026-01-21T17:24:11.757808Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 344, got 343
+2026-01-21 12:24:11.735	
+2026-01-21T17:24:11.734825Z  WARN rinku_node::gossip: Failed to propagate tx 744d9380aebb0c28 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.660	
+2026-01-21T17:24:11.660226Z  WARN rinku_node::gossip: Failed to propagate tx 1f8a6ae3f9f2c606 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.577	
+2026-01-21T17:24:11.577212Z  WARN rinku_node::gossip: Failed to propagate tx a29bbe3d1bef1a2a to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.502	
+2026-01-21T17:24:11.502407Z  WARN rinku_node::gossip: Failed to propagate tx 86e869131111ad22 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.497	
+2026-01-21T17:24:11.497574Z  WARN rinku_node::gossip: Failed to propagate tx 00dc884ec2ea3580 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.415	
+2026-01-21T17:24:11.415086Z  WARN rinku_node::gossip: Failed to propagate tx 54c56cea0eb387b0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.340	
+2026-01-21T17:24:11.340697Z  WARN rinku_node::gossip: Failed to propagate tx f333f4bc1e253264 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.334	
+2026-01-21T17:24:11.333847Z  WARN rinku_node::gossip: Failed to propagate tx 72ceeba89de9b3de to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.257	
+2026-01-21T17:24:11.257342Z  WARN rinku_node::gossip: Failed to propagate tx 9802bd69a02efeb0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.096	
+2026-01-21T17:24:11.096300Z  WARN rinku_node::gossip: Failed to propagate tx 7489887c72e28da0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:11.015	
+2026-01-21T17:24:11.014921Z  WARN rinku_node::gossip: Failed to propagate tx e906095e4fd72375 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.933	
+2026-01-21T17:24:10.933173Z  WARN rinku_node::gossip: Failed to propagate tx e01af2c1e1b660dc to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.857	
+2026-01-21T17:24:10.857634Z  WARN rinku_node::gossip: Failed to propagate tx 836b404247d0156d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.853	
+2026-01-21T17:24:10.852907Z  WARN rinku_node::gossip: Failed to propagate tx 6d750f93cbc28c3d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.774	
+2026-01-21T17:24:10.774062Z  WARN rinku_node::gossip: Failed to propagate tx 3af76192b0845e7c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.704	
+2026-01-21T17:24:10.703946Z  WARN rinku_node::gossip: Failed to propagate tx 2d2f92276c8f7818 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.694	
+2026-01-21T17:24:10.693976Z  WARN rinku_node::gossip: Failed to propagate tx faf51004fc048b4d to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.618	
+2026-01-21T17:24:10.618640Z  WARN rinku_node::gossip: Failed to propagate tx 8d6bc4a16b89f57c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.614	
+2026-01-21T17:24:10.614268Z  WARN rinku_node::gossip: Failed to propagate tx 8d2ced2c2d66f35e to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.542	
+2026-01-21T17:24:10.542068Z  WARN rinku_node::gossip: Failed to propagate tx 99558f5dd48021b3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.535	
+2026-01-21T17:24:10.535328Z  WARN rinku_node::gossip: Failed to propagate tx 1309f4f395bbf0d6 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.455	
+2026-01-21T17:24:10.455137Z  WARN rinku_node::gossip: Failed to propagate tx 5375c5709fd0db4f to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.383	
+2026-01-21T17:24:10.383483Z  WARN rinku_node::gossip: Failed to propagate tx 74c3bf94cd433828 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.374	
+2026-01-21T17:24:10.374163Z  WARN rinku_node::gossip: Failed to propagate tx 40002c00e55474a0 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.297	
+2026-01-21T17:24:10.297408Z  WARN rinku_node::gossip: Failed to propagate tx 23c01660a7f898de to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.213	
+2026-01-21T17:24:10.213129Z  WARN rinku_node::gossip: Failed to propagate tx 617816412ec066aa to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.139	
+2026-01-21T17:24:10.139672Z  WARN rinku_node::gossip: Failed to propagate tx 8ec9d7a18d7ce8f5 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:10.134	
+2026-01-21T17:24:10.134061Z  WARN rinku_node::gossip: Failed to propagate tx 1f45089cbdd123aa to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:09.974	
+2026-01-21T17:24:09.974108Z  WARN rinku_node::gossip: Failed to propagate tx 62c43c55885a39b8 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:09.734	
+2026-01-21T17:24:09.734317Z  WARN rinku_node::gossip: Failed to propagate tx 4f500b73d9098d9c to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:09.495	
+2026-01-21T17:24:09.495769Z  WARN rinku_node::gossip: Failed to propagate tx 65e7b0a877db64f3 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:09.414	
+2026-01-21T17:24:09.414743Z  WARN rinku_node::gossip: Failed to propagate tx 0ab53d2bd7561342 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:09.253	
+2026-01-21T17:24:09.253231Z  WARN rinku_node::gossip: Failed to propagate tx 6786b5e069c80caf to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:09.203	
+2026-01-21T17:24:09.203678Z  WARN rinku_node::gossip: Failed to add gossiped tx c198e45e25205cc89d2c12fec11ed3e31c6cd73f047f4d557b9600998038bcc7: Invalid nonce: expected 342, got 341
+2026-01-21 12:24:09.203	
+2026-01-21T17:24:09.203585Z  WARN rinku_node::state: Transaction rejected: invalid nonce. Expected 342, got 341
+2026-01-21 12:24:09.095	
+2026-01-21T17:24:09.095641Z  WARN rinku_node::gossip: Failed to propagate tx 8f73c9e15cf391ee to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:08.935	
+2026-01-21T17:24:08.935410Z  WARN rinku_node::gossip: Failed to propagate tx 78ff27d4b8a7ef8b to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:08.774	
+2026-01-21T17:24:08.774291Z  WARN rinku_node::gossip: Failed to propagate tx 06593100b54e8320 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:08.616	
+2026-01-21T17:24:08.616388Z  WARN rinku_node::gossip: Failed to propagate tx 24f322540e16bda6 to https://rinkuchan.com: Peer https://rinkuchan.com is in backoff until 1769016263
+2026-01-21 12:24:08.453	
+2026-01-21T17:24:08.453633Z  WARN rinku_node::gossip:
