@@ -153,3 +153,4 @@ VITE_API_URL = "https://rinku-genesis.fly.dev"
 
 [userenv.shared]
 PUBLIC_URL = "https://rinkuchan.com"
+IS_GENESIS_NODE = "false"
