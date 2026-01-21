@@ -16,53 +16,282 @@ use crate::storage::RedbStorage;
 use crate::rewards::RewardsService;
 use crate::slashing::SlashingService;
 
-/// Try to fetch a snapshot from configured peers before creating genesis
+#[cfg(feature = "p2p")]
+use crate::network::{SyncRequest, SyncResponse, SnapshotData};
+
+/// Try to fetch a snapshot from configured P2P bootstrap peers before creating genesis
 /// This ensures non-genesis nodes sync from the network instead of creating their own chain
-async fn try_presync_from_peers(peers: &[String]) -> Option<SyncSnapshot> {
-    if peers.is_empty() {
-        info!("No peers configured, will create genesis locally");
+#[cfg(feature = "p2p")]
+async fn try_presync_from_peers(bootstrap_peers: &[String]) -> Option<SyncSnapshot> {
+    use libp2p::{
+        identity::Keypair,
+        noise, tcp, yamux,
+        request_response::{self, cbor, ProtocolSupport},
+        swarm::SwarmEvent,
+        Multiaddr, PeerId, StreamProtocol,
+    };
+    use libp2p::futures::StreamExt;
+    use std::time::Duration;
+    
+    if bootstrap_peers.is_empty() {
+        info!("No bootstrap peers configured, will create genesis locally");
         return None;
     }
     
-    info!("PRE-SYNC: Attempting to fetch state from {} peer(s) before creating genesis...", peers.len());
+    info!("PRE-SYNC: Attempting P2P sync from {} bootstrap peer(s)...", bootstrap_peers.len());
     
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .ok()?;
-    
-    for peer in peers {
-        let url = format!("{}/api/sync/snapshot", peer);
-        info!("PRE-SYNC: Trying peer {}...", peer);
-        
-        match client.get(&url).send().await {
-            Ok(response) if response.status().is_success() => {
-                match response.json::<SyncSnapshot>().await {
-                    Ok(snapshot) => {
-                        let checkpoint_height = snapshot.checkpoints.last().map(|c| c.height).unwrap_or(0);
-                        info!(
-                            "PRE-SYNC: Successfully received snapshot from {}: {} accounts, checkpoint height {}",
-                            peer,
-                            snapshot.accounts.len(),
-                            checkpoint_height
-                        );
-                        return Some(snapshot);
+    // Parse bootstrap peers to extract peer IDs and addresses
+    let mut targets: Vec<(PeerId, Multiaddr)> = Vec::new();
+    for peer_str in bootstrap_peers {
+        match peer_str.parse::<Multiaddr>() {
+            Ok(addr) => {
+                // Extract peer ID from multiaddr (last component should be /p2p/<peer_id>)
+                let peer_id = addr.iter().find_map(|p| {
+                    if let libp2p::multiaddr::Protocol::P2p(peer_id) = p {
+                        Some(peer_id)
+                    } else {
+                        None
                     }
-                    Err(e) => {
-                        warn!("PRE-SYNC: Failed to parse snapshot from {}: {}", peer, e);
-                    }
+                });
+                
+                if let Some(peer_id) = peer_id {
+                    // Remove /p2p/ component from address for dialing
+                    let dial_addr: Multiaddr = addr.iter()
+                        .filter(|p| !matches!(p, libp2p::multiaddr::Protocol::P2p(_)))
+                        .collect();
+                    info!("PRE-SYNC: Parsed peer {} at {}", peer_id, dial_addr);
+                    targets.push((peer_id, dial_addr));
+                } else {
+                    warn!("PRE-SYNC: No peer ID in multiaddr: {}", peer_str);
                 }
             }
-            Ok(response) => {
-                warn!("PRE-SYNC: Peer {} returned status {}", peer, response.status());
-            }
             Err(e) => {
-                warn!("PRE-SYNC: Failed to connect to {}: {}", peer, e);
+                warn!("PRE-SYNC: Failed to parse multiaddr '{}': {}", peer_str, e);
             }
         }
     }
     
-    info!("PRE-SYNC: No peers available, will create genesis locally");
+    if targets.is_empty() {
+        info!("PRE-SYNC: No valid bootstrap peers, will create genesis locally");
+        return None;
+    }
+    
+    // Create a temporary keypair for this sync connection
+    let local_key = Keypair::generate_ed25519();
+    let local_peer_id = PeerId::from(local_key.public());
+    info!("PRE-SYNC: Temporary peer ID: {}", local_peer_id);
+    
+    // Build minimal swarm for sync only
+    let swarm_result = libp2p::SwarmBuilder::with_existing_identity(local_key)
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )
+        .map(|builder| {
+            builder.with_behaviour(|_| {
+                cbor::Behaviour::<SyncRequest, SyncResponse>::new(
+                    [(StreamProtocol::new("/rinku/sync/1.0.0"), ProtocolSupport::Full)],
+                    request_response::Config::default()
+                        .with_request_timeout(Duration::from_secs(30)),
+                )
+            })
+        });
+    
+    let mut swarm = match swarm_result {
+        Ok(Ok(builder)) => builder.with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60))).build(),
+        _ => {
+            warn!("PRE-SYNC: Failed to build P2P swarm");
+            return None;
+        }
+    };
+    
+    // Try each bootstrap peer
+    for (peer_id, dial_addr) in targets {
+        info!("PRE-SYNC: Dialing peer {} at {}...", peer_id, dial_addr);
+        
+        // Dial the peer
+        if let Err(e) = swarm.dial(dial_addr.clone()) {
+            warn!("PRE-SYNC: Failed to dial {}: {}", peer_id, e);
+            continue;
+        }
+        
+        // Wait for connection and send request
+        let timeout = tokio::time::sleep(Duration::from_secs(15));
+        tokio::pin!(timeout);
+        
+        let mut connected = false;
+        let mut request_sent = false;
+        
+        loop {
+            tokio::select! {
+                _ = &mut timeout => {
+                    warn!("PRE-SYNC: Timeout waiting for peer {}", peer_id);
+                    break;
+                }
+                event = swarm.select_next_some() => {
+                    match event {
+                        SwarmEvent::ConnectionEstablished { peer_id: connected_peer, .. } => {
+                            if connected_peer == peer_id {
+                                info!("PRE-SYNC: Connected to {}", peer_id);
+                                connected = true;
+                                // Send snapshot request
+                                swarm.behaviour_mut().send_request(&peer_id, SyncRequest::Snapshot);
+                                request_sent = true;
+                                info!("PRE-SYNC: Sent snapshot request to {}", peer_id);
+                            }
+                        }
+                        SwarmEvent::Behaviour(request_response::Event::Message {
+                            message: request_response::Message::Response { response, .. },
+                            ..
+                        }) => {
+                            if let SyncResponse::Snapshot(snapshot_data) = response {
+                                info!(
+                                    "PRE-SYNC: Received snapshot: {} accounts, {} checkpoints, {} txs",
+                                    snapshot_data.accounts.len(),
+                                    snapshot_data.checkpoints.len(),
+                                    snapshot_data.recent_txs.len()
+                                );
+                                
+                                // Convert SnapshotData to SyncSnapshot
+                                let sync_snapshot = convert_snapshot_data_to_sync_snapshot(snapshot_data);
+                                return Some(sync_snapshot);
+                            } else {
+                                warn!("PRE-SYNC: Unexpected response type from peer");
+                            }
+                        }
+                        SwarmEvent::OutgoingConnectionError { peer_id: Some(failed_peer), error, .. } => {
+                            if failed_peer == peer_id {
+                                warn!("PRE-SYNC: Connection failed to {}: {}", peer_id, error);
+                                break;
+                            }
+                        }
+                        SwarmEvent::ConnectionClosed { peer_id: closed_peer, .. } => {
+                            if closed_peer == peer_id && request_sent {
+                                warn!("PRE-SYNC: Connection closed before response from {}", peer_id);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    
+    info!("PRE-SYNC: All bootstrap peers failed, will create genesis locally");
+    None
+}
+
+/// Convert P2P SnapshotData to SyncSnapshot format
+#[cfg(feature = "p2p")]
+fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
+    use rinku_core::types::{Account, Validator, Checkpoint, SignedTransaction, Transaction};
+    
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    
+    // Extract genesis hash from first checkpoint if available
+    let genesis_hash = data.checkpoints.first().and_then(|c| c.genesis_hash.clone());
+    
+    // Convert accounts
+    let accounts: HashMap<String, Account> = data.accounts.into_iter().map(|a| {
+        (a.address.clone(), Account {
+            address: a.address,
+            balance: a.balance,
+            nonce: a.nonce,
+            first_seen: now_secs,
+            staked: a.stake,
+            unbonding: 0.0,
+            unbonding_release: None,
+        })
+    }).collect();
+    
+    // Convert validators
+    let validators: HashMap<String, Validator> = data.validators.into_iter().map(|v| {
+        (v.address.clone(), Validator {
+            address: v.address,
+            stake: v.stake,
+            first_stake_time: now_secs * 1000,
+            bls_public_key: Some(v.bls_public_key),
+            missed_checkpoints: 0,
+        })
+    }).collect();
+    
+    // Convert checkpoints
+    let checkpoints: Vec<Checkpoint> = data.checkpoints.iter().enumerate().map(|(i, c)| {
+        let prev_hash = if i > 0 {
+            data.checkpoints.get(i - 1).and_then(|p| p.hash.clone())
+        } else {
+            None
+        };
+        Checkpoint {
+            height: c.height,
+            hash: c.hash.clone().unwrap_or_else(|| rinku_core::sha256_hex(&format!("cp:{}", c.height))),
+            previous_hash: prev_hash,
+            tx_merkle_root: c.merkle_root.clone(),
+            state_root: c.merkle_root.clone(),
+            receipt_root: String::new(),
+            tip_count: 0,
+            timestamp: c.timestamp,
+            validator_signatures: Vec::new(),
+            aggregated_signature: c.signature.clone(),
+            signer_bitmap: None,
+        }
+    }).collect();
+    
+    // Convert transactions
+    let dag_transactions: Vec<SignedTransaction> = data.recent_txs.into_iter().map(|t| {
+        SignedTransaction {
+            tx: Transaction {
+                from: t.from,
+                to: t.to,
+                amount: t.amount,
+                nonce: t.nonce,
+                timestamp: t.timestamp,
+                parents: t.parents,
+                kind: None,
+                gas_limit: None,
+                gas_price: Some(t.gas_price),
+                data: None,
+                signature: Some(t.signature.clone()),
+            },
+            hash: t.hash,
+            signature: t.signature,
+        }
+    }).collect();
+    
+    let genesis_time = checkpoints.first().map(|c| c.timestamp).unwrap_or(now_secs);
+    let total_supply: f64 = accounts.values().map(|a| a.balance + a.staked).sum();
+    
+    SyncSnapshot {
+        accounts,
+        validators,
+        checkpoints,
+        gas_price: 0.001,
+        total_supply,
+        genesis_time,
+        dag_transactions,
+        total_transactions: 0,
+        contracts: HashMap::new(),
+        rewards_snapshot: None,
+        emission_snapshot: None,
+        slashing_snapshot: None,
+        total_burned: 0.0,
+        total_to_validators: 0.0,
+        genesis_hash,
+        finalized_tx_hashes: Vec::new(),
+        tx_checkpoint_heights: HashMap::new(),
+    }
+}
+
+/// Fallback for non-P2P builds
+#[cfg(not(feature = "p2p"))]
+async fn try_presync_from_peers(_bootstrap_peers: &[String]) -> Option<SyncSnapshot> {
+    info!("PRE-SYNC: P2P feature not enabled, will create genesis locally");
     None
 }
 
@@ -284,9 +513,9 @@ impl NodeState {
                     has_synced_from_network: true, // Restored from storage = already synced
                 }
             } else {
-                // Try to sync from peers BEFORE creating genesis
+                // Try to sync from P2P bootstrap peers BEFORE creating genesis
                 // This ensures non-genesis nodes join the existing network
-                if let Some(snapshot) = try_presync_from_peers(&config.peers).await {
+                if let Some(snapshot) = try_presync_from_peers(&config.p2p.bootstrap_peers).await {
                     // Use snapshot from peer instead of creating fresh genesis
                     info!("PRE-SYNC: Using state from network peer instead of creating new genesis");
                     

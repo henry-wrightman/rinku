@@ -143,6 +143,14 @@ pub struct CheckpointData {
     pub merkle_root: String,
     pub timestamp: u64,
     pub tx_count: u64,
+    #[serde(default)]
+    pub hash: Option<String>,
+    #[serde(default)]
+    pub previous_hash: Option<String>,
+    #[serde(default)]
+    pub signature: Option<String>,
+    #[serde(default)]
+    pub genesis_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,6 +162,10 @@ pub struct TransactionData {
     pub nonce: u64,
     pub timestamp: u64,
     pub signature: String,
+    #[serde(default)]
+    pub parents: Vec<String>,
+    #[serde(default)]
+    pub gas_price: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
