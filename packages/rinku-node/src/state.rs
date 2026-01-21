@@ -115,7 +115,7 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
     }
     
     if targets.is_empty() {
-        info!("PRE-SYNC: No valid bootstrap peers, will create genesis locally");
+        warn!("PRE-SYNC: No valid bootstrap peers parsed from multiaddrs");
         return None;
     }
     
@@ -223,7 +223,8 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
         }
     }
     
-    info!("PRE-SYNC: All bootstrap peers failed, will create genesis locally");
+    // Don't log here - let the caller (try_presync_from_peers) handle it
+    // since only the caller knows if this is a genesis node or validator
     None
 }
 

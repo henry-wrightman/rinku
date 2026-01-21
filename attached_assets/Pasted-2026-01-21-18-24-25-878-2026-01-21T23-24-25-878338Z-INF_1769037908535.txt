@@ -1,0 +1,48 @@
+2026-01-21 18:24:25.878	
+2026-01-21T23:24:25.878338Z  INFO rinku_node::state: PRE-SYNC: Attempt 1 failed, retrying in 5s...
+
+
+2026-01-21 18:24:25.878	
+2026-01-21T23:24:25.878317Z  INFO rinku_node::state: PRE-SYNC: All bootstrap peers failed, will create genesis locally
+2026-01-21 18:24:25.878	
+2026-01-21T23:24:25.878286Z  WARN rinku_node::state: PRE-SYNC: Timeout waiting for peer 12D3KooWMXiyJpfoz3N5PaDgVJ5RaVp4uw1vQa99A6viXcT6sBdz
+2026-01-21 18:24:14.210	
+[PR03] could not find a good candidate within 1 attempts at load balancing. last error: [PC01] instance refused connection. is your app listening on 0.0.0.0:8080? make sure it is not only listening on 127.0.0.1 (hint: look at your startup logs, servers often print the address they are listening on)
+2026-01-21 18:24:11.063	
+Machine created and started in 3.679s
+2026-01-21 18:24:11.055	
+2026/01/21 23:24:11 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:4ef:e688:cdb1:2]:22
+2026-01-21 18:24:10.876	
+2026-01-21T23:24:10.876433Z  INFO rinku_node::state: PRE-SYNC: Dialing peer 12D3KooWMXiyJpfoz3N5PaDgVJ5RaVp4uw1vQa99A6viXcT6sBdz at /ip4/137.66.42.118/tcp/4001...
+2026-01-21 18:24:10.876	
+2026-01-21T23:24:10.876256Z  INFO rinku_node::state: PRE-SYNC: Temporary peer ID: 12D3KooWJaCTDLT1PWA8Ts1WEsVLDqGD4MckeyzkB1uNjXMVhr2R
+2026-01-21 18:24:10.876	
+2026-01-21T23:24:10.875302Z  INFO rinku_node::state: PRE-SYNC: Parsed peer 12D3KooWMXiyJpfoz3N5PaDgVJ5RaVp4uw1vQa99A6viXcT6sBdz at /ip4/137.66.42.118/tcp/4001
+2026-01-21 18:24:10.872	
+2026-01-21T23:24:10.872211Z  INFO rinku_node::state: PRE-SYNC: Attempt 1/8 - syncing from 1 bootstrap peer(s)...
+2026-01-21 18:24:10.872	
+2026-01-21T23:24:10.872055Z  WARN rinku_node::storage: No snapshot found in redb, starting fresh
+2026-01-21 18:24:10.872	
+2026-01-21T23:24:10.871983Z  INFO rinku_node::storage: Opened redb database at /data/redb.db
+2026-01-21 18:24:10.851	
+2026-01-21T23:24:10.851613Z  INFO rinku_node: Initializing node state...
+2026-01-21 18:24:10.851	
+2026-01-21T23:24:10.851309Z  INFO rinku_node: Data directory exists, checking for stale locks...
+2026-01-21 18:24:10.851	
+2026-01-21T23:24:10.851299Z  INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+2026-01-21 18:24:10.851	
+2026-01-21T23:24:10.851285Z  INFO rinku_node: Node role: VALIDATOR (must sync from network, 1 bootstrap peers)
+2026-01-21 18:24:10.849	
+2026-01-21T23:24:10.849448Z  INFO rinku_node: Data dir: /data
+2026-01-21 18:24:10.849	
+2026-01-21T23:24:10.849294Z  INFO rinku_node: Node ID: 3894c3c8aadd8c03
+2026-01-21 18:24:10.848	
+2026-01-21T23:24:10.847774Z  INFO rinku_node: Process PID: 649
+2026-01-21 18:24:10.848	
+2026-01-21T23:24:10.847102Z  INFO rinku_node: Starting Rinku Node v0.1.0
+2026-01-21 18:24:10.789	
+ INFO [fly api proxy] listening at /.fly/api
+2026-01-21 18:24:10.781	
+ INFO Preparing to run: `/app/rinku-node` as root
+2026-01-21 18:24:10.772	
+ INFO Resized /data to 1056964608 bytes
