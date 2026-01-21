@@ -1,0 +1,240 @@
+2026-01-21 15:28:20.480	
+2026-01-21T20:28:20.480709Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:28:09.257	
+2026-01-21T20:28:09.256946Z  INFO rinku_node::checkpoint: Epoch transition: 9 -> 10 (activated: 0, exited: 0)
+2026-01-21 15:28:09.257	
+2026-01-21T20:28:09.256760Z  INFO rinku_node::validator_identity: Epoch transition: 9 -> 10
+2026-01-21 15:28:09.249	
+2026-01-21T20:28:09.249441Z  INFO rinku_node::network: Identified peer 12D3KooWJdxZTqUeQeLZTQooXPo5frs6DbLjrGKn3hpsbq7GviaA: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 15:27:50.487	
+2026-01-21T20:27:50.487500Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:27:20.466	
+2026-01-21T20:27:20.466575Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:27:09.253	
+2026-01-21T20:27:09.253775Z  INFO rinku_node::checkpoint: Epoch transition: 8 -> 9 (activated: 0, exited: 0)
+2026-01-21 15:27:09.253	
+2026-01-21T20:27:09.253545Z  INFO rinku_node::validator_identity: Epoch transition: 8 -> 9
+2026-01-21 15:26:50.468	
+2026-01-21T20:26:50.468363Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:26:20.462	
+2026-01-21T20:26:20.462042Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:26:09.251	
+2026-01-21T20:26:09.251396Z  INFO rinku_node::checkpoint: Epoch transition: 7 -> 8 (activated: 0, exited: 0)
+2026-01-21 15:26:09.251	
+2026-01-21T20:26:09.251153Z  INFO rinku_node::validator_identity: Epoch transition: 7 -> 8
+2026-01-21 15:25:50.510	
+2026-01-21T20:25:50.510124Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:25:20.481	
+2026-01-21T20:25:20.481436Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:25:09.249	
+2026-01-21T20:25:09.248936Z  INFO rinku_node::checkpoint: Epoch transition: 6 -> 7 (activated: 0, exited: 0)
+2026-01-21 15:25:09.249	
+2026-01-21T20:25:09.248679Z  INFO rinku_node::validator_identity: Epoch transition: 6 -> 7
+2026-01-21 15:24:50.466	
+2026-01-21T20:24:50.466206Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:24:20.446	
+2026-01-21T20:24:20.445855Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:24:09.246	
+2026-01-21T20:24:09.246138Z  INFO rinku_node::checkpoint: Epoch transition: 5 -> 6 (activated: 0, exited: 0)
+2026-01-21 15:24:09.246	
+2026-01-21T20:24:09.245915Z  INFO rinku_node::validator_identity: Epoch transition: 5 -> 6
+2026-01-21 15:23:50.478	
+2026-01-21T20:23:50.477728Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:23:20.487	
+2026-01-21T20:23:20.486941Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:23:09.246	
+2026-01-21T20:23:09.246399Z  INFO rinku_node::network: Identified peer 12D3KooWJdxZTqUeQeLZTQooXPo5frs6DbLjrGKn3hpsbq7GviaA: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 15:23:09.242	
+2026-01-21T20:23:09.242635Z  INFO rinku_node::checkpoint: Epoch transition: 4 -> 5 (activated: 0, exited: 0)
+2026-01-21 15:23:09.242	
+2026-01-21T20:23:09.242409Z  INFO rinku_node::validator_identity: Epoch transition: 4 -> 5
+2026-01-21 15:22:50.554	
+2026-01-21T20:22:50.554213Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:22:20.496	
+2026-01-21T20:22:20.495834Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:22:09.239	
+2026-01-21T20:22:09.239048Z  INFO rinku_node::checkpoint: Epoch transition: 3 -> 4 (activated: 0, exited: 0)
+2026-01-21 15:22:09.239	
+2026-01-21T20:22:09.238837Z  INFO rinku_node::validator_identity: Epoch transition: 3 -> 4
+2026-01-21 15:21:50.456	
+2026-01-21T20:21:50.456180Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:21:20.486	
+2026-01-21T20:21:20.486191Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:21:09.235	
+2026-01-21T20:21:09.235584Z  INFO rinku_node::checkpoint: Epoch transition: 2 -> 3 (activated: 0, exited: 0)
+2026-01-21 15:21:09.235	
+2026-01-21T20:21:09.235368Z  INFO rinku_node::validator_identity: Epoch transition: 2 -> 3
+2026-01-21 15:20:51.424	
+2026-01-21T20:20:51.424053Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:20:20.487	
+2026-01-21T20:20:20.487106Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:20:09.232	
+2026-01-21T20:20:09.231930Z  INFO rinku_node::checkpoint: Epoch transition: 1 -> 2 (activated: 0, exited: 0)
+2026-01-21 15:20:09.232	
+2026-01-21T20:20:09.231707Z  INFO rinku_node::validator_identity: Epoch transition: 1 -> 2
+2026-01-21 15:19:58.046	
+2026-01-21T20:19:58.045860Z  WARN rinku_node::gossip: Peer https://rinkuchan.com failed 1 times, backoff for 20s
+2026-01-21 15:19:50.469	
+2026-01-21T20:19:50.469787Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:19:21.301	
+2026-01-21T20:19:21.301191Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:19:09.229	
+2026-01-21T20:19:09.229282Z  INFO rinku_node::checkpoint: Epoch transition: 0 -> 1 (activated: 0, exited: 0)
+2026-01-21 15:19:09.229	
+2026-01-21T20:19:09.229135Z  INFO rinku_node::validator_identity: Epoch transition: 0 -> 1
+2026-01-21 15:18:50.474	
+2026-01-21T20:18:50.474378Z  INFO rinku_node::gossip: Broadcast peer list to 3 peers
+2026-01-21 15:18:26.795	
+2026-01-21T20:18:26.795296Z  INFO rinku_node::gossip: PEER DISCOVERY: Adding new peer https://rinku-validator-2.fly.dev (total peers: 2)
+2026-01-21 15:18:20.066	
+2026-01-21T20:18:20.066820Z  INFO rinku_node::gossip: PEER DISCOVERY: Adding new peer https://rinkuchan.com (total peers: 1)
+2026-01-21 15:18:09.738	
+Health check 'health' on port 8080 is now passing.
+2026-01-21 15:18:09.738	
+Health check 'metrics' on port 8080 is now passing.
+2026-01-21 15:18:09.506	
+2026/01/21 20:18:09 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:337:82ff:6e0:2]:22
+2026-01-21 15:18:09.401	
+2026-01-21T20:18:09.401207Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+2026-01-21 15:18:09.401	
+2026-01-21T20:18:09.401153Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+2026-01-21 15:18:09.401	
+2026-01-21T20:18:09.401128Z  INFO rinku_node: Rinku Node running on port 8080
+2026-01-21 15:18:09.401	
+2026-01-21T20:18:09.401034Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+2026-01-21 15:18:09.399	
+2026-01-21T20:18:09.399445Z  INFO rinku_node::api: No STATIC_DIR configured, API-only mode with root health check
+2026-01-21 15:18:09.399	
+2026-01-21T20:18:09.398829Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 500, interval: 1000ms)
+2026-01-21 15:18:09.399	
+2026-01-21T20:18:09.398801Z  INFO rinku_node::gossip: P2P message receiver started
+2026-01-21 15:18:09.399	
+2026-01-21T20:18:09.398763Z  INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 0, p2p: true)
+2026-01-21 15:18:09.398	
+2026-01-21T20:18:09.398576Z  INFO rinku_node: STATIC_DIR config: None
+2026-01-21 15:18:09.398	
+2026-01-21T20:18:09.398553Z  INFO rinku_node: Snapshot persistence started (60s interval)
+2026-01-21 15:18:09.398	
+2026-01-21T20:18:09.398485Z  INFO rinku_node: Tip consolidation service started
+2026-01-21 15:18:09.398	
+2026-01-21T20:18:09.398453Z  INFO rinku_node: Gossip service started (200ms interval)
+2026-01-21 15:18:09.398	
+2026-01-21T20:18:09.397955Z  INFO rinku_node: GossipService connected to libp2p network
+2026-01-21 15:18:09.368	
+2026-01-21T20:18:09.368235Z  INFO rinku_node::network: Peer 12D3KooWJdxZTqUeQeLZTQooXPo5frs6DbLjrGKn3hpsbq7GviaA subscribed to TopicHash { hash: "rinku/1.0.0" }
+2026-01-21 15:18:09.330	
+[PR03] could not find a good candidate within 1 attempts at load balancing. last error: [PC01] instance refused connection. is your app listening on 0.0.0.0:8080? make sure it is not only listening on 127.0.0.1 (hint: look at your startup logs, servers often print the address they are listening on)
+2026-01-21 15:18:09.323	
+2026-01-21T20:18:09.322930Z  INFO rinku_node::network: Identified peer 12D3KooWJdxZTqUeQeLZTQooXPo5frs6DbLjrGKn3hpsbq7GviaA: rinku-node/0.1.0 (protocols: 5)
+2026-01-21 15:18:09.242	
+2026-01-21T20:18:09.242410Z  INFO rinku_node::network: Connected to peer: 12D3KooWJdxZTqUeQeLZTQooXPo5frs6DbLjrGKn3hpsbq7GviaA via Dialer { address: /ip4/137.66.42.118/tcp/4001/p2p/12D3KooWJdxZTqUeQeLZTQooXPo5frs6DbLjrGKn3hpsbq7GviaA, role_override: Dialer, port_use: Reuse }
+2026-01-21 15:18:09.230	
+2026-01-21T20:18:09.230241Z  INFO rinku_node::network: Listening on /ip4/172.19.17.51/tcp/4001
+2026-01-21 15:18:09.230	
+2026-01-21T20:18:09.230204Z  INFO rinku_node::network: Listening on /ip4/172.19.17.50/tcp/4001
+2026-01-21 15:18:09.230	
+2026-01-21T20:18:09.230011Z  INFO rinku_node::network: Listening on /ip4/127.0.0.1/tcp/4001
+2026-01-21 15:18:09.228	
+2026-01-21T20:18:09.228535Z  INFO rinku_node::network: Network service started on /ip4/0.0.0.0/tcp/4001
+2026-01-21 15:18:09.228	
+2026-01-21T20:18:09.228376Z  INFO rinku_node::network: Dialing bootstrap peer: /ip4/137.66.42.118/tcp/4001/p2p/12D3KooWJdxZTqUeQeLZTQooXPo5frs6DbLjrGKn3hpsbq7GviaA
+2026-01-21 15:18:09.227	
+2026-01-21T20:18:09.226747Z  INFO rinku_node: P2P mDNS discovery enabled (LAN peers)
+2026-01-21 15:18:09.227	
+2026-01-21T20:18:09.226739Z  INFO rinku_node: P2P bootstrap peers: ["/ip4/137.66.42.118/tcp/4001/p2p/12D3KooWJdxZTqUeQeLZTQooXPo5frs6DbLjrGKn3hpsbq7GviaA"]
+2026-01-21 15:18:09.227	
+2026-01-21T20:18:09.226732Z  INFO rinku_node: P2P listening on: /ip4/0.0.0.0/tcp/4001
+2026-01-21 15:18:09.227	
+2026-01-21T20:18:09.226723Z  INFO rinku_node: P2P network started with peer ID: 12D3KooWEd84pjSDJQYpghDLEPB6i5p8rhRLTWtWYsYpMUf7fZDn
+2026-01-21 15:18:09.227	
+2026-01-21T20:18:09.225381Z  INFO rinku_node::network: Local peer id: 12D3KooWEd84pjSDJQYpghDLEPB6i5p8rhRLTWtWYsYpMUf7fZDn
+2026-01-21 15:18:09.226	
+2026-01-21T20:18:09.226267Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+2026-01-21 15:18:09.226	
+2026-01-21T20:18:09.226251Z  INFO rinku_node::checkpoint: Genesis checkpoint signed: d255bde7dd0fb1a3
+2026-01-21 15:18:09.226	
+2026-01-21T20:18:09.225511Z  INFO rinku_node::checkpoint: Signing genesis checkpoint with node's BLS key
+2026-01-21 15:18:09.225	
+2026-01-21T20:18:09.225296Z  INFO rinku_node: Fork remediation service started
+2026-01-21 15:18:09.225	
+2026-01-21T20:18:09.225291Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+2026-01-21 15:18:09.225	
+2026-01-21T20:18:09.225272Z  INFO rinku_node: BLS public key: iMF19Q1MLryMpFcHxHqtrTK92Pvwnlf-...
+2026-01-21 15:18:09.225	
+2026-01-21T20:18:09.225267Z  INFO rinku_node: Leader election enabled for checkpoint creation
+2026-01-21 15:18:09.225	
+2026-01-21T20:18:09.225263Z  INFO rinku_node::dag_pruning: DAG pruning service initialized: retain 100 checkpoints, max 100000 nodes
+2026-01-21 15:18:09.225	
+2026-01-21T20:18:09.225118Z  INFO rinku_node: Validator identity service initialized (epoch: 0)
+2026-01-21 15:18:09.221	
+2026-01-21T20:18:09.220970Z  INFO rinku_node::validator_identity: Generated and saved new validator keys: ff255fd71800d7c4162dd1681c269e56fc8f8228
+2026-01-21 15:18:09.220	
+2026-01-21T20:18:09.220369Z  INFO rinku_node: Consensus service initialized with slashing integration
+2026-01-21 15:18:09.220	
+2026-01-21T20:18:09.220363Z  INFO rinku_node: Slashing service initialized
+2026-01-21 15:18:09.220	
+2026-01-21T20:18:09.220360Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+2026-01-21 15:18:09.220	
+2026-01-21T20:18:09.220357Z  INFO rinku_node: Rewards service initialized
+2026-01-21 15:18:09.220	
+2026-01-21T20:18:09.220353Z  INFO rinku_node: Gas service initialized
+2026-01-21 15:18:09.220	
+2026-01-21T20:18:09.220326Z  INFO rinku_node: Validator key loaded: 79561df4d028999e...
+2026-01-21 15:18:09.220	
+2026-01-21T20:18:09.220233Z  INFO rinku_node::validator: Generated new validator key: 79561df4d028999e...
+2026-01-21 15:18:09.220	
+2026-01-21T20:18:09.219796Z  WARN rinku_node::storage: No rewards snapshot found, starting fresh
+2026-01-21 15:18:09.220	
+Machine created and started in 3.669s
+2026-01-21 15:18:09.219	
+2026-01-21T20:18:09.219310Z  INFO rinku_node::state: Genesis hash created: 7094adb5d36cbb5d
+2026-01-21 15:18:09.219	
+2026-01-21T20:18:09.219303Z  INFO rinku_node::state: Genesis transaction created: 7094adb5d36cbb5d
+2026-01-21 15:18:09.219	
+2026-01-21T20:18:09.219243Z  INFO rinku_node::state: Faucet account initialized with 1000000 RKU
+2026-01-21 15:18:09.219	
+2026-01-21T20:18:09.219217Z  WARN rinku_node::storage: No snapshot found in redb, starting fresh
+2026-01-21 15:18:09.219	
+2026-01-21T20:18:09.219187Z  INFO rinku_node::storage: Opened redb database at /data/redb.db
+2026-01-21 15:18:09.190	
+2026-01-21T20:18:09.190030Z  INFO rinku_node: Initializing node state...
+2026-01-21 15:18:09.189	
+2026-01-21T20:18:09.189119Z  INFO rinku_node: Data directory exists, checking for stale locks...
+2026-01-21 15:18:09.189	
+2026-01-21T20:18:09.189107Z  INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+2026-01-21 15:18:09.189	
+2026-01-21T20:18:09.189092Z  INFO rinku_node: Data dir: /data
+2026-01-21 15:18:09.186	
+2026-01-21T20:18:09.186288Z  INFO rinku_node: Node ID: 92011ac0201c16f6
+2026-01-21 15:18:09.185	
+2026-01-21T20:18:09.184261Z  INFO rinku_node: Process PID: 650
+2026-01-21 15:18:09.185	
+2026-01-21T20:18:09.184161Z  INFO rinku_node: Starting Rinku Node v0.1.0
+2026-01-21 15:18:09.126	
+ INFO [fly api proxy] listening at /.fly/api
+2026-01-21 15:18:09.118	
+ INFO Preparing to run: `/app/rinku-node` as root
+2026-01-21 15:18:09.108	
+ INFO Resized /data to 1056964608 bytes
+2026-01-21 15:18:09.105	
+ INFO Mounting /dev/vdc at /data w/ uid: 0, gid: 0 and chmod 0755
+2026-01-21 15:18:09.104	
+/dev/vdc: clean, 11/64512 files, 8785/258048 blocks
+2026-01-21 15:18:09.101	
+ INFO Checking filesystem on /data
+2026-01-21 15:18:09.018	
+ INFO Starting init (commit: 6f59af0a)...
+2026-01-21 15:18:08.112	
+2026-01-21T20:18:08.112229445 [01KFH3A2E84D1996DG67ZD7Z5K:main] Listening on API socket ("/fc.sock").
+2026-01-21 15:18:08.112	
+2026-01-21T20:18:08.112045653 [01KFH3A2E84D1996DG67ZD7Z5K:main] Running Firecracker v1.12.1
+2026-01-21 15:18:07.783	
+Configuring firecracker
+2026-01-21 15:18:07.060	
+Formatting volume
+2026-01-21 15:18:06.425	
+Opening encrypted volume
+2026-01-21 15:18:05.774	
+Encrypting volume
+2026-01-21 15:18:05.774	
+Uninitialized volume 'rinku_data', initiali

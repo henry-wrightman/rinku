@@ -16,6 +16,56 @@ use crate::storage::RedbStorage;
 use crate::rewards::RewardsService;
 use crate::slashing::SlashingService;
 
+/// Try to fetch a snapshot from configured peers before creating genesis
+/// This ensures non-genesis nodes sync from the network instead of creating their own chain
+async fn try_presync_from_peers(peers: &[String]) -> Option<SyncSnapshot> {
+    if peers.is_empty() {
+        info!("No peers configured, will create genesis locally");
+        return None;
+    }
+    
+    info!("PRE-SYNC: Attempting to fetch state from {} peer(s) before creating genesis...", peers.len());
+    
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+    
+    for peer in peers {
+        let url = format!("{}/api/sync/snapshot", peer);
+        info!("PRE-SYNC: Trying peer {}...", peer);
+        
+        match client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => {
+                match response.json::<SyncSnapshot>().await {
+                    Ok(snapshot) => {
+                        let checkpoint_height = snapshot.checkpoints.last().map(|c| c.height).unwrap_or(0);
+                        info!(
+                            "PRE-SYNC: Successfully received snapshot from {}: {} accounts, checkpoint height {}",
+                            peer,
+                            snapshot.accounts.len(),
+                            checkpoint_height
+                        );
+                        return Some(snapshot);
+                    }
+                    Err(e) => {
+                        warn!("PRE-SYNC: Failed to parse snapshot from {}: {}", peer, e);
+                    }
+                }
+            }
+            Ok(response) => {
+                warn!("PRE-SYNC: Peer {} returned status {}", peer, response.status());
+            }
+            Err(e) => {
+                warn!("PRE-SYNC: Failed to connect to {}: {}", peer, e);
+            }
+        }
+    }
+    
+    info!("PRE-SYNC: No peers available, will create genesis locally");
+    None
+}
+
 /// Snapshot of node state for efficient sync
 /// Contains derived state (accounts) + checkpoint metadata + recent DAG
 /// This is much smaller than full transaction history
@@ -234,6 +284,140 @@ impl NodeState {
                     has_synced_from_network: true, // Restored from storage = already synced
                 }
             } else {
+                // Try to sync from peers BEFORE creating genesis
+                // This ensures non-genesis nodes join the existing network
+                if let Some(snapshot) = try_presync_from_peers(&config.peers).await {
+                    // Use snapshot from peer instead of creating fresh genesis
+                    info!("PRE-SYNC: Using state from network peer instead of creating new genesis");
+                    
+                    let now_secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    
+                    let mut dag = Dag::new(config.max_dag_nodes);
+                    let checkpoint_count = snapshot.checkpoints.len() as u64;
+                    
+                    for tx in &snapshot.dag_transactions {
+                        let is_genesis = tx.tx.from == "genesis";
+                        let is_finalized = is_genesis || checkpoint_count > 0;
+                        let tx_weight = if let Some(account) = snapshot.accounts.get(&tx.tx.from) {
+                            calculate_account_weight(account, now_secs)
+                        } else {
+                            1.0
+                        };
+                        
+                        // Use tx_checkpoint_heights from snapshot if available
+                        let checkpoint_height = if is_genesis {
+                            Some(0)
+                        } else if let Some(&height) = snapshot.tx_checkpoint_heights.get(&tx.hash) {
+                            Some(height)
+                        } else if is_finalized {
+                            Some(checkpoint_count)
+                        } else {
+                            None
+                        };
+                        
+                        let node = rinku_core::types::DagNode {
+                            hash: tx.hash.clone(),
+                            tx: tx.clone(),
+                            parents: tx.tx.parents.clone(),
+                            children: Vec::new(),
+                            weight: tx_weight,
+                            finalized: is_finalized,
+                            checkpoint_height,
+                        };
+                        let _ = dag.add_node(node);
+                    }
+                    
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let last_checkpoint_time = snapshot.checkpoints
+                        .last()
+                        .map(|c| c.timestamp * 1000)
+                        .unwrap_or(now_ms);
+                    
+                    // Save the genesis hash from peer
+                    if let Some(ref genesis_hash) = snapshot.genesis_hash {
+                        let _ = storage.save_genesis_hash(genesis_hash);
+                        info!("PRE-SYNC: Saved peer genesis hash: {}", &genesis_hash[..16.min(genesis_hash.len())]);
+                    }
+                    
+                    // Create inner state from snapshot
+                    let inner = StateInner {
+                        dag,
+                        accounts: snapshot.accounts.clone(),
+                        validators: snapshot.validators.clone(),
+                        checkpoints: snapshot.checkpoints.clone(),
+                        contracts: snapshot.contracts.clone(),
+                        current_gas_price: snapshot.gas_price,
+                        total_supply: snapshot.total_supply,
+                        genesis_time: snapshot.genesis_time,
+                        genesis_hash: snapshot.genesis_hash.clone(),
+                        total_burned: snapshot.total_burned,
+                        total_to_validators: snapshot.total_to_validators,
+                        txs_this_period: 0,
+                        period_start_ms: now_ms,
+                        total_transactions: snapshot.total_transactions,
+                        config: config.clone(),
+                        last_checkpoint_time_ms: last_checkpoint_time,
+                        finality_times_ms: VecDeque::with_capacity(1000),
+                        finality_sum_ms: 0,
+                        finality_count: 0,
+                        finality_max_ms: 0,
+                        node_validator_address: None,
+                        node_bls_public_key: None,
+                        node_peer_id: None,
+                        node_listen_addr: None,
+                        finalized_tx_history: VecDeque::new(),
+                        has_synced_from_network: true,
+                    };
+                    
+                    // Handle emission, slashing, rewards from snapshot
+                    let emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
+                        EmissionService::from_json(em_snapshot)
+                    } else {
+                        EmissionService::new()
+                    };
+                    
+                    let slashing = if let Some(sl_snapshot) = snapshot.slashing_snapshot {
+                        SlashingService::from_json(sl_snapshot)
+                    } else {
+                        SlashingService::new()
+                    };
+                    
+                    let rewards = if let Some(rw_snapshot) = snapshot.rewards_snapshot {
+                        info!(
+                            "PRE-SYNC: Restoring rewards: {} stakes, {} pending",
+                            rw_snapshot.stakes.len(),
+                            rw_snapshot.pending_rewards.len()
+                        );
+                        RewardsService::from_json(rw_snapshot)
+                    } else {
+                        RewardsService::new(crate::rewards::RewardConfig::default())
+                    };
+                    
+                    let node_state = Self {
+                        config,
+                        inner: Arc::new(RwLock::new(inner)),
+                        storage,
+                        emission: Arc::new(RwLock::new(emission)),
+                        slashing: Arc::new(RwLock::new(slashing)),
+                        rewards: Arc::new(RwLock::new(rewards)),
+                        start_time: std::time::Instant::now(),
+                    };
+                    
+                    node_state.sync_stakes_to_accounts().await;
+                    node_state.recalculate_dag_weights().await;
+                    
+                    return Ok(node_state);
+                }
+                
+                // No peers available or pre-sync failed - create fresh genesis
+                info!("Creating fresh genesis (no peers available or pre-sync failed)");
+                
                 let genesis_time = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)?
                     .as_secs();
