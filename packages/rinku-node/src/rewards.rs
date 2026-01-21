@@ -664,16 +664,21 @@ impl RewardsService {
         let mut pending_lowered = 0;
         let mut lifetime_raised = 0;
         
-        // For pending_rewards: take MINIMUM (lower = already claimed)
+        // For pending_rewards: use MIN logic only if we have local data
+        // (lower = already claimed). If no local data, take peer's value.
         for (addr, peer_pending) in &snapshot.pending_rewards {
-            let local_pending = self.pending_rewards.get(addr).copied().unwrap_or(0.0);
-            let merged = local_pending.min(*peer_pending);
-            if merged < local_pending {
-                pending_lowered += 1;
-            }
-            // Only insert if non-zero or already exists
-            if merged > 0.0 || self.pending_rewards.contains_key(addr) {
+            if let Some(local_pending) = self.pending_rewards.get(addr).copied() {
+                // We have local pending - take minimum to preserve claims
+                let merged = local_pending.min(*peer_pending);
+                if merged < local_pending {
+                    pending_lowered += 1;
+                }
                 self.pending_rewards.insert(addr.clone(), merged);
+            } else {
+                // No local data - take peer's pending rewards
+                if *peer_pending > 0.0 {
+                    self.pending_rewards.insert(addr.clone(), *peer_pending);
+                }
             }
         }
         
