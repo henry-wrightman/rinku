@@ -1,0 +1,149 @@
+s
+2026-01-21 18:54:57.948	
+2026-01-21T23:54:57.947987Z  INFO rinku_node::checkpoint: Epoch transition: 7 -> 8 (activated: 0, exited: 0)
+2026-01-21 18:54:57.948	
+2026-01-21T23:54:57.947787Z  INFO rinku_node::validator_identity: Epoch transition: 7 -> 8
+2026-01-21 18:54:47.853	
+2026-01-21T23:54:47.853249Z  INFO rinku_node::network: Disconnected from peer: 12D3KooWLYNE9hYpJijNCKZZiqCrhJGMmVfpi8pJaqiTFkXRyhzd (cause: Some(IO(Custom { kind: Other, error: Error(Right(Closed)) })))
+2026-01-21 18:54:32.903	
+2026-01-21T23:54:32.902877Z  INFO rinku_node::network: Connected to peer: 12D3KooWLYNE9hYpJijNCKZZiqCrhJGMmVfpi8pJaqiTFkXRyhzd via Listener { local_addr: /ip4/172.19.17.10/tcp/4001, send_back_addr: /ip4/172.16.17.10/tcp/61738 }
+2026-01-21 18:53:57.945	
+2026-01-21T23:53:57.945293Z  INFO rinku_node::checkpoint: Epoch transition: 6 -> 7 (activated: 0, exited: 0)
+2026-01-21 18:53:57.945	
+2026-01-21T23:53:57.945089Z  INFO rinku_node::validator_identity: Epoch transition: 6 -> 7
+2026-01-21 18:53:52.849	
+2026-01-21T23:53:52.849371Z  INFO rinku_node::network: Disconnected from peer: 12D3KooWBKJRZw8UpmPeYns1WgfNBL23ig9pQ1PMPmMagKBmbxez (cause: Some(IO(Custom { kind: Other, error: Error(Right(Closed)) })))
+2026-01-21 18:53:37.899	
+2026-01-21T23:53:37.898880Z  INFO rinku_node::network: Connected to peer: 12D3KooWBKJRZw8UpmPeYns1WgfNBL23ig9pQ1PMPmMagKBmbxez via Listener { local_addr: /ip4/172.19.17.10/tcp/4001, send_back_addr: /ip4/172.16.17.10/tcp/49646 }
+2026-01-21 18:53:17.845	
+2026-01-21T23:53:17.845597Z  INFO rinku_node::network: Disconnected from peer: 12D3KooWF7tjN1qrqByudtmF7xXDLpmEdm2cbF2XAad7gWLQorFi (cause: Some(IO(Custom { kind: Other, error: Error(Right(Closed)) })))
+2026-01-21 18:53:02.899	
+2026-01-21T23:53:02.899187Z  INFO rinku_node::network: Connected to peer: 12D3KooWF7tjN1qrqByudtmF7xXDLpmEdm2cbF2XAad7gWLQorFi via Listener { local_addr: /ip4/172.19.17.10/tcp/4001, send_back_addr: /ip4/172.16.17.10/tcp/43924 }
+2026-01-21 18:52:57.942	
+2026-01-21T23:52:57.942317Z  INFO rinku_node::checkpoint: Epoch transition: 5 -> 6 (activated: 0, exited: 0)
+2026-01-21 18:52:57.942	
+2026-01-21T23:52:57.942118Z  INFO rinku_node::validator_identity: Epoch transition: 5 -> 6
+2026-01-21 18:52:52.842	
+2026-01-21T23:52:52.841844Z  INFO rinku_node::network: Disconnected from peer: 12D3KooWPu5EsTuZEYNFKQgbdnXQgn1MXogZWsbDb72MT93ju5Ak (cause: Some(IO(Custom { kind: Other, error: Error(Right(Closed)) })))
+2026-01-21 18:52:37.895	
+2026-01-21T23:52:37.895044Z  INFO rinku_node::network: Connected to peer: 12D3KooWPu5EsTuZEYNFKQgbdnXQgn1MXogZWsbDb72MT93ju5Ak via Listener { local_addr: /ip4/172.19.17.10/tcp/4001, send_back_addr: /ip4/172.16.17.10/tcp/53188 }
+2026-01-21 18:52:32.912	
+2026-01-21T23:52:32.912237Z  INFO rinku_node::network: Disconnected from peer: 12D3KooWA41nCF8GrwZ5cUGxTqwdSh3WF5h2HJs7XzskX41hHAxN (cause: Some(IO(Custom { kind: Other, error: Error(Right(Closed)) })))
+2026-01-21 18:52:17.891	
+2026-01-21T23:52:17.891033Z  INFO rinku_node::network: Connected to peer: 12D3KooWA41nCF8GrwZ5cUGxTqwdSh3WF5h2HJs7XzskX41hHAxN via Listener { local_addr: /ip4/172.19.17.10/tcp/4001, send_back_addr: /ip4/172.16.17.10/tcp/55662 }
+2026-01-21 18:51:57.939	
+2026-01-21T23:51:57.939695Z  INFO rinku_node::checkpoint: Epoch transition: 4 -> 5 (activated: 0, exited: 0)
+2026-01-21 18:51:57.939	
+2026-01-21T23:51:57.939397Z  INFO rinku_node::validator_identity: Epoch transition: 4 -> 5
+2026-01-21 18:51:28.728	
+Health check 'health' on port 8080 is now passing.
+2026-01-21 18:51:28.728	
+Health check 'metrics' on port 8080 is now passing.
+2026-01-21 18:51:28.196	
+2026/01/21 23:51:28 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:16d:c738:36a7:2]:22
+2026-01-21 18:51:28.118	
+Health check 'health' on port 8080 has failed. Your app is not responding properly.
+2026-01-21 18:51:28.118	
+Health check 'metrics' on port 8080 has failed. Your app is not responding properly.
+2026-01-21 18:51:28.113	
+2026-01-21T23:51:28.113467Z  INFO rinku_node: No STATIC_DIR set, API-only mode
+2026-01-21 18:51:28.113	
+2026-01-21T23:51:28.113356Z  INFO rinku_node: API available at http://0.0.0.0:8080/api
+2026-01-21 18:51:28.113	
+2026-01-21T23:51:28.113326Z  INFO rinku_node: Rinku Node running on port 8080
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.112937Z  INFO rinku_node::api: API server listening on 0.0.0.0:8080
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.112895Z  INFO rinku_node::api: No STATIC_DIR configured, API-only mode with root health check
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.112471Z  INFO rinku_node::tip_consolidator: [TipConsolidator] Started (threshold: 500, interval: 1000ms)
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.112317Z  INFO rinku_node: STATIC_DIR config: None
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.112264Z  INFO rinku_node: Snapshot persistence started (60s interval)
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.112214Z  INFO rinku_node: Tip consolidation service started
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.112154Z  INFO rinku_node: Gossip service started (200ms interval)
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.112073Z  INFO rinku_node::gossip: P2P message receiver started
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.112048Z  INFO rinku_node::gossip: Gossip service started (interval: 200ms, peers: 0, p2p: true)
+2026-01-21 18:51:28.112	
+2026-01-21T23:51:28.111907Z  INFO rinku_node: GossipService connected to libp2p network
+2026-01-21 18:51:28.015	
+Machine created and started in 3.646s
+2026-01-21 18:51:27.946	
+2026-01-21T23:51:27.945802Z  INFO rinku_node::network: Listening on /ip4/172.19.17.11/tcp/4001
+2026-01-21 18:51:27.946	
+2026-01-21T23:51:27.945795Z  INFO rinku_node::network: Listening on /ip4/172.19.17.10/tcp/4001
+2026-01-21 18:51:27.946	
+2026-01-21T23:51:27.945756Z  INFO rinku_node::network: Listening on /ip4/127.0.0.1/tcp/4001
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.939167Z  INFO rinku_node::network: Network service started on /ip4/0.0.0.0/tcp/4001
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.938199Z  INFO rinku_node::fork_remediation: Fork remediation service started (interval: 30s)
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.937992Z  INFO rinku_node: P2P mDNS discovery enabled (LAN peers)
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.937988Z  INFO rinku_node: P2P listening on: /ip4/0.0.0.0/tcp/4001
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.937982Z  INFO rinku_node: P2P network started with peer ID: 12D3KooWCQeLGccCBQRkdkXEvqKEfaek3U42GbchRzmrgGMmDAx7
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.937613Z  INFO rinku_node::network: Local peer id: 12D3KooWCQeLGccCBQRkdkXEvqKEfaek3U42GbchRzmrgGMmDAx7
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.937542Z  INFO rinku_node: Fork remediation service started
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.937535Z  INFO rinku_node: Checkpoint service started (30000ms interval)
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.937518Z  INFO rinku_node: BLS public key: h6j8FJzDh6qoHpRgM_gGR0DJ8upUKbZx...
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.937505Z  INFO rinku_node: Leader election disabled (no PUBLIC_URL set) - this node will create checkpoints independently
+2026-01-21 18:51:27.939	
+2026-01-21T23:51:27.937486Z  INFO rinku_node::dag_pruning: DAG pruning service initialized: retain 100 checkpoints, max 100000 nodes
+2026-01-21 18:51:27.933	
+2026-01-21T23:51:27.933049Z  INFO rinku_node: Validator identity service initialized (epoch: 4)
+2026-01-21 18:51:27.932	
+2026-01-21T23:51:27.932761Z  INFO rinku_node::validator_identity: Loaded persistent validator keys: 78ee166d25c93965cce0a2cbfa1e52471354596f
+2026-01-21 18:51:27.932	
+2026-01-21T23:51:27.932175Z  INFO rinku_node: Consensus service initialized with slashing integration
+2026-01-21 18:51:27.932	
+2026-01-21T23:51:27.932126Z  INFO rinku_node: Slashing service initialized
+2026-01-21 18:51:27.932	
+2026-01-21T23:51:27.932079Z  INFO rinku_node: Emission service initialized (30M max supply, halving every 3.15M checkpoints)
+2026-01-21 18:51:27.932	
+2026-01-21T23:51:27.932057Z  INFO rinku_node: Rewards service initialized
+2026-01-21 18:51:27.932	
+2026-01-21T23:51:27.932009Z  INFO rinku_node: Gas service initialized
+2026-01-21 18:51:27.931	
+2026-01-21T23:51:27.931944Z  INFO rinku_node: Validator key loaded: 246ac2acf589982e...
+2026-01-21 18:51:27.931	
+2026-01-21T23:51:27.931906Z  INFO rinku_node::validator: Loaded validator key: 246ac2acf589982e...
+2026-01-21 18:51:27.931	
+2026-01-21T23:51:27.931201Z  INFO rinku_node::state: Restored rewards: 0 stakes, 0 pending
+2026-01-21 18:51:27.931	
+2026-01-21T23:51:27.931168Z  INFO rinku_node::storage: Loaded rewards snapshot: 0 stakes, 0 pending rewards
+2026-01-21 18:51:27.931	
+2026-01-21T23:51:27.931130Z  INFO rinku_node::state: Loaded genesis hash: Some("ba5f64a1d9f5c5b6")
+2026-01-21 18:51:27.931	
+2026-01-21T23:51:27.931077Z  INFO rinku_node::state: Loaded 0 contracts from storage
+2026-01-21 18:51:27.931	
+2026-01-21T23:51:27.931051Z  INFO rinku_node::state: Restored from snapshot: 1 accounts, 1 txs, 1 checkpoints
+2026-01-21 18:51:27.931	
+2026-01-21T23:51:27.931035Z  INFO rinku_node::storage: Loaded snapshot: 1 accounts, 0 validators, 1 checkpoints, 1 txs
+2026-01-21 18:51:27.930	
+2026-01-21T23:51:27.930019Z  INFO rinku_node::storage: Opened redb database at /data/redb.db
+2026-01-21 18:51:27.910	
+2026-01-21T23:51:27.909787Z  INFO rinku_node: Initializing node state...
+2026-01-21 18:51:27.909	
+2026-01-21T23:51:27.909466Z  INFO rinku_node: Data directory exists, checking for stale locks...
+2026-01-21 18:51:27.909	
+2026-01-21T23:51:27.906772Z  INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+2026-01-21 18:51:27.906	
+2026-01-21T23:51:27.906742Z  INFO rinku_node: Node role: GENESIS NODE (can create new chain)
+2026-01-21 18:51:27.906	
+2026-01-21T23:51:27.906655Z  INFO rinku_node: Data dir: /data
+2026-01-21 18:51:27.906	
+2026-01-21T23:51:27.906547Z  INFO rinku_node: Node ID: 6bd7a09aede1ace2
+2026-01-21 18:51:27.905	
+2026-01-21T23:51:27.904543Z  INFO rinku_node: Process PID: 650

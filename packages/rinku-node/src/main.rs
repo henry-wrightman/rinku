@@ -235,6 +235,7 @@ async fn main() -> Result<()> {
             listen_addr: config.p2p.listen_addr.clone(),
             bootstrap_peers: config.p2p.bootstrap_peers.clone(),
             enable_mdns: config.p2p.enable_mdns,
+            data_dir: Some(config.data_dir.clone()),
         };
         
         match NetworkService::new(network_config) {

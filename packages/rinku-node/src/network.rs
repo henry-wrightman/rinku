@@ -189,6 +189,7 @@ pub struct NetworkConfig {
     pub listen_addr: String,
     pub bootstrap_peers: Vec<String>,
     pub enable_mdns: bool,
+    pub data_dir: Option<String>,
 }
 
 impl Default for NetworkConfig {
@@ -197,8 +198,38 @@ impl Default for NetworkConfig {
             listen_addr: "/ip4/0.0.0.0/tcp/4001".to_string(),
             bootstrap_peers: Vec::new(),
             enable_mdns: true,
+            data_dir: None,
         }
     }
+}
+
+fn load_or_generate_keypair(data_dir: Option<&str>) -> Keypair {
+    let key_path = data_dir.map(|d| format!("{}/p2p-identity.key", d));
+    
+    if let Some(ref path) = key_path {
+        if let Ok(bytes) = std::fs::read(path) {
+            if let Ok(keypair) = Keypair::from_protobuf_encoding(&bytes) {
+                info!("Loaded existing P2P identity from {}", path);
+                return keypair;
+            } else {
+                warn!("Failed to decode P2P identity from {}, generating new one", path);
+            }
+        }
+    }
+    
+    let keypair = Keypair::generate_ed25519();
+    
+    if let Some(ref path) = key_path {
+        if let Ok(bytes) = keypair.to_protobuf_encoding() {
+            if let Err(e) = std::fs::write(path, bytes) {
+                warn!("Failed to save P2P identity to {}: {}", path, e);
+            } else {
+                info!("Saved new P2P identity to {}", path);
+            }
+        }
+    }
+    
+    keypair
 }
 
 #[derive(Debug, Clone)]
@@ -319,7 +350,7 @@ struct NetworkStatsInner {
 
 impl NetworkService {
     pub fn new(config: NetworkConfig) -> Result<(Self, NetworkHandle)> {
-        let local_key = Keypair::generate_ed25519();
+        let local_key = load_or_generate_keypair(config.data_dir.as_deref());
         let local_peer_id = PeerId::from(local_key.public());
 
         info!("Local peer id: {}", local_peer_id);
