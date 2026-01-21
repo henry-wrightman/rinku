@@ -88,18 +88,75 @@ get_app_ipv4() {
     fly ips list -a "$app_name" 2>/dev/null | grep "v4" | head -1 | awk '{print $2}'
 }
 
+destroy_all_machines() {
+    local app_name=$1
+    log_info "Destroying all machines for $app_name..."
+    
+    local machine_ids=$(fly machines list -a "$app_name" 2>/dev/null | tail -n +2 | awk '{print $1}')
+    
+    if [ -z "$machine_ids" ]; then
+        log_info "No machines to destroy for $app_name"
+        return 0
+    fi
+    
+    for machine_id in $machine_ids; do
+        if [ -n "$machine_id" ] && [ "$machine_id" != "ID" ]; then
+            log_info "Destroying machine: $machine_id"
+            fly machines destroy "$machine_id" -a "$app_name" --force -y 2>/dev/null || true
+        fi
+    done
+    
+    sleep 3
+    
+    local remaining=$(fly machines list -a "$app_name" 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
+    if [ "$remaining" = "0" ]; then
+        log_success "All machines destroyed for $app_name"
+    else
+        log_warn "$remaining machines still exist for $app_name"
+    fi
+}
+
 wipe_and_recreate_volume() {
     local app_name=$1
     log_warn "Wiping data volume for $app_name..."
     
-    local volumes=$(fly volumes list -a "$app_name" 2>/dev/null | grep "rinku_data" | awk '{print $1}')
+    local max_attempts=3
+    local attempt=0
     
-    if [ -n "$volumes" ]; then
+    while [ $attempt -lt $max_attempts ]; do
+        local volumes=$(fly volumes list -a "$app_name" 2>/dev/null | grep "rinku_data" | awk '{print $1}')
+        
+        if [ -z "$volumes" ]; then
+            log_info "No volumes to destroy for $app_name"
+            break
+        fi
+        
         for vol in $volumes; do
             log_info "Destroying volume: $vol"
-            fly volumes destroy "$vol" -a "$app_name" -y 2>/dev/null || true
+            if fly volumes destroy "$vol" -a "$app_name" -y 2>&1; then
+                log_success "Destroyed volume $vol"
+            else
+                log_warn "Failed to destroy volume $vol, will retry..."
+            fi
         done
-        sleep 2
+        
+        sleep 3
+        attempt=$((attempt + 1))
+        
+        local remaining=$(fly volumes list -a "$app_name" 2>/dev/null | grep -c "rinku_data" || echo "0")
+        if [ "$remaining" = "0" ]; then
+            log_success "All volumes destroyed for $app_name"
+            break
+        else
+            log_warn "Still $remaining volumes remaining, attempt $attempt/$max_attempts"
+        fi
+    done
+    
+    local final_check=$(fly volumes list -a "$app_name" 2>/dev/null | grep -c "rinku_data" || echo "0")
+    if [ "$final_check" != "0" ]; then
+        log_error "Failed to destroy all volumes for $app_name after $max_attempts attempts"
+        log_error "Please manually destroy volumes with: fly volumes list -a $app_name"
+        return 1
     fi
     
     log_info "Creating fresh volume for $app_name..."
@@ -132,7 +189,7 @@ get_bootstrap_info() {
     
     while [ $attempt -lt $max_attempts ]; do
         local response=$(curl -s "${genesis_url}/api/bootstrap" 2>/dev/null)
-        if [ -n "$response" ] && echo "$response" | jq -e '.peerId' &>/dev/null; then
+        if [ -n "$response" ] && echo "$response" | grep -q '"peerId"'; then
             echo "$response"
             return 0
         fi
@@ -200,12 +257,12 @@ show_bootstrap_info() {
     if [ -n "$info" ]; then
         echo ""
         echo -e "${GREEN}=== Bootstrap Info ===${NC}"
-        echo "$info" | jq '.'
+        echo "$info"
         echo ""
         
-        local peer_id=$(echo "$info" | jq -r '.peerId')
+        local peer_id=$(echo "$info" | grep -o '"peerId":"[^"]*"' | cut -d'"' -f4)
         local genesis_ip=$(get_app_ipv4 "$GENESIS_APP")
-        local genesis_val=$(echo "$info" | jq -r '.genesisValidatorEnv')
+        local genesis_val=$(echo "$info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
         
         echo -e "${YELLOW}=== For Validator Configuration ===${NC}"
         echo "P2P_BOOTSTRAP_PEERS=/ip4/${genesis_ip}/tcp/4001/p2p/${peer_id}"
@@ -298,15 +355,12 @@ deploy_fresh() {
     allocate_ipv4_if_needed "$VALIDATOR1_APP"
     allocate_ipv4_if_needed "$VALIDATOR2_APP"
     
-    log_info "Step 3: Stopping existing machines..."
+    log_info "Step 3: Destroying existing machines (IPs are preserved)..."
     for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
         if app_exists "$app"; then
-            fly machines list -a "$app" --json 2>/dev/null | jq -r '.[].id' | while read id; do
-                fly machines stop "$id" -a "$app" 2>/dev/null || true
-            done
+            destroy_all_machines "$app"
         fi
     done
-    sleep 5
     
     log_info "Step 4: Wiping volumes..."
     wipe_and_recreate_volume "$GENESIS_APP"
@@ -327,9 +381,9 @@ deploy_fresh() {
         exit 1
     fi
     
-    local peer_id=$(echo "$bootstrap_info" | jq -r '.peerId')
+    local peer_id=$(echo "$bootstrap_info" | grep -o '"peerId":"[^"]*"' | cut -d'"' -f4)
     local genesis_ip=$(get_app_ipv4 "$GENESIS_APP")
-    local genesis_validator=$(echo "$bootstrap_info" | jq -r '.genesisValidatorEnv')
+    local genesis_validator=$(echo "$bootstrap_info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
     
     log_info "Genesis Peer ID: $peer_id"
     log_info "Genesis IP: $genesis_ip"
@@ -376,10 +430,7 @@ deploy_fresh_genesis() {
     allocate_ipv4_if_needed "$GENESIS_APP"
     
     if app_exists "$GENESIS_APP"; then
-        fly machines list -a "$GENESIS_APP" --json 2>/dev/null | jq -r '.[].id' | while read id; do
-            fly machines stop "$id" -a "$GENESIS_APP" 2>/dev/null || true
-        done
-        sleep 5
+        destroy_all_machines "$GENESIS_APP"
     fi
     
     wipe_and_recreate_volume "$GENESIS_APP"
