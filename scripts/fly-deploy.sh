@@ -1,0 +1,452 @@
+#!/bin/bash
+set -e
+
+GENESIS_APP="rinku-genesis"
+VALIDATOR1_APP="rinku-validator-1"
+VALIDATOR2_APP="rinku-validator-2"
+REGION="sjc"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+usage() {
+    cat << EOF
+Rinku Fly.io Deployment Script
+
+Usage: $0 <mode> [options]
+
+MODES:
+  update              Redeploy all nodes with updated code (retains chain history)
+  update-genesis      Redeploy only the genesis node (retains data)
+  update-validators   Redeploy only validator nodes (retains data)
+  fresh               Complete fresh deployment (wipes all data, restarts genesis)
+  fresh-genesis       Fresh genesis only (wipes genesis data)
+  status              Show status of all nodes
+  bootstrap-info      Get bootstrap info from genesis node
+  logs <app>          Show logs for specified app
+
+OPTIONS:
+  --skip-build        Skip Docker build (use existing image)
+  --parallel          Deploy validators in parallel (faster but harder to debug)
+  --genesis-only      Only deploy genesis node
+  --help              Show this help message
+
+EXAMPLES:
+  $0 update                    # Update all nodes with new code, keep chain history
+  $0 fresh                     # Wipe everything and start fresh
+  $0 update-genesis            # Update only genesis node
+  $0 status                    # Check status of all nodes
+  $0 logs rinku-genesis        # View genesis node logs
+
+EOF
+    exit 0
+}
+
+check_fly_auth() {
+    if ! fly auth whoami &>/dev/null; then
+        log_error "Not authenticated with Fly.io. Run 'fly auth login' first."
+        exit 1
+    fi
+    log_success "Authenticated with Fly.io"
+}
+
+app_exists() {
+    fly apps list 2>/dev/null | grep -q "^$1 "
+}
+
+create_app_if_needed() {
+    local app_name=$1
+    if app_exists "$app_name"; then
+        log_info "App $app_name already exists"
+        return 0
+    fi
+    log_info "Creating app: $app_name"
+    fly apps create "$app_name" --org personal
+}
+
+allocate_ipv4_if_needed() {
+    local app_name=$1
+    local has_ipv4=$(fly ips list -a "$app_name" 2>/dev/null | grep -c "v4" || echo "0")
+    if [ "$has_ipv4" = "0" ]; then
+        log_info "Allocating IPv4 for $app_name..."
+        fly ips allocate-v4 -a "$app_name"
+    else
+        log_info "IPv4 already allocated for $app_name"
+    fi
+}
+
+get_app_ipv4() {
+    local app_name=$1
+    fly ips list -a "$app_name" 2>/dev/null | grep "v4" | head -1 | awk '{print $2}'
+}
+
+wipe_and_recreate_volume() {
+    local app_name=$1
+    log_warn "Wiping data volume for $app_name..."
+    
+    local volumes=$(fly volumes list -a "$app_name" 2>/dev/null | grep "rinku_data" | awk '{print $1}')
+    
+    if [ -n "$volumes" ]; then
+        for vol in $volumes; do
+            log_info "Destroying volume: $vol"
+            fly volumes destroy "$vol" -a "$app_name" -y 2>/dev/null || true
+        done
+        sleep 2
+    fi
+    
+    log_info "Creating fresh volume for $app_name..."
+    fly volumes create rinku_data -a "$app_name" --region "$REGION" --size 1 -y
+    log_success "Volume created for $app_name"
+}
+
+deploy_app() {
+    local app_name=$1
+    local extra_args="${2:-}"
+    
+    log_info "Deploying $app_name..."
+    
+    fly deploy \
+        --dockerfile Dockerfile.fly \
+        --app "$app_name" \
+        --region "$REGION" \
+        --wait-timeout 300 \
+        $extra_args
+    
+    log_success "Deployed $app_name"
+}
+
+get_bootstrap_info() {
+    local genesis_url="https://${GENESIS_APP}.fly.dev"
+    log_info "Fetching bootstrap info from genesis..."
+    
+    local max_attempts=30
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        local response=$(curl -s "${genesis_url}/api/bootstrap" 2>/dev/null)
+        if [ -n "$response" ] && echo "$response" | jq -e '.peerId' &>/dev/null; then
+            echo "$response"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        log_info "Waiting for genesis to be ready... (attempt $attempt/$max_attempts)"
+        sleep 10
+    done
+    
+    log_error "Failed to get bootstrap info from genesis"
+    return 1
+}
+
+configure_validator() {
+    local validator_app=$1
+    local genesis_ip=$2
+    local peer_id=$3
+    local genesis_validator=$4
+    
+    log_info "Configuring $validator_app..."
+    
+    local bootstrap_peer="/ip4/${genesis_ip}/tcp/4001/p2p/${peer_id}"
+    
+    fly secrets set -a "$validator_app" \
+        P2P_BOOTSTRAP_PEERS="$bootstrap_peer" \
+        GENESIS_VALIDATORS="$genesis_validator"
+    
+    log_success "Configured $validator_app with bootstrap peer"
+}
+
+show_status() {
+    echo ""
+    log_info "=== Rinku Network Status ==="
+    echo ""
+    
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+        if app_exists "$app"; then
+            echo -e "${GREEN}$app:${NC}"
+            local status=$(fly status -a "$app" 2>/dev/null | grep -E "^(Machines|ID)" | head -5)
+            echo "$status"
+            local url="https://${app}.fly.dev"
+            echo "  URL: $url"
+            local health=$(curl -s "${url}/health" 2>/dev/null | head -c 100)
+            if [ -n "$health" ]; then
+                echo -e "  Health: ${GREEN}OK${NC}"
+            else
+                echo -e "  Health: ${RED}UNREACHABLE${NC}"
+            fi
+            echo ""
+        else
+            echo -e "${YELLOW}$app: NOT DEPLOYED${NC}"
+            echo ""
+        fi
+    done
+}
+
+show_bootstrap_info() {
+    if ! app_exists "$GENESIS_APP"; then
+        log_error "Genesis app not deployed"
+        exit 1
+    fi
+    
+    log_info "Fetching bootstrap info..."
+    local info=$(get_bootstrap_info)
+    
+    if [ -n "$info" ]; then
+        echo ""
+        echo -e "${GREEN}=== Bootstrap Info ===${NC}"
+        echo "$info" | jq '.'
+        echo ""
+        
+        local peer_id=$(echo "$info" | jq -r '.peerId')
+        local genesis_ip=$(get_app_ipv4 "$GENESIS_APP")
+        local genesis_val=$(echo "$info" | jq -r '.genesisValidatorEnv')
+        
+        echo -e "${YELLOW}=== For Validator Configuration ===${NC}"
+        echo "P2P_BOOTSTRAP_PEERS=/ip4/${genesis_ip}/tcp/4001/p2p/${peer_id}"
+        echo "GENESIS_VALIDATORS=${genesis_val}"
+        echo ""
+    fi
+}
+
+show_logs() {
+    local app_name=$1
+    if [ -z "$app_name" ]; then
+        log_error "Please specify app name"
+        exit 1
+    fi
+    fly logs -a "$app_name"
+}
+
+deploy_update() {
+    log_info "=== Updating All Nodes (Retaining Data) ==="
+    
+    check_fly_auth
+    
+    log_info "Deploying genesis node..."
+    deploy_app "$GENESIS_APP"
+    
+    sleep 10
+    
+    if app_exists "$VALIDATOR1_APP"; then
+        log_info "Deploying validator 1..."
+        deploy_app "$VALIDATOR1_APP"
+    fi
+    
+    if app_exists "$VALIDATOR2_APP"; then
+        log_info "Deploying validator 2..."
+        deploy_app "$VALIDATOR2_APP"
+    fi
+    
+    log_success "=== All nodes updated successfully ==="
+    show_status
+}
+
+deploy_update_genesis() {
+    log_info "=== Updating Genesis Node Only ==="
+    check_fly_auth
+    deploy_app "$GENESIS_APP"
+    log_success "Genesis node updated"
+}
+
+deploy_update_validators() {
+    log_info "=== Updating Validator Nodes Only ==="
+    check_fly_auth
+    
+    if app_exists "$VALIDATOR1_APP"; then
+        deploy_app "$VALIDATOR1_APP"
+    fi
+    
+    if app_exists "$VALIDATOR2_APP"; then
+        deploy_app "$VALIDATOR2_APP"
+    fi
+    
+    log_success "Validator nodes updated"
+}
+
+deploy_fresh() {
+    log_info "=== Fresh Deployment (Wiping All Data) ==="
+    
+    echo ""
+    echo -e "${RED}WARNING: This will wipe all chain data and start fresh!${NC}"
+    echo "This includes:"
+    echo "  - Genesis node data"
+    echo "  - Validator 1 data"  
+    echo "  - Validator 2 data"
+    echo ""
+    read -p "Are you sure you want to continue? (yes/no): " confirm
+    
+    if [ "$confirm" != "yes" ]; then
+        log_info "Aborted"
+        exit 0
+    fi
+    
+    check_fly_auth
+    
+    log_info "Step 1: Creating/preparing apps..."
+    create_app_if_needed "$GENESIS_APP"
+    create_app_if_needed "$VALIDATOR1_APP"
+    create_app_if_needed "$VALIDATOR2_APP"
+    
+    log_info "Step 2: Allocating IPv4 addresses..."
+    allocate_ipv4_if_needed "$GENESIS_APP"
+    allocate_ipv4_if_needed "$VALIDATOR1_APP"
+    allocate_ipv4_if_needed "$VALIDATOR2_APP"
+    
+    log_info "Step 3: Stopping existing machines..."
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+        if app_exists "$app"; then
+            fly machines list -a "$app" --json 2>/dev/null | jq -r '.[].id' | while read id; do
+                fly machines stop "$id" -a "$app" 2>/dev/null || true
+            done
+        fi
+    done
+    sleep 5
+    
+    log_info "Step 4: Wiping volumes..."
+    wipe_volume "$GENESIS_APP"
+    wipe_volume "$VALIDATOR1_APP"
+    wipe_volume "$VALIDATOR2_APP"
+    
+    log_info "Step 5: Deploying genesis node..."
+    deploy_app "$GENESIS_APP"
+    
+    log_info "Step 6: Waiting for genesis to start..."
+    sleep 30
+    
+    log_info "Step 7: Getting bootstrap info..."
+    local bootstrap_info=$(get_bootstrap_info)
+    
+    if [ -z "$bootstrap_info" ]; then
+        log_error "Failed to get bootstrap info"
+        exit 1
+    fi
+    
+    local peer_id=$(echo "$bootstrap_info" | jq -r '.peerId')
+    local genesis_ip=$(get_app_ipv4 "$GENESIS_APP")
+    local genesis_validator=$(echo "$bootstrap_info" | jq -r '.genesisValidatorEnv')
+    
+    log_info "Genesis Peer ID: $peer_id"
+    log_info "Genesis IP: $genesis_ip"
+    log_info "Genesis Validator: $genesis_validator"
+    
+    log_info "Step 8: Configuring validators..."
+    configure_validator "$VALIDATOR1_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
+    configure_validator "$VALIDATOR2_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
+    
+    log_info "Step 9: Deploying validators..."
+    deploy_app "$VALIDATOR1_APP"
+    deploy_app "$VALIDATOR2_APP"
+    
+    log_success "=== Fresh deployment complete! ==="
+    echo ""
+    show_status
+    
+    echo ""
+    log_info "Network URLs:"
+    echo "  Genesis:     https://${GENESIS_APP}.fly.dev"
+    echo "  Validator 1: https://${VALIDATOR1_APP}.fly.dev"
+    echo "  Validator 2: https://${VALIDATOR2_APP}.fly.dev"
+    echo ""
+    log_info "Explorer should connect to: https://${GENESIS_APP}.fly.dev"
+}
+
+deploy_fresh_genesis() {
+    log_info "=== Fresh Genesis Deployment ==="
+    
+    echo ""
+    echo -e "${RED}WARNING: This will wipe genesis node data!${NC}"
+    echo "Validators will need to be reconfigured."
+    echo ""
+    read -p "Are you sure? (yes/no): " confirm
+    
+    if [ "$confirm" != "yes" ]; then
+        log_info "Aborted"
+        exit 0
+    fi
+    
+    check_fly_auth
+    
+    create_app_if_needed "$GENESIS_APP"
+    allocate_ipv4_if_needed "$GENESIS_APP"
+    
+    if app_exists "$GENESIS_APP"; then
+        fly machines list -a "$GENESIS_APP" --json 2>/dev/null | jq -r '.[].id' | while read id; do
+            fly machines stop "$id" -a "$GENESIS_APP" 2>/dev/null || true
+        done
+        sleep 5
+    fi
+    
+    wipe_volume "$GENESIS_APP"
+    deploy_app "$GENESIS_APP"
+    
+    log_success "Genesis deployed fresh!"
+    
+    sleep 20
+    show_bootstrap_info
+    
+    log_warn "You need to reconfigure validators with the new bootstrap info above"
+}
+
+SKIP_BUILD=""
+PARALLEL=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --skip-build)
+            SKIP_BUILD="--build-only"
+            shift
+            ;;
+        --parallel)
+            PARALLEL="true"
+            shift
+            ;;
+        --help|-h)
+            usage
+            ;;
+        update)
+            deploy_update
+            exit 0
+            ;;
+        update-genesis)
+            deploy_update_genesis
+            exit 0
+            ;;
+        update-validators)
+            deploy_update_validators
+            exit 0
+            ;;
+        fresh)
+            deploy_fresh
+            exit 0
+            ;;
+        fresh-genesis)
+            deploy_fresh_genesis
+            exit 0
+            ;;
+        status)
+            show_status
+            exit 0
+            ;;
+        bootstrap-info)
+            show_bootstrap_info
+            exit 0
+            ;;
+        logs)
+            shift
+            show_logs "$1"
+            exit 0
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            usage
+            ;;
+    esac
+done
+
+usage

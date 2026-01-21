@@ -152,3 +152,42 @@ The explorer will proxy all `/api` requests to the Fly.io node.
 | `P2P_BOOTSTRAP_PEERS` | Multiaddr of bootstrap peer(s) | No (genesis) / Yes (validators) |
 | `GENESIS_VALIDATORS` | Trusted validator addresses with BLS keys | No (genesis) / Yes (validators) |
 | `RUST_LOG` | Log level filter | No |
+| `PUBLIC_URL` | Public URL for gossip peer discovery | Yes (for Fly.io) |
+
+### Automated Deployment Script
+
+Use `scripts/fly-deploy.sh` for streamlined deployments:
+
+```bash
+# Update all nodes with new code (retains chain history)
+./scripts/fly-deploy.sh update
+
+# Fresh deployment (wipes all data, restarts genesis)
+./scripts/fly-deploy.sh fresh
+
+# Update only genesis or validators
+./scripts/fly-deploy.sh update-genesis
+./scripts/fly-deploy.sh update-validators
+
+# Check network status
+./scripts/fly-deploy.sh status
+
+# Get bootstrap info for manual configuration
+./scripts/fly-deploy.sh bootstrap-info
+
+# View logs
+./scripts/fly-deploy.sh logs rinku-genesis
+```
+
+The script handles:
+- App creation and IPv4 allocation
+- Volume management for fresh deployments
+- Automatic bootstrap configuration for validators
+- Sequential deployment with proper timing
+
+### Leader Election
+
+Checkpoint creation uses stake-weighted leader election to prevent state divergence in multi-node networks:
+- Leader is deterministically selected using VRF-style randomness based on previous checkpoint hash
+- Only the elected leader creates checkpoints; other nodes sync from peers
+- Ensures consistent checkpoint creation across the network
