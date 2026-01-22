@@ -21,7 +21,6 @@ pub mod sparse_merkle_trie;
 pub mod state;
 pub mod state_trie;
 pub mod storage;
-#[cfg(feature = "p2p")]
 pub mod sync_verification;
 pub mod tip_consolidator;
 pub mod trust;

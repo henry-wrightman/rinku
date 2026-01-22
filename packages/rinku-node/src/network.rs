@@ -13,6 +13,7 @@ use libp2p::{
     tcp, yamux, Multiaddr, PeerId, Swarm, StreamProtocol,
 };
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -119,6 +120,8 @@ pub struct DeltaData {
     pub new_checkpoints: Vec<CheckpointData>,
     pub from_checkpoint: u64,
     pub to_checkpoint: u64,
+    #[serde(default)]
+    pub tx_checkpoint_heights: std::collections::HashMap<String, u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,7 +235,7 @@ fn load_or_generate_keypair(data_dir: Option<&str>) -> Keypair {
     keypair
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerStats {
     pub peer_id: String,
     pub connected_at: u64,
@@ -243,6 +246,7 @@ pub struct PeerStats {
     pub handshake_info: Option<PeerHandshake>,
     pub rate_limit_tokens: u32,
     pub last_rate_update: u64,
+    pub score: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -273,6 +277,9 @@ pub struct BannedPeer {
     pub banned_at: u64,
     pub expires_at: u64,
 }
+
+const MISBEHAVIOR_SCORE_PENALTY: i32 = 10;
+const BAN_SCORE_THRESHOLD: i32 = -50;
 
 #[derive(Debug, Clone)]
 pub struct HandshakeConfig {
@@ -306,7 +313,8 @@ pub struct NetworkStats {
 
 /// Pending sync request waiting for response
 struct PendingSyncRequest {
-    response_tx: oneshot::Sender<SyncResponse>,
+    peer_id: PeerId,
+    response_tx: Option<oneshot::Sender<SyncResponse>>,
 }
 
 /// Incoming sync request to be handled by the application
@@ -337,6 +345,10 @@ pub struct NetworkService {
     handshake_config: HandshakeConfig,
     /// Banned peers
     banned_peers: Arc<RwLock<HashMap<String, BannedPeer>>>,
+    /// Persisted peer scores across restarts
+    peer_scores: Arc<RwLock<HashMap<String, i32>>>,
+    /// Optional path to peer score storage
+    peer_scores_path: Option<String>,
     /// Command channel for dial requests etc
     command_rx: mpsc::Receiver<NetworkCommand>,
 }
@@ -431,6 +443,9 @@ impl NetworkService {
 
         let peers = Arc::new(RwLock::new(HashMap::new()));
 
+        let peer_scores_path = config.data_dir.as_ref().map(|d| format!("{}/peer_scores.json", d));
+        let peer_scores = Arc::new(RwLock::new(load_peer_scores(&peer_scores_path)));
+
         let handle = NetworkHandle {
             outbound_tx,
             message_rx,
@@ -457,6 +472,8 @@ impl NetworkService {
             dos_config: DoSConfig::default(),
             handshake_config: HandshakeConfig::default(),
             banned_peers: Arc::new(RwLock::new(HashMap::new())),
+            peer_scores,
+            peer_scores_path,
             command_rx,
         };
 
@@ -504,7 +521,10 @@ impl NetworkService {
                     let request_id = self.swarm.behaviour_mut()
                         .request_response
                         .send_request(&peer_id, request);
-                    self.pending_requests.insert(request_id, PendingSyncRequest { response_tx });
+                    self.pending_requests.insert(request_id, PendingSyncRequest {
+                        peer_id,
+                        response_tx: Some(response_tx),
+                    });
                     debug!("Sent sync request {:?} to {}", request_id, peer_id);
                 }
                 Some(cmd) = self.command_rx.recv() => {
@@ -556,6 +576,19 @@ impl NetworkService {
                     return;
                 }
 
+                let allow_message = {
+                    let peers = self.peers.read().await;
+                    peers.get(&propagation_source)
+                        .map(|p| p.handshake_validated)
+                        .unwrap_or(false)
+                };
+                if !allow_message {
+                    warn!("Dropping gossip from unhandshaked peer: {}", propagation_source);
+                    self.record_misbehavior_sync(&propagation_source.to_string());
+                    let _ = self.swarm.disconnect_peer_id(propagation_source);
+                    return;
+                }
+
                 if let Ok(gossip_msg) = serde_json::from_slice::<GossipMessage>(&message.data) {
                     let _ = self.message_tx.send(gossip_msg).await;
                 }
@@ -582,6 +615,7 @@ impl NetworkService {
                     
                     let now = current_time_secs();
                     let max_tokens = self.dos_config.max_rate_limit_tokens;
+                    let saved_score = self.get_saved_peer_score_sync(&peer_id);
                     let mut peer_map = self.peers.write().await;
                     peer_map.entry(peer_id).or_insert_with(|| PeerStats {
                         peer_id: peer_id.to_string(),
@@ -593,6 +627,7 @@ impl NetworkService {
                         handshake_info: None,
                         rate_limit_tokens: max_tokens,
                         last_rate_update: now,
+                        score: saved_score,
                     });
                 }
             }
@@ -626,6 +661,7 @@ impl NetworkService {
                 
                 let now = current_time_secs();
                 let max_tokens = self.dos_config.max_rate_limit_tokens;
+                let saved_score = self.get_saved_peer_score_sync(&peer_id);
                 let mut peers = self.peers.write().await;
                 peers.entry(peer_id).or_insert_with(|| PeerStats {
                     peer_id: peer_id_str,
@@ -637,6 +673,17 @@ impl NetworkService {
                     handshake_info: None,
                     rate_limit_tokens: max_tokens,
                     last_rate_update: now,
+                    score: saved_score,
+                });
+
+                // Proactively initiate handshake
+                let handshake = self.create_handshake(0, None);
+                let request_id = self.swarm.behaviour_mut()
+                    .request_response
+                    .send_request(&peer_id, SyncRequest::Handshake(handshake));
+                self.pending_requests.insert(request_id, PendingSyncRequest {
+                    peer_id,
+                    response_tx: None,
                 });
             }
 
@@ -644,7 +691,9 @@ impl NetworkService {
                 info!("Disconnected from peer: {} (cause: {:?})", peer_id, cause);
                 
                 let mut peers = self.peers.write().await;
-                peers.remove(&peer_id);
+                if let Some(peer_stats) = peers.remove(&peer_id) {
+                    self.persist_peer_score_sync(&peer_id, peer_stats.score);
+                }
             }
 
             SwarmEvent::NewListenAddr { address, .. } => {
@@ -667,6 +716,61 @@ impl NetworkService {
                             return;
                         }
                         
+                        if let SyncRequest::Handshake(ref info) = request {
+                            match self.validate_handshake(info) {
+                                Ok(_) => {
+                                    let mut peers = self.peers.write().await;
+                                    let saved_score = self.get_saved_peer_score_sync(&peer);
+                                    let entry = peers.entry(peer).or_insert_with(|| PeerStats {
+                                        peer_id: peer.to_string(),
+                                        connected_at: current_time_secs(),
+                                        messages_received: 0,
+                                        messages_sent: 0,
+                                        last_seen: current_time_secs(),
+                                        handshake_validated: false,
+                                        handshake_info: None,
+                                        rate_limit_tokens: self.dos_config.max_rate_limit_tokens,
+                                        last_rate_update: current_time_secs(),
+                                        score: saved_score,
+                                    });
+                                    entry.handshake_validated = true;
+                                    entry.handshake_info = Some(info.clone());
+                                    entry.score = entry.score.saturating_add(10);
+                                    self.persist_peer_score_sync(&peer, entry.score);
+                                    let response = SyncResponse::Handshake(self.create_handshake(0, None));
+                                    let _ = self.swarm.behaviour_mut().request_response.send_response(
+                                        channel,
+                                        response
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!("Handshake validation failed for {}: {}", peer, e);
+                                    self.record_misbehavior_sync(&peer.to_string());
+                                    let _ = self.swarm.behaviour_mut().request_response.send_response(
+                                        channel,
+                                        SyncResponse::Error { message: format!("Handshake rejected: {}", e) }
+                                    );
+                                }
+                            }
+                            return;
+                        }
+
+                        let handshake_ok = {
+                            let peers = self.peers.read().await;
+                            peers.get(&peer)
+                                .map(|p| p.handshake_validated)
+                                .unwrap_or(false)
+                        };
+                        if !handshake_ok {
+                            warn!("Sync request rejected (handshake required) from {}", peer);
+                            self.record_misbehavior_sync(&peer.to_string());
+                            let _ = self.swarm.behaviour_mut().request_response.send_response(
+                                channel,
+                                SyncResponse::Error { message: "Handshake required".to_string() }
+                            );
+                            return;
+                        }
+
                         debug!("Received sync request from {}: {:?}", peer, request);
                         let incoming = IncomingSyncRequest {
                             peer_id: peer.to_string(),
@@ -680,7 +784,26 @@ impl NetworkService {
                     request_response::Message::Response { request_id, response } => {
                         debug!("Received sync response for {:?}", request_id);
                         if let Some(pending) = self.pending_requests.remove(&request_id) {
-                            let _ = pending.response_tx.send(response);
+                            if let SyncResponse::Handshake(info) = &response {
+                                match self.validate_handshake(info) {
+                                    Ok(_) => {
+                                        let mut peers = self.peers.write().await;
+                                        if let Some(peer_stats) = peers.get_mut(&pending.peer_id) {
+                                            peer_stats.handshake_validated = true;
+                                            peer_stats.handshake_info = Some(info.clone());
+                                            peer_stats.score = peer_stats.score.saturating_add(10);
+                                            self.persist_peer_score_sync(&pending.peer_id, peer_stats.score);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Handshake response invalid from {}: {}", pending.peer_id, e);
+                                        self.record_misbehavior_sync(&pending.peer_id.to_string());
+                                    }
+                                }
+                            }
+                            if let Some(response_tx) = pending.response_tx {
+                                let _ = response_tx.send(response);
+                            }
                         }
                     }
                 }
@@ -692,9 +815,11 @@ impl NetworkService {
             )) => {
                 warn!("Sync request to {} failed: {:?}", peer, error);
                 if let Some(pending) = self.pending_requests.remove(&request_id) {
-                    let _ = pending.response_tx.send(SyncResponse::Error {
-                        message: format!("{:?}", error),
-                    });
+                    if let Some(response_tx) = pending.response_tx {
+                        let _ = response_tx.send(SyncResponse::Error {
+                            message: format!("{:?}", error),
+                        });
+                    }
                 }
             }
 
@@ -974,8 +1099,10 @@ impl NetworkService {
         
         if let Some(peer) = peers.get_mut(&peer_key) {
             peer.rate_limit_tokens = peer.rate_limit_tokens.saturating_sub(10);
+            peer.score = peer.score.saturating_sub(MISBEHAVIOR_SCORE_PENALTY);
+            self.persist_peer_score_async(&peer_key, peer.score).await;
             
-            if peer.rate_limit_tokens == 0 {
+            if peer.rate_limit_tokens == 0 || peer.score <= BAN_SCORE_THRESHOLD {
                 drop(peers);
                 self.ban_peer(peer_id.to_string(), "Repeated misbehavior".to_string()).await;
             }
@@ -994,7 +1121,9 @@ impl NetworkService {
         let should_ban = if let Ok(mut peers) = self.peers.try_write() {
             if let Some(peer) = peers.get_mut(&peer_key) {
                 peer.rate_limit_tokens = peer.rate_limit_tokens.saturating_sub(10);
-                peer.rate_limit_tokens == 0
+                peer.score = peer.score.saturating_sub(MISBEHAVIOR_SCORE_PENALTY);
+                self.persist_peer_score_sync(&peer_key, peer.score);
+                peer.rate_limit_tokens == 0 || peer.score <= BAN_SCORE_THRESHOLD
             } else {
                 false
             }
@@ -1018,11 +1147,99 @@ impl NetworkService {
     }
 }
 
+fn load_peer_scores(path: &Option<String>) -> HashMap<String, i32> {
+    if let Some(path) = path {
+        if let Ok(bytes) = std::fs::read(path) {
+            if let Ok(scores) = serde_json::from_slice::<HashMap<String, i32>>(&bytes) {
+                return scores;
+            }
+        }
+    }
+    HashMap::new()
+}
+
+impl NetworkService {
+    fn get_saved_peer_score_sync(&self, peer_id: &PeerId) -> i32 {
+        self.peer_scores
+            .try_read()
+            .ok()
+            .and_then(|scores| scores.get(&peer_id.to_string()).cloned())
+            .unwrap_or(0)
+    }
+
+    fn persist_peer_score_sync(&self, peer_id: &PeerId, score: i32) {
+        let Some(path) = &self.peer_scores_path else {
+            return;
+        };
+        if let Ok(mut scores) = self.peer_scores.try_write() {
+            scores.insert(peer_id.to_string(), score);
+            if let Ok(data) = serde_json::to_vec(&*scores) {
+                let _ = std::fs::write(path, data);
+            }
+        }
+    }
+
+    async fn persist_peer_score_async(&self, peer_id: &PeerId, score: i32) {
+        let Some(path) = &self.peer_scores_path else {
+            return;
+        };
+        let mut scores = self.peer_scores.write().await;
+        scores.insert(peer_id.to_string(), score);
+        if let Ok(data) = serde_json::to_vec(&*scores) {
+            let _ = std::fs::write(path, data);
+        }
+    }
+}
+
 fn current_time_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_handshake_enforces_chain_and_network() {
+        let config = NetworkConfig {
+            listen_addr: "/ip4/127.0.0.1/tcp/4001".to_string(),
+            bootstrap_peers: Vec::new(),
+            enable_mdns: false,
+            data_dir: None,
+        };
+        let (mut service, _handle) = NetworkService::new(config).unwrap();
+        let mut handshake_config = HandshakeConfig::default();
+        handshake_config.required_chain_id = Some("rinku-testnet".to_string());
+        handshake_config.required_network_id = Some("testnet".to_string());
+        service.set_handshake_config(handshake_config);
+
+        let bad_handshake = PeerHandshake {
+            protocol_version: "1.0.0".to_string(),
+            chain_id: "rinku-mainnet".to_string(),
+            network_id: "mainnet".to_string(),
+            node_id: "peer".to_string(),
+            checkpoint_height: 0,
+            validator_address: None,
+            capabilities: vec!["sync".to_string()],
+        };
+
+        assert!(service.validate_handshake(&bad_handshake).is_err());
+
+        let good_handshake = PeerHandshake {
+            protocol_version: "1.0.0".to_string(),
+            chain_id: "rinku-testnet".to_string(),
+            network_id: "testnet".to_string(),
+            node_id: "peer".to_string(),
+            checkpoint_height: 0,
+            validator_address: None,
+            capabilities: vec!["sync".to_string()],
+        };
+
+        assert!(service.validate_handshake(&good_handshake).is_ok());
+    }
 }
 
 /// Command to send to the network service
@@ -1055,6 +1272,10 @@ impl NetworkHandle {
 
     pub async fn get_peer_count(&self) -> usize {
         self.peers.read().await.len()
+    }
+
+    pub async fn get_connected_peers(&self) -> Vec<PeerStats> {
+        self.peers.read().await.values().cloned().collect()
     }
 
     pub fn local_peer_id(&self) -> &str {

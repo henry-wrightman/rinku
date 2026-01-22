@@ -171,6 +171,7 @@ pub struct DoubleSignEvidence {
     pub hash1: String,
     pub hash2: String,
     pub signature1: Vec<u8>,
+    pub signature2: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -326,6 +327,7 @@ impl ConsensusService {
                     hash1: existing_vote.checkpoint_hash.clone(),
                     hash2: vote.checkpoint_hash.clone(),
                     signature1: existing_vote.signature.clone(),
+                    signature2: vote.signature.clone(),
                 })
             } else {
                 None
@@ -405,6 +407,18 @@ impl ConsensusService {
         } else {
             None
         };
+
+        {
+            let mut slashing = self.slashing_service.write().await;
+            let _ = slashing.submit_double_sign_evidence(
+                evidence.validator.clone(),
+                evidence.height,
+                evidence.hash1.clone(),
+                evidence.hash2.clone(),
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&evidence.signature1),
+                Some(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&evidence.signature2)),
+            );
+        }
 
         if let Some(slashed) = slashed_amount {
             warn!(
@@ -645,7 +659,7 @@ impl ConsensusService {
         })
     }
 
-    pub fn check_double_signing(&self, validator: &str, height: u64, hash: &str) -> Option<DoubleSignEvidence> {
+    pub fn check_double_signing(&self, validator: &str, height: u64, hash: &str, signature: &[u8]) -> Option<DoubleSignEvidence> {
         if let Some(accumulator) = self.pending_votes.get(&height) {
             if let Some(existing_vote) = accumulator.votes.get(validator) {
                 if existing_vote.checkpoint_hash != hash {
@@ -655,6 +669,7 @@ impl ConsensusService {
                         hash1: existing_vote.checkpoint_hash.clone(),
                         hash2: hash.to_string(),
                         signature1: existing_vote.signature.clone(),
+                        signature2: signature.to_vec(),
                     });
                 }
             }
@@ -1170,6 +1185,7 @@ mod tests {
             hash1: "hash_a".to_string(),
             hash2: "hash_b".to_string(),
             signature1: vec![1, 2, 3],
+            signature2: vec![4, 5, 6],
         };
 
         assert_ne!(evidence.hash1, evidence.hash2);

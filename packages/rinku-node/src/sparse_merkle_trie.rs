@@ -84,7 +84,7 @@ impl MerkleProof {
 
         for (i, &go_right) in path.iter().enumerate().rev() {
             let sibling = if i < self.siblings.len() {
-                self.siblings[TREE_DEPTH - 1 - i]
+                self.siblings[i]
             } else {
                 default_hashes[i + 1]
             };
@@ -153,9 +153,6 @@ impl SparseMerkleTrie {
             let node = self.get_node(&current_hash, storage)?;
             match node {
                 Some(n) => {
-                    if n.value.is_some() && depth == TREE_DEPTH - 1 {
-                        return Ok(n.value);
-                    }
                     current_hash = if go_right {
                         n.right.unwrap_or(self.default_hashes[depth + 1])
                     } else {
@@ -166,7 +163,11 @@ impl SparseMerkleTrie {
             }
         }
 
-        Ok(None)
+        if current_hash == self.default_hashes[TREE_DEPTH] {
+            return Ok(None);
+        }
+        let node = self.get_node(&current_hash, storage)?;
+        Ok(node.and_then(|n| n.value))
     }
 
     pub fn set(&mut self, key: &[u8; 32], value: Vec<u8>, storage: Option<&RedbStorage>) -> Result<[u8; 32]> {
@@ -309,9 +310,6 @@ impl SparseMerkleTrie {
                         current_hash = left;
                     }
 
-                    if depth == TREE_DEPTH - 1 {
-                        value = n.value.clone();
-                    }
                 }
                 None => {
                     for remaining in depth..TREE_DEPTH {
@@ -319,6 +317,12 @@ impl SparseMerkleTrie {
                     }
                     break;
                 }
+            }
+        }
+
+        if value.is_none() && current_hash != self.default_hashes[TREE_DEPTH] {
+            if let Some(node) = self.get_node(&current_hash, storage)? {
+                value = node.value.clone();
             }
         }
 

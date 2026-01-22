@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::path::PathBuf;
 use anyhow::Result;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -24,6 +25,7 @@ mod rewards;
 mod slashing;
 mod state;
 mod state_trie;
+mod sync_verification;
 mod tip_consolidator;
 mod trust;
 mod validator;
@@ -41,7 +43,7 @@ use fork_remediation::ForkRemediationService;
 use gas::{GasConfig, GasService};
 use gossip::GossipService;
 #[cfg(feature = "p2p")]
-use network::{NetworkConfig, NetworkService};
+use network::{HandshakeConfig, NetworkConfig, NetworkService};
 use rewards::{RewardConfig, RewardsService};
 use consensus::ConsensusService;
 use slashing::SlashingService;
@@ -91,6 +93,38 @@ async fn main() -> Result<()> {
     let config = NodeConfig::from_env();
     info!("Node ID: {}", config.node_id);
     info!("Data dir: {}", config.data_dir);
+
+    if config.mainnet_mode {
+        info!("MAINNET_MODE enabled: enforcing strict startup requirements");
+        let allow_untrusted_genesis = std::env::var("ALLOW_UNTRUSTED_GENESIS")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        if config.trust.genesis_validators.is_empty() && config.trust.trust_checkpoint_hash.is_none() {
+            if config.is_genesis_node && allow_untrusted_genesis {
+                warn!("MAINNET_MODE: allowing untrusted genesis bootstrap (ALLOW_UNTRUSTED_GENESIS=true)");
+            } else {
+                return Err(anyhow::anyhow!(
+                    "MAINNET_MODE requires GENESIS_VALIDATORS or TRUST_CHECKPOINT_HASH"
+                ));
+            }
+        }
+        if config.public_url.is_none() {
+            return Err(anyhow::anyhow!(
+                "MAINNET_MODE requires PUBLIC_URL for leader election"
+            ));
+        }
+        if !config.p2p.enabled {
+            return Err(anyhow::anyhow!("MAINNET_MODE requires P2P_ENABLED"));
+        }
+        if !config.is_genesis_node && config.p2p.bootstrap_peers.is_empty() {
+            return Err(anyhow::anyhow!(
+                "MAINNET_MODE validator requires P2P_BOOTSTRAP_PEERS"
+            ));
+        }
+        if config.p2p.enable_mdns {
+            warn!("MAINNET_MODE: P2P_MDNS is enabled; consider disabling for production");
+        }
+    }
 
     // Log genesis node status
     if config.is_genesis_node {
@@ -148,8 +182,34 @@ async fn main() -> Result<()> {
     info!("Initializing node state...");
     let state = state::NodeState::new(config.clone()).await?;
 
+    let key_password = std::env::var("VALIDATOR_KEY_PASSWORD").unwrap_or_else(|_| "dev-password".to_string());
+    let key_path = std::env::var("VALIDATOR_KEY_PATH").ok();
+    let key_hex = std::env::var("VALIDATOR_KEY_HEX").ok();
+
+    if config.mainnet_mode {
+        if key_password.is_empty() || key_password == "dev-password" {
+            return Err(anyhow::anyhow!(
+                "MAINNET_MODE requires VALIDATOR_KEY_PASSWORD (non-default)"
+            ));
+        }
+    }
+
     let mut validator_manager = ValidatorKeyManager::new(&config.data_dir);
-    let validator_address = validator_manager.load_or_generate("dev-password").ok();
+    if let Some(path) = key_path {
+        validator_manager.set_key_path(PathBuf::from(path));
+    }
+
+    let validator_address = if let Some(ref hex) = key_hex {
+        validator_manager.load_from_hex(hex).ok()
+    } else {
+        validator_manager.load_or_generate(&key_password).ok()
+    };
+
+    if config.mainnet_mode && key_hex.is_none() {
+        if let Err(e) = validator_manager.validate_key_permissions() {
+            return Err(anyhow::anyhow!("Validator key file permissions invalid: {}", e));
+        }
+    }
     if let Some(ref addr) = validator_address {
         info!("Validator key loaded: {}...", &addr[..16.min(addr.len())]);
     }
@@ -190,6 +250,7 @@ async fn main() -> Result<()> {
         validator_address.clone(),
         config.peers.clone(),
         config.trust.clone(),
+        config.mainnet_mode,
     )
     .with_local_url(config.public_url.clone());
     
@@ -240,6 +301,15 @@ async fn main() -> Result<()> {
         
         match NetworkService::new(network_config) {
             Ok((mut network_service, handle)) => {
+                let mut handshake_config = HandshakeConfig::default();
+                handshake_config.chain_id = config.chain_id.clone();
+                handshake_config.network_id = config.network_id.clone();
+                if config.mainnet_mode {
+                    handshake_config.required_chain_id = Some(config.chain_id.clone());
+                    handshake_config.required_network_id = Some(config.network_id.clone());
+                }
+                network_service.set_handshake_config(handshake_config);
+
                 let peer_id = network_service.local_peer_id();
                 info!("P2P network started with peer ID: {}", peer_id);
                 info!("P2P listening on: {}", config.p2p.listen_addr);
@@ -279,6 +349,7 @@ async fn main() -> Result<()> {
             config.peers.clone(),
             config.gossip_interval_ms,
             config.trust.clone(),
+            config.sync_verify_strict,
         );
         
         // Wire up the libp2p network handle if available

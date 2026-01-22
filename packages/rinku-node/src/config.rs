@@ -99,6 +99,10 @@ pub struct NodeConfig {
     pub api_port: u16,
     pub gossip_port: u16,
     pub peers: Vec<String>,
+    pub chain_id: String,
+    pub network_id: String,
+    pub mainnet_mode: bool,
+    pub sync_verify_strict: bool,
     pub max_dag_nodes: usize,
     pub max_tips: usize,
     pub checkpoint_interval_ms: u64,
@@ -129,6 +133,20 @@ impl NodeConfig {
                 .collect())
             .unwrap_or_default();
 
+        let chain_id = env::var("CHAIN_ID").unwrap_or_else(|_| "rinku-mainnet".to_string());
+        let network_id = env::var("NETWORK_ID").unwrap_or_else(|_| "mainnet".to_string());
+
+        let mainnet_mode = env::var("MAINNET_MODE")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+
+        let allow_unverified_sync = env::var("ALLOW_UNVERIFIED_SYNC")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        let sync_verify_strict = env::var("STRICT_SYNC_VERIFY")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(!allow_unverified_sync);
+
         Self {
             node_id,
             data_dir: env::var("DATA_DIR").unwrap_or_else(|_| ".rinku-data".to_string()),
@@ -141,6 +159,10 @@ impl NodeConfig {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(4001),
             peers,
+            chain_id,
+            network_id,
+            mainnet_mode,
+            sync_verify_strict,
             max_dag_nodes: env::var("MAX_DAG_NODES")
                 .ok()
                 .and_then(|n| n.parse().ok())

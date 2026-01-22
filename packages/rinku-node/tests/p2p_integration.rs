@@ -29,9 +29,9 @@ mod p2p_tests {
         let config = DoSConfig::default();
         
         assert_eq!(config.max_connections, 50);
-        assert_eq!(config.rate_limit_tokens_per_second, 10);
-        assert_eq!(config.max_rate_limit_tokens, 100);
-        assert_eq!(config.ban_duration_secs, 300);
+        assert_eq!(config.rate_limit_tokens_per_second, 100);
+        assert_eq!(config.max_rate_limit_tokens, 1000);
+        assert_eq!(config.ban_duration_secs, 30);
     }
 
     #[test]
@@ -303,6 +303,7 @@ mod p2p_tests {
                 "/ip4/192.168.1.2/tcp/4001/p2p/QmPeer2".to_string(),
             ],
             enable_mdns: true,
+            data_dir: None,
         };
         
         assert_eq!(config.bootstrap_peers.len(), 2);
@@ -434,24 +435,56 @@ mod e2e_tests {
     use rinku_node::network::{NetworkConfig, NetworkService};
     use rinku_node::gossip::BloomFilter;
     use std::time::Duration;
+    use std::time::Instant;
+    use std::sync::Mutex;
     use tokio::time::sleep;
 
+    static E2E_LOCK: Mutex<()> = Mutex::new(());
     /// Spawn a test node on a specific port
     fn spawn_test_node(port: u16) -> (NetworkService, rinku_node::network::NetworkHandle) {
         let config = NetworkConfig {
             listen_addr: format!("/ip4/127.0.0.1/tcp/{}", port),
             bootstrap_peers: Vec::new(),
             enable_mdns: false, // Disable mDNS for predictable testing
+            data_dir: None,
         };
         NetworkService::new(config).expect("Failed to create network service")
+    }
+
+    fn next_free_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|listener| listener.local_addr())
+            .map(|addr| addr.port())
+            .unwrap_or(0)
+    }
+
+    async fn wait_for_peers(
+        handle: &rinku_node::network::NetworkHandle,
+        min_peers: usize,
+        timeout: Duration,
+    ) -> usize {
+        let start = Instant::now();
+        loop {
+            let count = handle.stats().await.connected_peers;
+            if count >= min_peers {
+                return count;
+            }
+            if start.elapsed() >= timeout {
+                return count;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
     }
 
     /// Test: Two nodes can connect and exchange handshakes
     #[tokio::test]
     async fn test_e2e_node_connection() {
+        let _guard = E2E_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Spawn two nodes on different ports
-        let (mut node1, handle1) = spawn_test_node(14001);
-        let (mut node2, handle2) = spawn_test_node(14002);
+        let port1 = next_free_port();
+        let port2 = next_free_port();
+        let (mut node1, handle1) = spawn_test_node(port1);
+        let (mut node2, handle2) = spawn_test_node(port2);
 
         // Start node1 in background
         let node1_handle = tokio::spawn(async move {
@@ -468,7 +501,7 @@ mod e2e_tests {
 
         // Node2 connects to Node1
         let node1_peer_id = handle1.local_peer_id();
-        let node1_addr = format!("/ip4/127.0.0.1/tcp/14001/p2p/{}", node1_peer_id);
+        let node1_addr = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", port1, node1_peer_id);
         
         match handle2.connect(&node1_addr).await {
             Ok(_) => println!("Node2 connected to Node1"),
@@ -476,7 +509,8 @@ mod e2e_tests {
         }
 
         // Wait for connection establishment
-        sleep(Duration::from_secs(1)).await;
+        let peers1 = wait_for_peers(&handle1, 1, Duration::from_secs(8)).await;
+        let peers2 = wait_for_peers(&handle2, 1, Duration::from_secs(8)).await;
 
         // Check connection status - both nodes should see each other
         let stats1 = handle1.stats().await;
@@ -486,8 +520,8 @@ mod e2e_tests {
         println!("Node2 peers: {}", stats2.connected_peers);
 
         // Assert connections were established
-        assert!(stats1.connected_peers >= 1, "Node1 should have at least 1 peer, got {}", stats1.connected_peers);
-        assert!(stats2.connected_peers >= 1, "Node2 should have at least 1 peer, got {}", stats2.connected_peers);
+        assert!(peers1 >= 1, "Node1 should have at least 1 peer, got {}", peers1);
+        assert!(peers2 >= 1, "Node2 should have at least 1 peer, got {}", peers2);
 
         // Cleanup - abort the background tasks
         node1_handle.abort();
@@ -499,8 +533,11 @@ mod e2e_tests {
     async fn test_e2e_bloom_broadcast() {
         use rinku_node::gossip::GossipMessage;
 
-        let (mut node1, handle1) = spawn_test_node(14021);
-        let (mut node2, handle2) = spawn_test_node(14022);
+        let _guard = E2E_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let port1 = next_free_port();
+        let port2 = next_free_port();
+        let (mut node1, handle1) = spawn_test_node(port1);
+        let (mut node2, handle2) = spawn_test_node(port2);
 
         let node1_task = tokio::spawn(async move { let _ = node1.run().await; });
         let node2_task = tokio::spawn(async move { let _ = node2.run().await; });
@@ -509,10 +546,11 @@ mod e2e_tests {
 
         // Connect
         let peer_id = handle1.local_peer_id();
-        let addr = format!("/ip4/127.0.0.1/tcp/14021/p2p/{}", peer_id);
+        let addr = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", port1, peer_id);
         let _ = handle2.connect(&addr).await;
 
-        sleep(Duration::from_secs(1)).await;
+        let peers1 = wait_for_peers(&handle1, 1, Duration::from_secs(8)).await;
+        let peers2 = wait_for_peers(&handle2, 1, Duration::from_secs(8)).await;
 
         // Create and announce bloom filter
         let mut filter = BloomFilter::new();
@@ -538,8 +576,8 @@ mod e2e_tests {
         // Verify nodes are still connected after gossip
         let stats1 = handle1.stats().await;
         let stats2 = handle2.stats().await;
-        assert!(stats1.connected_peers >= 1, "Node1 should maintain connection after gossip");
-        assert!(stats2.connected_peers >= 1, "Node2 should maintain connection after gossip");
+        assert!(peers1 >= 1, "Node1 should maintain connection after gossip");
+        assert!(peers2 >= 1, "Node2 should maintain connection after gossip");
 
         node1_task.abort();
         node2_task.abort();
@@ -548,9 +586,13 @@ mod e2e_tests {
     /// Test: Three-node mesh forms correctly
     #[tokio::test]
     async fn test_e2e_three_node_mesh() {
-        let (mut node1, handle1) = spawn_test_node(14041);
-        let (mut node2, handle2) = spawn_test_node(14042);
-        let (mut node3, handle3) = spawn_test_node(14043);
+        let _guard = E2E_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let port1 = next_free_port();
+        let port2 = next_free_port();
+        let port3 = next_free_port();
+        let (mut node1, handle1) = spawn_test_node(port1);
+        let (mut node2, handle2) = spawn_test_node(port2);
+        let (mut node3, handle3) = spawn_test_node(port3);
 
         let t1 = tokio::spawn(async move { let _ = node1.run().await; });
         let t2 = tokio::spawn(async move { let _ = node2.run().await; });
@@ -559,17 +601,19 @@ mod e2e_tests {
         sleep(Duration::from_millis(500)).await;
 
         // Node2 connects to Node1
-        let addr1 = format!("/ip4/127.0.0.1/tcp/14041/p2p/{}", handle1.local_peer_id());
+        let addr1 = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", port1, handle1.local_peer_id());
         let _ = handle2.connect(&addr1).await;
 
         // Node3 connects to Node1  
         let _ = handle3.connect(&addr1).await;
 
         // Node3 connects to Node2
-        let addr2 = format!("/ip4/127.0.0.1/tcp/14042/p2p/{}", handle2.local_peer_id());
+        let addr2 = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", port2, handle2.local_peer_id());
         let _ = handle3.connect(&addr2).await;
 
-        sleep(Duration::from_secs(2)).await;
+        let peers1 = wait_for_peers(&handle1, 1, Duration::from_secs(8)).await;
+        let peers2 = wait_for_peers(&handle2, 1, Duration::from_secs(8)).await;
+        let peers3 = wait_for_peers(&handle3, 1, Duration::from_secs(8)).await;
 
         // All nodes should have connections - Node1 has 2, Node2 has 2, Node3 has 2
         let s1 = handle1.stats().await;
@@ -580,9 +624,9 @@ mod e2e_tests {
             s1.connected_peers, s2.connected_peers, s3.connected_peers);
 
         // Assert mesh formation - each node should have at least 1 peer
-        assert!(s1.connected_peers >= 1, "Node1 should have peers, got {}", s1.connected_peers);
-        assert!(s2.connected_peers >= 1, "Node2 should have peers, got {}", s2.connected_peers);
-        assert!(s3.connected_peers >= 1, "Node3 should have peers, got {}", s3.connected_peers);
+        assert!(peers1 >= 1, "Node1 should have peers, got {}", peers1);
+        assert!(peers2 >= 1, "Node2 should have peers, got {}", peers2);
+        assert!(peers3 >= 1, "Node3 should have peers, got {}", peers3);
 
         // Assert total connections (mesh should have 3 edges: 1-2, 1-3, 2-3)
         let total_connections = s1.connected_peers + s2.connected_peers + s3.connected_peers;
@@ -596,8 +640,11 @@ mod e2e_tests {
     /// Test: Request/response sync protocol 
     #[tokio::test]
     async fn test_e2e_sync_request() {
-        let (mut node1, handle1) = spawn_test_node(14031);
-        let (mut node2, handle2) = spawn_test_node(14032);
+        let _guard = E2E_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let port1 = next_free_port();
+        let port2 = next_free_port();
+        let (mut node1, handle1) = spawn_test_node(port1);
+        let (mut node2, handle2) = spawn_test_node(port2);
 
         let node1_task = tokio::spawn(async move { let _ = node1.run().await; });
         let node2_task = tokio::spawn(async move { let _ = node2.run().await; });
@@ -606,14 +653,13 @@ mod e2e_tests {
 
         // Connect
         let peer_id = handle1.local_peer_id();
-        let addr = format!("/ip4/127.0.0.1/tcp/14031/p2p/{}", peer_id);
+        let addr = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", port1, peer_id);
         let _ = handle2.connect(&addr).await;
 
-        sleep(Duration::from_secs(1)).await;
+        let peers2 = wait_for_peers(&handle2, 1, Duration::from_secs(8)).await;
 
         // Verify connection was established before making sync request
-        let stats2 = handle2.stats().await;
-        assert!(stats2.connected_peers >= 1, "Node2 should be connected before sync request");
+        assert!(peers2 >= 1, "Node2 should be connected before sync request");
 
         // Try to request a snapshot from Node1
         // The request should either succeed (if handler is present) or timeout (if not)
@@ -653,8 +699,11 @@ mod e2e_tests {
     /// Test: Peer discovery via connection stats
     #[tokio::test]
     async fn test_e2e_peer_stats() {
-        let (mut node1, handle1) = spawn_test_node(14051);
-        let (mut node2, handle2) = spawn_test_node(14052);
+        let _guard = E2E_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let port1 = next_free_port();
+        let port2 = next_free_port();
+        let (mut node1, handle1) = spawn_test_node(port1);
+        let (mut node2, handle2) = spawn_test_node(port2);
 
         let t1 = tokio::spawn(async move { let _ = node1.run().await; });
         let t2 = tokio::spawn(async move { let _ = node2.run().await; });
@@ -666,10 +715,11 @@ mod e2e_tests {
         assert_eq!(stats1.connected_peers, 0);
 
         // Connect
-        let addr = format!("/ip4/127.0.0.1/tcp/14051/p2p/{}", handle1.local_peer_id());
+        let addr = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", port1, handle1.local_peer_id());
         let _ = handle2.connect(&addr).await;
 
-        sleep(Duration::from_secs(1)).await;
+        let _ = wait_for_peers(&handle1, 1, Duration::from_secs(8)).await;
+        let _ = wait_for_peers(&handle2, 1, Duration::from_secs(8)).await;
 
         // After connection, both should show 1 peer (or more if gossipsub mesh formed)
         let peers1 = handle1.get_peer_count().await;

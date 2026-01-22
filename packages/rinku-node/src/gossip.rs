@@ -10,6 +10,7 @@ use tracing::{debug, info, warn};
 
 const KNOWN_TXS_MAX_SIZE: usize = 50_000;
 const SEEN_CONFLICTS_MAX_SIZE: usize = 10_000;
+const SEEN_EVIDENCE_MAX_SIZE: usize = 5_000;
 
 /// Default bloom filter size in bits (64KB = 512k bits for ~100K items at 1% FPR)
 const BLOOM_FILTER_SIZE_BITS: usize = 524_288;
@@ -194,7 +195,10 @@ impl BoundedHashSet {
 use crate::config::TrustConfig;
 #[cfg(feature = "p2p")]
 use crate::network::NetworkHandle;
+use crate::network::{AccountData, CheckpointData, DeltaData, TransactionData};
+use crate::slashing::DoubleSignEvidence;
 use crate::state::{NodeState, SyncSnapshot};
+use crate::sync_verification::{build_account_merkle_root_sorted, verify_delta, VerificationResult};
 use crate::trust::TrustVerifier;
 
 #[derive(Debug, Deserialize)]
@@ -235,6 +239,8 @@ struct SnapshotSyncResponse {
     checkpoint_height: u64,
     #[serde(default)]
     contracts: HashMap<String, crate::contracts::ContractState>,
+    #[serde(default)]
+    accounts_merkle_root: String,
     #[serde(default)]
     rewards_snapshot: Option<crate::rewards::RewardsSnapshot>,
     #[serde(default)]
@@ -321,6 +327,11 @@ pub enum GossipMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
     },
+    SlashingEvidence {
+        evidence: DoubleSignEvidence,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -343,6 +354,7 @@ pub struct GossipServiceInner {
     pub known_txs: BoundedHashSet,
     pub pending_txs: Vec<SignedTransaction>,
     pub seen_conflicts: BoundedHashSet,
+    pub seen_evidence: BoundedHashSet,
     pub stats: GossipStats,
     pub round_counter: u64,
     pub last_peer_refresh: u64,
@@ -367,13 +379,20 @@ pub struct GossipService {
     node_id: String,
     interval_ms: u64,
     trust_verifier: Arc<TrustVerifier>,
+    sync_verify_strict: bool,
     http_client: reqwest::Client,
     #[cfg(feature = "p2p")]
     network_handle: Option<Arc<tokio::sync::Mutex<NetworkHandle>>>,
 }
 
 impl GossipService {
-    pub fn new(state: NodeState, initial_peers: Vec<String>, interval_ms: u64, trust_config: TrustConfig) -> Self {
+    pub fn new(
+        state: NodeState,
+        initial_peers: Vec<String>,
+        interval_ms: u64,
+        trust_config: TrustConfig,
+        sync_verify_strict: bool,
+    ) -> Self {
         let node_id = format!("{:016x}", rand::random::<u64>());
         
         let mut peers = HashMap::new();
@@ -411,6 +430,7 @@ impl GossipService {
                 known_txs: BoundedHashSet::new(KNOWN_TXS_MAX_SIZE),
                 pending_txs: Vec::new(),
                 seen_conflicts: BoundedHashSet::new(SEEN_CONFLICTS_MAX_SIZE),
+                seen_evidence: BoundedHashSet::new(SEEN_EVIDENCE_MAX_SIZE),
                 stats: GossipStats::default(),
                 round_counter: 0,
                 last_peer_refresh: now,
@@ -420,6 +440,7 @@ impl GossipService {
             node_id,
             interval_ms,
             trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
+            sync_verify_strict,
             http_client,
             #[cfg(feature = "p2p")]
             network_handle: None,
@@ -705,6 +726,31 @@ impl GossipService {
             snapshot_response.checkpoint_height
         );
 
+        if self.sync_verify_strict {
+            if snapshot_response.accounts_merkle_root.is_empty() {
+                anyhow::bail!("MAINNET_MODE: Snapshot missing accounts_merkle_root");
+            }
+            let mut account_data: Vec<AccountData> = snapshot_response
+                .accounts
+                .iter()
+                .map(|(address, account)| AccountData {
+                    address: address.clone(),
+                    balance: account.balance,
+                    nonce: account.nonce,
+                    stake: account.staked,
+                })
+                .collect();
+            account_data.sort_by(|a, b| a.address.cmp(&b.address));
+            let computed_root = build_account_merkle_root_sorted(&account_data);
+            if computed_root != snapshot_response.accounts_merkle_root {
+                anyhow::bail!(
+                    "MAINNET_MODE: Snapshot accounts merkle mismatch (computed {} != received {})",
+                    &computed_root[..16],
+                    &snapshot_response.accounts_merkle_root[..16.min(snapshot_response.accounts_merkle_root.len())]
+                );
+            }
+        }
+
         // Weak subjectivity: if a trust checkpoint hash is configured, verify it exists anywhere in the chain
         let mut found_trusted_checkpoint = false;
         for checkpoint in &snapshot_response.checkpoints {
@@ -917,6 +963,31 @@ impl GossipService {
             snapshot_response.dag_transactions.len()
         );
 
+        if self.sync_verify_strict {
+            if snapshot_response.accounts_merkle_root.is_empty() {
+                anyhow::bail!("MAINNET_MODE: Snapshot missing accounts_merkle_root");
+            }
+            let mut account_data: Vec<AccountData> = snapshot_response
+                .accounts
+                .iter()
+                .map(|(address, account)| AccountData {
+                    address: address.clone(),
+                    balance: account.balance,
+                    nonce: account.nonce,
+                    stake: account.staked,
+                })
+                .collect();
+            account_data.sort_by(|a, b| a.address.cmp(&b.address));
+            let computed_root = build_account_merkle_root_sorted(&account_data);
+            if computed_root != snapshot_response.accounts_merkle_root {
+                anyhow::bail!(
+                    "MAINNET_MODE: Snapshot accounts merkle mismatch (computed {} != received {})",
+                    &computed_root[..16],
+                    &snapshot_response.accounts_merkle_root[..16.min(snapshot_response.accounts_merkle_root.len())]
+                );
+            }
+        }
+
         // Weak subjectivity check (same as regular bootstrap)
         if !self.trust_verifier.has_genesis_validators() {
             warn!("TESTNET MODE: Accepting snapshot without verification");
@@ -1116,6 +1187,91 @@ impl GossipService {
         };
         if should_exchange_peers {
             self.broadcast_peer_list().await;
+        }
+
+        self.broadcast_slashing_evidence_round().await;
+    }
+
+    fn evidence_id(evidence: &DoubleSignEvidence) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            evidence.validator,
+            evidence.checkpoint_height,
+            evidence.hash1,
+            evidence.hash2
+        )
+    }
+
+    async fn broadcast_slashing_evidence_round(&self) {
+        let pending: Vec<DoubleSignEvidence> = {
+            let slashing = self.state.slashing.read().await;
+            slashing.get_pending_evidence().into_iter().cloned().collect()
+        };
+
+        if pending.is_empty() {
+            return;
+        }
+
+        let public_url = std::env::var("PUBLIC_URL").ok();
+        let peers: Vec<String> = {
+            let inner = self.inner.read().await;
+            inner.peers.keys().cloned().collect()
+        };
+        
+        for evidence in pending {
+            let evidence_key = Self::evidence_id(&evidence);
+            let should_broadcast = {
+                let mut inner = self.inner.write().await;
+                inner.seen_evidence.insert(evidence_key)
+            };
+            if !should_broadcast {
+                continue;
+            }
+            
+            let message = GossipMessage::SlashingEvidence {
+                evidence: evidence.clone(),
+                sender_url: public_url.clone(),
+            };
+
+            for peer in &peers {
+                let _ = self.send_to_peer(peer, &message).await;
+            }
+
+            #[cfg(feature = "p2p")]
+            if self.network_handle.is_some() {
+                self.broadcast_via_p2p(&message).await;
+            }
+        }
+    }
+
+    pub async fn broadcast_slashing_evidence(&self, evidence: DoubleSignEvidence) {
+        let evidence_key = Self::evidence_id(&evidence);
+        let should_broadcast = {
+            let mut inner = self.inner.write().await;
+            inner.seen_evidence.insert(evidence_key)
+        };
+        if !should_broadcast {
+            return;
+        }
+
+        let public_url = std::env::var("PUBLIC_URL").ok();
+        let peers: Vec<String> = {
+            let inner = self.inner.read().await;
+            inner.peers.keys().cloned().collect()
+        };
+
+        let message = GossipMessage::SlashingEvidence {
+            evidence,
+            sender_url: public_url,
+        };
+
+        for peer in &peers {
+            let _ = self.send_to_peer(peer, &message).await;
+        }
+
+        #[cfg(feature = "p2p")]
+        if self.network_handle.is_some() {
+            self.broadcast_via_p2p(&message).await;
         }
     }
     
@@ -1369,6 +1525,14 @@ impl GossipService {
                 offset: usize,
                 #[serde(default)]
                 has_more: bool,
+                #[serde(default)]
+                new_checkpoints: Vec<CheckpointData>,
+                #[serde(default)]
+                tx_checkpoint_heights: std::collections::HashMap<String, u64>,
+                #[serde(default)]
+                from_checkpoint: u64,
+                #[serde(default)]
+                to_checkpoint: u64,
             }
             
             let response_text = response.text().await?;
@@ -1379,6 +1543,44 @@ impl GossipService {
                 "Sync page: received {}/{} transactions, {} account states (offset={}, has_more={})", 
                 delta.transactions.len(), delta.total, delta.account_states.len(), delta.offset, delta.has_more
             );
+
+            if self.sync_verify_strict {
+                if delta.new_checkpoints.is_empty() {
+                    anyhow::bail!("MAINNET_MODE: Delta response missing new_checkpoints");
+                }
+                if delta.tx_checkpoint_heights.is_empty() {
+                    anyhow::bail!("MAINNET_MODE: Delta response missing tx_checkpoint_heights");
+                }
+                let delta_transactions: Vec<TransactionData> = delta.transactions.iter().map(|tx| {
+                    TransactionData {
+                        hash: tx.hash.clone(),
+                        from: tx.tx.from.clone(),
+                        to: tx.tx.to.clone(),
+                        amount: tx.tx.amount,
+                        nonce: tx.tx.nonce,
+                        timestamp: tx.tx.timestamp,
+                        signature: tx.signature.clone(),
+                        parents: tx.tx.parents.clone(),
+                        gas_price: tx.tx.gas_price.unwrap_or(0.0),
+                    }
+                }).collect();
+                let delta_data = DeltaData {
+                    transactions: delta_transactions,
+                    new_checkpoints: delta.new_checkpoints.clone(),
+                    from_checkpoint: delta.from_checkpoint,
+                    to_checkpoint: delta.to_checkpoint,
+                    tx_checkpoint_heights: delta.tx_checkpoint_heights.clone(),
+                };
+                match verify_delta(&delta_data) {
+                    VerificationResult::Valid => {}
+                    VerificationResult::Invalid(reason) => {
+                        anyhow::bail!("MAINNET_MODE: Delta verification failed: {}", reason);
+                    }
+                    VerificationResult::Skipped(reason) => {
+                        anyhow::bail!("MAINNET_MODE: Delta verification skipped: {}", reason);
+                    }
+                }
+            }
             
             // SECURITY: Delta sync is for same-checkpoint peers, so we only apply nonces (not full states)
             // Full account states are only applied during snapshot sync from peers with higher checkpoint
@@ -1727,6 +1929,41 @@ impl GossipService {
                 
                 Ok(None)
             }
+
+            GossipMessage::SlashingEvidence { evidence, .. } => {
+                if !self.state.verify_slashing_evidence(&evidence).await {
+                    warn!(
+                        "Rejected slashing evidence (invalid signature) for {} at height {}",
+                        &evidence.validator[..16.min(evidence.validator.len())],
+                        evidence.checkpoint_height
+                    );
+                    return Ok(None);
+                }
+                let evidence_key = Self::evidence_id(&evidence);
+                let is_new = {
+                    let mut inner = self.inner.write().await;
+                    inner.seen_evidence.insert(evidence_key)
+                };
+                if is_new {
+                    let mut slashing = self.state.slashing.write().await;
+                    let accepted = slashing.submit_double_sign_evidence(
+                        evidence.validator.clone(),
+                        evidence.checkpoint_height,
+                        evidence.hash1.clone(),
+                        evidence.hash2.clone(),
+                        evidence.signature1.clone(),
+                        evidence.signature2.clone(),
+                    );
+                    if accepted.is_some() {
+                        info!(
+                            "Accepted slashing evidence for {} at height {}",
+                            &evidence.validator[..16.min(evidence.validator.len())],
+                            evidence.checkpoint_height
+                        );
+                    }
+                }
+                Ok(None)
+            }
         }
     }
 
@@ -1880,7 +2117,14 @@ impl GossipService {
     }
 
     pub async fn get_peer_count(&self) -> usize {
-        let http_peers = self.inner.read().await.peers.len();
+        let http_peers = self
+            .inner
+            .read()
+            .await
+            .peers
+            .values()
+            .filter(|p| p.is_healthy)
+            .count();
         
         // Include P2P peer count if available
         #[cfg(feature = "p2p")]
@@ -1906,6 +2150,20 @@ impl GossipService {
 
     pub async fn get_peer_addresses(&self) -> Vec<String> {
         self.inner.read().await.peers.keys().cloned().collect()
+    }
+
+    pub async fn get_http_peers(&self) -> Vec<PeerInfo> {
+        self.inner.read().await.peers.values().cloned().collect()
+    }
+
+    pub async fn get_p2p_peers(&self) -> Vec<crate::network::PeerStats> {
+        #[cfg(feature = "p2p")]
+        {
+            if let Some(ref handle) = self.network_handle {
+                return handle.lock().await.get_connected_peers().await;
+            }
+        }
+        Vec::new()
     }
 
     pub async fn add_peer(&self, address: String) {
@@ -1964,6 +2222,7 @@ impl GossipService {
             GossipMessage::SyncRequest { sender_url, .. } => sender_url.clone(),
             GossipMessage::SyncResponse { sender_url, .. } => sender_url.clone(),
             GossipMessage::BloomAnnouncement { sender_url, .. } => sender_url.clone(),
+            GossipMessage::SlashingEvidence { sender_url, .. } => sender_url.clone(),
         }
     }
 

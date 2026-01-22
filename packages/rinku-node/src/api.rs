@@ -16,6 +16,8 @@ use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 
 use crate::gossip::{GossipMessage, GossipService};
+use crate::network::CheckpointData;
+use crate::sync_verification::build_account_merkle_root_sorted;
 
 static FAUCET_RATE_LIMIT: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -144,6 +146,27 @@ struct HealthResponse {
 #[derive(Deserialize)]
 struct FaucetRequest {
     address: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitSlashingEvidenceRequest {
+    validator: String,
+    checkpoint_height: u64,
+    hash1: String,
+    hash2: String,
+    signature1: String,
+    #[serde(default)]
+    signature2: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitSlashingEvidenceResponse {
+    success: bool,
+    accepted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -389,6 +412,14 @@ struct SyncDeltaResponse {
     offset: usize,
     limit: usize,
     has_more: bool,
+    #[serde(default)]
+    new_checkpoints: Vec<CheckpointData>,
+    #[serde(default)]
+    tx_checkpoint_heights: std::collections::HashMap<String, u64>,
+    #[serde(default)]
+    from_checkpoint: u64,
+    #[serde(default)]
+    to_checkpoint: u64,
 }
 
 #[derive(Serialize)]
@@ -412,6 +443,7 @@ struct SnapshotSyncResponse {
     total_transactions: u64,
     checkpoint_height: u64,
     contracts: std::collections::HashMap<String, crate::contracts::ContractState>,
+    accounts_merkle_root: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     rewards_snapshot: Option<crate::rewards::RewardsSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -607,10 +639,80 @@ async fn post_gossip(
                 info!("Gossip: bloom filter with {} items, checkpoint height {}, {} tips",
                     filter.item_count(), checkpoint_height, tip_count);
             }
+            GossipMessage::SlashingEvidence { evidence, .. } => {
+                info!(
+                    "Gossip: slashing evidence for {} at height {}",
+                    &evidence.validator[..16.min(evidence.validator.len())],
+                    evidence.checkpoint_height
+                );
+                if state.verify_slashing_evidence(&evidence).await {
+                    let mut slashing = state.slashing.write().await;
+                    let _ = slashing.submit_double_sign_evidence(
+                        evidence.validator.clone(),
+                        evidence.checkpoint_height,
+                        evidence.hash1.clone(),
+                        evidence.hash2.clone(),
+                        evidence.signature1.clone(),
+                        evidence.signature2.clone(),
+                    );
+                } else {
+                    warn!("Gossip: invalid slashing evidence rejected");
+                }
+            }
         }
     }
 
     Json(serde_json::json!({ "status": "ok" })).into_response()
+}
+
+async fn post_slashing_evidence(
+    State(api_state): State<ApiState>,
+    Json(request): Json<SubmitSlashingEvidenceRequest>,
+) -> Json<SubmitSlashingEvidenceResponse> {
+    let evidence = crate::slashing::DoubleSignEvidence {
+        validator: request.validator.clone(),
+        checkpoint_height: request.checkpoint_height,
+        hash1: request.hash1.clone(),
+        hash2: request.hash2.clone(),
+        signature1: request.signature1.clone(),
+        signature2: request.signature2.clone(),
+        timestamp: 0,
+        processed: false,
+    };
+    if !api_state.node_state.verify_slashing_evidence(&evidence).await {
+        return Json(SubmitSlashingEvidenceResponse {
+            success: false,
+            accepted: false,
+            error: Some("Invalid evidence signature".to_string()),
+        });
+    }
+    let mut slashing = api_state.node_state.slashing.write().await;
+    let evidence = slashing.submit_double_sign_evidence(
+        request.validator.clone(),
+        request.checkpoint_height,
+        request.hash1.clone(),
+        request.hash2.clone(),
+        request.signature1.clone(),
+        request.signature2.clone(),
+    );
+    drop(slashing);
+
+    if let Some(evidence) = evidence {
+        if let Some(ref gossip_service) = api_state.gossip_service {
+            gossip_service.broadcast_slashing_evidence(evidence).await;
+        }
+        Json(SubmitSlashingEvidenceResponse {
+            success: true,
+            accepted: true,
+            error: None,
+        })
+    } else {
+        Json(SubmitSlashingEvidenceResponse {
+            success: true,
+            accepted: false,
+            error: Some("Evidence rejected (duplicate or invalid)".to_string()),
+        })
+    }
 }
 
 async fn post_bootstrap(
@@ -654,6 +756,18 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncR
         snapshot.dag_transactions.len()
     );
 
+    let mut account_data: Vec<crate::network::AccountData> = snapshot.accounts
+        .iter()
+        .map(|(address, account)| crate::network::AccountData {
+            address: address.clone(),
+            balance: account.balance,
+            nonce: account.nonce,
+            stake: account.staked,
+        })
+        .collect();
+    account_data.sort_by(|a, b| a.address.cmp(&b.address));
+    let accounts_merkle_root = build_account_merkle_root_sorted(&account_data);
+
     Json(SnapshotSyncResponse {
         accounts: snapshot.accounts,
         validators: snapshot.validators,
@@ -665,6 +779,7 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncR
         total_transactions: snapshot.total_transactions,
         checkpoint_height,
         contracts: snapshot.contracts,
+        accounts_merkle_root,
         rewards_snapshot: snapshot.rewards_snapshot,
         emission_snapshot: snapshot.emission_snapshot,
         slashing_snapshot: snapshot.slashing_snapshot,
@@ -748,6 +863,34 @@ async fn get_sync_transactions(
     Query(query): Query<SyncTxQuery>,
 ) -> Json<SyncDeltaResponse> {
     let from_checkpoint = query.from_checkpoint.unwrap_or(0);
+    let (new_checkpoints, tx_checkpoint_heights, to_checkpoint) = {
+        let state_guard = state.inner.read().await;
+        let mut tx_checkpoint_heights = std::collections::HashMap::new();
+        let mut tx_count_by_checkpoint: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+        for node in state_guard.dag.get_all_nodes() {
+            if let Some(height) = node.checkpoint_height {
+                tx_checkpoint_heights.insert(node.hash.clone(), height);
+                *tx_count_by_checkpoint.entry(height).or_insert(0) += 1;
+            }
+        }
+        let new_checkpoints = state_guard
+            .checkpoints
+            .iter()
+            .filter(|cp| cp.height > from_checkpoint)
+            .map(|cp| CheckpointData {
+                height: cp.height,
+                merkle_root: cp.tx_merkle_root.clone(),
+                timestamp: cp.timestamp,
+                tx_count: *tx_count_by_checkpoint.get(&cp.height).unwrap_or(&0),
+                hash: Some(cp.hash.clone()),
+                previous_hash: cp.previous_hash.clone(),
+                signature: cp.aggregated_signature.clone(),
+                genesis_hash: state_guard.genesis_hash.clone(),
+            })
+            .collect();
+        let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        (new_checkpoints, tx_checkpoint_heights, to_checkpoint)
+    };
     
     // Get all transactions since the given checkpoint
     let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
@@ -792,6 +935,13 @@ async fn get_sync_transactions(
     info!("Returning {} of {} transactions with {} account states (offset={}, has_more={})", 
           returned, total, account_states.len(), offset, has_more);
     
+    let mut page_checkpoint_heights = std::collections::HashMap::new();
+    for tx in &transactions {
+        if let Some(height) = tx_checkpoint_heights.get(&tx.hash) {
+            page_checkpoint_heights.insert(tx.hash.clone(), *height);
+        }
+    }
+    
     Json(SyncDeltaResponse {
         transactions,
         account_nonces,
@@ -800,6 +950,10 @@ async fn get_sync_transactions(
         offset,
         limit,
         has_more,
+        new_checkpoints,
+        tx_checkpoint_heights: page_checkpoint_heights,
+        from_checkpoint,
+        to_checkpoint,
     })
 }
 
@@ -1750,6 +1904,13 @@ struct GossipStatsResponse {
     last_gossip_at: u64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PeersResponse {
+    http_peers: Vec<crate::gossip::PeerInfo>,
+    p2p_peers: Vec<crate::network::PeerStats>,
+}
+
 async fn get_gossip_stats(
     State(api_state): State<ApiState>,
 ) -> Json<GossipStatsResponse> {
@@ -1769,6 +1930,18 @@ async fn get_gossip_stats(
             messages_received: 0,
             last_gossip_at: 0,
         })
+    }
+}
+
+async fn get_peers(
+    State(api_state): State<ApiState>,
+) -> Json<PeersResponse> {
+    if let Some(ref gossip_service) = api_state.gossip_service {
+        let http_peers = gossip_service.get_http_peers().await;
+        let p2p_peers = gossip_service.get_p2p_peers().await;
+        Json(PeersResponse { http_peers, p2p_peers })
+    } else {
+        Json(PeersResponse { http_peers: Vec::new(), p2p_peers: Vec::new() })
     }
 }
 
@@ -2076,12 +2249,13 @@ async fn get_contract(
     }
 }
 
-async fn get_version() -> Json<VersionResponse> {
+async fn get_version(State(state): State<NodeState>) -> Json<VersionResponse> {
+    let (chain_id, network_id) = state.get_chain_info().await;
     Json(VersionResponse {
         protocol_version: "1.0.0".to_string(),
         node_version: env!("CARGO_PKG_VERSION").to_string(),
-        chain_id: "rinku-mainnet".to_string(),
-        network_id: "rinku".to_string(),
+        chain_id,
+        network_id,
         features: vec![
             "dag-consensus".to_string(),
             "url-native".to_string(),
@@ -2251,6 +2425,8 @@ pub async fn start_api_server(
     let gossip_routes = Router::new()
         .route("/api/gossip", post(post_gossip))
         .route("/api/gossip/stats", get(get_gossip_stats))
+        .route("/api/peers", get(get_peers))
+        .route("/api/slashing/evidence", post(post_slashing_evidence))
         .route("/api/tx", post(submit_transaction))
         .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/request", post(handle_faucet_request))

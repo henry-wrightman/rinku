@@ -212,9 +212,9 @@ impl SlashingService {
         hash2: String,
         signature1: String,
         signature2: Option<String>,
-    ) -> bool {
+    ) -> Option<DoubleSignEvidence> {
         if hash1 == hash2 {
-            return false;
+            return None;
         }
 
         let already_exists = self.double_sign_evidence.iter().any(|e| {
@@ -225,7 +225,7 @@ impl SlashingService {
         });
 
         if already_exists {
-            return false;
+            return None;
         }
 
         let evidence = DoubleSignEvidence {
@@ -245,7 +245,7 @@ impl SlashingService {
         );
 
         self.double_sign_evidence.push(evidence);
-        true
+        self.double_sign_evidence.last().cloned()
     }
 
     pub fn process_double_sign_evidence(&mut self, stake_amount: f64) -> Vec<SlashEvent> {
@@ -577,7 +577,7 @@ mod tests {
             Some("sig2".to_string()),
         );
         
-        assert!(submitted);
+        assert!(submitted.is_some());
         assert_eq!(service.get_pending_evidence().len(), 1);
     }
 
@@ -594,7 +594,7 @@ mod tests {
             None,
         );
         
-        assert!(!submitted, "Same hash should be rejected");
+        assert!(submitted.is_none(), "Same hash should be rejected");
         assert_eq!(service.get_pending_evidence().len(), 0);
     }
 
@@ -620,7 +620,7 @@ mod tests {
             None,
         );
         
-        assert!(!duplicate, "Duplicate evidence should be rejected");
+        assert!(duplicate.is_none(), "Duplicate evidence should be rejected");
         assert_eq!(service.get_pending_evidence().len(), 1);
     }
 

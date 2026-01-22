@@ -21,6 +21,16 @@ Each node uses environment variables for configuration:
 | `NODE_PEERS` | Comma-separated list of peer node URLs | "" |
 | `RINKU_DB_PATH` | Database storage path | ./rinku-data |
 | `RUST_LOG` | Log level (debug, info, warn, error) | info |
+| `MAINNET_MODE` | Enforce mainnet-grade checks | false |
+| `GENESIS_VALIDATORS` | Genesis validator set (addr:bls_pubkey;...) | - |
+| `PUBLIC_URL` | Node URL for leader election | - |
+| `CHAIN_ID` | Chain identifier | rinku-mainnet |
+| `NETWORK_ID` | Network identifier | mainnet |
+| `STRICT_SYNC_VERIFY` | Enforce snapshot+delta verification | true |
+| `ALLOW_UNVERIFIED_SYNC` | Disable strict sync verification | false |
+| `VALIDATOR_KEY_PASSWORD` | Validator key passphrase (required in MAINNET_MODE) | - |
+| `VALIDATOR_KEY_PATH` | Override validator key file path | - |
+| `VALIDATOR_KEY_HEX` | Load validator key from hex (no file) | - |
 
 ## Architecture
 
@@ -51,9 +61,14 @@ The Replit node will automatically accept connections from other nodes.
 # Clone the repo (if not already done)
 cd /path/to/rinku
 
-# Build and run with peer configuration
+# Build and run with peer configuration (mainnet-grade testnet)
 RINKU_PORT=3001 \
 NODE_PEERS="https://rinkuchan.com,https://rinku-fly.fly.dev" \
+GENESIS_VALIDATORS="<addr:bls_pubkey_from_bootstrap>" \
+MAINNET_MODE=true \
+CHAIN_ID=rinku-testnet \
+NETWORK_ID=testnet \
+PUBLIC_URL="http://localhost:3001" \
 cargo run -p rinku-node
 
 # Or use the local testnet script for multiple local nodes:

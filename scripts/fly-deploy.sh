@@ -5,6 +5,8 @@ GENESIS_APP="rinku-genesis"
 VALIDATOR1_APP="rinku-validator-1"
 VALIDATOR2_APP="rinku-validator-2"
 REGION="sjc"
+CHAIN_ID="rinku-testnet"
+NETWORK_ID="testnet"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -241,7 +243,13 @@ configure_genesis() {
     log_info "Configuring $genesis_app as genesis node..."
     
     fly secrets set -a "$genesis_app" \
-        IS_GENESIS_NODE="true"
+        IS_GENESIS_NODE="true" \
+        MAINNET_MODE="true" \
+        ALLOW_UNTRUSTED_GENESIS="true" \
+        CHAIN_ID="$CHAIN_ID" \
+        NETWORK_ID="$NETWORK_ID" \
+        VALIDATOR_KEY_PASSWORD="testnet-${genesis_app}" \
+        PUBLIC_URL="https://${genesis_app}.fly.dev"
     
     log_success "Configured $genesis_app as genesis node"
 }
@@ -259,7 +267,12 @@ configure_validator() {
     fly secrets set -a "$validator_app" \
         P2P_BOOTSTRAP_PEERS="$bootstrap_peer" \
         GENESIS_VALIDATORS="$genesis_validator" \
-        IS_GENESIS_NODE="false"
+        IS_GENESIS_NODE="false" \
+        MAINNET_MODE="true" \
+        CHAIN_ID="$CHAIN_ID" \
+        NETWORK_ID="$NETWORK_ID" \
+        VALIDATOR_KEY_PASSWORD="testnet-${validator_app}" \
+        PUBLIC_URL="https://${validator_app}.fly.dev"
     
     log_success "Configured $validator_app with bootstrap peer (IS_GENESIS_NODE=false)"
 }

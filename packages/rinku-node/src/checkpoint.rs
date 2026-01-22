@@ -48,6 +48,8 @@ pub struct CheckpointService {
     leader_election: Option<LeaderElectionService>,
     /// Our public URL for leader election
     local_url: Option<String>,
+    /// Enforce strict quorum/signature requirements
+    mainnet_mode: bool,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
@@ -59,6 +61,7 @@ impl CheckpointService {
         validator_address: Option<String>, 
         peers: Vec<String>,
         trust_config: TrustConfig,
+        mainnet_mode: bool,
     ) -> Self {
         let keypair = generate_bls_keypair();
         let addr = validator_address.unwrap_or_else(|| keypair.fingerprint.clone());
@@ -81,6 +84,7 @@ impl CheckpointService {
             our_stake: 1000.0, // Default stake, should be set from validator identity
             leader_election: None,
             local_url: None,
+            mainnet_mode,
         }
     }
 
@@ -410,15 +414,6 @@ impl CheckpointService {
             return (false, false); // merkle mismatch, but not a chain fork
         }
 
-        // VALIDATION 3: Ensure checkpoint has at least one validator signature
-        if peer_checkpoint.validator_signatures.is_empty() {
-            warn!(
-                "Peer checkpoint at height {} has no validator signatures",
-                peer_checkpoint.height
-            );
-            return (false, false);
-        }
-
         // VALIDATION 4: Verify the checkpoint hash matches recomputed value
         let expected_hash = Self::compute_checkpoint_hash(
             peer_checkpoint.height,
@@ -440,40 +435,59 @@ impl CheckpointService {
             return (false, false);
         }
         
-        // VALIDATION 5: Verify at least one BLS signature cryptographically
-        let mut valid_sig_found = false;
-        for sig in &peer_checkpoint.validator_signatures {
-            // Decode the signature from base64
-            let sig_bytes = match URL_SAFE_NO_PAD.decode(&sig.signature) {
-                Ok(bytes) => bytes,
-                Err(_) => continue,
+        // VALIDATION 5: Verify signatures and quorum based on trust configuration
+        if self.mainnet_mode {
+            let validators = {
+                let state = self.state.inner.read().await;
+                state.validators.clone()
             };
-            
-            // BLS signatures in compressed form are 96 bytes
-            if sig_bytes.len() < 96 {
-                continue;
-            }
-            
-            // Try to decode the validator address as a public key
-            // The validator field might contain the public key directly or a fingerprint
-            // For now, we verify the signature format is valid BLS
-            // Full verification requires a validator registry with public keys
-            if let Ok(_) = blst::min_pk::Signature::from_bytes(&sig_bytes) {
-                valid_sig_found = true;
-                debug!(
-                    "Peer checkpoint has valid BLS signature from validator {}",
-                    &sig.validator[..16.min(sig.validator.len())]
+            let result = self.trust_verifier.verify_checkpoint(&peer_checkpoint, &validators);
+            if !result.valid {
+                warn!(
+                    "Peer checkpoint at height {} failed quorum verification: {}",
+                    peer_checkpoint.height,
+                    result.error.unwrap_or_else(|| "unknown error".to_string())
                 );
-                break;
+                return (false, false);
             }
-        }
-        
-        if !valid_sig_found {
-            warn!(
-                "Peer checkpoint at height {} has no valid BLS signature",
-                peer_checkpoint.height
-            );
-            return (false, false);
+        } else {
+            // Non-mainnet mode: require at least one valid BLS signature
+            if peer_checkpoint.validator_signatures.is_empty() && peer_checkpoint.height > 1 {
+                warn!(
+                    "Peer checkpoint at height {} has no validator signatures",
+                    peer_checkpoint.height
+                );
+                return (false, false);
+            }
+
+            let mut valid_sig_found = false;
+            for sig in &peer_checkpoint.validator_signatures {
+                let sig_bytes = match URL_SAFE_NO_PAD.decode(&sig.signature) {
+                    Ok(bytes) => bytes,
+                    Err(_) => continue,
+                };
+                
+                if sig_bytes.len() < 96 {
+                    continue;
+                }
+                
+                if let Ok(_) = blst::min_pk::Signature::from_bytes(&sig_bytes) {
+                    valid_sig_found = true;
+                    debug!(
+                        "Peer checkpoint has valid BLS signature from validator {}",
+                        &sig.validator[..16.min(sig.validator.len())]
+                    );
+                    break;
+                }
+            }
+            
+            if !valid_sig_found {
+                warn!(
+                    "Peer checkpoint at height {} has no valid BLS signature",
+                    peer_checkpoint.height
+                );
+                return (false, false);
+            }
         }
 
         // Validation passed - adopt the peer's checkpoint
@@ -787,6 +801,10 @@ impl CheckpointService {
         self.consecutive_fork_failures.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
+    fn should_use_single_validator(quorum_reached: bool, mainnet_mode: bool) -> bool {
+        !quorum_reached && !mainnet_mode
+    }
+
     async fn create_checkpoint(&self) -> Result<()> {
         let (unfinalized_hashes, tx_merkle_root, height, previous_hash) = {
             let state = self.state.inner.read().await;
@@ -1026,8 +1044,17 @@ impl CheckpointService {
         let quorum_stake_needed = total_network_stake * QUORUM_STAKE_THRESHOLD;
         let quorum_reached = total_stake >= quorum_stake_needed && all_signatures.len() > 1;
         
+        if !quorum_reached && self.mainnet_mode {
+            warn!(
+                "Checkpoint {} quorum not reached in MAINNET_MODE ({:.0}/{:.0} stake, {} votes)",
+                height, total_stake, quorum_stake_needed, all_signatures.len()
+            );
+            return Ok(());
+        }
+
         // Use collected signatures if quorum was reached, otherwise use single validator
-        let (final_signatures, final_raw_sigs) = if quorum_reached {
+        let use_single_validator = Self::should_use_single_validator(quorum_reached, self.mainnet_mode);
+        let (final_signatures, final_raw_sigs) = if !use_single_validator {
             info!(
                 "Checkpoint {} has {} validator signatures with {:.0}/{:.0} stake (quorum reached)",
                 height, all_signatures.len(), total_stake, total_network_stake
@@ -1510,6 +1537,14 @@ mod tests {
         );
         
         assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_should_use_single_validator_mode() {
+        assert!(CheckpointService::should_use_single_validator(false, false));
+        assert!(!CheckpointService::should_use_single_validator(false, true));
+        assert!(!CheckpointService::should_use_single_validator(true, false));
+        assert!(!CheckpointService::should_use_single_validator(true, true));
     }
 
     #[test]

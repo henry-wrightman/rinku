@@ -29,6 +29,8 @@ P2P_BASE_PORT=4011
 NODE_PORTS=()
 NUM_NODES=${2:-2}
 LOG_DIR="$PROJECT_ROOT/.testnet-logs"
+CHAIN_ID="rinku-testnet"
+NETWORK_ID="testnet"
 
 # Colors
 RED='\033[0;31m'
@@ -78,6 +80,25 @@ build_peer_list() {
     echo "$peers"
 }
 
+wait_for_bootstrap_info() {
+    local port=$1
+    local max_attempts=30
+    local attempt=0
+
+    while [ $attempt -lt $max_attempts ]; do
+        local response
+        response="$(curl -s "http://localhost:${port}/api/bootstrap" 2>/dev/null)"
+        if [ -n "$response" ] && echo "$response" | grep -q '"peerId"'; then
+            echo "$response"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+
+    return 1
+}
+
 start_testnet() {
     calculate_ports
     
@@ -119,26 +140,79 @@ start_testnet() {
         }
     fi
     
-    # Start each node
-    for ((i=0; i<NUM_NODES; i++)); do
+    # Start genesis node first (needed to fetch GENESIS_VALIDATORS for mainnet-mode validators)
+    local genesis_port=${NODE_PORTS[0]}
+    local genesis_log="$LOG_DIR/node-1.log"
+    local genesis_db="$LOG_DIR/node-1-data"
+    local genesis_p2p_port=$P2P_BASE_PORT
+    local genesis_public_url="http://localhost:${genesis_port}"
+
+    log_info "Starting Node 1 (genesis) on port $genesis_port..."
+    rm -rf "$genesis_db"
+
+    API_PORT=$genesis_port \
+    P2P_PORT=$genesis_p2p_port \
+    NODE_PEERS="$(build_peer_list 0)" \
+    DATA_DIR="$genesis_db" \
+    MAINNET_MODE=true \
+    ALLOW_UNTRUSTED_GENESIS=true \
+    CHAIN_ID="$CHAIN_ID" \
+    NETWORK_ID="$NETWORK_ID" \
+    VALIDATOR_KEY_PASSWORD="testnet-node-1" \
+    PUBLIC_URL="$genesis_public_url" \
+    RUST_LOG=info \
+    ./target/debug/rinku-node &>"$genesis_log" &
+
+    local genesis_pid=$!
+    echo $genesis_pid > "$LOG_DIR/node-1.pid"
+    log_success "Node 1 started (PID: $genesis_pid, Port: $genesis_port, P2P: $genesis_p2p_port)"
+    sleep 2
+
+    log_info "Fetching bootstrap info from genesis..."
+    local bootstrap_info
+    bootstrap_info="$(wait_for_bootstrap_info "$genesis_port")" || {
+        log_error "Failed to get bootstrap info from genesis node"
+        exit 1
+    }
+
+    local peer_id
+    peer_id="$(echo "$bootstrap_info" | grep -o '"peerId":"[^"]*"' | cut -d'"' -f4)"
+    local genesis_validator_env
+    genesis_validator_env="$(echo "$bootstrap_info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)"
+    local listen_addr
+    listen_addr="$(echo "$bootstrap_info" | grep -o '"listenAddr":"[^"]*"' | cut -d'"' -f4)"
+    local p2p_port
+    p2p_port="$(echo "$listen_addr" | sed -n 's|.*/tcp/\([0-9]*\).*|\1|p')"
+    local bootstrap_peer="/ip4/127.0.0.1/tcp/${p2p_port}/p2p/${peer_id}"
+
+    if [ -z "$genesis_validator_env" ] || [ -z "$peer_id" ] || [ -z "$p2p_port" ]; then
+        log_error "Incomplete bootstrap info from genesis node"
+        exit 1
+    fi
+
+    # Start remaining nodes with strict mainnet-mode requirements
+    for ((i=1; i<NUM_NODES; i++)); do
         local port=${NODE_PORTS[$i]}
         local peers=$(build_peer_list $i)
         local log_file="$LOG_DIR/node-$((i+1)).log"
         local db_path="$LOG_DIR/node-$((i+1))-data"
+        local p2p_port=$((P2P_BASE_PORT + i))
+        local public_url="http://localhost:${port}"
         
         log_info "Starting Node $((i+1)) on port $port..."
-        
-        # Clean up old database to ensure fresh start (avoid stale locks)
         rm -rf "$db_path"
-        
-        # Set environment variables and start node (using debug binary directly)
-        # Use DATA_DIR, API_PORT, and P2P_PORT env vars that the node actually reads
-        local p2p_port=$((P2P_BASE_PORT + i))
         
         API_PORT=$port \
         P2P_PORT=$p2p_port \
         NODE_PEERS="$peers" \
+        P2P_BOOTSTRAP_PEERS="$bootstrap_peer" \
+        GENESIS_VALIDATORS="$genesis_validator_env" \
         DATA_DIR="$db_path" \
+        MAINNET_MODE=true \
+        CHAIN_ID="$CHAIN_ID" \
+        NETWORK_ID="$NETWORK_ID" \
+        VALIDATOR_KEY_PASSWORD="testnet-node-$((i+1))" \
+        PUBLIC_URL="$public_url" \
         RUST_LOG=info \
         ./target/debug/rinku-node &>"$log_file" &
         
@@ -146,14 +220,11 @@ start_testnet() {
         echo $pid > "$LOG_DIR/node-$((i+1)).pid"
         
         log_success "Node $((i+1)) started (PID: $pid, Port: $port, P2P: $p2p_port)"
-        
         if [ -n "$peers" ]; then
             log_info "  Peers: $peers"
         else
             log_info "  Peers: None (bootstrap node)"
         fi
-        
-        # Wait a bit between starting nodes to avoid port conflicts
         sleep 2
     done
     

@@ -6,6 +6,7 @@
 use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
 use crate::network::{AccountData, SnapshotData, DeltaData, CheckpointData, TransactionData};
+use rinku_core::merkle::MerkleTree;
 
 /// Result of verification
 #[derive(Debug, Clone, PartialEq)]
@@ -106,6 +107,14 @@ pub fn build_merkle_root(leaf_hashes: &[String]) -> String {
     current_layer[0].clone()
 }
 
+/// Build merkle root from accounts sorted by address for deterministic ordering
+pub fn build_account_merkle_root_sorted(accounts: &[AccountData]) -> String {
+    let mut sorted = accounts.to_vec();
+    sorted.sort_by(|a, b| a.address.cmp(&b.address));
+    let leaf_hashes: Vec<String> = sorted.iter().map(hash_account_leaf).collect();
+    build_merkle_root(&leaf_hashes)
+}
+
 /// Verify merkle proof for an account
 pub fn verify_account_proof(proof: &AccountProof, root: &str) -> VerificationResult {
     let account = AccountData {
@@ -156,6 +165,19 @@ pub fn verify_snapshot(snapshot: &SnapshotData) -> VerificationResult {
     }
 }
 
+/// Verify snapshot data integrity with deterministic account ordering
+pub fn verify_snapshot_sorted(snapshot: &SnapshotData) -> VerificationResult {
+    let computed_root = build_account_merkle_root_sorted(&snapshot.accounts);
+    if computed_root == snapshot.merkle_root {
+        VerificationResult::Valid
+    } else {
+        VerificationResult::Invalid(format!(
+            "Snapshot merkle root mismatch: computed {} != received {}",
+            computed_root, snapshot.merkle_root
+        ))
+    }
+}
+
 /// Verify delta sync data integrity with strict merkle root validation
 /// 
 /// SECURITY: This function enforces that all transactions in the delta
@@ -164,6 +186,18 @@ pub fn verify_snapshot(snapshot: &SnapshotData) -> VerificationResult {
 pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
     if delta.new_checkpoints.is_empty() {
         return VerificationResult::Valid; // No checkpoints to verify
+    }
+    
+    let use_checkpoint_heights = !delta.tx_checkpoint_heights.is_empty();
+    if use_checkpoint_heights {
+        for tx in &delta.transactions {
+            if !delta.tx_checkpoint_heights.contains_key(&tx.hash) {
+                return VerificationResult::Invalid(format!(
+                    "Missing checkpoint height for tx {}",
+                    &tx.hash[..16.min(tx.hash.len())]
+                ));
+            }
+        }
     }
     
     // Sort checkpoints by height for sequential verification
@@ -183,18 +217,30 @@ pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
         
         // Get transactions for this checkpoint window
         // Using height-based windowing for proper checkpoint association
-        let checkpoint_txs: Vec<&TransactionData> = delta.transactions
-            .iter()
-            .filter(|tx| {
-                // Transaction belongs to this checkpoint if its timestamp
-                // falls within the checkpoint's range
-                tx.timestamp > last_checkpoint_end && tx.timestamp <= checkpoint.timestamp
-            })
-            .collect();
+        let checkpoint_txs: Vec<&TransactionData> = if use_checkpoint_heights {
+            delta.transactions
+                .iter()
+                .filter(|tx| {
+                    delta.tx_checkpoint_heights
+                        .get(&tx.hash)
+                        .map(|h| *h == checkpoint.height)
+                        .unwrap_or(false)
+                })
+                .collect()
+        } else {
+            delta.transactions
+                .iter()
+                .filter(|tx| {
+                    // Transaction belongs to this checkpoint if its timestamp
+                    // falls within the checkpoint's range
+                    tx.timestamp > last_checkpoint_end && tx.timestamp <= checkpoint.timestamp
+                })
+                .collect()
+        };
         
         if checkpoint_txs.is_empty() {
-            // Empty checkpoint - verify root matches empty merkle
-            let empty_root = sha256_hex("empty");
+            // Empty checkpoint - verify root matches expected empty merkle
+            let empty_root = "0".repeat(64);
             if checkpoint.merkle_root != empty_root && checkpoint.tx_count > 0 {
                 return VerificationResult::Invalid(format!(
                     "Checkpoint {} claims {} txs but none provided",
@@ -205,11 +251,19 @@ pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
             // Build merkle root from transaction hashes (sorted for determinism)
             let mut tx_hashes: Vec<String> = checkpoint_txs
                 .iter()
-                .map(|tx| sha256_hex(&tx.hash))
+                .map(|tx| tx.hash.clone())
                 .collect();
             tx_hashes.sort(); // Canonical ordering
             
-            let computed_root = build_merkle_root(&tx_hashes);
+            let computed_root = match MerkleTree::from_hex_leaves(&tx_hashes) {
+                Ok(tree) => tree.root(),
+                Err(e) => {
+                    return VerificationResult::Invalid(format!(
+                        "Failed to compute merkle root for checkpoint {}: {}",
+                        checkpoint.height, e
+                    ));
+                }
+            };
             
             // SECURITY: Strict verification - reject any mismatch
             // This is the critical security check that prevents forged state
@@ -221,7 +275,9 @@ pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
             }
         }
         
-        last_checkpoint_end = checkpoint.timestamp;
+        if !use_checkpoint_heights {
+            last_checkpoint_end = checkpoint.timestamp;
+        }
     }
     
     VerificationResult::Valid
@@ -360,6 +416,7 @@ pub fn generate_account_proofs(accounts: &[AccountData]) -> Vec<AccountProof> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rinku_core::merkle::MerkleTree;
 
     fn make_account(addr: &str, balance: f64) -> AccountData {
         AccountData {
@@ -467,5 +524,79 @@ mod tests {
         assert!(verifier.verify_snapshot(&snapshot));
         assert!(verifier.all_valid());
         assert_eq!(verifier.failures().len(), 0);
+    }
+
+    #[test]
+    fn test_verify_snapshot_sorted_order() {
+        let accounts = vec![
+            make_account("b", 200.0),
+            make_account("a", 100.0),
+        ];
+        let merkle_root = build_account_merkle_root_sorted(&accounts);
+        
+        let snapshot = SnapshotData {
+            accounts,
+            validators: vec![],
+            checkpoints: vec![],
+            recent_txs: vec![],
+            merkle_root,
+        };
+        
+        let result = verify_snapshot_sorted(&snapshot);
+        assert_eq!(result, VerificationResult::Valid);
+    }
+
+    #[test]
+    fn test_verify_delta_with_checkpoint_heights() {
+        let transactions = vec![
+            TransactionData {
+                hash: "a1".repeat(32),
+                from: "genesis".to_string(),
+                to: "alice".to_string(),
+                amount: 1.0,
+                nonce: 1,
+                timestamp: 1,
+                signature: "sig".to_string(),
+                parents: vec![],
+                gas_price: 0.0,
+            },
+            TransactionData {
+                hash: "b2".repeat(32),
+                from: "genesis".to_string(),
+                to: "bob".to_string(),
+                amount: 2.0,
+                nonce: 2,
+                timestamp: 2,
+                signature: "sig".to_string(),
+                parents: vec![],
+                gas_price: 0.0,
+            },
+        ];
+        let mut tx_hashes: Vec<String> = transactions.iter().map(|tx| tx.hash.clone()).collect();
+        tx_hashes.sort();
+        let merkle_root = MerkleTree::from_hex_leaves(&tx_hashes).unwrap().root();
+        let checkpoint = CheckpointData {
+            height: 2,
+            merkle_root,
+            timestamp: 10,
+            tx_count: transactions.len() as u64,
+            hash: None,
+            previous_hash: None,
+            signature: None,
+            genesis_hash: None,
+        };
+        let mut tx_checkpoint_heights = std::collections::HashMap::new();
+        for tx in &transactions {
+            tx_checkpoint_heights.insert(tx.hash.clone(), 2);
+        }
+        let delta = DeltaData {
+            transactions,
+            new_checkpoints: vec![checkpoint],
+            from_checkpoint: 1,
+            to_checkpoint: 2,
+            tx_checkpoint_heights,
+        };
+        let result = verify_delta(&delta);
+        assert_eq!(result, VerificationResult::Valid);
     }
 }

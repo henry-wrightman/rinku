@@ -6,6 +6,12 @@ use p256::{
     SecretKey,
 };
 use sha2::{Digest, Sha256};
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use argon2::Argon2;
+use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use chacha20poly1305::aead::{Aead, KeyInit};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -20,6 +26,19 @@ pub enum CryptoError {
     VerificationFailed,
     #[error("Key generation failed: {0}")]
     KeyGenerationFailed(String),
+    #[error("Encryption failed: {0}")]
+    EncryptionFailed(String),
+    #[error("Decryption failed: {0}")]
+    DecryptionFailed(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncryptedPrivateKey {
+    pub version: u8,
+    pub salt: String,
+    pub nonce: String,
+    pub ciphertext: String,
 }
 
 #[derive(Clone)]
@@ -75,6 +94,74 @@ impl KeyPair {
         self.sign(&bytes)
     }
 }
+
+fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], CryptoError> {
+    let mut key = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(password.as_bytes(), salt, &mut key)
+        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+    Ok(key)
+}
+
+pub fn encrypt_private_key_hex(private_key_hex: &str, password: &str) -> Result<String, CryptoError> {
+    if password.is_empty() {
+        return Err(CryptoError::EncryptionFailed("Empty password".to_string()));
+    }
+    let mut salt = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut salt);
+    let key = derive_key(password, &salt)?;
+    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(nonce, private_key_hex.as_bytes())
+        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
+
+    let payload = EncryptedPrivateKey {
+        version: 1,
+        salt: URL_SAFE_NO_PAD.encode(salt),
+        nonce: URL_SAFE_NO_PAD.encode(nonce_bytes),
+        ciphertext: URL_SAFE_NO_PAD.encode(ciphertext),
+    };
+
+    serde_json::to_string(&payload)
+        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
+}
+
+pub fn decrypt_private_key_hex(encrypted: &str, password: &str) -> Result<String, CryptoError> {
+    if password.is_empty() {
+        return Err(CryptoError::DecryptionFailed("Empty password".to_string()));
+    }
+    let payload: EncryptedPrivateKey = serde_json::from_str(encrypted)
+        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
+
+    let salt = URL_SAFE_NO_PAD
+        .decode(payload.salt)
+        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
+    let nonce = URL_SAFE_NO_PAD
+        .decode(payload.nonce)
+        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
+    let ciphertext = URL_SAFE_NO_PAD
+        .decode(payload.ciphertext)
+        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
+
+    let key = derive_key(password, &salt)?;
+    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
+    let plaintext = cipher
+        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
+
+    String::from_utf8(plaintext)
+        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+}
+
+pub fn parse_encrypted_private_key(data: &str) -> Option<EncryptedPrivateKey> {
+    serde_json::from_str(data).ok()
+}
+
 
 pub fn verify_signature(
     public_key_hex: &str,
@@ -134,6 +221,15 @@ pub fn recover_address_from_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_encrypt_decrypt_private_key() {
+        let keypair = KeyPair::generate().unwrap();
+        let private_hex = keypair.private_key_hex();
+        let encrypted = encrypt_private_key_hex(&private_hex, "test-password").unwrap();
+        let decrypted = decrypt_private_key_hex(&encrypted, "test-password").unwrap();
+        assert_eq!(private_hex, decrypted);
+    }
 
     #[test]
     fn test_keypair_generation() {
