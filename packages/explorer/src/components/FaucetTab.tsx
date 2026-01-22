@@ -14,8 +14,31 @@ interface FaucetTabProps {
   onSuccess: () => void;
 }
 
-const FAUCET_URL = "/api/faucet";
-const NODE_API_URL = "/api";
+const getApiBaseUrl = () => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+
+  // If VITE_API_URL is set and not localhost, use it directly
+  if (
+    envApiUrl &&
+    !envApiUrl.includes("127.0.0.1") &&
+    !envApiUrl.includes("localhost")
+  ) {
+    console.log("Using VITE_API_URL:", envApiUrl);
+    return `${envApiUrl}/api/faucet`;
+  }
+
+  if (import.meta.env.PROD) {
+    // Production on Replit: transform port in hostname
+    const host = window.location.hostname;
+    console.log(
+      "prod api url (Replit)",
+      `https://${host.replace(/-5000\./, "-3001.")}/api`,
+    );
+    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+  }
+  return "/api"; // Dev: use Vite proxy
+};
+const FAUCET_URL = getApiBaseUrl();
 
 export function FaucetTab({ onSuccess }: FaucetTabProps) {
   const [address, setAddress] = useState("");

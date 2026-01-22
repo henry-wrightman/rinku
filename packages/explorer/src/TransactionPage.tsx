@@ -3,6 +3,32 @@ import { useParams, Link } from "react-router-dom";
 import { parseTransactionURL, TransactionKind } from "@rinku/core";
 import { PageHeader } from "./components/PageHeader";
 
+const getApiBaseUrl = () => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+
+  // If VITE_API_URL is set and not localhost, use it directly
+  if (
+    envApiUrl &&
+    !envApiUrl.includes("127.0.0.1") &&
+    !envApiUrl.includes("localhost")
+  ) {
+    console.log("Using VITE_API_URL tx:", envApiUrl);
+    return `${envApiUrl}`;
+  }
+
+  if (import.meta.env.PROD) {
+    // Production on Replit: transform port in hostname
+    const host = window.location.hostname;
+    console.log(
+      "prod api url (Replit)",
+      `https://${host.replace(/-5000\./, "-3001.")}/api`,
+    );
+    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+  }
+  return "/api"; // Dev: use Vite proxy
+};
+const NODE_URL = getApiBaseUrl();
+
 interface TransactionData {
   from: string;
   to: string;
@@ -47,12 +73,12 @@ function TransactionPage() {
       return;
     }
 
-    const parsed = parseTransactionURL(`/tx/${payload}`);
+    const parsed = parseTransactionURL(`${NODE_URL}/tx/${payload}`);
     if (parsed) {
       setTx(parsed);
       setLoading(false);
     } else {
-      fetch(`/api/tx/resolve/${payload}`)
+      fetch(`${NODE_URL}/api/tx/resolve/${payload}`)
         .then((res) => res.json())
         .then((data: ApiResponse) => {
           if (data.tx) {
@@ -70,7 +96,7 @@ function TransactionPage() {
     if (!tx?.hash) return;
 
     setProof({ loading: true });
-    fetch(`/api/tx/${tx.hash}/proof`)
+    fetch(`${NODE_URL}/api/tx/${tx.hash}/proof`)
       .then((res) => res.json())
       .then((data) => {
         if (data.proofUrl) {

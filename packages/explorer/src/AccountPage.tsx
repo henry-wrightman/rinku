@@ -3,6 +3,32 @@ import { useParams, Link } from "react-router-dom";
 import { PageHeader } from "./components/PageHeader";
 import type { TransactionKind } from "@rinku/core";
 
+const getApiBaseUrl = () => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+
+  // If VITE_API_URL is set and not localhost, use it directly
+  if (
+    envApiUrl &&
+    !envApiUrl.includes("127.0.0.1") &&
+    !envApiUrl.includes("localhost")
+  ) {
+    console.log("Using VITE_API_URL:", envApiUrl);
+    return `${envApiUrl}`;
+  }
+
+  if (import.meta.env.PROD) {
+    // Production on Replit: transform port in hostname
+    const host = window.location.hostname;
+    console.log(
+      "prod api url (Replit)",
+      `https://${host.replace(/-5000\./, "-3001.")}/api`,
+    );
+    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+  }
+  return "/api"; // Dev: use Vite proxy
+};
+const NODE_URL = getApiBaseUrl();
+
 interface AccountData {
   fingerprint: string;
   balance: number;
@@ -59,10 +85,10 @@ function AccountPage() {
     const fetchAccountData = async () => {
       try {
         const [accountRes, dagRes, stakingRes, rewardsRes] = await Promise.all([
-          fetch(`/api/account/${address}`),
-          fetch(`/api/dag`),
-          fetch(`/api/staking/${address}`),
-          fetch(`/api/rewards/${address}`),
+          fetch(`${NODE_URL}/api/account/${address}`),
+          fetch(`${NODE_URL}/api/dag`),
+          fetch(`${NODE_URL}/api/staking/${address}`),
+          fetch(`${NODE_URL}/api/rewards/${address}`),
         ]);
 
         if (!accountRes.ok) {
@@ -125,15 +151,24 @@ function AccountPage() {
     return `${s.slice(0, len)}...`;
   };
 
-  const formatTxKind = (kind?: TransactionKind): { label: string; color: string } => {
+  const formatTxKind = (
+    kind?: TransactionKind,
+  ): { label: string; color: string } => {
     switch (kind) {
-      case 'stake': return { label: 'stake', color: '#a3be8c' };
-      case 'unstake': return { label: 'unstake', color: '#ebcb8b' };
-      case 'claim_rewards': return { label: 'claim', color: '#b48ead' };
-      case 'contract': return { label: 'contract', color: '#88c0d0' };
-      case 'consolidation': return { label: 'consolidate', color: '#81a1c1' };
-      case 'reward': return { label: 'reward', color: '#b48ead' };
-      default: return { label: 'transfer', color: '#d8dee9' };
+      case "stake":
+        return { label: "stake", color: "#a3be8c" };
+      case "unstake":
+        return { label: "unstake", color: "#ebcb8b" };
+      case "claim_rewards":
+        return { label: "claim", color: "#b48ead" };
+      case "contract":
+        return { label: "contract", color: "#88c0d0" };
+      case "consolidation":
+        return { label: "consolidate", color: "#81a1c1" };
+      case "reward":
+        return { label: "reward", color: "#b48ead" };
+      default:
+        return { label: "transfer", color: "#d8dee9" };
     }
   };
 
@@ -254,7 +289,9 @@ function AccountPage() {
               </div>
               <div className="meta-row">
                 <span className="label">witness rewards</span>
-                <span className="value">{rewards.witnessRewards.toFixed(2)}</span>
+                <span className="value">
+                  {rewards.witnessRewards.toFixed(2)}
+                </span>
               </div>
               <div className="meta-row">
                 <span className="label">total earned</span>
@@ -288,7 +325,7 @@ function AccountPage() {
               {transactions.slice(0, 20).map((tx, i) => {
                 const isIncoming = tx.to === address;
                 const txType = formatTxKind(tx.kind);
-                const isSpecialTx = tx.kind && tx.kind !== 'transfer';
+                const isSpecialTx = tx.kind && tx.kind !== "transfer";
                 return (
                   <Link
                     key={i}
@@ -297,13 +334,25 @@ function AccountPage() {
                   >
                     <span
                       className="index"
-                      style={{ color: isSpecialTx ? txType.color : (isIncoming ? "#a3be8c" : "#bf616a") }}
+                      style={{
+                        color: isSpecialTx
+                          ? txType.color
+                          : isIncoming
+                            ? "#a3be8c"
+                            : "#bf616a",
+                      }}
                     >
-                      {isSpecialTx ? txType.label.charAt(0).toUpperCase() : (isIncoming ? "+" : "-")}
+                      {isSpecialTx
+                        ? txType.label.charAt(0).toUpperCase()
+                        : isIncoming
+                          ? "+"
+                          : "-"}
                     </span>
                     <span className="parent-info">
                       {isSpecialTx ? (
-                        <span style={{ color: txType.color }}>{txType.label}</span>
+                        <span style={{ color: txType.color }}>
+                          {txType.label}
+                        </span>
                       ) : isIncoming ? (
                         <>
                           from{" "}
@@ -317,10 +366,20 @@ function AccountPage() {
                     </span>
                     <span
                       className="parent-amount"
-                      style={{ color: isSpecialTx ? txType.color : (isIncoming ? "#a3be8c" : "#bf616a") }}
+                      style={{
+                        color: isSpecialTx
+                          ? txType.color
+                          : isIncoming
+                            ? "#a3be8c"
+                            : "#bf616a",
+                      }}
                     >
-                      {isSpecialTx ? "" : (isIncoming ? "+" : "-")}
-                      {tx.amount > 0 ? `${tx.amount} RKU` : (isSpecialTx ? "" : "0 RKU")}
+                      {isSpecialTx ? "" : isIncoming ? "+" : "-"}
+                      {tx.amount > 0
+                        ? `${tx.amount} RKU`
+                        : isSpecialTx
+                          ? ""
+                          : "0 RKU"}
                     </span>
                   </Link>
                 );

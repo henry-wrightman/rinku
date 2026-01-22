@@ -45,7 +45,32 @@ interface StakingInfo {
   };
 }
 
-const NODE_URL = "/api";
+const getApiBaseUrl = () => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+
+  // If VITE_API_URL is set and not localhost, use it directly
+  if (
+    envApiUrl &&
+    !envApiUrl.includes("127.0.0.1") &&
+    !envApiUrl.includes("localhost")
+  ) {
+    console.log("Using VITE_API_URL:", envApiUrl);
+    return `${envApiUrl}/api`;
+  }
+
+  if (import.meta.env.PROD) {
+    // Production on Replit: transform port in hostname
+    const host = window.location.hostname;
+    console.log(
+      "prod api url (Replit)",
+      `https://${host.replace(/-5000\./, "-3001.")}/api`,
+    );
+    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+  }
+  return "/api"; // Dev: use Vite proxy
+};
+const NODE_URL = getApiBaseUrl();
+
 const WALLET_STORAGE_KEY = "rinku_wallet";
 
 export function RewardsTab() {
@@ -293,7 +318,6 @@ export function RewardsTab() {
     return d.toLocaleString();
   };
 
-
   return (
     <div className="rewards-tab">
       <div className="section">
@@ -462,13 +486,18 @@ export function RewardsTab() {
             <h4>wallet</h4>
             {!walletReady ? (
               <div className="wallet-connect-prompt">
-                <p>connect a wallet using the wallet button in the header to stake and claim rewards.</p>
+                <p>
+                  connect a wallet using the wallet button in the header to
+                  stake and claim rewards.
+                </p>
               </div>
             ) : (
               <div className="wallet-info">
                 <div className="derived-address">
                   <span className="label">address:</span>
-                  <span className="mono">{keyPair?.fingerprint?.slice(0, 12)}...</span>
+                  <span className="mono">
+                    {keyPair?.fingerprint?.slice(0, 12)}...
+                  </span>
                 </div>
               </div>
             )}
