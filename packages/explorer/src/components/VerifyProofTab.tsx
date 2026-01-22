@@ -1,9 +1,16 @@
 import { useState } from "react";
 
 const getApiBaseUrl = () => {
-  if (import.meta.env.PROD) {
-    const host = window.location.hostname;
-    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+  const envApiUrl = import.meta.env.VITE_API_URL;
+
+  // If VITE_API_URL is set and not localhost, use it directly
+  if (
+    envApiUrl &&
+    !envApiUrl.includes("127.0.0.1") &&
+    !envApiUrl.includes("localhost")
+  ) {
+    console.log("Using VITE_API_URL:", envApiUrl);
+    return `${envApiUrl}/api`;
   }
   return "/api";
 };
