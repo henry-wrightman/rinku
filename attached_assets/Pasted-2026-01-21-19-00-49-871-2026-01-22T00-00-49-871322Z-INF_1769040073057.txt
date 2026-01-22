@@ -1,0 +1,67 @@
+2026-01-21 19:00:49.871	
+2026-01-22T00:00:49.871322Z  INFO rinku_node::state: PRE-SYNC: Attempt 3 failed, retrying in 20s...
+2026-01-21 19:00:49.871	
+2026-01-22T00:00:49.871297Z  INFO rinku_node::state: PRE-SYNC: All bootstrap peers failed, will create genesis locally
+2026-01-21 19:00:49.871	
+2026-01-22T00:00:49.871254Z  WARN rinku_node::state: PRE-SYNC: Timeout waiting for peer 12D3KooWRvvtvaWzJXCK9LfHcVdbmoFikWn923hDMNduCv2BPMmP
+2026-01-21 19:00:34.870	
+2026-01-22T00:00:34.870438Z  INFO rinku_node::state: PRE-SYNC: Dialing peer 12D3KooWRvvtvaWzJXCK9LfHcVdbmoFikWn923hDMNduCv2BPMmP at /ip4/109.105.220.218/tcp/4001...
+2026-01-21 19:00:34.870	
+2026-01-22T00:00:34.870305Z  INFO rinku_node::state: PRE-SYNC: Temporary peer ID: 12D3KooWDpqaVy8fcEUjjLcwaWaqju11ujj16PYZE11AYRHnibrs
+2026-01-21 19:00:34.870	
+2026-01-22T00:00:34.870253Z  INFO rinku_node::state: PRE-SYNC: Parsed peer 12D3KooWRvvtvaWzJXCK9LfHcVdbmoFikWn923hDMNduCv2BPMmP at /ip4/109.105.220.218/tcp/4001
+2026-01-21 19:00:34.870	
+2026-01-22T00:00:34.870203Z  INFO rinku_node::state: PRE-SYNC: Attempt 3/8 - syncing from 1 bootstrap peer(s)...
+2026-01-21 19:00:24.869	
+2026-01-22T00:00:24.869353Z  INFO rinku_node::state: PRE-SYNC: Attempt 2 failed, retrying in 10s...
+2026-01-21 19:00:24.869	
+2026-01-22T00:00:24.869328Z  INFO rinku_node::state: PRE-SYNC: All bootstrap peers failed, will create genesis locally
+2026-01-21 19:00:24.869	
+2026-01-22T00:00:24.869279Z  WARN rinku_node::state: PRE-SYNC: Timeout waiting for peer 12D3KooWRvvtvaWzJXCK9LfHcVdbmoFikWn923hDMNduCv2BPMmP
+2026-01-21 19:00:09.868	
+2026-01-22T00:00:09.867919Z  INFO rinku_node::state: PRE-SYNC: Dialing peer 12D3KooWRvvtvaWzJXCK9LfHcVdbmoFikWn923hDMNduCv2BPMmP at /ip4/109.105.220.218/tcp/4001...
+2026-01-21 19:00:09.868	
+2026-01-22T00:00:09.867787Z  INFO rinku_node::state: PRE-SYNC: Temporary peer ID: 12D3KooWMS6hTbwsXs3VAS7DaAgbZhViBHZ65XsUDFgf2v311GFU
+2026-01-21 19:00:09.868	
+2026-01-22T00:00:09.867734Z  INFO rinku_node::state: PRE-SYNC: Parsed peer 12D3KooWRvvtvaWzJXCK9LfHcVdbmoFikWn923hDMNduCv2BPMmP at /ip4/109.105.220.218/tcp/4001
+2026-01-21 19:00:09.868	
+2026-01-22T00:00:09.867678Z  INFO rinku_node::state: PRE-SYNC: Attempt 2/8 - syncing from 1 bootstrap peer(s)...
+2026-01-21 19:00:04.866	
+2026-01-22T00:00:04.866219Z  INFO rinku_node::state: PRE-SYNC: Attempt 1 failed, retrying in 5s...
+2026-01-21 19:00:04.866	
+2026-01-22T00:00:04.866198Z  INFO rinku_node::state: PRE-SYNC: All bootstrap peers failed, will create genesis locally
+2026-01-21 19:00:04.866	
+2026-01-22T00:00:04.866156Z  WARN rinku_node::state: PRE-SYNC: Timeout waiting for peer 12D3KooWRvvtvaWzJXCK9LfHcVdbmoFikWn923hDMNduCv2BPMmP
+2026-01-21 18:59:50.056	
+2026/01/21 23:59:50 INFO SSH listening listen_address=[fdaa:3d:780a:a7b:337:a067:d630:2]:22
+2026-01-21 18:59:49.862	
+2026-01-21T23:59:49.862619Z  INFO rinku_node::state: PRE-SYNC: Dialing peer 12D3KooWRvvtvaWzJXCK9LfHcVdbmoFikWn923hDMNduCv2BPMmP at /ip4/109.105.220.218/tcp/4001...
+2026-01-21 18:59:49.862	
+2026-01-21T23:59:49.862384Z  INFO rinku_node::state: PRE-SYNC: Temporary peer ID: 12D3KooWLpGJWvBuEBTWmov6q4yiHbLuG58cWquLeUQW5rH1WmMx
+2026-01-21 18:59:49.862	
+2026-01-21T23:59:49.861463Z  INFO rinku_node::state: PRE-SYNC: Parsed peer 12D3KooWRvvtvaWzJXCK9LfHcVdbmoFikWn923hDMNduCv2BPMmP at /ip4/109.105.220.218/tcp/4001
+2026-01-21 18:59:49.862	
+2026-01-21T23:59:49.861420Z  INFO rinku_node::state: PRE-SYNC: Attempt 1/8 - syncing from 1 bootstrap peer(s)...
+2026-01-21 18:59:49.862	
+2026-01-21T23:59:49.861407Z  WARN rinku_node::storage: No snapshot found in redb, starting fresh
+2026-01-21 18:59:49.862	
+2026-01-21T23:59:49.861373Z  INFO rinku_node::storage: Opened redb database at /data/redb.db
+2026-01-21 18:59:49.851	
+Machine created and started in 9.631s
+2026-01-21 18:59:49.840	
+2026-01-21T23:59:49.840601Z  INFO rinku_node: Initializing node state...
+2026-01-21 18:59:49.840	
+2026-01-21T23:59:49.840279Z  INFO rinku_node: Data directory exists, checking for stale locks...
+2026-01-21 18:59:49.840	
+2026-01-21T23:59:49.840271Z  INFO rinku_node: Trust config: TESTNET MODE (no genesis validators, signatures not verified)
+2026-01-21 18:59:49.840	
+2026-01-21T23:59:49.840264Z  INFO rinku_node: Node role: VALIDATOR (must sync from network, 1 bootstrap peers)
+2026-01-21 18:59:49.840	
+2026-01-21T23:59:49.840262Z  INFO rinku_node: Data dir: /data
+2026-01-21 18:59:49.840	
+2026-01-21T23:59:49.840253Z  INFO rinku_node: Node ID: 3096bcfdc4e72c22
+2026-01-21 18:59:49.839	
+2026-01-21T23:59:49.838953Z  INFO rinku_node: Process PID: 650
+2026-01-21 18:59:49.839	
+2026-01-21T23:59:49.838843Z  INFO rinku_node: Starting Rinku Node v0.1.0
+2026-01-21 18:59:49.788	
