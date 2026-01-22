@@ -10,7 +10,21 @@ interface SearchBarProps {
   onResult: (result: SearchResult) => void;
 }
 
-const NODE_URL = "/api";
+const getApiBaseUrl = () => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+
+  // If VITE_API_URL is set and not localhost, use it directly
+  if (
+    envApiUrl &&
+    !envApiUrl.includes("127.0.0.1") &&
+    !envApiUrl.includes("localhost")
+  ) {
+    console.log("Using VITE_API_URL:", envApiUrl);
+    return `${envApiUrl}/api`;
+  }
+  return "/api";
+};
+const NODE_URL = getApiBaseUrl();
 
 export function SearchBar({ onResult }: SearchBarProps) {
   const [query, setQuery] = useState("");
@@ -47,7 +61,11 @@ export function SearchBar({ onResult }: SearchBarProps) {
         return;
       }
 
-      onResult({ type: null, data: null, error: "Not found: no matching transaction, account, or contract" });
+      onResult({
+        type: null,
+        data: null,
+        error: "Not found: no matching transaction, account, or contract",
+      });
     } catch (e) {
       onResult({ type: null, data: null, error: "Search failed" });
     } finally {
