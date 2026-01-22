@@ -14,7 +14,7 @@ const getApiBaseUrl = () => {
     !envApiUrl.includes("localhost")
   ) {
     console.log("Using VITE_API_URL:", envApiUrl);
-    return `${envApiUrl}/api`;
+    return `${envApiUrl}`;
   }
 
   if (import.meta.env.PROD) {
@@ -26,7 +26,7 @@ const getApiBaseUrl = () => {
     );
     return `https://${host.replace(/-5000\./, "-3001.")}/api`;
   }
-  return "/api"; // Dev: use Vite proxy
+  return "/"; // Dev: use Vite proxy
 };
 const NODE_URL = getApiBaseUrl();
 
