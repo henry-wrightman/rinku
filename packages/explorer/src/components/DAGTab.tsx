@@ -4,15 +4,50 @@ import type { DAGNode, TransactionKind } from "../types";
 import { truncate, timeAgo } from "../utils";
 import { Pagination } from "./Pagination";
 
-const formatTxKind = (kind?: TransactionKind): { label: string; color: string } => {
+const getApiBaseUrl = () => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+
+  // If VITE_API_URL is set and not localhost, use it directly
+  if (
+    envApiUrl &&
+    !envApiUrl.includes("127.0.0.1") &&
+    !envApiUrl.includes("localhost")
+  ) {
+    console.log("Using VITE_API_URL:", envApiUrl);
+    return `${envApiUrl}/api`;
+  }
+
+  if (import.meta.env.PROD) {
+    // Production on Replit: transform port in hostname
+    const host = window.location.hostname;
+    console.log(
+      "prod api url (Replit)",
+      `https://${host.replace(/-5000\./, "-3001.")}/api`,
+    );
+    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+  }
+  return "/api"; // Dev: use Vite proxy
+};
+const NODE_URL = getApiBaseUrl();
+
+const formatTxKind = (
+  kind?: TransactionKind,
+): { label: string; color: string } => {
   switch (kind) {
-    case 'stake': return { label: 'stake', color: '#a3be8c' };
-    case 'unstake': return { label: 'unstake', color: '#ebcb8b' };
-    case 'claim_rewards': return { label: 'claim', color: '#b48ead' };
-    case 'contract': return { label: 'contract', color: '#88c0d0' };
-    case 'consolidation': return { label: 'consolidate', color: '#81a1c1' };
-    case 'reward': return { label: 'reward', color: '#b48ead' };
-    default: return { label: 'transfer', color: '#d8dee9' };
+    case "stake":
+      return { label: "stake", color: "#a3be8c" };
+    case "unstake":
+      return { label: "unstake", color: "#ebcb8b" };
+    case "claim_rewards":
+      return { label: "claim", color: "#b48ead" };
+    case "contract":
+      return { label: "contract", color: "#88c0d0" };
+    case "consolidation":
+      return { label: "consolidate", color: "#81a1c1" };
+    case "reward":
+      return { label: "reward", color: "#b48ead" };
+    default:
+      return { label: "transfer", color: "#d8dee9" };
   }
 };
 
@@ -47,7 +82,9 @@ export function DAGTab({
   onPageChange,
 }: DAGTabProps) {
   const [newHashes, setNewHashes] = useState<Set<string>>(new Set());
-  const [proofStates, setProofStates] = useState<Record<string, ProofState>>({});
+  const [proofStates, setProofStates] = useState<Record<string, ProofState>>(
+    {},
+  );
   const prevHashesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -69,31 +106,47 @@ export function DAGTab({
   }, [nodes]);
 
   const copyProofUrl = useCallback(async (hash: string) => {
-    setProofStates(prev => ({ ...prev, [hash]: { loading: true, copied: false } }));
-    
+    setProofStates((prev) => ({
+      ...prev,
+      [hash]: { loading: true, copied: false },
+    }));
+
     try {
-      const res = await fetch(`/api/tx/${hash}/proof`);
+      const res = await fetch(`${NODE_URL}/api/tx/${hash}/proof`);
       const data = await res.json();
-      
+
       if (data.proofUrl) {
         await navigator.clipboard.writeText(data.proofUrl);
-        setProofStates(prev => ({ ...prev, [hash]: { loading: false, copied: true } }));
-        setTimeout(() => {
-          setProofStates(prev => ({ ...prev, [hash]: { loading: false, copied: false } }));
-        }, 2000);
-      } else {
-        setProofStates(prev => ({ 
-          ...prev, 
-          [hash]: { loading: false, copied: false, error: data.error || "Not finalized" } 
+        setProofStates((prev) => ({
+          ...prev,
+          [hash]: { loading: false, copied: true },
         }));
         setTimeout(() => {
-          setProofStates(prev => ({ ...prev, [hash]: { loading: false, copied: false } }));
+          setProofStates((prev) => ({
+            ...prev,
+            [hash]: { loading: false, copied: false },
+          }));
+        }, 2000);
+      } else {
+        setProofStates((prev) => ({
+          ...prev,
+          [hash]: {
+            loading: false,
+            copied: false,
+            error: data.error || "Not finalized",
+          },
+        }));
+        setTimeout(() => {
+          setProofStates((prev) => ({
+            ...prev,
+            [hash]: { loading: false, copied: false },
+          }));
         }, 2000);
       }
     } catch {
-      setProofStates(prev => ({ 
-        ...prev, 
-        [hash]: { loading: false, copied: false, error: "Failed" } 
+      setProofStates((prev) => ({
+        ...prev,
+        [hash]: { loading: false, copied: false, error: "Failed" },
       }));
     }
   }, []);
@@ -121,13 +174,17 @@ export function DAGTab({
             )}
           </div>
           <div className="meta">
-            <span className="tx-kind-label" style={{ color: formatTxKind(node.kind).color }}>
+            <span
+              className="tx-kind-label"
+              style={{ color: formatTxKind(node.kind).color }}
+            >
               {formatTxKind(node.kind).label}
             </span>
             {" · "}
-            {node.from === "genesis" ? "genesis" : truncate(node.from, 6)} →{" "}
-            {truncate(node.to, 6)} · {timeAgo(node.ts)} · refs{" "}
-            {node.parentCount} parent(s) ·{" "}
+            {node.from === "genesis"
+              ? "genesis"
+              : truncate(node.from, 6)} → {truncate(node.to, 6)} ·{" "}
+            {timeAgo(node.ts)} · refs {node.parentCount} parent(s) ·{" "}
             <span style={{ color: node.finalized ? "#a3be8c" : "#ebcb8b" }}>
               {node.finalized ? "finalized" : "pending"}
             </span>
@@ -145,15 +202,21 @@ export function DAGTab({
             {node.finalized && (
               <span
                 className="link"
-                style={{ color: proofStates[node.hash]?.copied ? "#a3be8c" : proofStates[node.hash]?.error ? "#bf616a" : "#88c0d0" }}
+                style={{
+                  color: proofStates[node.hash]?.copied
+                    ? "#a3be8c"
+                    : proofStates[node.hash]?.error
+                      ? "#bf616a"
+                      : "#88c0d0",
+                }}
                 onClick={() => copyProofUrl(node.hash)}
               >
-                {proofStates[node.hash]?.loading 
-                  ? "..." 
-                  : proofStates[node.hash]?.copied 
-                    ? "proof copied!" 
-                    : proofStates[node.hash]?.error 
-                      ? proofStates[node.hash].error 
+                {proofStates[node.hash]?.loading
+                  ? "..."
+                  : proofStates[node.hash]?.copied
+                    ? "proof copied!"
+                    : proofStates[node.hash]?.error
+                      ? proofStates[node.hash].error
                       : "copy proof"}
               </span>
             )}
