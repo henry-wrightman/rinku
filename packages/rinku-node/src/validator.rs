@@ -90,6 +90,7 @@ impl ValidatorKeyManager {
         let encrypted = encrypt_private_key_hex(&keypair.private_key_hex(), password)
             .map_err(|e| ValidatorError::EncryptionFailed(e.to_string()))?;
         std::fs::write(&self.key_path, encrypted)?;
+        self.secure_key_permissions()?;
         Ok(())
     }
 
@@ -109,8 +110,24 @@ impl ValidatorKeyManager {
             let metadata = std::fs::metadata(&self.key_path)?;
             let mode = metadata.permissions().mode() & 0o777;
             if mode & 0o077 != 0 {
-                return Err(ValidatorError::InsecurePermissions);
+                // Attempt to fix permissions automatically
+                self.secure_key_permissions()?;
+                let metadata = std::fs::metadata(&self.key_path)?;
+                let mode = metadata.permissions().mode() & 0o777;
+                if mode & 0o077 != 0 {
+                    return Err(ValidatorError::InsecurePermissions);
+                }
             }
+        }
+        Ok(())
+    }
+
+    fn secure_key_permissions(&self) -> Result<(), ValidatorError> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(&self.key_path, permissions)?;
         }
         Ok(())
     }

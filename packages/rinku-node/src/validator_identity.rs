@@ -473,6 +473,42 @@ impl ValidatorIdentityService {
         }
         self.recalculate_total_stake();
     }
+
+    /// Seed genesis validators into the active set so quorum voting works
+    /// before any on-chain validator registry is established.
+    pub fn seed_genesis_validators(&mut self, validators: &[(String, Vec<u8>)]) {
+        let mut seeded = 0usize;
+        for (address, bls_public_key) in validators {
+            if self.state.active_validators.contains_key(address)
+                || self.state.pending_validators.contains_key(address)
+                || self.state.exiting_validators.contains_key(address)
+            {
+                continue;
+            }
+
+            let identity = ValidatorIdentity {
+                address: address.clone(),
+                bls_public_key_hex: hex::encode(bls_public_key),
+                bls_public_key: bls_public_key.clone(),
+                stake: MIN_VALIDATOR_STAKE,
+                status: ValidatorStatus::Active,
+                activation_epoch: self.state.current_epoch,
+                exit_epoch: None,
+                slashed: false,
+                effective_stake: MIN_VALIDATOR_STAKE,
+                missed_checkpoints: 0,
+                last_checkpoint_signed: 0,
+            };
+
+            self.state.active_validators.insert(address.clone(), identity);
+            seeded += 1;
+        }
+
+        if seeded > 0 {
+            self.recalculate_total_stake();
+            let _ = self.save_state();
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]

@@ -200,6 +200,7 @@ use crate::slashing::DoubleSignEvidence;
 use crate::state::{NodeState, SyncSnapshot};
 use crate::sync_verification::{build_account_merkle_root_sorted, verify_delta, VerificationResult};
 use crate::trust::TrustVerifier;
+use crate::validator_identity::MIN_VALIDATOR_STAKE;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -373,6 +374,13 @@ pub struct GossipStats {
 }
 
 #[derive(Clone)]
+pub struct CheckpointVoteSigner {
+    pub validator_address: String,
+    pub bls_private_key: Vec<u8>,
+    pub bls_public_key: Vec<u8>,
+}
+
+#[derive(Clone)]
 pub struct GossipService {
     state: NodeState,
     inner: Arc<RwLock<GossipServiceInner>>,
@@ -381,6 +389,7 @@ pub struct GossipService {
     trust_verifier: Arc<TrustVerifier>,
     sync_verify_strict: bool,
     http_client: reqwest::Client,
+    checkpoint_vote_signer: Option<CheckpointVoteSigner>,
     #[cfg(feature = "p2p")]
     network_handle: Option<Arc<tokio::sync::Mutex<NetworkHandle>>>,
 }
@@ -442,14 +451,19 @@ impl GossipService {
             trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
             sync_verify_strict,
             http_client,
+            checkpoint_vote_signer: None,
             #[cfg(feature = "p2p")]
             network_handle: None,
         }
     }
 
+    pub fn set_checkpoint_vote_signer(&mut self, signer: CheckpointVoteSigner) {
+        self.checkpoint_vote_signer = Some(signer);
+    }
+
     #[cfg(feature = "p2p")]
-    pub fn set_network_handle(&mut self, handle: NetworkHandle) {
-        self.network_handle = Some(Arc::new(tokio::sync::Mutex::new(handle)));
+    pub fn set_network_handle(&mut self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) {
+        self.network_handle = Some(handle);
     }
 
     pub async fn start(self) -> Result<()> {
@@ -526,7 +540,13 @@ impl GossipService {
 
     #[cfg(feature = "p2p")]
     async fn run_sync_request_handler(&self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) {
-        use crate::network::{SyncRequest, SyncResponse, SnapshotData, AccountData, ValidatorData, CheckpointData, TransactionData};
+        use crate::network::{
+            AccountData, CheckpointData, CheckpointVoteResponse, SnapshotData, SyncRequest,
+            SyncResponse, TransactionData, ValidatorData,
+        };
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+        use crate::bls::bls_sign;
         
         info!("P2P sync request handler started");
         loop {
@@ -599,6 +619,38 @@ impl GossipService {
                                 recent_txs: tx_data,
                                 merkle_root,
                             })
+                        }
+                        SyncRequest::CheckpointVote(request) => {
+                            if let Some(ref signer) = self.checkpoint_vote_signer {
+                                if signer.validator_address.is_empty() {
+                                    SyncResponse::CheckpointVote(None)
+                                } else {
+                                    match hex::decode(&request.checkpoint_hash) {
+                                        Ok(hash_bytes) => {
+                                            match bls_sign(&hash_bytes, &signer.bls_private_key) {
+                                                Ok(signature) => {
+                                                    let response = CheckpointVoteResponse {
+                                                        validator_address: signer.validator_address.clone(),
+                                                        signature: URL_SAFE_NO_PAD.encode(&signature),
+                                                        signature_bytes: signature,
+                                                        bls_public_key: URL_SAFE_NO_PAD.encode(&signer.bls_public_key),
+                                                        stake: MIN_VALIDATOR_STAKE,
+                                                    };
+                                                    SyncResponse::CheckpointVote(Some(response))
+                                                }
+                                                Err(e) => SyncResponse::Error {
+                                                    message: format!("Failed to sign checkpoint: {}", e),
+                                                },
+                                            }
+                                        }
+                                        Err(_) => SyncResponse::Error {
+                                            message: "Invalid checkpoint hash".to_string(),
+                                        },
+                                    }
+                                }
+                            } else {
+                                SyncResponse::CheckpointVote(None)
+                            }
                         }
                         _ => {
                             debug!("Unsupported sync request type from {}", incoming.peer_id);

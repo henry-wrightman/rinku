@@ -9,7 +9,7 @@ const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "1000");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
 const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "10"); // Increased from 30
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "50"); // Increased from 20
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "30"); // Increased from 20
 const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.6"); // Prefer batch (was 0.6)
 const CONTRACT_INTERVAL_MS = parseInt(
   process.env.CONTRACT_INTERVAL || "120000",
@@ -70,6 +70,20 @@ async function getFreshTips(): Promise<string[]> {
     // Use cached tips on error
   }
   return cachedTipUrls;
+}
+
+async function getTipParents(limit: number = 2): Promise<string[]> {
+  try {
+    const res = await fetchWithTimeout(`${NODE_URL}/api/tips`, {}, 3000);
+    if (res.ok) {
+      const data = (await res.json()) as { tips: string[] };
+      const tips = data.tips || [];
+      return tips.slice(0, limit).map((h) => `rinku://tx/h/${h}`);
+    }
+  } catch {
+    // fall back below
+  }
+  return (await getFreshTips()).slice(0, limit);
 }
 
 interface BotWallet {
@@ -651,13 +665,18 @@ async function doStaking(): Promise<void> {
 
     const stakeAmount = Math.floor(balance * 0.3);
 
-    const res = await fetchWithTimeout(`${NODE_URL}/api/staking/stake`, {
+    const parents = await getTipParents();
+    const signedTx = await staker.wallet.createSignedTransactionWithOptions({
+      to: staker.fingerprint,
+      amount: stakeAmount,
+      fee: currentGasPrice,
+      kind: "stake",
+      tipUrls: parents,
+    });
+    const res = await fetchWithTimeout(`${NODE_URL}/api/tx`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        address: staker.fingerprint,
-        amount: stakeAmount,
-      }),
+      body: JSON.stringify({ tx: signedTx }),
     });
 
     if (res.ok) {
@@ -704,28 +723,28 @@ async function claimRewards(): Promise<void> {
       `Rewards found: ${summary.pendingRewards.toFixed(4)} pending for ${claimer.fingerprint.slice(0, 16)}...`,
     );
 
-    const res = await fetchWithTimeout(
-      `${NODE_URL}/api/rewards/${claimer.fingerprint}/claim`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+    const parents = await getTipParents();
+    const signedTx = await claimer.wallet.createSignedTransactionWithOptions({
+      to: claimer.fingerprint,
+      amount: 0,
+      fee: currentGasPrice,
+      kind: "claim_rewards",
+      tipUrls: parents,
+    });
+    const res = await fetchWithTimeout(`${NODE_URL}/api/tx`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tx: signedTx }),
+    });
 
     if (res.ok) {
-      const result = (await res.json()) as {
-        success: boolean;
-        claimedAmount: number;
-      };
-      if (result.success) {
-        totalRewardsClaimed += result.claimedAmount || 0;
+      const result = (await res.json()) as { hash?: string };
+      if (result.hash) {
         log(
-          `Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... received ${result.claimedAmount} RKU`,
+          `Rewards claimed: ${claimer.fingerprint.slice(0, 16)}... tx=${result.hash.slice(0, 12)}...`,
         );
       } else {
-        log(
-          `Rewards claim returned success=false for ${claimer.fingerprint.slice(0, 16)}...`,
-        );
+        log(`Rewards claim submitted but no hash returned`);
       }
     } else {
       log(

@@ -238,6 +238,61 @@ get_bootstrap_info() {
     return 1
 }
 
+get_bootstrap_info_for_app() {
+    local app_name=$1
+    local app_url="https://${app_name}.fly.dev"
+    log_info "Fetching bootstrap info from ${app_name}..."
+    
+    local max_attempts=30
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        local response=$(curl -s "${app_url}/api/bootstrap" 2>/dev/null)
+        if [ -n "$response" ] && echo "$response" | grep -q '"peerId"'; then
+            echo "$response"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        log_info "Waiting for ${app_name} to be ready... (attempt $attempt/$max_attempts)"
+        sleep 10
+    done
+    
+    log_error "Failed to get bootstrap info from ${app_name}"
+    return 1
+}
+
+build_genesis_validators_env() {
+    local genesis_info
+    local v1_info
+    local v2_info
+    
+    genesis_info=$(get_bootstrap_info_for_app "$GENESIS_APP") || return 1
+    v1_info=$(get_bootstrap_info_for_app "$VALIDATOR1_APP") || return 1
+    v2_info=$(get_bootstrap_info_for_app "$VALIDATOR2_APP") || return 1
+    
+    local g_val=$(echo "$genesis_info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
+    local v1_val=$(echo "$v1_info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
+    local v2_val=$(echo "$v2_info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
+    
+    if [ -z "$g_val" ] || [ -z "$v1_val" ] || [ -z "$v2_val" ]; then
+        log_error "Failed to build GENESIS_VALIDATORS list (missing validator env values)"
+        return 1
+    fi
+    
+    echo "${g_val};${v1_val};${v2_val}"
+}
+
+apply_genesis_validators_secrets() {
+    local genesis_validators_env=$1
+    
+    log_info "Applying GENESIS_VALIDATORS to all nodes..."
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+        fly secrets set -a "$app" GENESIS_VALIDATORS="$genesis_validators_env"
+        fly secrets deploy -a "$app"
+    done
+    log_success "Applied GENESIS_VALIDATORS to all nodes"
+}
+
 configure_genesis() {
     local genesis_app=$1
     log_info "Configuring $genesis_app as genesis node..."
@@ -258,7 +313,7 @@ configure_validator() {
     local validator_app=$1
     local genesis_ip=$2
     local peer_id=$3
-    local genesis_validator=$4
+    local genesis_validators_env=$4
     
     log_info "Configuring $validator_app as validator..."
     
@@ -266,7 +321,7 @@ configure_validator() {
     
     fly secrets set -a "$validator_app" \
         P2P_BOOTSTRAP_PEERS="$bootstrap_peer" \
-        GENESIS_VALIDATORS="$genesis_validator" \
+        GENESIS_VALIDATORS="$genesis_validators_env" \
         IS_GENESIS_NODE="false" \
         MAINNET_MODE="true" \
         CHAIN_ID="$CHAIN_ID" \
@@ -457,13 +512,19 @@ deploy_fresh() {
     log_info "Genesis IP: $genesis_ip"
     log_info "Genesis Validator: $genesis_validator"
     
-    log_info "Step 8: Configuring validators..."
+    log_info "Step 8: Configuring validators (temporary GENESIS_VALIDATORS)..."
     configure_validator "$VALIDATOR1_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
     configure_validator "$VALIDATOR2_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
     
     log_info "Step 9: Deploying validators..."
     deploy_app "$VALIDATOR1_APP"
     deploy_app "$VALIDATOR2_APP"
+
+    log_info "Step 10: Building full GENESIS_VALIDATORS list..."
+    local genesis_validators_env
+    genesis_validators_env=$(build_genesis_validators_env)
+    log_info "GENESIS_VALIDATORS: ${genesis_validators_env}"
+    apply_genesis_validators_secrets "$genesis_validators_env"
     
     log_success "=== Fresh deployment complete! ==="
     echo ""

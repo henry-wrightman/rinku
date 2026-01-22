@@ -5,7 +5,8 @@ import {
   type Transaction,
   type SignedTransaction,
   type TransactionURL,
-  type KeyPair
+  type KeyPair,
+  type TransactionKind
 } from '@rinku/core';
 
 export interface CreateTransactionOptions {
@@ -14,6 +15,7 @@ export interface CreateTransactionOptions {
   nonce: number;
   tipUrls: string[];
   fee?: number;
+  kind?: TransactionKind;
 }
 
 const DEFAULT_FEE = 0.01;
@@ -30,7 +32,8 @@ export async function createTransaction(
     nonce: options.nonce,
     tipUrls: options.tipUrls,
     sig: '',
-    ts: Date.now()
+    ts: Date.now(),
+    kind: options.kind
   };
 
   const txHash = await hashTransaction(tx);

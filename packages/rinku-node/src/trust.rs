@@ -67,17 +67,17 @@ impl TrustVerifier {
             total_stake = 1.0;
         }
 
-        if checkpoint.validator_signatures.is_empty() {
-            if checkpoint.height == 0 || checkpoint.height == 1 {
-                return CheckpointVerificationResult {
-                    valid: true,
-                    verified_stake: total_stake,
-                    total_stake,
-                    quorum_reached: true,
-                    error: None,
-                };
-            }
+        if checkpoint.height == 0 || checkpoint.height == 1 {
+            return CheckpointVerificationResult {
+                valid: true,
+                verified_stake: total_stake,
+                total_stake,
+                quorum_reached: true,
+                error: None,
+            };
+        }
 
+        if checkpoint.validator_signatures.is_empty() {
             return CheckpointVerificationResult {
                 valid: false,
                 verified_stake: 0.0,
@@ -195,7 +195,7 @@ impl TrustVerifier {
 
         let mut verified_count = 0;
         for checkpoint in checkpoints {
-            if checkpoint.height <= 1 && checkpoint.validator_signatures.is_empty() {
+            if checkpoint.height <= 1 {
                 verified_count += 1;
                 continue;
             }
@@ -227,6 +227,14 @@ impl TrustVerifier {
 
     pub fn has_genesis_validators(&self) -> bool {
         !self.config.genesis_validators.is_empty()
+    }
+
+    pub fn genesis_validator_addresses(&self) -> Vec<String> {
+        self.config
+            .genesis_validators
+            .iter()
+            .map(|v| v.address.clone())
+            .collect()
     }
 }
 

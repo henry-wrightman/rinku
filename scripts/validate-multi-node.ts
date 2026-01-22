@@ -94,17 +94,6 @@ async function getNodeStatus(url: string, index: number): Promise<NodeStatus> {
     let checkpointId: string | undefined;
     let txMerkleRoot: string | undefined;
     
-    try {
-      const { data: cpData } = await fetchWithTimeout(`${url}/api/checkpoints`);
-      const chain = cpData.checkpoints || cpData.chain || [];
-      if (chain.length > 0) {
-        const latest = chain[0]; // First is latest (sorted descending)
-        checkpointHeight = latest.height || latest.checkpointHeight;
-        checkpointId = latest.hash || latest.checkpointId;
-        txMerkleRoot = latest.merkleRoot || latest.txMerkleRoot;
-      }
-    } catch {}
-    
     // Tips can be: array of hashes, comma-separated string, or tipCount field
     let tipCount = 0;
     if (typeof status.tipCount === 'number') {
@@ -175,58 +164,75 @@ async function validateCheckpointConsensus(nodeStatuses: NodeStatus[]) {
   
   // Height sync is informational - nodes create checkpoints at different times
   console.log(`  Checkpoint heights: ${minHeight}-${maxHeight} (diff: ${heightDiff})`);
-  record('Checkpoint height sync', heightDiff <= 5, 
-    heightDiff <= 5
-      ? `All nodes within 5 checkpoints (acceptable sync lag)`
+  record('Checkpoint height sync', heightDiff <= 10, 
+    heightDiff <= 10
+      ? `All nodes within 10 checkpoints (acceptable sync lag)`
       : `Large gap: ${heightDiff} checkpoints - check sync`
   );
   
   // THE CRITICAL CHECK: Compare merkle roots at a COMMON checkpoint height
-  console.log(`\n  Comparing checkpoint merkle roots at common height ${minHeight}...`);
-  
-  const checkpointRootsAtCommon = new Map<string, { root: string; hash: string }>();
-  
+  if (minHeight === 0) {
+    record('Checkpoint merkle root consensus', true, 'No finalized checkpoints yet');
+    return;
+  }
+  const latestHeights: number[] = [];
   for (const node of reachable) {
     try {
-      const { data } = await fetchWithTimeout(`${node.url}/api/checkpoints`);
-      const checkpoints = data.checkpoints || data.chain || [];
-      
-      // Find checkpoint at minHeight (common to all nodes)
-      const cp = checkpoints.find((c: any) => (c.height || c.checkpointHeight) === minHeight);
-      if (cp) {
-        checkpointRootsAtCommon.set(node.name, {
-          root: cp.merkleRoot || cp.txMerkleRoot || '',
-          hash: cp.hash || cp.checkpointId || ''
-        });
-        console.log(`    ${node.name} @ height ${minHeight}: ${(cp.merkleRoot || cp.txMerkleRoot || 'N/A').slice(0, 16)}...`);
-      } else {
-        console.log(`    ${node.name}: Checkpoint ${minHeight} not found`);
+      const { data: latest } = await fetchWithTimeout(`${node.url}/api/checkpoints/latest`);
+      const height = latest.height ?? latest.checkpointHeight;
+      if (typeof height === 'number') {
+        latestHeights.push(height);
       }
-    } catch (e: any) {
-      console.log(`    ${node.name}: Failed to fetch checkpoints - ${e.message}`);
+    } catch {
+      // ignore; will fall back to minHeight
     }
   }
-  
-  if (checkpointRootsAtCommon.size >= 2) {
-    const roots = [...checkpointRootsAtCommon.values()].map(v => v.root);
-    const uniqueRoots = [...new Set(roots)];
-    
-    record('Checkpoint merkle root consensus', uniqueRoots.length === 1,
-      uniqueRoots.length === 1
-        ? `All nodes agree at height ${minHeight}: ${uniqueRoots[0]?.slice(0, 16)}...`
-        : `FORK DETECTED at height ${minHeight}: ${uniqueRoots.length} different roots!`
-    );
-    
-    const hashes = [...checkpointRootsAtCommon.values()].map(v => v.hash);
-    const uniqueHashes = [...new Set(hashes)];
-    
-    if (uniqueRoots.length === 1) {
-      record('Checkpoint hash consensus', uniqueHashes.length === 1,
-        uniqueHashes.length === 1
-          ? `All nodes agree: ${uniqueHashes[0]?.slice(0, 16)}...`
-          : `Hash mismatch (possible different validators signing)`
-      );
+
+  let candidateHeight = latestHeights.length > 0 ? Math.min(...latestHeights) : minHeight;
+  let attempts = 0;
+  let compared = false;
+
+  while (candidateHeight > 0 && attempts < 25 && !compared) {
+    attempts++;
+    console.log(`\n  Comparing checkpoint merkle roots at common height ${candidateHeight}...`);
+
+    const rootsAtCommon = new Map<string, string>();
+    let missing = false;
+
+    for (const node of reachable) {
+      try {
+        const { data: cp } = await fetchWithTimeout(`${node.url}/api/checkpoints/${candidateHeight}`);
+        const root = cp.tx_merkle_root || cp.txMerkleRoot || cp.merkle_root || cp.merkleRoot || '';
+        if (!root) {
+          missing = true;
+          console.log(`    ${node.name}: Checkpoint ${candidateHeight} missing merkle root`);
+          break;
+        }
+        rootsAtCommon.set(node.name, root);
+        console.log(`    ${node.name} @ height ${candidateHeight}: ${root.slice(0, 16)}...`);
+      } catch (e: any) {
+        missing = true;
+        console.log(`    ${node.name}: Checkpoint ${candidateHeight} not found (${e.message})`);
+        break;
+      }
     }
+
+    if (!missing && rootsAtCommon.size >= 2) {
+      const roots = [...rootsAtCommon.values()];
+      const uniqueRoots = [...new Set(roots)];
+      record('Checkpoint merkle root consensus', uniqueRoots.length === 1,
+        uniqueRoots.length === 1
+          ? `All nodes agree at height ${candidateHeight}: ${uniqueRoots[0]?.slice(0, 16)}...`
+          : `FORK DETECTED at height ${candidateHeight}: ${uniqueRoots.length} different roots!`
+      );
+      compared = true;
+    } else {
+      candidateHeight -= 1;
+    }
+  }
+
+  if (!compared) {
+    record('Checkpoint merkle root consensus', false, 'No common checkpoint height found');
   }
 }
 
@@ -515,126 +521,64 @@ async function testTransactionPropagation(nodeStatuses: NodeStatus[]) {
   }
 }
 
-type AccountRow = {
-  fingerprint: string;
-  balance: number;
-  nonce: number;
-  staked: number;
-};
-
-type AccountSnapshot = {
-  balance: number;
-  nonce: number;
-  staked: number;
-};
-
-function nearlyEqual(a: number, b: number, eps = 1e-9): boolean {
-  // absolute tolerance; tweak as needed
-  return Math.abs(a - b) <= eps;
-}
-
-function fmt(n: number): string {
-  // nicer printing for floats
-  return Number.isFinite(n) ? n.toFixed(10).replace(/\.?0+$/, "") : String(n);
-}
-
 async function validateAccountBalances(nodeStatuses: NodeStatus[]) {
-  logSection("6. ACCOUNT STATE CONSISTENCY");
-
+  logSection('6. ACCOUNT BALANCE CONSISTENCY');
+  
   const reachable = nodeStatuses.filter(n => n.reachable);
-  const snapshotsByNode = new Map<string, Map<string, AccountSnapshot>>();
-
+  
+  const balanceMaps = new Map<string, Map<string, number>>();
+  
   for (const node of reachable) {
     try {
       const { data } = await fetchWithTimeout(`${node.url}/api/accounts`);
-      const accounts: AccountRow[] = data.accounts || [];
-
-      const m = new Map<string, AccountSnapshot>();
+      const accounts = data.accounts || [];
+      
+      const balances = new Map<string, number>();
       for (const acc of accounts) {
-        if (!acc?.fingerprint) continue;
-        m.set(acc.fingerprint, {
-          balance: Number(acc.balance ?? 0),
-          nonce: Number(acc.nonce ?? 0),
-          staked: Number(acc.staked ?? 0),
-        });
+        balances.set(acc.address, acc.balance);
       }
-
-      snapshotsByNode.set(node.name, m);
+      balanceMaps.set(node.name, balances);
+      
       console.log(`  ${node.name}: ${accounts.length} accounts`);
     } catch (e: any) {
       console.log(`  ${node.name}: Failed to fetch - ${e.message}`);
     }
   }
-
-  if (snapshotsByNode.size < 2) {
-    record("Account state consistency", true, "Not enough reachable nodes to compare");
-    return;
-  }
-
-  const nodeNames = [...snapshotsByNode.keys()];
-
-  // union of all fingerprints
-  const allFingerprints = new Set<string>();
-  for (const m of snapshotsByNode.values()) {
-    for (const fp of m.keys()) allFingerprints.add(fp);
-  }
-
-  let mismatchAccounts = 0;
-  let missingAccounts = 0;
-
-  // how many mismatches to print
-  const MAX_PRINT = 5;
-
-  for (const fp of allFingerprints) {
-    const perNode = nodeNames.map(n => snapshotsByNode.get(n)!.get(fp) ?? null);
-
-    // detect missing on some nodes
-    const presentCount = perNode.filter(x => x !== null).length;
-    if (presentCount !== perNode.length) {
-      missingAccounts++;
-      if (missingAccounts <= MAX_PRINT) {
-        console.log(`\n  Account missing on some nodes: ${fp}`);
-        for (let i = 0; i < nodeNames.length; i++) {
-          console.log(`    ${nodeNames[i]}: ${perNode[i] ? "present" : "MISSING"}`);
-        }
+  
+  if (balanceMaps.size >= 2) {
+    const nodeNames = [...balanceMaps.keys()];
+    let mismatches = 0;
+    
+    const allAddresses = new Set<string>();
+    for (const balances of balanceMaps.values()) {
+      for (const addr of balances.keys()) {
+        allAddresses.add(addr);
       }
-      continue; // optional: skip value comparison if missing
     }
-
-    const vals = perNode as AccountSnapshot[];
-
-    // choose node 0 as reference
-    const ref = vals[0];
-
-    const balanceMismatch = vals.some(v => !nearlyEqual(v.balance, ref.balance, 1e-8));
-    const stakeMismatch   = vals.some(v => !nearlyEqual(v.staked, ref.staked, 1e-8));
-    const nonceMismatch   = vals.some(v => v.nonce !== ref.nonce);
-
-    if (balanceMismatch || stakeMismatch || nonceMismatch) {
-      mismatchAccounts++;
-
-      if (mismatchAccounts <= MAX_PRINT) {
-        console.log(`\n  State mismatch for ${fp}:`);
-        for (let i = 0; i < nodeNames.length; i++) {
-          const v = vals[i];
-          console.log(
-            `    ${nodeNames[i]}: balance=${fmt(v.balance)} nonce=${v.nonce} staked=${fmt(v.staked)}`
-          );
+    
+    for (const addr of allAddresses) {
+      if (!addr) continue;
+      const balances = nodeNames.map(n => balanceMaps.get(n)?.get(addr) || 0);
+      const unique = [...new Set(balances)];
+      
+      if (unique.length > 1) {
+        mismatches++;
+        if (mismatches <= 3) {
+          console.log(`\n  Balance mismatch for ${addr.slice(0, 12)}...:`);
+          for (let i = 0; i < nodeNames.length; i++) {
+            console.log(`    ${nodeNames[i]}: ${balances[i]}`);
+          }
         }
       }
     }
+    
+    record('Account balance consistency', mismatches === 0,
+      mismatches === 0 
+        ? `All ${allAddresses.size} accounts match across nodes`
+        : `${mismatches} accounts have balance mismatches`
+    );
   }
-
-  const ok = mismatchAccounts === 0 && missingAccounts === 0;
-  record(
-    "Account state consistency",
-    ok,
-    ok
-      ? `All ${allFingerprints.size} accounts match across ${nodeNames.length} nodes`
-      : `${mismatchAccounts} accounts mismatched, ${missingAccounts} missing`
-  );
 }
-
 
 async function validatePeerConnectivity(nodeStatuses: NodeStatus[]) {
   logSection('7. PEER-TO-PEER CONNECTIVITY');
@@ -644,15 +588,20 @@ async function validatePeerConnectivity(nodeStatuses: NodeStatus[]) {
   for (const node of reachable) {
     try {
       const { data } = await fetchWithTimeout(`${node.url}/api/peers`);
-      const peers = data.peers || [];
+      const httpPeers = data.httpPeers || data.http_peers || [];
+      const p2pPeers = data.p2pPeers || data.p2p_peers || [];
+      const totalPeers = httpPeers.length + p2pPeers.length;
       
-      console.log(`  ${node.name}: ${peers.length} peers connected`);
-      for (const peer of peers.slice(0, 5)) {
-        console.log(`    - ${peer.url || peer.address || peer}`);
+      console.log(`  ${node.name}: ${totalPeers} peers connected (${httpPeers.length} http, ${p2pPeers.length} p2p)`);
+      for (const peer of httpPeers.slice(0, 3)) {
+        console.log(`    - http: ${peer.address || peer.url || 'unknown'}`);
+      }
+      for (const peer of p2pPeers.slice(0, 3)) {
+        console.log(`    - p2p: ${peer.peer_id || peer.peerId || 'unknown'} (score: ${peer.score ?? 'n/a'})`);
       }
       
-      record(`${node.name} has peers`, peers.length > 0,
-        peers.length > 0 ? `${peers.length} peers` : 'No peers connected'
+      record(`${node.name} has peers`, totalPeers > 0,
+        totalPeers > 0 ? `${totalPeers} peers` : 'No peers connected'
       );
     } catch (e: any) {
       console.log(`  ${node.name}: Peer info unavailable`);

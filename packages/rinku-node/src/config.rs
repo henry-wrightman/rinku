@@ -1,5 +1,7 @@
 use rinku_core::types::{GasConfig, TokenomicsConfig};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::env;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
 pub struct GenesisValidator {
@@ -224,11 +226,36 @@ impl TrustConfig {
             for entry in genesis_data.split(';') {
                 let parts: Vec<&str> = entry.split(':').collect();
                 if parts.len() == 2 {
-                    if let Ok(pubkey_bytes) = hex::decode(parts[1]) {
+                    let mut decoded_from = None;
+                    let pubkey_bytes = URL_SAFE_NO_PAD.decode(parts[1])
+                        .ok()
+                        .map(|b| {
+                            decoded_from = Some("base64url");
+                            b
+                        })
+                        .or_else(|| {
+                            hex::decode(parts[1]).ok().map(|b| {
+                                decoded_from = Some("hex");
+                                b
+                            })
+                        });
+                    if let Some(pubkey_bytes) = pubkey_bytes {
+                        if let Some(source) = decoded_from {
+                            info!(
+                                "Parsed GENESIS_VALIDATORS entry for {}... (format={})",
+                                &parts[0][..16.min(parts[0].len())],
+                                source
+                            );
+                        }
                         genesis_validators.push(GenesisValidator {
                             address: parts[0].to_string(),
                             bls_public_key: pubkey_bytes,
                         });
+                    } else {
+                        warn!(
+                            "Failed to parse GENESIS_VALIDATORS entry for {}... (expected base64url or hex)",
+                            &parts[0][..16.min(parts[0].len())]
+                        );
                     }
                 }
             }

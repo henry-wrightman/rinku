@@ -5,6 +5,7 @@ use rinku_core::{
     types::{Checkpoint, ValidatorSignature},
 };
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn, debug};
@@ -41,7 +42,7 @@ pub struct CheckpointService {
     consensus_service: Option<Arc<RwLock<ConsensusService>>>,
     slashing_service: Option<Arc<RwLock<SlashingService>>>,
     #[cfg(feature = "p2p")]
-    network_handle: Option<Arc<NetworkHandle>>,
+    network_handle: Option<Arc<tokio::sync::Mutex<NetworkHandle>>>,
     /// Our validator's stake (for quorum calculation)
     our_stake: f64,
     /// Leader election service for checkpoint creation
@@ -110,7 +111,7 @@ impl CheckpointService {
     
     /// Set the P2P network handle for requesting checkpoint votes from peers
     #[cfg(feature = "p2p")]
-    pub fn with_network_handle(mut self, handle: Arc<NetworkHandle>) -> Self {
+    pub fn with_network_handle(mut self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) -> Self {
         self.network_handle = Some(handle);
         self
     }
@@ -146,6 +147,24 @@ impl CheckpointService {
 
     pub fn bls_public_key_base64(&self) -> String {
         URL_SAFE_NO_PAD.encode(&self.bls_public_key)
+    }
+
+    pub fn with_bls_keypair(mut self, private_key: Vec<u8>, public_key: Vec<u8>) -> Self {
+        self.bls_private_key = private_key;
+        self.bls_public_key = public_key;
+        self
+    }
+
+    pub fn bls_public_key_bytes(&self) -> Vec<u8> {
+        self.bls_public_key.clone()
+    }
+
+    pub fn bls_private_key_bytes(&self) -> Vec<u8> {
+        self.bls_private_key.clone()
+    }
+
+    pub fn validator_address(&self) -> String {
+        self.validator_address.clone()
     }
 
     pub async fn start(mut self) -> Result<()> {
@@ -1042,7 +1061,21 @@ impl CheckpointService {
             self.our_stake
         };
         let quorum_stake_needed = total_network_stake * QUORUM_STAKE_THRESHOLD;
-        let quorum_reached = total_stake >= quorum_stake_needed && all_signatures.len() > 1;
+        let mut quorum_reached = total_stake >= quorum_stake_needed && all_signatures.len() > 1;
+        if !quorum_reached && self.trust_verifier.has_genesis_validators() {
+            let genesis_addrs = self.trust_verifier.genesis_validator_addresses();
+            let signed: HashSet<String> = all_signatures
+                .iter()
+                .map(|s| s.validator.clone())
+                .collect();
+            if genesis_addrs.iter().all(|addr| signed.contains(addr)) {
+                info!(
+                    "All genesis validators signed checkpoint {} - overriding quorum stake check",
+                    height
+                );
+                quorum_reached = true;
+            }
+        }
         
         if !quorum_reached && self.mainnet_mode {
             warn!(
@@ -1239,7 +1272,10 @@ impl CheckpointService {
             let start_time = std::time::Instant::now();
             
             // Get connected peer IDs
-            let peer_ids = network.get_connected_peer_ids().await;
+            let peer_ids = {
+                let locked = network.lock().await;
+                locked.get_connected_peer_ids().await
+            };
             debug!("Requesting checkpoint votes from {} connected peers", peer_ids.len());
             
             for peer_id in peer_ids {
@@ -1296,7 +1332,7 @@ impl CheckpointService {
     #[cfg(feature = "p2p")]
     async fn request_checkpoint_vote_p2p(
         &self,
-        network: &NetworkHandle,
+        network: &Arc<tokio::sync::Mutex<NetworkHandle>>,
         peer_id: &str,
         checkpoint_hash_hex: &str,
         height: u64,
@@ -1311,7 +1347,11 @@ impl CheckpointService {
             state_root: state_root.to_string(),
         });
         
-        match network.sync_request(peer_id, request).await {
+        let response = {
+            let locked = network.lock().await;
+            locked.sync_request(peer_id, request).await
+        };
+        match response {
             Ok(SyncResponse::CheckpointVote(Some(vote))) => {
                 // SECURITY: Validate the validator against our local registry
                 let (verified_pk, verified_stake) = if let Some(ref identity) = self.validator_identity {

@@ -41,7 +41,7 @@ use config::NodeConfig;
 use emission::EmissionService;
 use fork_remediation::ForkRemediationService;
 use gas::{GasConfig, GasService};
-use gossip::GossipService;
+use gossip::{CheckpointVoteSigner, GossipService};
 #[cfg(feature = "p2p")]
 use network::{HandshakeConfig, NetworkConfig, NetworkService};
 use rewards::{RewardConfig, RewardsService};
@@ -99,7 +99,16 @@ async fn main() -> Result<()> {
         let allow_untrusted_genesis = std::env::var("ALLOW_UNTRUSTED_GENESIS")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
-        if config.trust.genesis_validators.is_empty() && config.trust.trust_checkpoint_hash.is_none() {
+        let has_genesis_validators = !config.trust.genesis_validators.is_empty();
+        let has_trust_checkpoint = config.trust.trust_checkpoint_hash.is_some();
+        info!(
+            "MAINNET_MODE checks: is_genesis_node={}, allow_untrusted_genesis={}, genesis_validators={}, trusted_checkpoint={}",
+            config.is_genesis_node,
+            allow_untrusted_genesis,
+            config.trust.genesis_validators.len(),
+            has_trust_checkpoint
+        );
+        if !has_genesis_validators && !has_trust_checkpoint {
             if config.is_genesis_node && allow_untrusted_genesis {
                 warn!("MAINNET_MODE: allowing untrusted genesis bootstrap (ALLOW_UNTRUSTED_GENESIS=true)");
             } else {
@@ -244,7 +253,24 @@ async fn main() -> Result<()> {
         }
     };
 
-    let checkpoint_service = CheckpointService::new(
+    if let Some(ref vi) = validator_identity {
+        if !config.trust.genesis_validators.is_empty() {
+            let genesis_seed: Vec<(String, Vec<u8>)> = config
+                .trust
+                .genesis_validators
+                .iter()
+                .map(|v| (v.address.clone(), v.bls_public_key.clone()))
+                .collect();
+            let mut vi_guard = vi.write().await;
+            vi_guard.seed_genesis_validators(&genesis_seed);
+            info!(
+                "Seeded {} genesis validator(s) into validator registry",
+                genesis_seed.len()
+            );
+        }
+    }
+
+    let mut checkpoint_service = CheckpointService::new(
         state.clone(),
         config.checkpoint_interval_ms,
         validator_address.clone(),
@@ -254,10 +280,21 @@ async fn main() -> Result<()> {
     )
     .with_local_url(config.public_url.clone());
     
-    let checkpoint_service = if let Some(ref vi) = validator_identity {
-        checkpoint_service.with_validator_identity(vi.clone())
-    } else {
-        checkpoint_service
+    if let Some(ref vi) = validator_identity {
+        let vi_guard = vi.read().await;
+        if let (Some(private_key), Some(public_key)) = (
+            vi_guard.local_bls_private_key().map(|k| k.to_vec()),
+            vi_guard.local_bls_public_key().map(|k| k.to_vec()),
+        ) {
+            checkpoint_service = checkpoint_service.with_bls_keypair(private_key, public_key);
+            info!("Loaded persistent BLS keypair from validator identity service");
+        }
+        checkpoint_service = checkpoint_service.with_validator_identity(vi.clone());
+    }
+    let checkpoint_vote_signer = CheckpointVoteSigner {
+        validator_address: checkpoint_service.validator_address(),
+        bls_private_key: checkpoint_service.bls_private_key_bytes(),
+        bls_public_key: checkpoint_service.bls_public_key_bytes(),
     };
     
     if config.public_url.is_some() {
@@ -271,15 +308,6 @@ async fn main() -> Result<()> {
         &bls_public_key[..32]
     );
     state.set_validator_info(validator_address.clone(), Some(bls_public_key)).await;
-    let checkpoint_handle = tokio::spawn(async move {
-        if let Err(e) = checkpoint_service.start().await {
-            tracing::error!("Checkpoint service error: {}", e);
-        }
-    });
-    info!(
-        "Checkpoint service started ({}ms interval)",
-        config.checkpoint_interval_ms
-    );
 
     let fork_service = ForkRemediationService::new(state.clone());
     let fork_handle = tokio::spawn(async move {
@@ -301,6 +329,7 @@ async fn main() -> Result<()> {
         
         match NetworkService::new(network_config) {
             Ok((mut network_service, handle)) => {
+                let shared_handle = Arc::new(tokio::sync::Mutex::new(handle));
                 let mut handshake_config = HandshakeConfig::default();
                 handshake_config.chain_id = config.chain_id.clone();
                 handshake_config.network_id = config.network_id.clone();
@@ -330,7 +359,7 @@ async fn main() -> Result<()> {
                     }
                 });
                 
-                Some(handle)
+                Some(shared_handle)
             }
             Err(e) => {
                 warn!("Failed to start P2P network: {}", e);
@@ -342,6 +371,21 @@ async fn main() -> Result<()> {
         None
     };
 
+    #[cfg(feature = "p2p")]
+    if let Some(ref handle) = network_handle {
+        checkpoint_service = checkpoint_service.with_network_handle(handle.clone());
+    }
+
+    let checkpoint_handle = tokio::spawn(async move {
+        if let Err(e) = checkpoint_service.start().await {
+            tracing::error!("Checkpoint service error: {}", e);
+        }
+    });
+    info!(
+        "Checkpoint service started ({}ms interval)",
+        config.checkpoint_interval_ms
+    );
+
     // Create GossipService - shared between background task and API
     let gossip_service = if config.gossip_enabled {
         let mut service = GossipService::new(
@@ -351,11 +395,12 @@ async fn main() -> Result<()> {
             config.trust.clone(),
             config.sync_verify_strict,
         );
+        service.set_checkpoint_vote_signer(checkpoint_vote_signer.clone());
         
         // Wire up the libp2p network handle if available
         #[cfg(feature = "p2p")]
-        if let Some(handle) = network_handle {
-            service.set_network_handle(handle);
+        if let Some(ref handle) = network_handle {
+            service.set_network_handle(handle.clone());
             info!("GossipService connected to libp2p network");
         }
         

@@ -20,7 +20,7 @@ use crate::rewards::RewardsService;
 use crate::slashing::SlashingService;
 
 #[cfg(feature = "p2p")]
-use crate::network::{SyncRequest, SyncResponse, SnapshotData};
+use crate::network::{PeerHandshake, SyncRequest, SyncResponse, SnapshotData};
 
 /// Try to fetch a snapshot from configured P2P bootstrap peers before creating genesis
 /// This ensures non-genesis nodes sync from the network instead of creating their own chain
@@ -84,7 +84,7 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
         Multiaddr, PeerId, StreamProtocol,
     };
     use libp2p::futures::StreamExt;
-    use std::time::Duration;
+    use std::{env, time::Duration};
     
     // Parse bootstrap peers - peer ID is now OPTIONAL (allows connecting without knowing peer ID)
     let mut targets: Vec<(Option<PeerId>, Multiaddr)> = Vec::new();
@@ -172,8 +172,10 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
         let timeout = tokio::time::sleep(Duration::from_secs(15));
         tokio::pin!(timeout);
         
-        let mut connected_peer_id: Option<PeerId> = None;
-        let mut request_sent = false;
+    let mut connected_peer_id: Option<PeerId> = None;
+    let mut handshake_sent = false;
+    let mut handshake_complete = false;
+    let mut snapshot_requested = false;
         
         loop {
             tokio::select! {
@@ -194,10 +196,21 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
                             if should_accept {
                                 info!("PRE-SYNC: Connected to {} (discovered)", actual_peer);
                                 connected_peer_id = Some(actual_peer);
-                                // Send snapshot request
-                                swarm.behaviour_mut().send_request(&actual_peer, SyncRequest::Snapshot);
-                                request_sent = true;
-                                info!("PRE-SYNC: Sent snapshot request to {}", actual_peer);
+                                // Send handshake first to satisfy mainnet-mode requirements
+                                let chain_id = env::var("CHAIN_ID").unwrap_or_else(|_| "rinku-mainnet".to_string());
+                                let network_id = env::var("NETWORK_ID").unwrap_or_else(|_| "mainnet".to_string());
+                                let handshake = PeerHandshake {
+                                    protocol_version: "1.0.0".to_string(),
+                                    chain_id,
+                                    network_id,
+                                    node_id: local_peer_id.to_string(),
+                                    checkpoint_height: 0,
+                                    validator_address: None,
+                                    capabilities: vec!["sync".to_string()],
+                                };
+                                swarm.behaviour_mut().send_request(&actual_peer, SyncRequest::Handshake(handshake));
+                                handshake_sent = true;
+                                info!("PRE-SYNC: Sent handshake to {}", actual_peer);
                             } else if let Some(ref expected) = expected_peer_id {
                                 warn!("PRE-SYNC: Connected to unexpected peer {} (expected {})", actual_peer, expected);
                             }
@@ -206,19 +219,39 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
                             message: request_response::Message::Response { response, .. },
                             ..
                         }) => {
-                            if let SyncResponse::Snapshot(snapshot_data) = response {
-                                info!(
-                                    "PRE-SYNC: Received snapshot: {} accounts, {} checkpoints, {} txs",
-                                    snapshot_data.accounts.len(),
-                                    snapshot_data.checkpoints.len(),
-                                    snapshot_data.recent_txs.len()
-                                );
-                                
-                                // Convert SnapshotData to SyncSnapshot
-                                let sync_snapshot = convert_snapshot_data_to_sync_snapshot(snapshot_data);
-                                return Some(sync_snapshot);
-                            } else {
-                                warn!("PRE-SYNC: Unexpected response type from peer");
+                            match response {
+                                SyncResponse::Handshake(_) => {
+                                    handshake_complete = true;
+                                    if let Some(actual_peer) = connected_peer_id {
+                                        if !snapshot_requested {
+                                            swarm.behaviour_mut().send_request(&actual_peer, SyncRequest::Snapshot);
+                                            snapshot_requested = true;
+                                            info!("PRE-SYNC: Handshake OK, sent snapshot request to {}", actual_peer);
+                                        }
+                                    }
+                                }
+                                SyncResponse::Snapshot(snapshot_data) => {
+                                    info!(
+                                        "PRE-SYNC: Received snapshot: {} accounts, {} checkpoints, {} txs",
+                                        snapshot_data.accounts.len(),
+                                        snapshot_data.checkpoints.len(),
+                                        snapshot_data.recent_txs.len()
+                                    );
+                                    
+                                    // Convert SnapshotData to SyncSnapshot
+                                    let sync_snapshot = convert_snapshot_data_to_sync_snapshot(snapshot_data);
+                                    return Some(sync_snapshot);
+                                }
+                                SyncResponse::Error { message } => {
+                                    warn!("PRE-SYNC: Peer returned error response: {}", message);
+                                }
+                                _ => {
+                                    if handshake_sent && !handshake_complete {
+                                        warn!("PRE-SYNC: Unexpected response before handshake completed");
+                                    } else {
+                                        warn!("PRE-SYNC: Unexpected response type from peer");
+                                    }
+                                }
                             }
                         }
                         SwarmEvent::OutgoingConnectionError { peer_id: failed_for, error, .. } => {
@@ -229,7 +262,7 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
                             }
                         }
                         SwarmEvent::ConnectionClosed { peer_id: closed_peer, .. } => {
-                            if Some(closed_peer) == connected_peer_id && request_sent {
+                            if Some(closed_peer) == connected_peer_id && (handshake_sent || snapshot_requested) {
                                 warn!("PRE-SYNC: Connection closed before response from {}", closed_peer);
                                 break;
                             }

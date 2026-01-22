@@ -4,7 +4,7 @@ import {
   createAndSignTransaction,
   createURL,
 } from "./tx.js";
-import type { KeyPair, SignedTransaction, AccountState } from "@rinku/core";
+import type { KeyPair, SignedTransaction, AccountState, TransactionKind } from "@rinku/core";
 
 export interface WalletState {
   fingerprint: string;
@@ -152,33 +152,50 @@ export class Wallet {
     amount: number,
     fee?: number,
   ): Promise<SignedTransaction> {
+    return this.createSignedTransactionWithOptions({
+      to,
+      amount,
+      fee,
+    });
+  }
+
+  async createSignedTransactionWithOptions(options: {
+    to: string;
+    amount: number;
+    fee?: number;
+    kind?: TransactionKind;
+    tipUrls?: string[];
+  }): Promise<SignedTransaction> {
     await this.refresh();
 
     if (!this.state) {
       throw new Error("Wallet not initialized");
     }
 
-    const actualFee = fee ?? 0.01;
-    if (this.state.balance < amount + actualFee) {
+    const actualFee = options.fee ?? 0.01;
+    if (this.state.balance < options.amount + actualFee) {
       throw new Error("Insufficient balance for amount + fee");
     }
 
-    const tipsResponse = await fetch(`${this.nodeUrl}/api/tipUrls`);
-    const tipsData = (await tipsResponse.json()) as { tipUrls: string[] };
-    let tipUrls = tipsData.tipUrls.slice(0, 5);
-
-    if (tipUrls.length === 0) {
+    let tipUrls = options.tipUrls;
+    if (!tipUrls) {
+      const tipsResponse = await fetch(`${this.nodeUrl}/api/tipUrls`);
+      const tipsData = (await tipsResponse.json()) as { tipUrls: string[] };
+      tipUrls = tipsData.tipUrls.slice(0, 5);
+    }
+    if (!tipUrls || tipUrls.length === 0) {
       tipUrls = [];
     }
 
     const { tx } = await createAndSignTransaction(
       this.keyManager.getKeyPair(),
       {
-        to,
-        amount,
+        to: options.to,
+        amount: options.amount,
         fee: actualFee,
         nonce: this.state.nonce,
         tipUrls,
+        kind: options.kind,
       },
     );
 
