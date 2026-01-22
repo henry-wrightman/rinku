@@ -384,6 +384,7 @@ struct SyncTxQuery {
 struct SyncDeltaResponse {
     transactions: Vec<rinku_core::types::SignedTransaction>,
     account_nonces: std::collections::HashMap<String, u64>,
+    account_states: std::collections::HashMap<String, rinku_core::types::Account>,
     total: usize,
     offset: usize,
     limit: usize,
@@ -684,6 +685,7 @@ struct MergeAccountsRequest {
 struct MergeAccountsResponse {
     added: usize,
     updated: usize,
+    balance_fixed: usize,
     total: usize,
 }
 
@@ -693,12 +695,13 @@ async fn post_merge_accounts(
 ) -> Json<MergeAccountsResponse> {
     info!("Merge accounts request: {} accounts from peer", req.accounts.len());
     
-    let (added, updated) = state.merge_accounts_from_peer(req.accounts).await;
+    let (added, updated, balance_fixed) = state.merge_accounts_from_peer(req.accounts).await;
     let total = state.get_account_count().await;
     
     Json(MergeAccountsResponse {
         added,
         updated,
+        balance_fixed,
         total,
     })
 }
@@ -766,21 +769,33 @@ async fn get_sync_transactions(
     let returned = transactions.len();
     let has_more = offset + returned < total;
     
-    // Collect current nonces for all unique senders in these transactions
+    // Collect current nonces for all unique senders in these transactions (backwards compat)
     let mut account_nonces = std::collections::HashMap::new();
+    // Collect FULL account states for authoritative sync (balance + stake + nonce)
+    let mut account_states = std::collections::HashMap::new();
+    
+    // Get all accounts involved in these transactions (both senders and receivers)
+    let mut involved_addresses: std::collections::HashSet<String> = std::collections::HashSet::new();
     for tx in &transactions {
-        if !account_nonces.contains_key(&tx.tx.from) {
-            let nonce = state.get_account_nonce(&tx.tx.from).await;
-            account_nonces.insert(tx.tx.from.clone(), nonce);
+        involved_addresses.insert(tx.tx.from.clone());
+        involved_addresses.insert(tx.tx.to.clone());
+    }
+    
+    // Fetch full account state for each involved address
+    for address in involved_addresses {
+        if let Some(account) = state.get_account(&address).await {
+            account_nonces.insert(address.clone(), account.nonce);
+            account_states.insert(address, account);
         }
     }
     
-    info!("Returning {} of {} transactions with {} account nonces (offset={}, has_more={})", 
-          returned, total, account_nonces.len(), offset, has_more);
+    info!("Returning {} of {} transactions with {} account states (offset={}, has_more={})", 
+          returned, total, account_states.len(), offset, has_more);
     
     Json(SyncDeltaResponse {
         transactions,
         account_nonces,
+        account_states,
         total,
         offset,
         limit,

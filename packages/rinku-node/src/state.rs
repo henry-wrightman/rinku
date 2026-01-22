@@ -1264,20 +1264,38 @@ impl NodeState {
     }
 
     /// Merge accounts pushed from a peer.
-    /// Adds new accounts and updates existing ones if peer has higher nonce.
-    /// Returns (accounts_added, accounts_updated)
-    pub async fn merge_accounts_from_peer(&self, accounts: HashMap<String, Account>) -> (usize, usize) {
+    /// AUTHORITATIVE MERGE: Updates accounts when peer has higher/equal nonce
+    /// This fixes balance divergence where nonces match but balances differ
+    /// Returns (accounts_added, accounts_updated, accounts_balance_fixed)
+    pub async fn merge_accounts_from_peer(&self, accounts: HashMap<String, Account>) -> (usize, usize, usize) {
         let mut state = self.inner.write().await;
         let mut added = 0;
         let mut updated = 0;
+        let mut balance_fixed = 0;
         
         for (fingerprint, peer_account) in accounts {
             if let Some(local_account) = state.accounts.get_mut(&fingerprint) {
-                // Account exists locally - update if peer has higher nonce
+                // Account exists locally - AUTHORITATIVE SYNC
                 if peer_account.nonce > local_account.nonce {
+                    // Peer has more transactions - take their state
                     *local_account = peer_account;
                     updated += 1;
+                } else if peer_account.nonce == local_account.nonce {
+                    // Same nonce - check for balance/stake divergence
+                    let balance_diff = (peer_account.balance - local_account.balance).abs();
+                    let stake_diff = (peer_account.staked - local_account.staked).abs();
+                    if balance_diff > 0.0001 || stake_diff > 0.0001 {
+                        // Accept peer's state to fix divergence
+                        // Peer is authoritative since they initiated the sync
+                        info!(
+                            "Balance fix (merge) for {}: local={:.6} peer={:.6}",
+                            &fingerprint[..12.min(fingerprint.len())], local_account.balance, peer_account.balance
+                        );
+                        *local_account = peer_account;
+                        balance_fixed += 1;
+                    }
                 }
+                // If local has higher nonce, keep local
             } else {
                 // Account doesn't exist locally - add it
                 state.accounts.insert(fingerprint, peer_account);
@@ -1285,14 +1303,14 @@ impl NodeState {
             }
         }
         
-        if added > 0 || updated > 0 {
+        if added > 0 || updated > 0 || balance_fixed > 0 {
             info!(
-                "Merged accounts from peer: {} added, {} updated, {} total accounts",
-                added, updated, state.accounts.len()
+                "Merged accounts from peer: {} added, {} updated, {} balance-fixed, {} total",
+                added, updated, balance_fixed, state.accounts.len()
             );
         }
         
-        (added, updated)
+        (added, updated, balance_fixed)
     }
 
     /// Get all accounts with fingerprints (for pushing to peer)
@@ -1554,6 +1572,56 @@ impl NodeState {
     pub async fn get_all_accounts(&self) -> Vec<Account> {
         let state = self.inner.read().await;
         state.accounts.values().cloned().collect()
+    }
+
+    /// Compute state root from all account states
+    /// This creates a deterministic merkle root from sorted account data
+    /// Format per account: "address:balance:stake:nonce"
+    pub async fn compute_state_root(&self) -> String {
+        use sha2::{Sha256, Digest};
+        
+        let state = self.inner.read().await;
+        
+        // Get sorted accounts for deterministic ordering
+        let mut account_entries: Vec<_> = state.accounts.iter().collect();
+        account_entries.sort_by(|a, b| a.0.cmp(b.0));
+        
+        // Create leaf hashes from account data
+        let leaves: Vec<Vec<u8>> = account_entries
+            .iter()
+            .map(|(address, account)| {
+                let data = format!(
+                    "{}:{:.8}:{:.8}:{}",
+                    address, account.balance, account.staked, account.nonce
+                );
+                let mut hasher = Sha256::new();
+                hasher.update(data.as_bytes());
+                hasher.finalize().to_vec()
+            })
+            .collect();
+        
+        if leaves.is_empty() {
+            return "0".repeat(64);
+        }
+        
+        // Build merkle tree
+        let mut current_level = leaves;
+        while current_level.len() > 1 {
+            let mut next_level = Vec::new();
+            for chunk in current_level.chunks(2) {
+                let mut hasher = Sha256::new();
+                hasher.update(&chunk[0]);
+                if chunk.len() > 1 {
+                    hasher.update(&chunk[1]);
+                } else {
+                    hasher.update(&chunk[0]);
+                }
+                next_level.push(hasher.finalize().to_vec());
+            }
+            current_level = next_level;
+        }
+        
+        hex::encode(&current_level[0])
     }
 
     pub async fn get_all_dag_nodes(&self) -> Vec<DagNodeInfo> {
@@ -2625,12 +2693,13 @@ impl NodeState {
             snapshot.dag_transactions.len()
         );
 
-        // MERGE accounts from peer instead of replacing
-        // This ensures accounts created on different nodes are preserved during sync
-        // For conflicts, keep the account with higher nonce (more transactions processed)
+        // AUTHORITATIVE MERGE: Peer with higher checkpoint is authoritative for account state
+        // When syncing from a peer ahead in checkpoints, trust their account state completely
+        // This ensures balance/stake/nonce all converge after checkpoint sync
         let mut merged_accounts = state.accounts.clone();
         let mut accounts_added = 0;
         let mut accounts_updated = 0;
+        let mut accounts_balance_fixed = 0;
         
         // Track which local accounts are NOT in peer's snapshot
         // These need to be pushed back to the peer
@@ -2647,12 +2716,28 @@ impl NodeState {
         
         for (fingerprint, peer_account) in snapshot.accounts.iter() {
             if let Some(local_account) = merged_accounts.get(fingerprint) {
-                // Account exists in both - keep the one with higher nonce
-                // Higher nonce means more transactions processed = more authoritative
+                // Account exists in both - AUTHORITATIVE SYNC from peer
+                // Peer with higher/equal checkpoint has authoritative state
+                // Accept peer's full state (balance + stake + nonce) to fix divergence
                 if peer_account.nonce > local_account.nonce {
+                    // Peer has more transactions - take their state
                     merged_accounts.insert(fingerprint.clone(), peer_account.clone());
                     accounts_updated += 1;
+                } else if peer_account.nonce == local_account.nonce {
+                    // Same nonce but possibly different balance/stake
+                    // Take peer's state since they're authoritative (higher checkpoint)
+                    let balance_diff = (peer_account.balance - local_account.balance).abs();
+                    let stake_diff = (peer_account.staked - local_account.staked).abs();
+                    if balance_diff > 0.0001 || stake_diff > 0.0001 {
+                        info!(
+                            "Balance fix for {}: local={:.6} peer={:.6} (nonce={})",
+                            &fingerprint[..12], local_account.balance, peer_account.balance, peer_account.nonce
+                        );
+                        merged_accounts.insert(fingerprint.clone(), peer_account.clone());
+                        accounts_balance_fixed += 1;
+                    }
                 }
+                // If local has higher nonce, keep local (we have transactions peer doesn't know about)
             } else {
                 // Account only exists on peer - add it
                 merged_accounts.insert(fingerprint.clone(), peer_account.clone());
@@ -2661,8 +2746,8 @@ impl NodeState {
         }
         
         info!(
-            "Account merge: {} added from peer, {} updated (higher nonce), {} local-only to push back, {} total",
-            accounts_added, accounts_updated, local_only_accounts.len(), merged_accounts.len()
+            "Account merge: {} added, {} updated (higher nonce), {} balance-fixed (same nonce), {} local-only, {} total",
+            accounts_added, accounts_updated, accounts_balance_fixed, local_only_accounts.len(), merged_accounts.len()
         );
         
         state.accounts = merged_accounts;

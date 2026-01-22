@@ -981,7 +981,8 @@ impl CheckpointService {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
-        let state_root = "0".repeat(64);
+        // Compute real state_root from account states for consensus verification
+        let state_root = self.state.compute_state_root().await;
         let receipt_root = "0".repeat(64);
         let tip_count = unfinalized_hashes.len() as u32;
 

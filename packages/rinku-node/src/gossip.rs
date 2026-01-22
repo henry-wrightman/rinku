@@ -1354,13 +1354,15 @@ impl GossipService {
                 anyhow::bail!("Sync request failed with status {}", response.status());
             }
             
-            // Response struct for paginated mode with account nonces
+            // Response struct for paginated mode with account states
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
             struct DeltaResponse {
                 transactions: Vec<SignedTransaction>,
                 #[serde(default)]
                 account_nonces: std::collections::HashMap<String, u64>,
+                #[serde(default)]
+                account_states: std::collections::HashMap<String, Account>,
                 #[serde(default)]
                 total: usize,
                 #[serde(default)]
@@ -1374,16 +1376,18 @@ impl GossipService {
                 .map_err(|e| anyhow::anyhow!("Failed to parse sync response: {}", e))?;
             
             info!(
-                "Sync page: received {}/{} transactions, {} account nonces (offset={}, has_more={})", 
-                delta.transactions.len(), delta.total, delta.account_nonces.len(), delta.offset, delta.has_more
+                "Sync page: received {}/{} transactions, {} account states (offset={}, has_more={})", 
+                delta.transactions.len(), delta.total, delta.account_states.len(), delta.offset, delta.has_more
             );
             
-            // Apply account nonces BEFORE processing transactions to prevent nonce mismatches
+            // SECURITY: Delta sync is for same-checkpoint peers, so we only apply nonces (not full states)
+            // Full account states are only applied during snapshot sync from peers with higher checkpoint
+            // This prevents malicious peers from overwriting balances at equal checkpoint height
             if !delta.account_nonces.is_empty() {
                 for (address, nonce) in &delta.account_nonces {
                     self.state.sync_account_nonce(address, *nonce).await;
                 }
-                info!("Applied {} account nonces from peer", delta.account_nonces.len());
+                debug!("Applied {} account nonces from delta sync peer", delta.account_nonces.len());
             }
             
             let (transactions, has_more) = (delta.transactions, delta.has_more);
