@@ -1,0 +1,965 @@
+henrywrightman@Henrys-MacBook-Pro-2 rinku % npx tsx scripts/validate-multi-node.ts https://rinku-validator-2.fly.dev https://rinku-validator-1.fly.dev https://rinku-genesis.fly.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 3
+    Node 1: https://rinku-validator-2.fly.dev
+    Node 2: https://rinku-validator-1.fly.dev
+    Node 3: https://rinku-genesis.fly.dev
+  Started: 2026-01-22T12:46:17.965Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinku-validator-2.fly.dev (218ms)
+  ✓ Node 2 reachable: https://rinku-validator-1.fly.dev (313ms)
+  ✓ Node 3 reachable: https://rinku-genesis.fly.dev (225ms)
+  ✓ Minimum nodes online: 3/3 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS (Critical for consensus)
+======================================================================
+  Checkpoint heights: 8-9 (diff: 1)
+  ✓ Checkpoint height sync: All nodes within 5 checkpoints (acceptable sync lag)
+
+  Comparing checkpoint merkle roots at common height 8...
+    Node 1 @ height 8: 46a900faa54f0067...
+    Node 2 @ height 8: 46a900faa54f0067...
+    Node 3 @ height 8: c2681d16783b8bbc...
+  ✗ Checkpoint merkle root consensus: FORK DETECTED at height 8: 2 different roots!
+
+======================================================================
+  3. DAG STATE COMPARISON (Informational - varies by pruning)
+======================================================================
+
+  DAG Sizes (unfinalized transactions - expected to vary):
+    Node 1: 303 transactions
+    Node 2: 299 transactions
+    Node 3: 305 transactions
+  ℹ DAG size variance: 2.0% (299 - 305 txs) - Expected due to pruning
+  ℹ DAG merkle roots: 1 different (expected - DAG changes constantly)
+
+  Tip Counts:
+    Node 1: 2 tips
+    Node 2: 2 tips
+    Node 3: 2 tips
+
+======================================================================
+  4. DAG TRANSACTION COUNTS (Informational - varies by pruning)
+======================================================================
+  Note: DAG transactions differ due to pruning after checkpoints.
+  This is expected behavior with snapshot-based sync.
+
+  Node 1: ~303 DAG transactions
+  Node 2: ~299 DAG transactions
+  Node 3: ~305 DAG transactions
+
+  ℹ DAG transaction differences are expected - transactions are pruned after finalization.
+
+======================================================================
+  6. ACCOUNT STATE CONSISTENCY
+======================================================================
+  Node 1: 5 accounts
+  Node 2: 5 accounts
+  Node 3: 5 accounts
+
+  State mismatch for d14815279f24928011448d974c1388cb0c0ae93d:
+    Node 1: balance=125.929 nonce=71 staked=0
+    Node 2: balance=129.929 nonce=71 staked=0
+    Node 3: balance=129.929 nonce=71 staked=0
+
+  State mismatch for 89d211d744c3f3db67dda50854b54d268b6173fb:
+    Node 1: balance=60.951 nonce=49 staked=0
+    Node 2: balance=59.95 nonce=50 staked=0
+    Node 3: balance=59.95 nonce=50 staked=0
+
+  State mismatch for c624829147226c7725748c21104472d7121eadb3:
+    Node 1: balance=142.909 nonce=91 staked=0
+    Node 2: balance=139.908 nonce=92 staked=0
+    Node 3: balance=139.908 nonce=92 staked=0
+  ✗ Account state consistency: 3 accounts mismatched, 0 missing
+
+======================================================================
+  7. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+  Node 3: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 7
+  Passed: 5
+  Failed: 2
+  Success Rate: 71.4%
+
+  Failed Checks:
+    [CRITICAL] Checkpoint merkle root consensus: FORK DETECTED at height 8: 2 different roots!
+    [MINOR] Account state consistency: 3 accounts mismatched, 0 missing
+
+======================================================================
+  KEY CONSENSUS METRICS:
+    - Checkpoint merkle roots at same height MUST match
+    - Account balances MUST match
+    - DAG size/transactions will differ (expected due to pruning)
+======================================================================
+  CONSENSUS FAILURE - FORK OR BALANCE MISMATCH DETECTED
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % npx tsx scripts/validate-multi-node.ts https://rinku-validator-2.fly.dev https://rinku-validator-1.fly.dev https://rinku-genesis.fly.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 3
+    Node 1: https://rinku-validator-2.fly.dev
+    Node 2: https://rinku-validator-1.fly.dev
+    Node 3: https://rinku-genesis.fly.dev
+  Started: 2026-01-22T12:47:29.519Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinku-validator-2.fly.dev (253ms)
+  ✓ Node 2 reachable: https://rinku-validator-1.fly.dev (242ms)
+  ✓ Node 3 reachable: https://rinku-genesis.fly.dev (286ms)
+  ✓ Minimum nodes online: 3/3 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS (Critical for consensus)
+======================================================================
+  Checkpoint heights: 13-14 (diff: 1)
+  ✓ Checkpoint height sync: All nodes within 5 checkpoints (acceptable sync lag)
+
+  Comparing checkpoint merkle roots at common height 13...
+    Node 1 @ height 13: bf4a176df768596e...
+    Node 2 @ height 13: bf4a176df768596e...
+    Node 3 @ height 13: bf4a176df768596e...
+  ✓ Checkpoint merkle root consensus: All nodes agree at height 13: bf4a176df768596e...
+  ✓ Checkpoint hash consensus: All nodes agree: ...
+
+======================================================================
+  3. DAG STATE COMPARISON (Informational - varies by pruning)
+======================================================================
+
+  DAG Sizes (unfinalized transactions - expected to vary):
+    Node 1: 566 transactions
+    Node 2: 570 transactions
+    Node 3: 564 transactions
+  ℹ DAG size variance: 1.1% (564 - 570 txs) - Expected due to pruning
+  ℹ DAG merkle roots: 3 different (expected - DAG changes constantly)
+
+  Tip Counts:
+    Node 1: 2 tips
+    Node 2: 3 tips
+    Node 3: 5 tips
+
+======================================================================
+  4. DAG TRANSACTION COUNTS (Informational - varies by pruning)
+======================================================================
+  Note: DAG transactions differ due to pruning after checkpoints.
+  This is expected behavior with snapshot-based sync.
+
+  Node 1: ~566 DAG transactions
+  Node 2: ~570 DAG transactions
+  Node 3: ~564 DAG transactions
+
+  ℹ DAG transaction differences are expected - transactions are pruned after finalization.
+
+======================================================================
+  6. ACCOUNT STATE CONSISTENCY
+======================================================================
+  Node 1: 5 accounts
+  Node 2: 5 accounts
+  Node 3: 5 accounts
+
+  State mismatch for 6806f3f93abc547cb9914689ae203c708843940a:
+    Node 1: balance=74.836 nonce=164 staked=0
+    Node 2: balance=74.836 nonce=164 staked=0
+    Node 3: balance=75.836 nonce=164 staked=0
+
+  State mismatch for 89d211d744c3f3db67dda50854b54d268b6173fb:
+    Node 1: balance=40.883 nonce=117 staked=0
+    Node 2: balance=40.883 nonce=117 staked=0
+    Node 3: balance=38.882 nonce=118 staked=0
+
+  State mismatch for c624829147226c7725748c21104472d7121eadb3:
+    Node 1: balance=242.833 nonce=167 staked=0
+    Node 2: balance=242.833 nonce=167 staked=0
+    Node 3: balance=243.832 nonce=168 staked=0
+  ✗ Account state consistency: 3 accounts mismatched, 0 missing
+
+======================================================================
+  7. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+  Node 3: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 8
+  Passed: 7
+  Failed: 1
+  Success Rate: 87.5%
+
+  Failed Checks:
+    [MINOR] Account state consistency: 3 accounts mismatched, 0 missing
+
+======================================================================
+  KEY CONSENSUS METRICS:
+    - Checkpoint merkle roots at same height MUST match
+    - Account balances MUST match
+    - DAG size/transactions will differ (expected due to pruning)
+======================================================================
+  MINOR SYNC LAG DETECTED - NODES CONVERGING
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % npx tsx scripts/validate-multi-node.ts https://rinku-validator-2.fly.dev https://rinku-validator-1.fly.dev https://rinku-genesis.fly.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 3
+    Node 1: https://rinku-validator-2.fly.dev
+    Node 2: https://rinku-validator-1.fly.dev
+    Node 3: https://rinku-genesis.fly.dev
+  Started: 2026-01-22T12:51:07.906Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinku-validator-2.fly.dev (192ms)
+  ✓ Node 2 reachable: https://rinku-validator-1.fly.dev (306ms)
+  ✓ Node 3 reachable: https://rinku-genesis.fly.dev (206ms)
+  ✓ Minimum nodes online: 3/3 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS (Critical for consensus)
+======================================================================
+  Checkpoint heights: 27-28 (diff: 1)
+  ✓ Checkpoint height sync: All nodes within 5 checkpoints (acceptable sync lag)
+
+  Comparing checkpoint merkle roots at common height 27...
+    Node 1 @ height 27: a2e9db97618030d4...
+    Node 2 @ height 27: a2e9db97618030d4...
+    Node 3 @ height 27: a2e9db97618030d4...
+  ✓ Checkpoint merkle root consensus: All nodes agree at height 27: a2e9db97618030d4...
+  ✓ Checkpoint hash consensus: All nodes agree: ...
+
+======================================================================
+  3. DAG STATE COMPARISON (Informational - varies by pruning)
+======================================================================
+
+  DAG Sizes (unfinalized transactions - expected to vary):
+    Node 1: 1421 transactions
+    Node 2: 1433 transactions
+    Node 3: 1421 transactions
+  ℹ DAG size variance: 0.8% (1421 - 1433 txs) - Expected due to pruning
+  ℹ DAG merkle roots: 3 different (expected - DAG changes constantly)
+
+  Tip Counts:
+    Node 1: 3 tips
+    Node 2: 7 tips
+    Node 3: 6 tips
+
+======================================================================
+  4. DAG TRANSACTION COUNTS (Informational - varies by pruning)
+======================================================================
+  Note: DAG transactions differ due to pruning after checkpoints.
+  This is expected behavior with snapshot-based sync.
+
+  Node 1: ~1421 DAG transactions
+  Node 2: ~1433 DAG transactions
+  Node 3: ~1421 DAG transactions
+
+  ℹ DAG transaction differences are expected - transactions are pruned after finalization.
+
+======================================================================
+  6. ACCOUNT STATE CONSISTENCY
+======================================================================
+  Node 1: 7 accounts
+  Node 2: 7 accounts
+  Node 3: 7 accounts
+
+  State mismatch for 6806f3f93abc547cb9914689ae203c708843940a:
+    Node 1: balance=106.654 nonce=346 staked=0
+    Node 2: balance=108.655 nonce=346 staked=0
+    Node 3: balance=104.653 nonce=347 staked=0
+
+  State mismatch for d14815279f24928011448d974c1388cb0c0ae93d:
+    Node 1: balance=47.674 nonce=325 staked=0
+    Node 2: balance=54.677 nonce=325 staked=0
+    Node 3: balance=55.675 nonce=325 staked=0
+
+  State mismatch for 89d211d744c3f3db67dda50854b54d268b6173fb:
+    Node 1: balance=247.711 nonce=289 staked=0
+    Node 2: balance=247.714 nonce=289 staked=0
+    Node 3: balance=241.711 nonce=290 staked=0
+
+  State mismatch for c624829147226c7725748c21104472d7121eadb3:
+    Node 1: balance=282.649 nonce=351 staked=0
+    Node 2: balance=276.65 nonce=351 staked=0
+    Node 3: balance=276.649 nonce=351 staked=0
+
+  State mismatch for c886d7359930af4cae71c66f6eed638354b3e80d:
+    Node 1: balance=97.823 nonce=176 staked=0
+    Node 2: balance=85.824 nonce=176 staked=0
+    Node 3: balance=97.824 nonce=176 staked=0
+  ✗ Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  7. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+  Node 3: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 8
+  Passed: 7
+  Failed: 1
+  Success Rate: 87.5%
+
+  Failed Checks:
+    [MINOR] Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  KEY CONSENSUS METRICS:
+    - Checkpoint merkle roots at same height MUST match
+    - Account balances MUST match
+    - DAG size/transactions will differ (expected due to pruning)
+======================================================================
+  MINOR SYNC LAG DETECTED - NODES CONVERGING
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % npx tsx scripts/validate-multi-node.ts https://rinku-validator-2.fly.dev https://rinku-validator-1.fly.dev https://rinku-genesis.fly.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 3
+    Node 1: https://rinku-validator-2.fly.dev
+    Node 2: https://rinku-validator-1.fly.dev
+    Node 3: https://rinku-genesis.fly.dev
+  Started: 2026-01-22T12:51:38.310Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinku-validator-2.fly.dev (198ms)
+  ✓ Node 2 reachable: https://rinku-validator-1.fly.dev (208ms)
+  ✓ Node 3 reachable: https://rinku-genesis.fly.dev (208ms)
+  ✓ Minimum nodes online: 3/3 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS (Critical for consensus)
+======================================================================
+  Checkpoint heights: 29-30 (diff: 1)
+  ✓ Checkpoint height sync: All nodes within 5 checkpoints (acceptable sync lag)
+
+  Comparing checkpoint merkle roots at common height 29...
+    Node 1 @ height 29: 8092d77859d8e667...
+    Node 2 @ height 29: 8092d77859d8e667...
+    Node 3 @ height 29: 8092d77859d8e667...
+  ✓ Checkpoint merkle root consensus: All nodes agree at height 29: 8092d77859d8e667...
+  ✓ Checkpoint hash consensus: All nodes agree: ...
+
+======================================================================
+  3. DAG STATE COMPARISON (Informational - varies by pruning)
+======================================================================
+
+  DAG Sizes (unfinalized transactions - expected to vary):
+    Node 1: 1559 transactions
+    Node 2: 1577 transactions
+    Node 3: 1561 transactions
+  ℹ DAG size variance: 1.1% (1559 - 1577 txs) - Expected due to pruning
+  ℹ DAG merkle roots: 3 different (expected - DAG changes constantly)
+
+  Tip Counts:
+    Node 1: 3 tips
+    Node 2: 4 tips
+    Node 3: 6 tips
+
+======================================================================
+  4. DAG TRANSACTION COUNTS (Informational - varies by pruning)
+======================================================================
+  Note: DAG transactions differ due to pruning after checkpoints.
+  This is expected behavior with snapshot-based sync.
+
+  Node 1: ~1559 DAG transactions
+  Node 2: ~1577 DAG transactions
+  Node 3: ~1561 DAG transactions
+
+  ℹ DAG transaction differences are expected - transactions are pruned after finalization.
+
+======================================================================
+  6. ACCOUNT STATE CONSISTENCY
+======================================================================
+  Node 1: 8 accounts
+  Node 2: 8 accounts
+  Node 3: 8 accounts
+
+  State mismatch for d14815279f24928011448d974c1388cb0c0ae93d:
+    Node 1: balance=18.645 nonce=354 staked=0
+    Node 2: balance=25.648 nonce=354 staked=0
+    Node 3: balance=23.646 nonce=354 staked=0
+
+  State mismatch for 89d211d744c3f3db67dda50854b54d268b6173fb:
+    Node 1: balance=252.686 nonce=314 staked=0
+    Node 2: balance=252.689 nonce=314 staked=0
+    Node 3: balance=251.687 nonce=314 staked=0
+
+  State mismatch for 6806f3f93abc547cb9914689ae203c708843940a:
+    Node 1: balance=67.626 nonce=375 staked=0
+    Node 2: balance=69.627 nonce=375 staked=0
+    Node 3: balance=67.626 nonce=375 staked=0
+
+  State mismatch for c886d7359930af4cae71c66f6eed638354b3e80d:
+    Node 1: balance=128.802 nonce=197 staked=0
+    Node 2: balance=116.803 nonce=197 staked=0
+    Node 3: balance=128.803 nonce=197 staked=0
+
+  State mismatch for 9612da970cb0b97e63b11a4fbb343257d2e70924:
+    Node 1: balance=106.883 nonce=116 staked=0
+    Node 2: balance=115.886 nonce=116 staked=0
+    Node 3: balance=108.884 nonce=116 staked=0
+  ✗ Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  7. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+  Node 3: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 8
+  Passed: 7
+  Failed: 1
+  Success Rate: 87.5%
+
+  Failed Checks:
+    [MINOR] Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  KEY CONSENSUS METRICS:
+    - Checkpoint merkle roots at same height MUST match
+    - Account balances MUST match
+    - DAG size/transactions will differ (expected due to pruning)
+======================================================================
+  MINOR SYNC LAG DETECTED - NODES CONVERGING
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % npx tsx scripts/validate-multi-node.ts https://rinku-validator-2.fly.dev https://rinku-validator-1.fly.dev https://rinku-genesis.fly.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 3
+    Node 1: https://rinku-validator-2.fly.dev
+    Node 2: https://rinku-validator-1.fly.dev
+    Node 3: https://rinku-genesis.fly.dev
+  Started: 2026-01-22T12:52:35.140Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinku-validator-2.fly.dev (212ms)
+  ✓ Node 2 reachable: https://rinku-validator-1.fly.dev (275ms)
+  ✓ Node 3 reachable: https://rinku-genesis.fly.dev (238ms)
+  ✓ Minimum nodes online: 3/3 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS (Critical for consensus)
+======================================================================
+  Checkpoint heights: 32-33 (diff: 1)
+  ✓ Checkpoint height sync: All nodes within 5 checkpoints (acceptable sync lag)
+
+  Comparing checkpoint merkle roots at common height 32...
+    Node 1 @ height 32: 6d5e8bb0c7b230dd...
+    Node 2 @ height 32: 6d5e8bb0c7b230dd...
+    Node 3 @ height 32: 514fb4bf1baab2fa...
+  ✗ Checkpoint merkle root consensus: FORK DETECTED at height 32: 2 different roots!
+
+======================================================================
+  3. DAG STATE COMPARISON (Informational - varies by pruning)
+======================================================================
+
+  DAG Sizes (unfinalized transactions - expected to vary):
+    Node 1: 1660 transactions
+    Node 2: 1660 transactions
+    Node 3: 1660 transactions
+  ℹ DAG size variance: 0.0% (1660 - 1660 txs) - Expected due to pruning
+  ℹ DAG merkle roots: 1 different (expected - DAG changes constantly)
+
+  Tip Counts:
+    Node 1: 2 tips
+    Node 2: 2 tips
+    Node 3: 2 tips
+
+======================================================================
+  4. DAG TRANSACTION COUNTS (Informational - varies by pruning)
+======================================================================
+  Note: DAG transactions differ due to pruning after checkpoints.
+  This is expected behavior with snapshot-based sync.
+
+  Node 1: ~1660 DAG transactions
+  Node 2: ~1660 DAG transactions
+  Node 3: ~1660 DAG transactions
+
+  ℹ DAG transaction differences are expected - transactions are pruned after finalization.
+
+======================================================================
+  6. ACCOUNT STATE CONSISTENCY
+======================================================================
+  Node 1: 8 accounts
+  Node 2: 8 accounts
+  Node 3: 8 accounts
+
+  State mismatch for d14815279f24928011448d974c1388cb0c0ae93d:
+    Node 1: balance=37.626 nonce=373 staked=0
+    Node 2: balance=48.631 nonce=373 staked=0
+    Node 3: balance=42.627 nonce=373 staked=0
+
+  State mismatch for 89d211d744c3f3db67dda50854b54d268b6173fb:
+    Node 1: balance=240.667 nonce=332 staked=0
+    Node 2: balance=245.672 nonce=332 staked=0
+    Node 3: balance=240.669 nonce=332 staked=0
+
+  State mismatch for 6806f3f93abc547cb9914689ae203c708843940a:
+    Node 1: balance=75.607 nonce=393 staked=0
+    Node 2: balance=79.611 nonce=393 staked=0
+    Node 3: balance=78.608 nonce=393 staked=0
+
+  State mismatch for c886d7359930af4cae71c66f6eed638354b3e80d:
+    Node 1: balance=107.782 nonce=217 staked=0
+    Node 2: balance=90.784 nonce=217 staked=0
+    Node 3: balance=103.783 nonce=217 staked=0
+
+  State mismatch for 9612da970cb0b97e63b11a4fbb343257d2e70924:
+    Node 1: balance=96.865 nonce=134 staked=0
+    Node 2: balance=100.868 nonce=134 staked=0
+    Node 3: balance=98.866 nonce=134 staked=0
+  ✗ Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  7. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+  Node 3: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 7
+  Passed: 5
+  Failed: 2
+  Success Rate: 71.4%
+
+  Failed Checks:
+    [CRITICAL] Checkpoint merkle root consensus: FORK DETECTED at height 32: 2 different roots!
+    [MINOR] Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  KEY CONSENSUS METRICS:
+    - Checkpoint merkle roots at same height MUST match
+    - Account balances MUST match
+    - DAG size/transactions will differ (expected due to pruning)
+======================================================================
+  CONSENSUS FAILURE - FORK OR BALANCE MISMATCH DETECTED
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % npx tsx scripts/validate-multi-node.ts https://rinku-validator-2.fly.dev https://rinku-validator-1.fly.dev https://rinku-genesis.fly.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 3
+    Node 1: https://rinku-validator-2.fly.dev
+    Node 2: https://rinku-validator-1.fly.dev
+    Node 3: https://rinku-genesis.fly.dev
+  Started: 2026-01-22T12:58:49.736Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinku-validator-2.fly.dev (306ms)
+  ✓ Node 2 reachable: https://rinku-validator-1.fly.dev (264ms)
+  ✓ Node 3 reachable: https://rinku-genesis.fly.dev (249ms)
+  ✓ Minimum nodes online: 3/3 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS (Critical for consensus)
+======================================================================
+  Checkpoint heights: 32-33 (diff: 1)
+  ✓ Checkpoint height sync: All nodes within 5 checkpoints (acceptable sync lag)
+
+  Comparing checkpoint merkle roots at common height 32...
+    Node 1 @ height 32: 6d5e8bb0c7b230dd...
+    Node 2 @ height 32: 6d5e8bb0c7b230dd...
+    Node 3 @ height 32: 514fb4bf1baab2fa...
+  ✗ Checkpoint merkle root consensus: FORK DETECTED at height 32: 2 different roots!
+
+======================================================================
+  3. DAG STATE COMPARISON (Informational - varies by pruning)
+======================================================================
+
+  DAG Sizes (unfinalized transactions - expected to vary):
+    Node 1: 1660 transactions
+    Node 2: 1660 transactions
+    Node 3: 1660 transactions
+  ℹ DAG size variance: 0.0% (1660 - 1660 txs) - Expected due to pruning
+  ℹ DAG merkle roots: 1 different (expected - DAG changes constantly)
+
+  Tip Counts:
+    Node 1: 2 tips
+    Node 2: 2 tips
+    Node 3: 2 tips
+
+======================================================================
+  4. DAG TRANSACTION COUNTS (Informational - varies by pruning)
+======================================================================
+  Note: DAG transactions differ due to pruning after checkpoints.
+  This is expected behavior with snapshot-based sync.
+
+  Node 1: ~1660 DAG transactions
+  Node 2: ~1660 DAG transactions
+  Node 3: ~1660 DAG transactions
+
+  ℹ DAG transaction differences are expected - transactions are pruned after finalization.
+
+======================================================================
+  6. ACCOUNT STATE CONSISTENCY
+======================================================================
+  Node 1: 8 accounts
+  Node 2: 8 accounts
+  Node 3: 8 accounts
+
+  State mismatch for d14815279f24928011448d974c1388cb0c0ae93d:
+    Node 1: balance=37.626 nonce=373 staked=0
+    Node 2: balance=48.631 nonce=373 staked=0
+    Node 3: balance=42.627 nonce=373 staked=0
+
+  State mismatch for 89d211d744c3f3db67dda50854b54d268b6173fb:
+    Node 1: balance=240.667 nonce=332 staked=0
+    Node 2: balance=245.672 nonce=332 staked=0
+    Node 3: balance=240.669 nonce=332 staked=0
+
+  State mismatch for 6806f3f93abc547cb9914689ae203c708843940a:
+    Node 1: balance=75.607 nonce=393 staked=0
+    Node 2: balance=79.611 nonce=393 staked=0
+    Node 3: balance=78.608 nonce=393 staked=0
+
+  State mismatch for c886d7359930af4cae71c66f6eed638354b3e80d:
+    Node 1: balance=107.782 nonce=217 staked=0
+    Node 2: balance=90.784 nonce=217 staked=0
+    Node 3: balance=103.783 nonce=217 staked=0
+
+  State mismatch for 9612da970cb0b97e63b11a4fbb343257d2e70924:
+    Node 1: balance=96.865 nonce=134 staked=0
+    Node 2: balance=100.868 nonce=134 staked=0
+    Node 3: balance=98.866 nonce=134 staked=0
+  ✗ Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  7. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+  Node 3: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 7
+  Passed: 5
+  Failed: 2
+  Success Rate: 71.4%
+
+  Failed Checks:
+    [CRITICAL] Checkpoint merkle root consensus: FORK DETECTED at height 32: 2 different roots!
+    [MINOR] Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  KEY CONSENSUS METRICS:
+    - Checkpoint merkle roots at same height MUST match
+    - Account balances MUST match
+    - DAG size/transactions will differ (expected due to pruning)
+======================================================================
+  CONSENSUS FAILURE - FORK OR BALANCE MISMATCH DETECTED
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % npx tsx scripts/validate-multi-node.ts https://rinku-validator-2.fly.dev https://rinku-validator-1.fly.dev https://rinku-genesis.fly.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 3
+    Node 1: https://rinku-validator-2.fly.dev
+    Node 2: https://rinku-validator-1.fly.dev
+    Node 3: https://rinku-genesis.fly.dev
+  Started: 2026-01-22T13:00:07.729Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinku-validator-2.fly.dev (328ms)
+  ✓ Node 2 reachable: https://rinku-validator-1.fly.dev (284ms)
+  ✓ Node 3 reachable: https://rinku-genesis.fly.dev (225ms)
+  ✓ Minimum nodes online: 3/3 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS (Critical for consensus)
+======================================================================
+  Checkpoint heights: 33-34 (diff: 1)
+  ✓ Checkpoint height sync: All nodes within 5 checkpoints (acceptable sync lag)
+
+  Comparing checkpoint merkle roots at common height 33...
+    Node 1 @ height 33: 997f9f99ca4fa950...
+    Node 2 @ height 33: 997f9f99ca4fa950...
+    Node 3 @ height 33: 4160d8300e3eb7c4...
+  ✗ Checkpoint merkle root consensus: FORK DETECTED at height 33: 2 different roots!
+
+======================================================================
+  3. DAG STATE COMPARISON (Informational - varies by pruning)
+======================================================================
+
+  DAG Sizes (unfinalized transactions - expected to vary):
+    Node 1: 1661 transactions
+    Node 2: 1661 transactions
+    Node 3: 1661 transactions
+  ℹ DAG size variance: 0.0% (1661 - 1661 txs) - Expected due to pruning
+  ℹ DAG merkle roots: 1 different (expected - DAG changes constantly)
+
+  Tip Counts:
+    Node 1: 1 tips
+    Node 2: 1 tips
+    Node 3: 1 tips
+
+======================================================================
+  4. DAG TRANSACTION COUNTS (Informational - varies by pruning)
+======================================================================
+  Note: DAG transactions differ due to pruning after checkpoints.
+  This is expected behavior with snapshot-based sync.
+
+  Node 1: ~1661 DAG transactions
+  Node 2: ~1661 DAG transactions
+  Node 3: ~1661 DAG transactions
+
+  ℹ DAG transaction differences are expected - transactions are pruned after finalization.
+
+======================================================================
+  6. ACCOUNT STATE CONSISTENCY
+======================================================================
+  Node 1: 9 accounts
+  Node 2: 9 accounts
+  Node 3: 9 accounts
+
+  State mismatch for d14815279f24928011448d974c1388cb0c0ae93d:
+    Node 1: balance=37.626 nonce=373 staked=0
+    Node 2: balance=48.631 nonce=373 staked=0
+    Node 3: balance=42.627 nonce=373 staked=0
+
+  State mismatch for 89d211d744c3f3db67dda50854b54d268b6173fb:
+    Node 1: balance=240.667 nonce=332 staked=0
+    Node 2: balance=245.672 nonce=332 staked=0
+    Node 3: balance=240.669 nonce=332 staked=0
+
+  State mismatch for 6806f3f93abc547cb9914689ae203c708843940a:
+    Node 1: balance=75.607 nonce=393 staked=0
+    Node 2: balance=79.611 nonce=393 staked=0
+    Node 3: balance=78.608 nonce=393 staked=0
+
+  State mismatch for c886d7359930af4cae71c66f6eed638354b3e80d:
+    Node 1: balance=107.782 nonce=217 staked=0
+    Node 2: balance=90.784 nonce=217 staked=0
+    Node 3: balance=103.783 nonce=217 staked=0
+
+  State mismatch for 9612da970cb0b97e63b11a4fbb343257d2e70924:
+    Node 1: balance=96.865 nonce=134 staked=0
+    Node 2: balance=100.868 nonce=134 staked=0
+    Node 3: balance=98.866 nonce=134 staked=0
+  ✗ Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  7. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+  Node 3: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 7
+  Passed: 5
+  Failed: 2
+  Success Rate: 71.4%
+
+  Failed Checks:
+    [CRITICAL] Checkpoint merkle root consensus: FORK DETECTED at height 33: 2 different roots!
+    [MINOR] Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  KEY CONSENSUS METRICS:
+    - Checkpoint merkle roots at same height MUST match
+    - Account balances MUST match
+    - DAG size/transactions will differ (expected due to pruning)
+======================================================================
+  CONSENSUS FAILURE - FORK OR BALANCE MISMATCH DETECTED
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % npx tsx scripts/validate-multi-node.ts https://rinku-validator-2.fly.dev https://rinku-validator-1.fly.dev https://rinku-genesis.fly.dev
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║         RINKU MULTI-NODE VALIDATION SCRIPT                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  Nodes to validate: 3
+    Node 1: https://rinku-validator-2.fly.dev
+    Node 2: https://rinku-validator-1.fly.dev
+    Node 3: https://rinku-genesis.fly.dev
+  Started: 2026-01-22T13:03:04.360Z
+
+======================================================================
+  1. NODE CONNECTIVITY
+======================================================================
+  ✓ Node 1 reachable: https://rinku-validator-2.fly.dev (251ms)
+  ✓ Node 2 reachable: https://rinku-validator-1.fly.dev (303ms)
+  ✓ Node 3 reachable: https://rinku-genesis.fly.dev (232ms)
+  ✓ Minimum nodes online: 3/3 nodes
+
+======================================================================
+  2. CHECKPOINT CONSENSUS (Critical for consensus)
+======================================================================
+  Checkpoint heights: 33-34 (diff: 1)
+  ✓ Checkpoint height sync: All nodes within 5 checkpoints (acceptable sync lag)
+
+  Comparing checkpoint merkle roots at common height 33...
+    Node 1 @ height 33: 997f9f99ca4fa950...
+    Node 2 @ height 33: 997f9f99ca4fa950...
+    Node 3 @ height 33: 4160d8300e3eb7c4...
+  ✗ Checkpoint merkle root consensus: FORK DETECTED at height 33: 2 different roots!
+
+======================================================================
+  3. DAG STATE COMPARISON (Informational - varies by pruning)
+======================================================================
+
+  DAG Sizes (unfinalized transactions - expected to vary):
+    Node 1: 1661 transactions
+    Node 2: 1661 transactions
+    Node 3: 1661 transactions
+  ℹ DAG size variance: 0.0% (1661 - 1661 txs) - Expected due to pruning
+  ℹ DAG merkle roots: 1 different (expected - DAG changes constantly)
+
+  Tip Counts:
+    Node 1: 1 tips
+    Node 2: 1 tips
+    Node 3: 1 tips
+
+======================================================================
+  4. DAG TRANSACTION COUNTS (Informational - varies by pruning)
+======================================================================
+  Note: DAG transactions differ due to pruning after checkpoints.
+  This is expected behavior with snapshot-based sync.
+
+  Node 1: ~1661 DAG transactions
+  Node 2: ~1661 DAG transactions
+  Node 3: ~1661 DAG transactions
+
+  ℹ DAG transaction differences are expected - transactions are pruned after finalization.
+
+======================================================================
+  6. ACCOUNT STATE CONSISTENCY
+======================================================================
+  Node 1: 9 accounts
+  Node 2: 9 accounts
+  Node 3: 9 accounts
+
+  State mismatch for d14815279f24928011448d974c1388cb0c0ae93d:
+    Node 1: balance=37.626 nonce=373 staked=0
+    Node 2: balance=48.631 nonce=373 staked=0
+    Node 3: balance=42.627 nonce=373 staked=0
+
+  State mismatch for 89d211d744c3f3db67dda50854b54d268b6173fb:
+    Node 1: balance=240.667 nonce=332 staked=0
+    Node 2: balance=245.672 nonce=332 staked=0
+    Node 3: balance=240.669 nonce=332 staked=0
+
+  State mismatch for 6806f3f93abc547cb9914689ae203c708843940a:
+    Node 1: balance=75.607 nonce=393 staked=0
+    Node 2: balance=79.611 nonce=393 staked=0
+    Node 3: balance=78.608 nonce=393 staked=0
+
+  State mismatch for c886d7359930af4cae71c66f6eed638354b3e80d:
+    Node 1: balance=107.782 nonce=217 staked=0
+    Node 2: balance=90.784 nonce=217 staked=0
+    Node 3: balance=103.783 nonce=217 staked=0
+
+  State mismatch for 9612da970cb0b97e63b11a4fbb343257d2e70924:
+    Node 1: balance=96.865 nonce=134 staked=0
+    Node 2: balance=100.868 nonce=134 staked=0
+    Node 3: balance=98.866 nonce=134 staked=0
+  ✗ Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  7. PEER-TO-PEER CONNECTIVITY
+======================================================================
+  Node 1: Peer info unavailable
+  Node 2: Peer info unavailable
+  Node 3: Peer info unavailable
+
+======================================================================
+  VALIDATION SUMMARY
+======================================================================
+
+  Total Checks: 7
+  Passed: 5
+  Failed: 2
+  Success Rate: 71.4%
+
+  Failed Checks:
+    [CRITICAL] Checkpoint merkle root consensus: FORK DETECTED at height 33: 2 different roots!
+    [MINOR] Account state consistency: 6 accounts mismatched, 0 missing
+
+======================================================================
+  KEY CONSENSUS METRICS:
+    - Checkpoint merkle roots at same height MUST match
+    - Account balances MUST match
+    - DAG size/transactions will differ (expected due to pruning)
+======================================================================
+  CONSENSUS FAILURE - FORK OR BALANCE MISMATCH DETECTED
+======================================================================
+
+henrywrightman@Henrys-MacBook-Pro-2 rinku % 
