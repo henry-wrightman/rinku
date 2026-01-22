@@ -22,13 +22,22 @@ import {
 import { formatNumber, formatTps } from "./utils";
 import { useTheme } from "./hooks/useTheme";
 
-// In production, API is on same host but port 3001. In dev, Vite proxies /api to 3001.
+// Use VITE_API_URL if set (for production deployments to external APIs like Fly.io)
+// Otherwise fall back to Vite proxy in dev or Replit port transformation in prod
 const getApiBaseUrl = () => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+  
+  // If VITE_API_URL is set and not localhost, use it directly
+  if (envApiUrl && !envApiUrl.includes('127.0.0.1') && !envApiUrl.includes('localhost')) {
+    console.log("Using VITE_API_URL:", envApiUrl);
+    return `${envApiUrl}/api`;
+  }
+  
   if (import.meta.env.PROD) {
-    // Production: construct API URL from current host
+    // Production on Replit: transform port in hostname
     const host = window.location.hostname;
     console.log(
-      "prod api url",
+      "prod api url (Replit)",
       `https://${host.replace(/-5000\./, "-3001.")}/api`,
     );
     return `https://${host.replace(/-5000\./, "-3001.")}/api`;
