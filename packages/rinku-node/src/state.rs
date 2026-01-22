@@ -83,12 +83,12 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
     use libp2p::futures::StreamExt;
     use std::time::Duration;
     
-    // Parse bootstrap peers to extract peer IDs and addresses
-    let mut targets: Vec<(PeerId, Multiaddr)> = Vec::new();
+    // Parse bootstrap peers - peer ID is now OPTIONAL (allows connecting without knowing peer ID)
+    let mut targets: Vec<(Option<PeerId>, Multiaddr)> = Vec::new();
     for peer_str in bootstrap_peers {
         match peer_str.parse::<Multiaddr>() {
             Ok(addr) => {
-                // Extract peer ID from multiaddr (last component should be /p2p/<peer_id>)
+                // Extract peer ID from multiaddr if present (last component /p2p/<peer_id>)
                 let peer_id = addr.iter().find_map(|p| {
                     if let libp2p::multiaddr::Protocol::P2p(peer_id) = p {
                         Some(peer_id)
@@ -97,16 +97,17 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
                     }
                 });
                 
-                if let Some(peer_id) = peer_id {
-                    // Remove /p2p/ component from address for dialing
-                    let dial_addr: Multiaddr = addr.iter()
-                        .filter(|p| !matches!(p, libp2p::multiaddr::Protocol::P2p(_)))
-                        .collect();
-                    info!("PRE-SYNC: Parsed peer {} at {}", peer_id, dial_addr);
-                    targets.push((peer_id, dial_addr));
+                // Remove /p2p/ component from address for dialing
+                let dial_addr: Multiaddr = addr.iter()
+                    .filter(|p| !matches!(p, libp2p::multiaddr::Protocol::P2p(_)))
+                    .collect();
+                
+                if let Some(ref pid) = peer_id {
+                    info!("PRE-SYNC: Parsed peer {} at {}", pid, dial_addr);
                 } else {
-                    warn!("PRE-SYNC: No peer ID in multiaddr: {}", peer_str);
+                    info!("PRE-SYNC: Parsed address {} (peer ID will be discovered)", dial_addr);
                 }
+                targets.push((peer_id, dial_addr));
             }
             Err(e) => {
                 warn!("PRE-SYNC: Failed to parse multiaddr '{}': {}", peer_str, e);
@@ -151,12 +152,16 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
     };
     
     // Try each bootstrap peer
-    for (peer_id, dial_addr) in targets {
-        info!("PRE-SYNC: Dialing peer {} at {}...", peer_id, dial_addr);
+    for (expected_peer_id, dial_addr) in targets {
+        if let Some(ref pid) = expected_peer_id {
+            info!("PRE-SYNC: Dialing peer {} at {}...", pid, dial_addr);
+        } else {
+            info!("PRE-SYNC: Dialing {} (discovering peer ID)...", dial_addr);
+        }
         
-        // Dial the peer
+        // Dial the peer - for unknown peer IDs, just dial the address
         if let Err(e) = swarm.dial(dial_addr.clone()) {
-            warn!("PRE-SYNC: Failed to dial {}: {}", peer_id, e);
+            warn!("PRE-SYNC: Failed to dial {}: {}", dial_addr, e);
             continue;
         }
         
@@ -164,25 +169,34 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
         let timeout = tokio::time::sleep(Duration::from_secs(15));
         tokio::pin!(timeout);
         
-        let mut connected = false;
+        let mut connected_peer_id: Option<PeerId> = None;
         let mut request_sent = false;
         
         loop {
             tokio::select! {
                 _ = &mut timeout => {
-                    warn!("PRE-SYNC: Timeout waiting for peer {}", peer_id);
+                    if let Some(ref pid) = expected_peer_id {
+                        warn!("PRE-SYNC: Timeout waiting for peer {}", pid);
+                    } else {
+                        warn!("PRE-SYNC: Timeout waiting for connection to {}", dial_addr);
+                    }
                     break;
                 }
                 event = swarm.select_next_some() => {
                     match event {
-                        SwarmEvent::ConnectionEstablished { peer_id: connected_peer, .. } => {
-                            if connected_peer == peer_id {
-                                info!("PRE-SYNC: Connected to {}", peer_id);
-                                connected = true;
+                        SwarmEvent::ConnectionEstablished { peer_id: actual_peer, .. } => {
+                            // Accept connection if: no expected peer ID, OR it matches expected
+                            let should_accept = expected_peer_id.is_none() || expected_peer_id == Some(actual_peer);
+                            
+                            if should_accept {
+                                info!("PRE-SYNC: Connected to {} (discovered)", actual_peer);
+                                connected_peer_id = Some(actual_peer);
                                 // Send snapshot request
-                                swarm.behaviour_mut().send_request(&peer_id, SyncRequest::Snapshot);
+                                swarm.behaviour_mut().send_request(&actual_peer, SyncRequest::Snapshot);
                                 request_sent = true;
-                                info!("PRE-SYNC: Sent snapshot request to {}", peer_id);
+                                info!("PRE-SYNC: Sent snapshot request to {}", actual_peer);
+                            } else if let Some(ref expected) = expected_peer_id {
+                                warn!("PRE-SYNC: Connected to unexpected peer {} (expected {})", actual_peer, expected);
                             }
                         }
                         SwarmEvent::Behaviour(request_response::Event::Message {
@@ -204,15 +218,16 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
                                 warn!("PRE-SYNC: Unexpected response type from peer");
                             }
                         }
-                        SwarmEvent::OutgoingConnectionError { peer_id: Some(failed_peer), error, .. } => {
-                            if failed_peer == peer_id {
-                                warn!("PRE-SYNC: Connection failed to {}: {}", peer_id, error);
+                        SwarmEvent::OutgoingConnectionError { peer_id: failed_for, error, .. } => {
+                            warn!("PRE-SYNC: Connection failed to {}: {}", dial_addr, error);
+                            // Check if this failure is for our expected peer or the address we dialed
+                            if failed_for == expected_peer_id || expected_peer_id.is_none() {
                                 break;
                             }
                         }
                         SwarmEvent::ConnectionClosed { peer_id: closed_peer, .. } => {
-                            if closed_peer == peer_id && request_sent {
-                                warn!("PRE-SYNC: Connection closed before response from {}", peer_id);
+                            if Some(closed_peer) == connected_peer_id && request_sent {
+                                warn!("PRE-SYNC: Connection closed before response from {}", closed_peer);
                                 break;
                             }
                         }

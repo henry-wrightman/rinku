@@ -103,7 +103,15 @@ Response will include:
 # Create new app for each validator
 fly apps create rinku-validator-1
 
+# Allocate dedicated IPv4 for full P2P mesh (recommended)
+fly ips allocate-v4 --app rinku-validator-1
+
 # Set bootstrap configuration
+# Option A: IP-only (RECOMMENDED for fresh deploys - peer ID auto-discovered)
+fly secrets set -a rinku-validator-1 \
+  P2P_BOOTSTRAP_PEERS="/ip4/<GENESIS_IP>/tcp/4001"
+
+# Option B: Full multiaddr with peer ID (for stable networks)
 fly secrets set -a rinku-validator-1 \
   P2P_BOOTSTRAP_PEERS="/ip4/<GENESIS_IP>/tcp/4001/p2p/<PEER_ID>" \
   GENESIS_VALIDATORS="<ADDRESS>:<BLS_PUBLIC_KEY>"
@@ -111,6 +119,11 @@ fly secrets set -a rinku-validator-1 \
 # Deploy
 fly deploy --dockerfile Dockerfile.fly --app rinku-validator-1
 ```
+
+**Important**: Using IP-only format (`/ip4/<IP>/tcp/4001`) is more resilient because:
+- Validators can connect even if genesis peer ID changes
+- No need to update validator config after genesis redeploys
+- Peer ID is discovered automatically during connection
 
 To get the genesis node's public IP:
 ```bash
