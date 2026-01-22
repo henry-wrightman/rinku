@@ -525,6 +525,10 @@ impl NetworkService {
                     .map_err(|e| anyhow::anyhow!("Dial error: {}", e));
                 let _ = response_tx.send(result);
             }
+            NetworkCommand::SendSyncResponse(channel, response) => {
+                debug!("Sending sync response via command");
+                self.send_sync_response(channel, response);
+            }
         }
     }
 
@@ -1025,6 +1029,7 @@ fn current_time_secs() -> u64 {
 #[derive(Debug)]
 pub enum NetworkCommand {
     Dial(Multiaddr, oneshot::Sender<Result<()>>),
+    SendSyncResponse(ResponseChannel<SyncResponse>, SyncResponse),
 }
 
 pub struct NetworkHandle {
@@ -1089,6 +1094,11 @@ impl NetworkHandle {
             .keys()
             .map(|p| p.to_string())
             .collect()
+    }
+
+    /// Send a sync response for an incoming request
+    pub fn send_sync_response(&self, channel: ResponseChannel<SyncResponse>, response: SyncResponse) {
+        let _ = self.command_tx.try_send(NetworkCommand::SendSyncResponse(channel, response));
     }
 
     /// Send a sync request to a specific peer and wait for response

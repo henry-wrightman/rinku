@@ -456,6 +456,13 @@ impl GossipService {
             tokio::spawn(async move {
                 gossip_clone.run_p2p_receiver(handle_clone).await;
             });
+            
+            // Spawn a task to handle incoming sync requests
+            let gossip_clone2 = self.clone();
+            let handle_clone2 = handle.clone();
+            tokio::spawn(async move {
+                gossip_clone2.run_sync_request_handler(handle_clone2).await;
+            });
         }
 
         let mut tick = interval(Duration::from_millis(self.interval_ms));
@@ -490,6 +497,98 @@ impl GossipService {
                 }
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                     warn!("P2P message channel closed");
+                    break;
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "p2p")]
+    async fn run_sync_request_handler(&self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) {
+        use crate::network::{SyncRequest, SyncResponse, SnapshotData, AccountData, ValidatorData, CheckpointData, TransactionData};
+        
+        info!("P2P sync request handler started");
+        loop {
+            let recv_result = {
+                let mut locked = handle.lock().await;
+                locked.sync_incoming_rx.try_recv()
+            };
+            
+            match recv_result {
+                Ok(incoming) => {
+                    info!("Handling sync request from {}: {:?}", incoming.peer_id, incoming.request);
+                    
+                    let response = match incoming.request {
+                        SyncRequest::Snapshot => {
+                            let accounts = self.state.get_all_accounts().await;
+                            let validators = self.state.get_validators().await;
+                            let checkpoints = self.state.get_checkpoints().await;
+                            let recent_txs = self.state.get_recent_transactions(100).await;
+                            let merkle_root = self.state.get_state_root().await;
+                            
+                            let account_data: Vec<AccountData> = accounts.iter().map(|a| AccountData {
+                                address: a.address.clone(),
+                                balance: a.balance,
+                                nonce: a.nonce,
+                                stake: a.stake,
+                            }).collect();
+                            
+                            let validator_data: Vec<ValidatorData> = validators.iter().map(|v| ValidatorData {
+                                address: v.address.clone(),
+                                stake: v.stake,
+                                bls_public_key: v.bls_public_key.clone().unwrap_or_default(),
+                                status: format!("{:?}", v.status),
+                            }).collect();
+                            
+                            let checkpoint_data: Vec<CheckpointData> = checkpoints.iter().map(|c| CheckpointData {
+                                height: c.height,
+                                merkle_root: c.merkle_root.clone(),
+                                timestamp: c.timestamp,
+                                tx_count: c.tx_count,
+                                hash: c.hash.clone(),
+                                previous_hash: c.previous_hash.clone(),
+                                signature: c.signature.clone(),
+                                genesis_hash: c.genesis_hash.clone(),
+                            }).collect();
+                            
+                            let tx_data: Vec<TransactionData> = recent_txs.iter().map(|stx| TransactionData {
+                                hash: stx.hash.clone(),
+                                from: stx.tx.from.clone(),
+                                to: stx.tx.to.clone(),
+                                amount: stx.tx.amount,
+                                nonce: stx.tx.nonce,
+                                timestamp: stx.tx.timestamp,
+                                signature: stx.signature.clone(),
+                                parents: stx.tx.parents.clone(),
+                                gas_price: stx.tx.gas_price,
+                            }).collect();
+                            
+                            info!("Sending snapshot: {} accounts, {} validators, {} checkpoints, {} txs",
+                                account_data.len(), validator_data.len(), checkpoint_data.len(), tx_data.len());
+                            
+                            SyncResponse::Snapshot(SnapshotData {
+                                accounts: account_data,
+                                validators: validator_data,
+                                checkpoints: checkpoint_data,
+                                recent_txs: tx_data,
+                                merkle_root,
+                            })
+                        }
+                        _ => {
+                            debug!("Unsupported sync request type from {}", incoming.peer_id);
+                            SyncResponse::Error { message: "Unsupported request type".to_string() }
+                        }
+                    };
+                    
+                    // Send response back through the channel
+                    let mut locked = handle.lock().await;
+                    locked.send_sync_response(incoming.response_channel, response);
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    warn!("Sync request channel closed");
                     break;
                 }
             }
