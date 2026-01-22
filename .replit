@@ -136,7 +136,9 @@ packages = [
 
 [deployment]
 deploymentTarget = "static"
-build = ["npm run build -w @rinku/core -w @rinku/explorer"]
+build = [
+  "VITE_API_URL=https://rinku-genesis.fly.dev npm run build -w @rinku/core -w @rinku/explorer",
+]
 publicDir = "packages/explorer/dist"
 
 [userenv]
