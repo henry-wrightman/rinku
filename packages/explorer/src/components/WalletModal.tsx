@@ -8,7 +8,21 @@ import {
 } from "../crypto";
 
 const WALLET_STORAGE_KEY = "rinku_wallet";
-const NODE_URL = "/api";
+const getApiBaseUrl = () => {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+
+  // If VITE_API_URL is set and not localhost, use it directly
+  if (
+    envApiUrl &&
+    !envApiUrl.includes("127.0.0.1") &&
+    !envApiUrl.includes("localhost")
+  ) {
+    console.log("Using VITE_API_URL:", envApiUrl);
+    return `${envApiUrl}/api`;
+  }
+  return "/api";
+};
+const NODE_URL = getApiBaseUrl();
 
 interface AccountInfo {
   fingerprint: string;
@@ -23,7 +37,11 @@ interface WalletModalProps {
   onWalletChange?: (keyPair: SerializedKeyPair | null) => void;
 }
 
-export function WalletModal({ isOpen, onClose, onWalletChange }: WalletModalProps) {
+export function WalletModal({
+  isOpen,
+  onClose,
+  onWalletChange,
+}: WalletModalProps) {
   const [keyPair, setKeyPair] = useState<SerializedKeyPair | null>(null);
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
@@ -56,7 +74,10 @@ export function WalletModal({ isOpen, onClose, onWalletChange }: WalletModalProp
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
+      if (
+        modalRef.current &&
+        !modalRef.current.contains(event.target as Node)
+      ) {
         onClose();
       }
     };
@@ -145,7 +166,9 @@ export function WalletModal({ isOpen, onClose, onWalletChange }: WalletModalProp
       <div className="wallet-modal" ref={modalRef}>
         <div className="wallet-modal-header">
           <h3>wallet</h3>
-          <button className="close-btn" onClick={onClose}>x</button>
+          <button className="close-btn" onClick={onClose}>
+            x
+          </button>
         </div>
 
         {error && <div className="error-message">{error}</div>}
@@ -156,19 +179,31 @@ export function WalletModal({ isOpen, onClose, onWalletChange }: WalletModalProp
             <div className="wallet-info-row">
               <span className="label">address</span>
               <div className="value-with-copy">
-                <span className="value mono">{keyPair.fingerprint.slice(0, 8)}...{keyPair.fingerprint.slice(-6)}</span>
-                <button className="copy-btn" onClick={() => copyToClipboard(keyPair.fingerprint)}>copy</button>
+                <span className="value mono">
+                  {keyPair.fingerprint.slice(0, 8)}...
+                  {keyPair.fingerprint.slice(-6)}
+                </span>
+                <button
+                  className="copy-btn"
+                  onClick={() => copyToClipboard(keyPair.fingerprint)}
+                >
+                  copy
+                </button>
               </div>
             </div>
 
             <div className="wallet-info-row">
               <span className="label">balance</span>
-              <span className="value">{accountInfo?.balance?.toFixed(4) || "0.0000"} RKU</span>
+              <span className="value">
+                {accountInfo?.balance?.toFixed(4) || "0.0000"} RKU
+              </span>
             </div>
 
             <div className="wallet-info-row">
               <span className="label">staked</span>
-              <span className="value">{accountInfo?.staked?.toFixed(4) || "0.0000"} RKU</span>
+              <span className="value">
+                {accountInfo?.staked?.toFixed(4) || "0.0000"} RKU
+              </span>
             </div>
 
             <div className="wallet-info-row">
@@ -177,19 +212,19 @@ export function WalletModal({ isOpen, onClose, onWalletChange }: WalletModalProp
             </div>
 
             <div className="wallet-actions">
-              <button 
+              <button
                 className="wallet-action-btn"
                 onClick={() => setShowPrivateKey(!showPrivateKey)}
               >
                 {showPrivateKey ? "hide key" : "show key"}
               </button>
-              <button 
+              <button
                 className="wallet-action-btn export"
                 onClick={() => copyToClipboard(serializeKeyPair(keyPair))}
               >
                 export key
               </button>
-              <button 
+              <button
                 className="wallet-action-btn disconnect"
                 onClick={handleDisconnect}
               >
@@ -199,9 +234,11 @@ export function WalletModal({ isOpen, onClose, onWalletChange }: WalletModalProp
 
             {showPrivateKey && (
               <div className="private-key-display">
-                <div className="warning">Keep this secret! Anyone with this key can access your funds.</div>
-                <textarea 
-                  readOnly 
+                <div className="warning">
+                  Keep this secret! Anyone with this key can access your funds.
+                </div>
+                <textarea
+                  readOnly
                   value={serializeKeyPair(keyPair)}
                   className="key-textarea"
                 />
@@ -224,7 +261,7 @@ export function WalletModal({ isOpen, onClose, onWalletChange }: WalletModalProp
 
             <div className="divider">or</div>
 
-            <button 
+            <button
               className="wallet-btn generate"
               onClick={handleGenerate}
               disabled={loading}
