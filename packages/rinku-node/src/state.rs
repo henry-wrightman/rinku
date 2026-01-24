@@ -3312,7 +3312,7 @@ impl NodeState {
                     if balance_diff > 0.0001 || stake_diff > 0.0001 {
                         info!(
                             "Balance fix for {}: local={:.6} peer={:.6} (nonce={})",
-                            &fingerprint[..12], local_account.balance, peer_account.balance, peer_account.nonce
+                            &fingerprint[..fingerprint.len().min(12)], local_account.balance, peer_account.balance, peer_account.nonce
                         );
                         merged_accounts.insert(fingerprint.clone(), peer_account.clone());
                         accounts_balance_fixed += 1;

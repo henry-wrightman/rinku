@@ -907,8 +907,10 @@ async fn get_batch_transactions(
     })
 }
 
-const DEFAULT_SYNC_LIMIT: usize = 500;
-const MAX_SYNC_LIMIT: usize = 2000;
+// Increased from 500 to reduce round trips during high-volume sync
+// With 6000+ transactions, 500/page = 12 round trips, but 1000/page = 6 round trips
+const DEFAULT_SYNC_LIMIT: usize = 1000;
+const MAX_SYNC_LIMIT: usize = 3000;
 
 async fn get_sync_transactions(
     State(state): State<NodeState>,

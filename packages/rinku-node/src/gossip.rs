@@ -1640,7 +1640,8 @@ impl GossipService {
     async fn sync_from_peer(&self, peer: &str, local_checkpoint: u64) -> Result<DeltaSyncResult> {
         let client = reqwest::Client::new();
         let mut offset = 0usize;
-        let limit = 500usize;
+        // Increased from 500 to reduce round trips during high-volume sync
+        let limit = 1000usize;
         let mut result = DeltaSyncResult::default();
         
         // Get local validators for bidirectional sync

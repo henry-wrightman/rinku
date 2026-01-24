@@ -1273,7 +1273,9 @@ impl CheckpointService {
         tx_merkle_root: &str,
         state_root: &str,
     ) -> (Vec<ValidatorSignature>, Vec<Vec<u8>>, f64) {
-        const QUORUM_TIMEOUT_MS: u64 = 5000;
+        // Increased from 5s to 10s to allow more time for peers that are syncing
+        // When transaction volume is high, peers may be busy processing delta sync
+        const QUORUM_TIMEOUT_MS: u64 = 10000;
         
         let mut signatures = vec![our_validator_sig];
         let mut raw_signatures = vec![our_signature];
