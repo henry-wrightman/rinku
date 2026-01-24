@@ -17,12 +17,28 @@ use tracing::{info, warn};
 
 use crate::gossip::{GossipMessage, GossipService};
 use crate::network::CheckpointData;
+use crate::state::TransactionResult;
 use crate::sync_verification::build_account_merkle_root_sorted;
 
 static FAUCET_RATE_LIMIT: std::sync::LazyLock<Mutex<HashMap<String, u64>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 const FAUCET_AMOUNT: f64 = 100.0;
 const FAUCET_RATE_LIMIT_MS: u64 = 60_000;
+
+/// Limit concurrent sync requests to prevent API overload under sync storms
+static ACTIVE_SYNC_REQUESTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+const MAX_CONCURRENT_SYNC_REQUESTS: u32 = 5;
+
+/// Maximum tips before rejecting new transactions (backpressure)
+const MAX_TIPS_BACKPRESSURE: usize = 1000;
+
+/// Guard to automatically decrement active sync request count on drop
+struct SyncRequestGuard;
+impl Drop for SyncRequestGuard {
+    fn drop(&mut self) {
+        ACTIVE_SYNC_REQUESTS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
 
 use crate::state::NodeState;
 
@@ -402,6 +418,19 @@ struct SyncTxQuery {
     offset: Option<usize>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncDeltaRequest {
+    #[serde(default)]
+    from_checkpoint: Option<u64>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    offset: Option<usize>,
+    #[serde(default)]
+    validators: std::collections::HashMap<String, rinku_core::types::Validator>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SyncDeltaResponse {
@@ -420,6 +449,8 @@ struct SyncDeltaResponse {
     from_checkpoint: u64,
     #[serde(default)]
     to_checkpoint: u64,
+    #[serde(default)]
+    validators: std::collections::HashMap<String, rinku_core::types::Validator>,
 }
 
 #[derive(Serialize)]
@@ -592,12 +623,20 @@ async fn post_gossip(
                 } else {
                     info!("Gossip: received tx {} from peer", &hash[..16.min(hash.len())]);
                 }
-                if let Err(e) = state.add_transaction(tx.clone()).await {
-                    warn!("Failed to add gossiped transaction: {}", e);
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(serde_json::json!({ "error": e.to_string() })),
-                    ).into_response();
+                match state.add_transaction(tx.clone()).await {
+                    Err(e) => {
+                        warn!("Failed to add gossiped transaction: {}", e);
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(serde_json::json!({ "error": e.to_string() })),
+                        ).into_response();
+                    }
+                    Ok(TransactionResult::Buffered) => {
+                        info!("Gossiped transaction {} buffered (future nonce)", &hash[..16.min(hash.len())]);
+                    }
+                    Ok(TransactionResult::Accepted) => {
+                        // Transaction fully processed
+                    }
                 }
             }
             GossipMessage::TipAnnouncement { dag_size, tips, .. } => {
@@ -619,8 +658,10 @@ async fn post_gossip(
                 info!("Gossip: received sync response with {} txs at height {}", 
                     transactions.len(), checkpoint_height);
                 for tx in transactions {
-                    if let Err(e) = state.add_transaction(tx.clone()).await {
-                        warn!("Failed to add synced tx {}: {}", &tx.hash[..16.min(tx.hash.len())], e);
+                    match state.add_transaction(tx.clone()).await {
+                        Err(e) => warn!("Failed to add synced tx {}: {}", &tx.hash[..16.min(tx.hash.len())], e),
+                        Ok(TransactionResult::Buffered) => info!("Synced tx {} buffered (future nonce)", &tx.hash[..16.min(tx.hash.len())]),
+                        Ok(TransactionResult::Accepted) => {}
                     }
                 }
             }
@@ -742,7 +783,18 @@ async fn post_bootstrap(
     })
 }
 
-async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncResponse> {
+async fn get_snapshot_sync(State(state): State<NodeState>) -> Result<Json<SnapshotSyncResponse>, (StatusCode, String)> {
+    // Concurrency limit to prevent API overload during sync storms
+    let current = ACTIVE_SYNC_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    if current >= MAX_CONCURRENT_SYNC_REQUESTS {
+        ACTIVE_SYNC_REQUESTS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        warn!("Sync request rejected: too many concurrent requests ({}/{})", current + 1, MAX_CONCURRENT_SYNC_REQUESTS);
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "Too many sync requests, try again later".to_string()));
+    }
+    
+    // Decrement on scope exit
+    let _guard = SyncRequestGuard;
+    
     info!("Snapshot sync request received");
     
     let snapshot = state.get_sync_snapshot().await;
@@ -768,7 +820,7 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncR
     account_data.sort_by(|a, b| a.address.cmp(&b.address));
     let accounts_merkle_root = build_account_merkle_root_sorted(&account_data);
 
-    Json(SnapshotSyncResponse {
+    Ok(Json(SnapshotSyncResponse {
         accounts: snapshot.accounts,
         validators: snapshot.validators,
         checkpoints: snapshot.checkpoints,
@@ -788,7 +840,7 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Json<SnapshotSyncR
         genesis_hash: snapshot.genesis_hash,
         finalized_tx_hashes: snapshot.finalized_tx_hashes,
         tx_checkpoint_heights: snapshot.tx_checkpoint_heights,
-    })
+    }))
 }
 
 #[derive(Deserialize)]
@@ -861,7 +913,18 @@ const MAX_SYNC_LIMIT: usize = 2000;
 async fn get_sync_transactions(
     State(state): State<NodeState>,
     Query(query): Query<SyncTxQuery>,
-) -> Json<SyncDeltaResponse> {
+) -> Result<Json<SyncDeltaResponse>, (StatusCode, String)> {
+    // Concurrency limit to prevent API overload during sync storms
+    let current = ACTIVE_SYNC_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    if current >= MAX_CONCURRENT_SYNC_REQUESTS {
+        ACTIVE_SYNC_REQUESTS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        warn!("Delta sync request rejected: too many concurrent requests ({}/{})", current + 1, MAX_CONCURRENT_SYNC_REQUESTS);
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "Too many sync requests, try again later".to_string()));
+    }
+    
+    // Decrement on scope exit
+    let _guard = SyncRequestGuard;
+    
     let from_checkpoint = query.from_checkpoint.unwrap_or(0);
     let (new_checkpoints, tx_checkpoint_heights, to_checkpoint) = {
         let state_guard = state.inner.read().await;
@@ -942,7 +1005,9 @@ async fn get_sync_transactions(
         }
     }
     
-    Json(SyncDeltaResponse {
+    let validators = state.get_validators_map().await;
+    
+    Ok(Json(SyncDeltaResponse {
         transactions,
         account_nonces,
         account_states,
@@ -954,7 +1019,133 @@ async fn get_sync_transactions(
         tx_checkpoint_heights: page_checkpoint_heights,
         from_checkpoint,
         to_checkpoint,
-    })
+        validators,
+    }))
+}
+
+/// POST version of delta sync that accepts validators from the requester
+/// This enables bidirectional validator sync - the node with more data
+/// can still learn about validators from the node requesting sync
+async fn post_sync_delta(
+    State(api_state): State<ApiState>,
+    Json(req): Json<SyncDeltaRequest>,
+) -> Result<Json<SyncDeltaResponse>, (StatusCode, String)> {
+    let state = &api_state.node_state;
+    
+    // First, import validators from the requester (bidirectional sync)
+    if !req.validators.is_empty() {
+        let merged_count = state.merge_validators_from_peer(&req.validators).await;
+        if merged_count > 0 {
+            info!("Imported {} validators from delta sync requester", merged_count);
+            // CRITICAL: Sync to ValidatorIdentityService for vote validation
+            // Without this, votes will fail BLS key verification
+            if let Some(ref gossip) = api_state.gossip_service {
+                gossip.sync_validator_identity_from_state().await;
+            }
+        }
+    }
+    
+    // Concurrency limit to prevent API overload during sync storms
+    let current = ACTIVE_SYNC_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    if current >= MAX_CONCURRENT_SYNC_REQUESTS {
+        ACTIVE_SYNC_REQUESTS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        warn!("Delta sync request rejected: too many concurrent requests ({}/{})", current + 1, MAX_CONCURRENT_SYNC_REQUESTS);
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "Too many sync requests, try again later".to_string()));
+    }
+    
+    // Decrement on scope exit
+    let _guard = SyncRequestGuard;
+    
+    let from_checkpoint = req.from_checkpoint.unwrap_or(0);
+    let (new_checkpoints, tx_checkpoint_heights, to_checkpoint) = {
+        let state_guard = state.inner.read().await;
+        let mut tx_checkpoint_heights = std::collections::HashMap::new();
+        let mut tx_count_by_checkpoint: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+        for node in state_guard.dag.get_all_nodes() {
+            if let Some(height) = node.checkpoint_height {
+                tx_checkpoint_heights.insert(node.hash.clone(), height);
+                *tx_count_by_checkpoint.entry(height).or_insert(0) += 1;
+            }
+        }
+        let new_checkpoints = state_guard
+            .checkpoints
+            .iter()
+            .filter(|cp| cp.height > from_checkpoint)
+            .map(|cp| CheckpointData {
+                height: cp.height,
+                merkle_root: cp.tx_merkle_root.clone(),
+                timestamp: cp.timestamp,
+                tx_count: *tx_count_by_checkpoint.get(&cp.height).unwrap_or(&0),
+                hash: Some(cp.hash.clone()),
+                previous_hash: cp.previous_hash.clone(),
+                signature: cp.aggregated_signature.clone(),
+                genesis_hash: state_guard.genesis_hash.clone(),
+            })
+            .collect();
+        let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        (new_checkpoints, tx_checkpoint_heights, to_checkpoint)
+    };
+    
+    let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
+    
+    let offset = req.offset.unwrap_or(0);
+    let limit = req.limit.unwrap_or(DEFAULT_SYNC_LIMIT).min(MAX_SYNC_LIMIT);
+    let total = all_txs.len();
+    
+    info!("POST Sync delta request: checkpoint={}, offset={}, limit={}", 
+          from_checkpoint, offset, limit);
+    
+    let transactions: Vec<_> = all_txs
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect();
+    
+    let returned = transactions.len();
+    let has_more = offset + returned < total;
+    
+    let mut account_nonces = std::collections::HashMap::new();
+    let mut account_states = std::collections::HashMap::new();
+    
+    let mut involved_addresses: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for tx in &transactions {
+        involved_addresses.insert(tx.tx.from.clone());
+        involved_addresses.insert(tx.tx.to.clone());
+    }
+    
+    for address in involved_addresses {
+        if let Some(account) = state.get_account(&address).await {
+            account_nonces.insert(address.clone(), account.nonce);
+            account_states.insert(address, account);
+        }
+    }
+    
+    info!("Returning {} of {} transactions with {} account states (offset={}, has_more={})", 
+          returned, total, account_states.len(), offset, has_more);
+    
+    let mut page_checkpoint_heights = std::collections::HashMap::new();
+    for tx in &transactions {
+        if let Some(height) = tx_checkpoint_heights.get(&tx.hash) {
+            page_checkpoint_heights.insert(tx.hash.clone(), *height);
+        }
+    }
+    
+    let validators = state.get_validators_map().await;
+    
+    Ok(Json(SyncDeltaResponse {
+        transactions,
+        account_nonces,
+        account_states,
+        total,
+        offset,
+        limit,
+        has_more,
+        new_checkpoints,
+        tx_checkpoint_heights: page_checkpoint_heights,
+        from_checkpoint,
+        to_checkpoint,
+        validators,
+    }))
 }
 
 async fn handle_faucet_request(
@@ -1028,12 +1219,24 @@ async fn handle_faucet_request(
     let tx = rinku_core::types::SignedTransaction { hash: hash.clone(), ..tx };
 
     match state.add_transaction(tx.clone()).await {
-        Ok(_) => {
+        Ok(TransactionResult::Accepted) => {
             // Broadcast to peers after successful local add
             if let Some(ref gossip) = api_state.gossip_service {
                 gossip.broadcast_transaction(tx).await;
                 info!("Faucet tx {} to {} broadcast to peers", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
             }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!(FaucetResponse {
+                    success: true,
+                    amount: FAUCET_AMOUNT,
+                    tx_hash: hash,
+                })),
+            ).into_response()
+        }
+        Ok(TransactionResult::Buffered) => {
+            // Faucet transactions should never be buffered (controlled nonce)
+            warn!("Faucet tx {} unexpectedly buffered", &hash[..16.min(hash.len())]);
             (
                 StatusCode::OK,
                 Json(serde_json::json!(FaucetResponse {
@@ -1143,6 +1346,20 @@ async fn submit_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
+    // Backpressure check: reject new transactions when DAG tips exceed threshold
+    let tip_count = api_state.node_state.get_tip_count().await;
+    if tip_count > MAX_TIPS_BACKPRESSURE {
+        warn!("Transaction rejected: DAG tips ({}) exceed backpressure threshold ({})", tip_count, MAX_TIPS_BACKPRESSURE);
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(SubmitTxResponse {
+                success: false,
+                hash: String::new(),
+                error: Some(format!("System under load: {} tips pending finalization. Try again later.", tip_count)),
+            }),
+        );
+    }
+    
     let inner = req.tx;
     let tx = rinku_core::types::SignedTransaction {
         tx: rinku_core::types::Transaction {
@@ -1163,12 +1380,24 @@ async fn submit_transaction(
     };
 
     match api_state.node_state.add_transaction(tx.clone()).await {
-        Ok(()) => {
+        Ok(TransactionResult::Accepted) => {
             // Broadcast to peers after successful local add
             if let Some(ref gossip) = api_state.gossip_service {
                 gossip.broadcast_transaction(tx).await;
                 info!("Transaction {} broadcast to peers", &inner.hash[..16.min(inner.hash.len())]);
             }
+            (
+                StatusCode::OK,
+                Json(SubmitTxResponse {
+                    success: true,
+                    hash: inner.hash,
+                    error: None,
+                }),
+            )
+        }
+        Ok(TransactionResult::Buffered) => {
+            // Transaction was buffered - still return success but don't broadcast yet
+            info!("Transaction {} buffered (future nonce)", &inner.hash[..16.min(inner.hash.len())]);
             (
                 StatusCode::OK,
                 Json(SubmitTxResponse {
@@ -1192,7 +1421,18 @@ async fn submit_transaction(
 async fn submit_batch_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<BatchSubmitTxRequest>,
-) -> Json<BatchSubmitTxResponse> {
+) -> Result<Json<BatchSubmitTxResponse>, (StatusCode, String)> {
+    // Backpressure check: reject new transactions when DAG tips exceed threshold
+    // This prevents API lockup when checkpoints can't be created (e.g., quorum failure)
+    let tip_count = api_state.node_state.get_tip_count().await;
+    if tip_count > MAX_TIPS_BACKPRESSURE {
+        warn!("Batch transaction rejected: DAG tips ({}) exceed backpressure threshold ({})", tip_count, MAX_TIPS_BACKPRESSURE);
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("System under load: {} tips pending finalization (max {}). Try again later.", tip_count, MAX_TIPS_BACKPRESSURE)
+        ));
+    }
+    
     let total = req.transactions.len();
 
     // Pre-convert all transactions outside of any locks
@@ -1242,11 +1482,11 @@ async fn submit_batch_transaction(
         }
     }
 
-    Json(BatchSubmitTxResponse {
+    Ok(Json(BatchSubmitTxResponse {
         successful,
         failed,
         total,
-    })
+    }))
 }
 
 async fn get_dag_summary(State(state): State<NodeState>) -> Json<DagSummaryResponse> {
@@ -2431,6 +2671,7 @@ pub async fn start_api_server(
         .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))
+        .route("/api/sync/delta", post(post_sync_delta))
         .layer(cors.clone())
         .with_state(api_state);
 

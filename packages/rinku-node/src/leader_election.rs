@@ -126,6 +126,63 @@ impl LeaderElection {
         }
     }
 
+    /// Elect leader using validator addresses from the synced validator registry.
+    /// This ensures ALL nodes with the same validator set will elect the same leader,
+    /// regardless of their peer discovery state.
+    /// 
+    /// CRITICAL: Use this method instead of elect_leader_from_peers for consensus-critical
+    /// leader election to prevent divergent checkpoint creation.
+    pub fn elect_leader_from_validator_addresses(
+        &self,
+        checkpoint_height: u64,
+        previous_checkpoint_hash: &str,
+        validator_addresses: &[String],
+        local_address: &str,
+    ) -> LeaderElectionResult {
+        let randomness = self.compute_randomness(checkpoint_height, previous_checkpoint_hash);
+        
+        // Use validator addresses (which are synced across all nodes)
+        let mut all_addresses: Vec<String> = validator_addresses.to_vec();
+        if !all_addresses.contains(&local_address.to_string()) {
+            all_addresses.push(local_address.to_string());
+        }
+        
+        // CRITICAL: Sort addresses for deterministic ordering across all nodes
+        all_addresses.sort();
+        
+        if all_addresses.is_empty() {
+            return LeaderElectionResult {
+                leader_address: self.local_address.clone(),
+                leader_url: self.local_url.clone(),
+                is_local: true,
+                slot: checkpoint_height,
+                randomness,
+            };
+        }
+
+        let random_index = self.randomness_to_index(&randomness, all_addresses.len());
+        let leader_address = &all_addresses[random_index];
+        
+        let is_local = leader_address == local_address;
+        
+        debug!(
+            "Leader election for checkpoint {}: {} validators, random_index={}, leader={}, is_local={}",
+            checkpoint_height,
+            all_addresses.len(),
+            random_index,
+            &leader_address[..16.min(leader_address.len())],
+            is_local
+        );
+        
+        LeaderElectionResult {
+            leader_address: leader_address.clone(),
+            leader_url: None, // We don't have URLs in validator registry
+            is_local,
+            slot: checkpoint_height,
+            randomness,
+        }
+    }
+
     fn compute_randomness(&self, checkpoint_height: u64, previous_hash: &str) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(b"RINKU_LEADER_ELECTION_V1");
@@ -217,6 +274,44 @@ impl LeaderElectionService {
             debug!(
                 "LEADER ELECTION: Node {} elected as leader for checkpoint {} (we are not leader)",
                 result.leader_url.as_deref().unwrap_or(&result.leader_address),
+                checkpoint_height
+            );
+            false
+        };
+
+        (should_create, result)
+    }
+
+    /// Determine if this node should create a checkpoint using validator addresses.
+    /// This method uses the synced validator registry to ensure ALL nodes elect the same leader.
+    /// 
+    /// CRITICAL: Use this method instead of should_create_checkpoint for consensus-critical
+    /// checkpoint creation to prevent divergent checkpoint creation.
+    pub fn should_create_checkpoint_from_validators(
+        &self,
+        checkpoint_height: u64,
+        previous_checkpoint_hash: &str,
+        validator_addresses: &[String],
+        local_address: &str,
+    ) -> (bool, LeaderElectionResult) {
+        let result = self.election.elect_leader_from_validator_addresses(
+            checkpoint_height,
+            previous_checkpoint_hash,
+            validator_addresses,
+            local_address,
+        );
+
+        let should_create = if result.is_local {
+            info!(
+                "LEADER ELECTION: This node elected as leader for checkpoint {} (validators: {})",
+                checkpoint_height,
+                validator_addresses.len() + 1
+            );
+            true
+        } else {
+            info!(
+                "LEADER ELECTION: Validator {} elected as leader for checkpoint {} (we are not leader)",
+                &result.leader_address[..16.min(result.leader_address.len())],
                 checkpoint_height
             );
             false

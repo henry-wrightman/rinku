@@ -25,7 +25,9 @@ use crate::trust::TrustVerifier;
 use crate::validator_identity::ValidatorIdentityService;
 
 /// Quorum threshold for multi-validator checkpoints (2/3 of stake)
-const QUORUM_STAKE_THRESHOLD: f64 = 0.667;
+/// Use 0.6666 instead of 0.667 to allow exactly 2/3 validators to reach quorum
+/// (e.g., 2000/3000 = 0.6667 >= 0.6666, but 2000/3000 < 0.667)
+const QUORUM_STAKE_THRESHOLD: f64 = 0.6666;
 
 pub struct CheckpointService {
     state: NodeState,
@@ -859,13 +861,45 @@ impl CheckpointService {
 
         // LEADER ELECTION: Only the elected leader should create the checkpoint
         // Other nodes should wait and sync from the leader
+        // 
+        // CRITICAL: Use validator addresses (synced across all nodes) instead of peer URLs
+        // to ensure ALL nodes elect the same leader. This prevents divergent checkpoint creation.
         if let Some(ref leader_election) = self.leader_election {
             let prev_hash_for_election = previous_hash.as_deref().unwrap_or("genesis");
-            let (should_create, election_result) = leader_election.should_create_checkpoint(
+            
+            // Get validator addresses from the synced validator registry
+            // This ensures deterministic leader election across all nodes
+            let mut validator_addresses: Vec<String> = if let Some(ref identity) = self.validator_identity {
+                let identity_guard = identity.read().await;
+                identity_guard.active_validators()
+                    .keys()
+                    .cloned()
+                    .collect()
+            } else {
+                // Fallback to using our own address if no validator identity service
+                vec![self.validator_address.clone()]
+            };
+            
+            // Sort for deterministic ordering across all nodes
+            validator_addresses.sort();
+            
+            // Log validator set at INFO level to diagnose leader election divergence
+            let validator_preview: Vec<String> = validator_addresses.iter()
+                .take(5)
+                .map(|a| a[..16.min(a.len())].to_string())
+                .collect();
+            info!(
+                "Leader election input: checkpoint={}, prev_hash={}, validators={} {:?}, local={}",
+                height, &prev_hash_for_election[..12.min(prev_hash_for_election.len())], 
+                validator_addresses.len(), validator_preview,
+                &self.validator_address[..16.min(self.validator_address.len())]
+            );
+            
+            let (should_create, election_result) = leader_election.should_create_checkpoint_from_validators(
                 height,
                 prev_hash_for_election,
-                &self.peers,
-                self.local_url.as_deref(),
+                &validator_addresses,
+                &self.validator_address,
             );
             
             if !should_create {
@@ -874,7 +908,7 @@ impl CheckpointService {
                 debug!(
                     "LEADER ELECTION: Not elected for checkpoint {} (leader: {}), waiting for peer checkpoint",
                     height,
-                    election_result.leader_url.as_deref().unwrap_or(&election_result.leader_address)
+                    &election_result.leader_address[..16.min(election_result.leader_address.len())]
                 );
                 
                 // Try to fetch and adopt the leader's checkpoint

@@ -6,10 +6,20 @@ use rinku_core::{
 };
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
+
+/// Result of add_transaction - distinguishes between fully accepted and buffered transactions
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransactionResult {
+    /// Transaction was fully validated and added to the DAG
+    Accepted,
+    /// Transaction has a future nonce and was buffered for later processing
+    /// Gossip layer should NOT propagate buffered transactions
+    Buffered,
+}
 
 use crate::bls::bls_verify;
 use crate::config::NodeConfig;
@@ -630,6 +640,9 @@ pub struct StateInner {
     // Track whether this node has ever successfully synced from the network
     // If false, we're a new node that should adopt peer's genesis hash
     pub has_synced_from_network: bool,
+    // Pending nonce queue: buffers transactions with future nonces until gaps fill
+    // Key: sender address, Value: BTreeMap of nonce -> transaction (ordered by nonce)
+    pub pending_nonce_queue: HashMap<String, BTreeMap<u64, SignedTransaction>>,
 }
 
 #[derive(Clone)]
@@ -746,6 +759,7 @@ impl NodeState {
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: true, // Restored from storage = already synced
+                    pending_nonce_queue: HashMap::new(),
                 }
             } else {
                 // Try to sync from P2P bootstrap peers BEFORE creating genesis
@@ -837,6 +851,7 @@ impl NodeState {
                         node_listen_addr: None,
                         finalized_tx_history: VecDeque::new(),
                         has_synced_from_network: true,
+                        pending_nonce_queue: HashMap::new(),
                     };
                     
                     // Handle emission, slashing, rewards from snapshot
@@ -1013,6 +1028,7 @@ impl NodeState {
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: false, // Fresh node = hasn't synced yet
+                    pending_nonce_queue: HashMap::new(),
                 }
             };
 
@@ -1203,10 +1219,45 @@ impl NodeState {
         self.start_time.elapsed().as_secs()
     }
 
-    pub async fn set_validator_info(&self, address: Option<String>, bls_public_key: Option<String>) {
+    pub async fn set_validator_info(&self, address: Option<String>, bls_public_key: Option<String>, allow_auto_register: bool) {
+        use crate::validator_identity::MIN_VALIDATOR_STAKE;
+        
         let mut state = self.inner.write().await;
-        state.node_validator_address = address;
-        state.node_bls_public_key = bls_public_key;
+        state.node_validator_address = address.clone();
+        state.node_bls_public_key = bls_public_key.clone();
+        
+        // Register or update in state.validators so it gets synced to peers via snapshots
+        if let Some(ref addr) = address {
+            if let Some(existing) = state.validators.get_mut(addr) {
+                // Update existing entry if BLS key is missing or different
+                if existing.bls_public_key.is_none() || existing.bls_public_key != bls_public_key {
+                    info!("Updating BLS key for validator {} in state.validators", addr);
+                    existing.bls_public_key = bls_public_key.clone();
+                }
+            } else if allow_auto_register {
+                // Create new entry ONLY if auto-registration is allowed
+                // When GENESIS_VALIDATORS is set, we should NOT auto-register because
+                // GENESIS_VALIDATORS is the authoritative source of truth
+                let now_secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let validator = Validator {
+                    address: addr.clone(),
+                    stake: MIN_VALIDATOR_STAKE,
+                    first_stake_time: now_secs * 1000,
+                    bls_public_key: bls_public_key.clone(),
+                    missed_checkpoints: 0,
+                };
+                info!("Registering local validator {} in state.validators for peer sync", addr);
+                state.validators.insert(addr.clone(), validator);
+            } else {
+                warn!(
+                    "Local validator {} not in GENESIS_VALIDATORS - skipping auto-registration",
+                    addr
+                );
+            }
+        }
     }
 
     pub async fn get_validator_info(&self) -> (Option<String>, Option<String>) {
@@ -1470,6 +1521,12 @@ impl NodeState {
     pub async fn get_tips(&self) -> Vec<String> {
         let state = self.inner.read().await;
         state.dag.tips()
+    }
+
+    /// Get tip count without cloning the entire tips vector (more efficient for backpressure checks)
+    pub async fn get_tip_count(&self) -> usize {
+        let state = self.inner.read().await;
+        state.dag.tip_count()
     }
 
     pub async fn get_dag_stats(&self) -> (usize, usize, usize) {
@@ -1812,7 +1869,7 @@ impl NodeState {
         }
     }
 
-    pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<()> {
+    pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<TransactionResult> {
         // PHASE 0: Validate transaction BEFORE any state mutations
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
@@ -1864,16 +1921,75 @@ impl NodeState {
                                 account.balance, required_balance
                             ));
                         }
-                        if tx.tx.nonce != account.nonce {
+                        // Nonce handling with pending queue support:
+                        // - nonce < expected: reject (duplicate/already processed)
+                        // - nonce > expected: buffer in pending queue for later
+                        // - nonce == expected: process normally
+                        if tx.tx.nonce < account.nonce {
                             tracing::warn!(
-                                "Transaction rejected: invalid nonce. Expected {}, got {}",
+                                "Transaction rejected: stale nonce. Expected {}, got {} (already processed)",
                                 account.nonce, tx.tx.nonce
                             );
                             return Err(anyhow::anyhow!(
-                                "Invalid nonce: expected {}, got {}",
+                                "Stale nonce: expected {}, got {} (already processed)",
                                 account.nonce, tx.tx.nonce
                             ));
                         }
+                        // Future nonce - buffer it for later processing
+                        if tx.tx.nonce > account.nonce {
+                            // Check if we already have this nonce buffered
+                            let already_buffered = state.pending_nonce_queue
+                                .get(&tx.tx.from)
+                                .map(|q| q.contains_key(&tx.tx.nonce))
+                                .unwrap_or(false);
+                            
+                            if already_buffered {
+                                tracing::debug!(
+                                    "Transaction already buffered: nonce {} from {}",
+                                    tx.tx.nonce, &tx.tx.from[..16.min(tx.tx.from.len())]
+                                );
+                                return Ok(TransactionResult::Buffered); // Already buffered, no need to add again
+                            }
+                            
+                            // Max queue size per sender to prevent memory bloat (16 pending txs max)
+                            let queue_size = state.pending_nonce_queue
+                                .get(&tx.tx.from)
+                                .map(|q| q.len())
+                                .unwrap_or(0);
+                            
+                            if queue_size >= 16 {
+                                tracing::warn!(
+                                    "Pending nonce queue full for {}, rejecting nonce {}",
+                                    &tx.tx.from[..16.min(tx.tx.from.len())], tx.tx.nonce
+                                );
+                                return Err(anyhow::anyhow!(
+                                    "Too many pending transactions, please wait for earlier ones to be processed"
+                                ));
+                            }
+                            
+                            // Drop read lock before acquiring write lock
+                            let sender = tx.tx.from.clone();
+                            let nonce = tx.tx.nonce;
+                            drop(state);
+                            
+                            // Buffer the transaction with future nonce
+                            {
+                                let mut state = self.inner.write().await;
+                                state.pending_nonce_queue
+                                    .entry(sender.clone())
+                                    .or_insert_with(BTreeMap::new)
+                                    .insert(nonce, tx);
+                                
+                                tracing::info!(
+                                    "Buffered future nonce tx: sender={}, nonce={} (queue size: {})",
+                                    &sender[..16.min(sender.len())], nonce,
+                                    state.pending_nonce_queue.get(&sender).map(|q| q.len()).unwrap_or(0)
+                                );
+                            }
+                            
+                            return Ok(TransactionResult::Buffered); // Successfully buffered, do NOT propagate
+                        }
+                        // nonce == account.nonce: proceed with normal processing
                     }
                     None => {
                         tracing::warn!(
@@ -2141,6 +2257,288 @@ impl NodeState {
                                 claimed,
                                 account.balance
                             );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // After successfully processing a transaction, check pending queue for this sender
+        // and process any transactions that are now ready (nonce matches expected)
+        // Uses iterative processing to avoid stack overflow from deep recursion
+        self.process_pending_nonce_queue_iterative(&from_addr).await;
+
+        Ok(TransactionResult::Accepted)
+    }
+
+    /// Process pending transactions for a sender after their nonce advances
+    /// Uses iterative approach to avoid stack overflow from recursive add_transaction calls
+    /// Re-checks queue after each transaction in case new ones arrived during processing
+    async fn process_pending_nonce_queue_iterative(&self, sender: &str) {
+        loop {
+            // Get the next ready transaction (if any)
+            let next_tx: Option<SignedTransaction> = {
+                let mut state = self.inner.write().await;
+                
+                // Get expected nonce for this sender
+                let expected_nonce = state.accounts
+                    .get(sender)
+                    .map(|a| a.nonce)
+                    .unwrap_or(0);
+                
+                // Check if there's a pending queue for this sender with the expected nonce
+                let queue = match state.pending_nonce_queue.get_mut(sender) {
+                    Some(q) => q,
+                    None => return, // No pending transactions
+                };
+                
+                // Try to get transaction with expected nonce
+                let tx = queue.remove(&expected_nonce);
+                
+                // Clean up empty queue
+                if queue.is_empty() {
+                    state.pending_nonce_queue.remove(sender);
+                }
+                
+                if let Some(ref t) = tx {
+                    tracing::info!(
+                        "Processing buffered tx for {} (nonce {})",
+                        &sender[..16.min(sender.len())],
+                        expected_nonce
+                    );
+                }
+                
+                tx
+            };
+            
+            match next_tx {
+                Some(tx) => {
+                    // Process this transaction - call add_transaction_inner to avoid double queue processing
+                    if let Err(e) = self.add_transaction_from_queue(tx.clone()).await {
+                        tracing::warn!(
+                            "Failed to process buffered tx {}: {}",
+                            &tx.hash[..16.min(tx.hash.len())], e
+                        );
+                        // If a buffered tx fails, stop processing this sender's queue
+                        // (subsequent txs would also fail due to nonce mismatch)
+                        break;
+                    }
+                    // Continue loop to check for more ready transactions
+                }
+                None => break, // No more ready transactions
+            }
+        }
+    }
+    
+    /// Internal version of add_transaction for processing buffered transactions
+    /// Skips the pending queue check at the end to avoid infinite loops
+    async fn add_transaction_from_queue(&self, tx: SignedTransaction) -> Result<()> {
+        // This is a simplified version that processes a transaction known to have correct nonce
+        // Since it came from the pending queue, nonce validation was already done
+        
+        let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+        let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+        let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+        
+        // Normalize parent URLs to just hashes
+        let client_parents: Vec<String> = tx
+            .tx
+            .parents
+            .iter()
+            .map(|p| {
+                if p.starts_with("rinku://tx/h/") {
+                    p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+                } else if p.starts_with("rinku://tx/") {
+                    p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+                } else {
+                    p.clone()
+                }
+            })
+            .collect();
+
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        let (tx_weight, normalized_parents) = {
+            let state = self.inner.read().await;
+            
+            let weight = if let Some(account) = state.accounts.get(&tx.tx.from) {
+                calculate_account_weight(account, now_secs)
+            } else {
+                1.0
+            };
+            
+            let valid_parents: Vec<String> = client_parents
+                .iter()
+                .filter(|p| !p.is_empty() && state.dag.get_node(p).is_some())
+                .cloned()
+                .collect();
+            
+            let final_parents = if valid_parents.is_empty() {
+                let current_tips = state.dag.tips();
+                current_tips.into_iter().take(2).collect()
+            } else {
+                valid_parents
+            };
+            
+            (weight, final_parents)
+        };
+
+        let node = rinku_core::types::DagNode {
+            hash: tx.hash.clone(),
+            tx: tx.clone(),
+            parents: normalized_parents.clone(),
+            children: Vec::new(),
+            weight: tx_weight,
+            finalized: false,
+            checkpoint_height: None,
+        };
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let mut state = self.inner.write().await;
+
+        state.dag.add_node(node)?;
+
+        let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+        
+        if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
+            if is_stake_tx {
+                from_account.balance -= tx.tx.amount + gas_fee;
+            } else if is_unstake_tx || is_claim_tx {
+                from_account.balance -= gas_fee;
+            } else {
+                from_account.balance -= tx.tx.amount + gas_fee;
+            }
+            from_account.nonce = tx.tx.nonce + 1;
+        }
+
+        if !is_stake_tx && !is_unstake_tx && !is_claim_tx {
+            let to_account = state
+                .accounts
+                .entry(tx.tx.to.clone())
+                .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
+            to_account.balance += tx.tx.amount;
+        }
+
+        state.total_burned += gas_fee * 0.5;
+        state.total_to_validators += gas_fee * 0.5;
+        state.txs_this_period += 1;
+        state.total_transactions += 1;
+
+        // Period-based gas adjustment
+        const PERIOD_MS: u64 = 15000;
+        const TARGET_TPS: f64 = 10.0;
+        const MAX_CHANGE_PERCENT: f64 = 0.125;
+        const ELASTICITY: f64 = 2.0;
+
+        if now_ms - state.period_start_ms >= PERIOD_MS {
+            let target_txs = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
+            let utilization = state.txs_this_period as f64 / target_txs;
+            let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
+            let change_factor = 1.0 + change_ratio * MAX_CHANGE_PERCENT;
+            state.current_gas_price = (state.current_gas_price * change_factor).clamp(
+                state.config.gas.min_gas_price,
+                state.config.gas.max_gas_price,
+            );
+            state.txs_this_period = 0;
+            state.period_start_ms = now_ms;
+        }
+        
+        let tx_kind = tx.tx.kind.clone();
+        let from_addr = tx.tx.from.clone();
+        let stake_amount = tx.tx.amount;
+        let tx_amount = tx.tx.amount;
+        let tx_hash = tx.hash.clone();
+        let tx_url = format!("rinku://tx/h/{}", tx_hash);
+        
+        let parent_creators: Vec<(String, String)> = normalized_parents
+            .iter()
+            .filter_map(|parent_hash| {
+                state.dag.get_node(parent_hash).map(|node| {
+                    let parent_url = format!("rinku://tx/h/{}", parent_hash);
+                    (parent_url, node.tx.tx.from.clone())
+                })
+            })
+            .collect();
+        
+        let validator_addr = state.node_validator_address.clone();
+        
+        drop(state);
+        
+        // Process rewards (simplified - same as add_transaction)
+        if tx_amount > 0.0 || gas_fee > 0.0 {
+            let reward_base = tx_amount + gas_fee;
+            let mut rewards = self.rewards.write().await;
+            
+            if let Some(ref validator) = validator_addr {
+                if let Some(first_parent) = normalized_parents.first() {
+                    let tip_url = format!("rinku://tx/h/{}", first_parent);
+                    rewards.process_tip_reward(&tx_url, &tip_url, validator, reward_base);
+                }
+            }
+            
+            for (parent_url, parent_creator) in &parent_creators {
+                if parent_creator != &from_addr {
+                    rewards.process_witness_reward(&tx_url, parent_url, parent_creator, reward_base);
+                }
+            }
+            
+            drop(rewards);
+        }
+        
+        // Process stake/unstake transactions
+        if let Some(kind) = tx_kind {
+            use rinku_core::types::TransactionKind;
+            match kind {
+                TransactionKind::Stake => {
+                    let stake_update: Option<(f64, u64)> = {
+                        let mut rewards = self.rewards.write().await;
+                        if let Err(e) = rewards.stake(&from_addr, stake_amount) {
+                            tracing::warn!("Failed to process stake tx: {}", e);
+                            None
+                        } else {
+                            rewards.get_stake(&from_addr).map(|p| (p.amount, p.staked_at))
+                        }
+                    };
+                    if let Some((amount, staked_at)) = stake_update {
+                        self.update_account_staked(&from_addr, amount, Some(staked_at / 1000)).await;
+                    }
+                }
+                TransactionKind::Unstake => {
+                    let unstake_result: Option<f64> = {
+                        let mut rewards = self.rewards.write().await;
+                        match rewards.unstake(&from_addr) {
+                            Ok(amount) => Some(amount),
+                            Err(e) => {
+                                tracing::warn!("Failed to process unstake tx: {}", e);
+                                None
+                            }
+                        }
+                    };
+                    if let Some(unstaked_amount) = unstake_result {
+                        let mut state = self.inner.write().await;
+                        if let Some(account) = state.accounts.get_mut(&from_addr) {
+                            account.balance += unstaked_amount;
+                            account.staked = 0.0;
+                        }
+                    }
+                }
+                TransactionKind::ClaimRewards => {
+                    let claimed: f64 = {
+                        let mut rewards = self.rewards.write().await;
+                        rewards.claim_rewards(&from_addr)
+                    };
+                    if claimed > 0.0 {
+                        let mut state = self.inner.write().await;
+                        if let Some(account) = state.accounts.get_mut(&from_addr) {
+                            account.balance += claimed;
                         }
                     }
                 }
@@ -2570,6 +2968,84 @@ impl NodeState {
         let state = self.inner.read().await;
         state.validators.values().cloned().collect()
     }
+    
+    /// Get the validators as a HashMap for syncing to the ValidatorIdentityService
+    pub async fn get_validators_map(&self) -> std::collections::HashMap<String, Validator> {
+        let state = self.inner.read().await;
+        state.validators.clone()
+    }
+    
+    /// Replace the entire validator set with genesis validators
+    /// CRITICAL: This ensures state.validators and ValidatorIdentityService stay in sync
+    /// when GENESIS_VALIDATORS env var is set. Prevents stale validators from persisting.
+    pub async fn replace_validators_with_genesis(&self, genesis_validators: &[(String, Vec<u8>)]) {
+        use crate::validator_identity::MIN_VALIDATOR_STAKE;
+        
+        let mut state = self.inner.write().await;
+        let old_count = state.validators.len();
+        
+        // Build new validator map from genesis validators
+        let mut new_validators = std::collections::HashMap::new();
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        for (address, bls_public_key) in genesis_validators {
+            let validator = Validator {
+                address: address.clone(),
+                stake: MIN_VALIDATOR_STAKE,
+                first_stake_time: now_secs * 1000,
+                bls_public_key: Some(hex::encode(bls_public_key)),
+                missed_checkpoints: 0,
+            };
+            new_validators.insert(address.clone(), validator);
+        }
+        
+        let new_count = new_validators.len();
+        state.validators = new_validators;
+        
+        info!(
+            "state.validators: REPLACED with genesis validators ({} -> {})",
+            old_count, new_count
+        );
+    }
+
+    /// Merge validators from peer during delta sync
+    /// This ensures all nodes converge to the same validator set for leader election
+    /// Returns the number of validators added or updated
+    pub async fn merge_validators_from_peer(
+        &self,
+        peer_validators: &std::collections::HashMap<String, Validator>,
+    ) -> usize {
+        let mut state = self.inner.write().await;
+        let mut merged_count = 0;
+        
+        for (addr, peer_validator) in peer_validators {
+            match state.validators.get_mut(addr) {
+                Some(existing) => {
+                    // Update BLS key if we don't have one but peer does
+                    if existing.bls_public_key.is_none() && peer_validator.bls_public_key.is_some() {
+                        existing.bls_public_key = peer_validator.bls_public_key.clone();
+                        merged_count += 1;
+                        info!("Updated BLS key for validator {} from peer", addr);
+                    }
+                    // Take higher stake value (peer might have more up-to-date stake info)
+                    if peer_validator.stake > existing.stake {
+                        existing.stake = peer_validator.stake;
+                    }
+                }
+                None => {
+                    // Add new validator from peer
+                    state.validators.insert(addr.clone(), peer_validator.clone());
+                    merged_count += 1;
+                    info!("Added validator {} from peer (stake: {})", addr, peer_validator.stake);
+                }
+            }
+        }
+        
+        merged_count
+    }
 
     pub async fn get_finalization_info(&self, hash: &str) -> (bool, Option<u64>) {
         let state = self.inner.read().await;
@@ -2856,7 +3332,55 @@ impl NodeState {
         );
         
         state.accounts = merged_accounts;
-        state.validators = snapshot.validators;
+        
+        // VALIDATOR REPLACE: Replace validators entirely to ensure all nodes converge
+        // This is critical for leader election - all nodes must have consistent validator sets
+        let local_validator_addr = state.node_validator_address.clone();
+        let local_validator_bls = state.node_bls_public_key.clone();
+        let local_validator_backup = local_validator_addr.as_ref()
+            .and_then(|addr| state.validators.get(addr).cloned());
+        let old_validator_count = state.validators.len();
+        
+        // Start with peer's validators (REPLACE, not merge)
+        let mut new_validators = snapshot.validators.clone();
+        
+        // CRITICAL: Re-register local validator to ensure we're always in the set
+        if let Some(ref local_addr) = local_validator_addr {
+            if !new_validators.contains_key(local_addr) {
+                // Restore local validator from backup or create new
+                if let Some(backup) = local_validator_backup {
+                    info!("Re-adding local validator {} to synced set (from backup)", local_addr);
+                    new_validators.insert(local_addr.clone(), backup);
+                } else {
+                    use crate::validator_identity::MIN_VALIDATOR_STAKE;
+                    let now_secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let validator = Validator {
+                        address: local_addr.clone(),
+                        stake: MIN_VALIDATOR_STAKE,
+                        first_stake_time: now_secs * 1000,
+                        bls_public_key: local_validator_bls.clone(),
+                        missed_checkpoints: 0,
+                    };
+                    info!("Re-registering local validator {} after snapshot sync", local_addr);
+                    new_validators.insert(local_addr.clone(), validator);
+                }
+            } else if let Some(existing) = new_validators.get_mut(local_addr) {
+                // Ensure our BLS key is set
+                if existing.bls_public_key.is_none() && local_validator_bls.is_some() {
+                    existing.bls_public_key = local_validator_bls.clone();
+                }
+            }
+        }
+        
+        info!(
+            "Validator sync: REPLACED validator set ({} -> {} validators)",
+            old_validator_count, new_validators.len()
+        );
+        state.validators = new_validators;
+        
         state.checkpoints = snapshot.checkpoints.clone();
         state.current_gas_price = snapshot.gas_price;
         state.total_supply = snapshot.total_supply;

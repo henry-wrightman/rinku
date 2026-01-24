@@ -15,7 +15,8 @@ use crate::bls::{aggregate_signatures, bls_verify, create_signer_bitmap};
 use crate::state::NodeState;
 use crate::validator_identity::ValidatorIdentityService;
 
-pub const QUORUM_THRESHOLD: f64 = 0.67;
+// Use 0.6666 (exactly 2/3) to allow 2-of-3 validator quorum in small validator sets
+pub const QUORUM_THRESHOLD: f64 = 0.6666;
 pub const SUPER_MAJORITY_THRESHOLD: f64 = 0.75;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -917,11 +918,13 @@ mod tests {
     fn test_quorum_threshold_boundary() {
         let mut acc = VoteAccumulator::new(1, "hash".to_string(), 1000.0, vec![]);
         
-        acc.add_vote(create_test_vote("v1", 1, "hash"), 660.0, 0);
-        assert!(!acc.quorum_reached(), "66% should not reach quorum");
+        // 66.65% should not reach quorum (below 0.6666 threshold)
+        acc.add_vote(create_test_vote("v1", 1, "hash"), 666.5, 0);
+        assert!(!acc.quorum_reached(), "66.65% should not reach quorum");
         
-        acc.add_vote(create_test_vote("v2", 1, "hash"), 10.0, 1);
-        assert!(acc.quorum_reached(), "67% should reach quorum");
+        // 66.66% should reach quorum (at 0.6666 threshold)
+        acc.add_vote(create_test_vote("v2", 1, "hash"), 0.1, 1);
+        assert!(acc.quorum_reached(), "66.66% should reach quorum");
     }
 
     fn create_test_tx(from: &str, amount: f64, gas_price: Option<f64>, kind: Option<TransactionKind>) -> SignedTransaction {

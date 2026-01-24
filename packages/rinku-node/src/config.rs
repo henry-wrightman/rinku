@@ -20,7 +20,8 @@ impl Default for TrustConfig {
     fn default() -> Self {
         Self {
             genesis_validators: Vec::new(),
-            checkpoint_quorum_threshold: 0.67,
+            // Use 0.6666 (exactly 2/3) to allow 2-of-3 validator quorum in small validator sets
+            checkpoint_quorum_threshold: 0.6666,
             trust_checkpoint_hash: None,
         }
     }
@@ -261,10 +262,11 @@ impl TrustConfig {
             }
         }
         
+        // Use 0.6666 (exactly 2/3) to allow 2-of-3 validator quorum
         let checkpoint_quorum_threshold = env::var("CHECKPOINT_QUORUM_THRESHOLD")
             .ok()
             .and_then(|t| t.parse().ok())
-            .unwrap_or(0.67);
+            .unwrap_or(0.6666);
         
         let trust_checkpoint_hash = env::var("TRUST_CHECKPOINT_HASH").ok();
         

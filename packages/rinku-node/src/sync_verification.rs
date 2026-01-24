@@ -43,11 +43,22 @@ fn sha256_hex(data: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-/// Hash an account leaf
+/// Normalize f64 to fixed 8 decimal precision string for deterministic hashing
+/// This ensures identical hashes across nodes regardless of floating point representation
+fn normalize_f64(value: f64) -> String {
+    // Round to 8 decimal places and format consistently
+    let rounded = (value * 100_000_000.0).round() / 100_000_000.0;
+    format!("{:.8}", rounded)
+}
+
+/// Hash an account leaf with deterministic f64 formatting
 pub fn hash_account_leaf(account: &AccountData) -> String {
     let data = format!(
         "account:{}:{}:{}:{}",
-        account.address, account.balance, account.nonce, account.stake
+        account.address,
+        normalize_f64(account.balance),
+        account.nonce,
+        normalize_f64(account.stake)
     );
     sha256_hex(&data)
 }
@@ -595,6 +606,7 @@ mod tests {
             from_checkpoint: 1,
             to_checkpoint: 2,
             tx_checkpoint_heights,
+            validators: Vec::new(),
         };
         let result = verify_delta(&delta);
         assert_eq!(result, VerificationResult::Valid);

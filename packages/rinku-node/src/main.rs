@@ -253,21 +253,30 @@ async fn main() -> Result<()> {
         }
     };
 
-    if let Some(ref vi) = validator_identity {
-        if !config.trust.genesis_validators.is_empty() {
-            let genesis_seed: Vec<(String, Vec<u8>)> = config
-                .trust
-                .genesis_validators
-                .iter()
-                .map(|v| (v.address.clone(), v.bls_public_key.clone()))
-                .collect();
+    // CRITICAL: When GENESIS_VALIDATORS is set, it becomes the authoritative source
+    // of truth for the validator set. Both registries must be replaced to prevent
+    // stale validators from persisting across restarts/redeployments.
+    if !config.trust.genesis_validators.is_empty() {
+        let genesis_seed: Vec<(String, Vec<u8>)> = config
+            .trust
+            .genesis_validators
+            .iter()
+            .map(|v| (v.address.clone(), v.bls_public_key.clone()))
+            .collect();
+        
+        // Replace state.validators first (used for checkpoint signature verification)
+        state.replace_validators_with_genesis(&genesis_seed).await;
+        
+        // Replace ValidatorIdentityService.active_validators (used for leader election)
+        if let Some(ref vi) = validator_identity {
             let mut vi_guard = vi.write().await;
             vi_guard.seed_genesis_validators(&genesis_seed);
-            info!(
-                "Seeded {} genesis validator(s) into validator registry",
-                genesis_seed.len()
-            );
         }
+        
+        info!(
+            "Seeded {} genesis validator(s) into validator registry",
+            genesis_seed.len()
+        );
     }
 
     let mut checkpoint_service = CheckpointService::new(
@@ -307,7 +316,15 @@ async fn main() -> Result<()> {
         "BLS public key: {}...",
         &bls_public_key[..32]
     );
-    state.set_validator_info(validator_address.clone(), Some(bls_public_key)).await;
+    // When GENESIS_VALIDATORS is set, it's authoritative - don't allow auto-registration
+    // of validators that aren't in the genesis set. Otherwise, allow auto-registration
+    // for non-production or single-node setups.
+    let has_genesis_validators = !config.trust.genesis_validators.is_empty();
+    state.set_validator_info(
+        validator_address.clone(), 
+        Some(bls_public_key), 
+        !has_genesis_validators  // allow_auto_register = false when GENESIS_VALIDATORS is set
+    ).await;
 
     let fork_service = ForkRemediationService::new(state.clone());
     let fork_handle = tokio::spawn(async move {
@@ -396,6 +413,11 @@ async fn main() -> Result<()> {
             config.sync_verify_strict,
         );
         service.set_checkpoint_vote_signer(checkpoint_vote_signer.clone());
+        
+        // Wire up validator identity service for syncing validator registry
+        if let Some(ref vi) = validator_identity {
+            service.set_validator_identity(vi.clone());
+        }
         
         // Wire up the libp2p network handle if available
         #[cfg(feature = "p2p")]

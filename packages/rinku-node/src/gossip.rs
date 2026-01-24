@@ -1,12 +1,13 @@
 use anyhow::Result;
 use rinku_core::crypto::sha256_hex;
-use rinku_core::types::{Account, Checkpoint, SignedTransaction};
+use rinku_core::types::{Account, Checkpoint, SignedTransaction, Validator};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, warn};
+use crate::state::TransactionResult;
 
 const KNOWN_TXS_MAX_SIZE: usize = 50_000;
 const SEEN_CONFLICTS_MAX_SIZE: usize = 10_000;
@@ -361,6 +362,14 @@ pub struct GossipServiceInner {
     pub last_peer_refresh: u64,
     pub sync_in_flight: bool,
     pub peer_bloom_filters: HashMap<String, BloomFilter>,
+    /// Cooldown: last time sync failed (prevents sync storm)
+    pub last_sync_failure: Option<std::time::Instant>,
+    /// Per-peer debounce: last sync attempt time for each peer
+    pub peer_last_sync: HashMap<String, std::time::Instant>,
+    /// Rate limit recovery attempts: max 1 per 30 seconds per peer
+    pub peer_last_recovery: HashMap<String, std::time::Instant>,
+    /// Count of active sync requests (to limit concurrency)
+    pub active_sync_count: u32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -392,6 +401,8 @@ pub struct GossipService {
     checkpoint_vote_signer: Option<CheckpointVoteSigner>,
     #[cfg(feature = "p2p")]
     network_handle: Option<Arc<tokio::sync::Mutex<NetworkHandle>>>,
+    /// Validator identity service for syncing validator registry
+    validator_identity: Option<Arc<tokio::sync::RwLock<crate::validator_identity::ValidatorIdentityService>>>,
 }
 
 impl GossipService {
@@ -445,6 +456,10 @@ impl GossipService {
                 last_peer_refresh: now,
                 sync_in_flight: false,
                 peer_bloom_filters: HashMap::new(),
+                last_sync_failure: None,
+                peer_last_sync: HashMap::new(),
+                peer_last_recovery: HashMap::new(),
+                active_sync_count: 0,
             })),
             node_id,
             interval_ms,
@@ -454,7 +469,16 @@ impl GossipService {
             checkpoint_vote_signer: None,
             #[cfg(feature = "p2p")]
             network_handle: None,
+            validator_identity: None,
         }
+    }
+    
+    /// Set the validator identity service for syncing validator registry
+    pub fn set_validator_identity(
+        &mut self,
+        validator_identity: Arc<tokio::sync::RwLock<crate::validator_identity::ValidatorIdentityService>>,
+    ) {
+        self.validator_identity = Some(validator_identity);
     }
 
     pub fn set_checkpoint_vote_signer(&mut self, signer: CheckpointVoteSigner) {
@@ -464,6 +488,23 @@ impl GossipService {
     #[cfg(feature = "p2p")]
     pub fn set_network_handle(&mut self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) {
         self.network_handle = Some(handle);
+    }
+    
+    /// Sync the validator identity service from the synced state.validators
+    /// This ensures all nodes have the same validator registry for deterministic leader election.
+    /// Public so API can call it after merging validators from incoming requests
+    pub async fn sync_validator_identity_from_state(&self) {
+        if let Some(ref validator_identity) = self.validator_identity {
+            let synced_validators = self.state.get_validators_map().await;
+            if !synced_validators.is_empty() {
+                let mut vi_guard = validator_identity.write().await;
+                vi_guard.sync_from_legacy_validators(&synced_validators);
+                info!(
+                    "Synced validator identity service with {} validators from peer",
+                    synced_validators.len()
+                );
+            }
+        }
     }
 
     pub async fn start(self) -> Result<()> {
@@ -908,6 +949,10 @@ impl GossipService {
 
         let added = self.state.apply_sync_snapshot(snapshot).await?;
         
+        // CRITICAL: Sync the validator identity service with the synced validators
+        // This ensures all nodes have the same validator registry for leader election
+        self.sync_validator_identity_from_state().await;
+        
         // Mark this node as having synced from the network
         self.state.mark_synced_from_network().await;
         
@@ -1103,6 +1148,10 @@ impl GossipService {
         // Use force apply to bypass checkpoint count check
         let added = self.state.apply_sync_snapshot_force(snapshot).await?;
         
+        // CRITICAL: Sync the validator identity service with the synced validators
+        // This ensures all nodes have the same validator registry for leader election
+        self.sync_validator_identity_from_state().await;
+        
         // Mark this node as having synced from the network
         self.state.mark_synced_from_network().await;
         
@@ -1164,6 +1213,18 @@ impl GossipService {
             let elapsed = now_secs.saturating_sub(inner.last_peer_refresh);
             if elapsed >= 10 {
                 inner.last_peer_refresh = now_secs;
+                
+                // Cleanup stale peer_last_sync entries to prevent unbounded growth
+                // Remove entries older than 60 seconds
+                inner.peer_last_sync.retain(|_, last_sync| {
+                    last_sync.elapsed().as_secs() < 60
+                });
+                
+                // Cleanup stale peer_last_recovery entries (older than 60 seconds)
+                inner.peer_last_recovery.retain(|_, last_recovery| {
+                    last_recovery.elapsed().as_secs() < 60
+                });
+                
                 true
             } else {
                 false
@@ -1490,12 +1551,31 @@ impl GossipService {
                                 Ok(sync_result) => {
                                     // If delta sync had failures, force snapshot to fix state divergence
                                     if sync_result.failed > 0 && sync_result.failed > sync_result.added {
-                                        warn!(
-                                            "Delta sync had {} failures vs {} added - forcing snapshot recovery",
-                                            sync_result.failed, sync_result.added
-                                        );
-                                        if let Err(e) = self.bootstrap_from_peer_force(peer).await {
-                                            warn!("RECOVERY: Force snapshot sync from {} failed: {}", peer, e);
+                                        // Rate limit recovery attempts: max 1 per 30 seconds per peer
+                                        let should_recover = {
+                                            let inner = self.inner.read().await;
+                                            if let Some(last_recovery) = inner.peer_last_recovery.get(peer) {
+                                                last_recovery.elapsed().as_secs() >= 30
+                                            } else {
+                                                true
+                                            }
+                                        };
+                                        
+                                        if should_recover {
+                                            warn!(
+                                                "Delta sync had {} failures vs {} added - forcing snapshot recovery",
+                                                sync_result.failed, sync_result.added
+                                            );
+                                            // Record this recovery attempt
+                                            {
+                                                let mut inner = self.inner.write().await;
+                                                inner.peer_last_recovery.insert(peer.to_string(), std::time::Instant::now());
+                                            }
+                                            if let Err(e) = self.bootstrap_from_peer_force(peer).await {
+                                                warn!("RECOVERY: Force snapshot sync from {} failed: {}", peer, e);
+                                            }
+                                        } else {
+                                            debug!("Skipping recovery from {} - rate limited (30s cooldown)", peer);
                                         }
                                     }
                                 }
@@ -1515,15 +1595,33 @@ impl GossipService {
                         // Merge accounts from peer regardless of which has higher faucet balance
                         // The snapshot apply now MERGES accounts instead of replacing, so this is safe
                         if balance_diff > 1.0 {
-                            info!(
-                                "[AccountSync] Faucet balance differs from peer {}: local={:.2}, peer={:.2}, diff={:.2} - merging accounts",
-                                peer, local_faucet_balance, status.faucet_balance, balance_diff
-                            );
+                            // Rate limit recovery attempts: max 1 per 30 seconds per peer
+                            let should_recover = {
+                                let inner = self.inner.read().await;
+                                if let Some(last_recovery) = inner.peer_last_recovery.get(peer) {
+                                    last_recovery.elapsed().as_secs() >= 30
+                                } else {
+                                    true
+                                }
+                            };
                             
-                            // Always sync from peer to merge their accounts into ours
-                            // The apply_sync_snapshot now merges instead of replacing
-                            if let Err(e) = self.bootstrap_from_peer_force(peer).await {
-                                warn!("[AccountSync] Merge sync from {} failed: {}", peer, e);
+                            if should_recover {
+                                info!(
+                                    "[AccountSync] Faucet balance differs from peer {}: local={:.2}, peer={:.2}, diff={:.2} - merging accounts",
+                                    peer, local_faucet_balance, status.faucet_balance, balance_diff
+                                );
+                                // Record this recovery attempt
+                                {
+                                    let mut inner = self.inner.write().await;
+                                    inner.peer_last_recovery.insert(peer.to_string(), std::time::Instant::now());
+                                }
+                                // Always sync from peer to merge their accounts into ours
+                                // The apply_sync_snapshot now merges instead of replacing
+                                if let Err(e) = self.bootstrap_from_peer_force(peer).await {
+                                    warn!("[AccountSync] Merge sync from {} failed: {}", peer, e);
+                                }
+                            } else {
+                                debug!("[AccountSync] Skipping merge from {} - rate limited (30s cooldown)", peer);
                             }
                         }
                     }
@@ -1545,15 +1643,32 @@ impl GossipService {
         let limit = 500usize;
         let mut result = DeltaSyncResult::default();
         
+        // Get local validators for bidirectional sync
+        let local_validators = self.state.get_validators_map().await;
+        
         loop {
-            // Fetch transactions with pagination
-            let url = format!(
-                "{}/api/sync/delta?from_checkpoint={}&offset={}&limit={}", 
-                peer, local_checkpoint, offset, limit
-            );
+            // Use POST for bidirectional validator sync
+            let url = format!("{}/api/sync/delta", peer);
+            
+            #[derive(serde::Serialize)]
+            #[serde(rename_all = "camelCase")]
+            struct DeltaSyncRequest {
+                from_checkpoint: u64,
+                offset: usize,
+                limit: usize,
+                validators: std::collections::HashMap<String, Validator>,
+            }
+            
+            let request_body = DeltaSyncRequest {
+                from_checkpoint: local_checkpoint,
+                offset,
+                limit,
+                validators: local_validators.clone(),
+            };
             
             let response = client
-                .get(&url)
+                .post(&url)
+                .json(&request_body)
                 .timeout(Duration::from_secs(30))
                 .send()
                 .await?;
@@ -1585,6 +1700,8 @@ impl GossipService {
                 from_checkpoint: u64,
                 #[serde(default)]
                 to_checkpoint: u64,
+                #[serde(default)]
+                validators: std::collections::HashMap<String, Validator>,
             }
             
             let response_text = response.text().await?;
@@ -1597,40 +1714,54 @@ impl GossipService {
             );
 
             if self.sync_verify_strict {
-                if delta.new_checkpoints.is_empty() {
-                    anyhow::bail!("MAINNET_MODE: Delta response missing new_checkpoints");
-                }
-                if delta.tx_checkpoint_heights.is_empty() {
-                    anyhow::bail!("MAINNET_MODE: Delta response missing tx_checkpoint_heights");
-                }
-                let delta_transactions: Vec<TransactionData> = delta.transactions.iter().map(|tx| {
-                    TransactionData {
-                        hash: tx.hash.clone(),
-                        from: tx.tx.from.clone(),
-                        to: tx.tx.to.clone(),
-                        amount: tx.tx.amount,
-                        nonce: tx.tx.nonce,
-                        timestamp: tx.tx.timestamp,
-                        signature: tx.signature.clone(),
-                        parents: tx.tx.parents.clone(),
-                        gas_price: tx.tx.gas_price.unwrap_or(0.0),
+                // Only require new_checkpoints when peer is actually ahead (has newer checkpoints)
+                // Same-checkpoint delta sync (from_checkpoint == to_checkpoint) doesn't need new checkpoints
+                // because both nodes already have the same checkpoint data
+                let peer_has_newer_checkpoint = delta.to_checkpoint > delta.from_checkpoint;
+                
+                if peer_has_newer_checkpoint {
+                    // Peer claims to have newer checkpoints - verify the data
+                    if delta.new_checkpoints.is_empty() {
+                        anyhow::bail!("MAINNET_MODE: Delta response missing new_checkpoints (peer claims newer checkpoint)");
                     }
-                }).collect();
-                let delta_data = DeltaData {
-                    transactions: delta_transactions,
-                    new_checkpoints: delta.new_checkpoints.clone(),
-                    from_checkpoint: delta.from_checkpoint,
-                    to_checkpoint: delta.to_checkpoint,
-                    tx_checkpoint_heights: delta.tx_checkpoint_heights.clone(),
-                };
-                match verify_delta(&delta_data) {
-                    VerificationResult::Valid => {}
-                    VerificationResult::Invalid(reason) => {
-                        anyhow::bail!("MAINNET_MODE: Delta verification failed: {}", reason);
+                    if delta.tx_checkpoint_heights.is_empty() {
+                        anyhow::bail!("MAINNET_MODE: Delta response missing tx_checkpoint_heights");
                     }
-                    VerificationResult::Skipped(reason) => {
-                        anyhow::bail!("MAINNET_MODE: Delta verification skipped: {}", reason);
+                    
+                    let delta_transactions: Vec<TransactionData> = delta.transactions.iter().map(|tx| {
+                        TransactionData {
+                            hash: tx.hash.clone(),
+                            from: tx.tx.from.clone(),
+                            to: tx.tx.to.clone(),
+                            amount: tx.tx.amount,
+                            nonce: tx.tx.nonce,
+                            timestamp: tx.tx.timestamp,
+                            signature: tx.signature.clone(),
+                            parents: tx.tx.parents.clone(),
+                            gas_price: tx.tx.gas_price.unwrap_or(0.0),
+                        }
+                    }).collect();
+                    let delta_data = DeltaData {
+                        transactions: delta_transactions,
+                        new_checkpoints: delta.new_checkpoints.clone(),
+                        from_checkpoint: delta.from_checkpoint,
+                        to_checkpoint: delta.to_checkpoint,
+                        tx_checkpoint_heights: delta.tx_checkpoint_heights.clone(),
+                        validators: Vec::new(),
+                    };
+                    match verify_delta(&delta_data) {
+                        VerificationResult::Valid => {}
+                        VerificationResult::Invalid(reason) => {
+                            anyhow::bail!("MAINNET_MODE: Delta verification failed: {}", reason);
+                        }
+                        VerificationResult::Skipped(reason) => {
+                            anyhow::bail!("MAINNET_MODE: Delta verification skipped: {}", reason);
+                        }
                     }
+                } else {
+                    // Same-checkpoint sync - skip checkpoint verification since both nodes have the same checkpoint
+                    debug!("Same-checkpoint delta sync: skipping checkpoint verification (from={}, to={})", 
+                        delta.from_checkpoint, delta.to_checkpoint);
                 }
             }
             
@@ -1642,6 +1773,18 @@ impl GossipService {
                     self.state.sync_account_nonce(address, *nonce).await;
                 }
                 debug!("Applied {} account nonces from delta sync peer", delta.account_nonces.len());
+            }
+            
+            // VALIDATOR SYNC: Merge validators from peer to ensure all nodes converge
+            // This is critical for leader election - nodes need consistent validator sets
+            if !delta.validators.is_empty() {
+                let merged_count = self.state.merge_validators_from_peer(&delta.validators).await;
+                if merged_count > 0 {
+                    info!("Merged {} validators from delta sync peer", merged_count);
+                    // CRITICAL: Sync to ValidatorIdentityService for vote validation
+                    // Without this, votes will fail BLS key verification
+                    self.sync_validator_identity_from_state().await;
+                }
             }
             
             let (transactions, has_more) = (delta.transactions, delta.has_more);
@@ -1818,11 +1961,19 @@ impl GossipService {
                 };
 
                 if is_new {
-                    if let Err(e) = self.state.add_transaction(tx.clone()).await {
-                        warn!("Failed to add gossiped tx {}: {}", hash, e);
-                    } else {
-                        let mut inner = self.inner.write().await;
-                        inner.pending_txs.push(tx);
+                    match self.state.add_transaction(tx.clone()).await {
+                        Ok(TransactionResult::Accepted) => {
+                            // Only propagate fully accepted transactions
+                            let mut inner = self.inner.write().await;
+                            inner.pending_txs.push(tx);
+                        }
+                        Ok(TransactionResult::Buffered) => {
+                            // Transaction was buffered for later - do NOT propagate
+                            debug!("Gossiped tx {} buffered (future nonce), not propagating", hash);
+                        }
+                        Err(e) => {
+                            warn!("Failed to add gossiped tx {}: {}", hash, e);
+                        }
                     }
                 }
                 Ok(None)
@@ -1836,17 +1987,46 @@ impl GossipService {
                 // Check if peer has more data than us and trigger sync if needed
                 let (local_dag_size, _, _) = self.state.get_dag_stats().await;
                 
+                // Sync cooldown and debounce constants
+                const SYNC_FAILURE_COOLDOWN_SECS: u64 = 10;
+                const PEER_SYNC_DEBOUNCE_SECS: u64 = 5;
+                
                 if dag_size > local_dag_size + 10 {
                     // Peer has significantly more DAG data (10+ transactions ahead)
-                    // Check if sync is already in flight to avoid duplicate syncs
+                    // Check cooldowns, debounce, and if sync is already in flight
                     let should_sync = {
                         let mut inner = self.inner.write().await;
+                        
+                        // Check 1: Is sync already in flight?
                         if inner.sync_in_flight {
-                            false
-                        } else {
-                            inner.sync_in_flight = true;
-                            true
+                            debug!("TipAnnouncement: sync already in flight, skipping");
+                            return Ok(None);
                         }
+                        
+                        // Check 2: Are we in cooldown after a failed sync?
+                        if let Some(last_fail) = inner.last_sync_failure {
+                            if last_fail.elapsed().as_secs() < SYNC_FAILURE_COOLDOWN_SECS {
+                                debug!("TipAnnouncement: sync cooldown active ({}s remaining), skipping", 
+                                    SYNC_FAILURE_COOLDOWN_SECS - last_fail.elapsed().as_secs());
+                                return Ok(None);
+                            }
+                        }
+                        
+                        // Check 3: Per-peer debounce - did we try this peer recently?
+                        if let Some(ref peer_url) = sender_url {
+                            if let Some(last_sync) = inner.peer_last_sync.get(peer_url) {
+                                if last_sync.elapsed().as_secs() < PEER_SYNC_DEBOUNCE_SECS {
+                                    debug!("TipAnnouncement: peer {} synced recently, skipping", peer_url);
+                                    return Ok(None);
+                                }
+                            }
+                            // Record this sync attempt for the peer
+                            inner.peer_last_sync.insert(peer_url.clone(), std::time::Instant::now());
+                        }
+                        
+                        // All checks passed, proceed with sync
+                        inner.sync_in_flight = true;
+                        true
                     };
                     
                     if should_sync {
@@ -1860,18 +2040,26 @@ impl GossipService {
                             let gossip_clone = self.clone();
                             let peer_url_clone = peer_url.clone();
                             tokio::spawn(async move {
-                                gossip_clone.trigger_sync_from_peer(&peer_url_clone).await;
-                                // Clear the sync_in_flight flag when done
+                                let sync_result = gossip_clone.trigger_sync_from_peer(&peer_url_clone).await;
+                                
+                                // Update sync state based on result
                                 let mut inner = gossip_clone.inner.write().await;
                                 inner.sync_in_flight = false;
+                                
+                                // If sync failed, set cooldown to prevent sync storm
+                                if sync_result.is_err() {
+                                    inner.last_sync_failure = Some(std::time::Instant::now());
+                                    debug!("Sync from {} failed, entering cooldown", peer_url_clone);
+                                } else {
+                                    // Clear failure state on success
+                                    inner.last_sync_failure = None;
+                                }
                             });
                         } else {
                             // No sender_url, clear the flag
                             let mut inner = self.inner.write().await;
                             inner.sync_in_flight = false;
                         }
-                    } else {
-                        debug!("TipAnnouncement: sync already in flight, skipping");
                     }
                 } else {
                     debug!("Received tip announcement, peer dag_size: {} (local: {})", dag_size, local_dag_size);
@@ -1956,8 +2144,16 @@ impl GossipService {
                     if !inner.known_txs.contains(&hash) {
                         inner.known_txs.insert(hash.clone());
                         drop(inner);
-                        if let Err(e) = self.state.add_transaction(tx).await {
-                            debug!("Failed to add synced tx {}: {}", hash, e);
+                        match self.state.add_transaction(tx).await {
+                            Ok(TransactionResult::Accepted) => {
+                                // Transaction fully processed
+                            }
+                            Ok(TransactionResult::Buffered) => {
+                                debug!("Synced tx {} buffered (future nonce)", hash);
+                            }
+                            Err(e) => {
+                                debug!("Failed to add synced tx {}: {}", hash, e);
+                            }
                         }
                     }
                 }
@@ -2098,31 +2294,33 @@ impl GossipService {
     }
 
     /// Trigger sync from a specific peer (used by TipAnnouncement background task)
-    async fn trigger_sync_from_peer(&self, peer_url: &str) {
+    async fn trigger_sync_from_peer(&self, peer_url: &str) -> anyhow::Result<()> {
         let local_checkpoint = self.state.get_checkpoint_height().await;
         
-        match self.fetch_peer_status(peer_url).await {
-            Ok(status) => {
-                let checkpoint_gap = status.checkpoint_height.saturating_sub(local_checkpoint);
-                
-                if checkpoint_gap >= 1 {
-                    // Peer is ahead on checkpoints - use snapshot sync
-                    info!("Background sync: peer {} is {} checkpoint(s) ahead, using snapshot sync", peer_url, checkpoint_gap);
-                    if let Err(e) = self.bootstrap_from_peer(peer_url, local_checkpoint).await {
-                        warn!("Background snapshot sync from {} failed: {}", peer_url, e);
-                    }
-                } else {
-                    // Same checkpoint, just missing DAG transactions - use delta sync
-                    info!("Background sync: peer {} at same checkpoint, using delta sync", peer_url);
-                    if let Err(e) = self.sync_from_peer(peer_url, local_checkpoint).await {
-                        warn!("Background delta sync from {} failed: {}", peer_url, e);
-                    }
-                }
-            }
-            Err(e) => {
-                debug!("Failed to fetch peer status for background sync: {}", e);
-            }
+        let status = self.fetch_peer_status(peer_url).await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch peer status: {}", e))?;
+        
+        let checkpoint_gap = status.checkpoint_height.saturating_sub(local_checkpoint);
+        
+        if checkpoint_gap >= 1 {
+            // Peer is ahead on checkpoints - use snapshot sync
+            info!("Background sync: peer {} is {} checkpoint(s) ahead, using snapshot sync", peer_url, checkpoint_gap);
+            self.bootstrap_from_peer(peer_url, local_checkpoint).await
+                .map_err(|e| {
+                    warn!("Background snapshot sync from {} failed: {}", peer_url, e);
+                    e
+                })?;
+        } else {
+            // Same checkpoint, just missing DAG transactions - use delta sync
+            info!("Background sync: peer {} at same checkpoint, using delta sync", peer_url);
+            self.sync_from_peer(peer_url, local_checkpoint).await
+                .map_err(|e| {
+                    warn!("Background delta sync from {} failed: {}", peer_url, e);
+                    e
+                })?;
         }
+        
+        Ok(())
     }
 
     pub async fn broadcast_conflict_resolution(

@@ -20,6 +20,9 @@ pub struct Dag {
     graph: DiGraph<DagNode, ()>,
     hash_to_index: HashMap<String, NodeIndex>,
     tips: HashSet<String>,
+    /// Index of unfinalized transaction hashes for O(1) lookup
+    /// This avoids O(n) DAG scan when creating checkpoints
+    unfinalized: HashSet<String>,
     max_nodes: usize,
 }
 
@@ -29,6 +32,7 @@ impl Dag {
             graph: DiGraph::new(),
             hash_to_index: HashMap::new(),
             tips: HashSet::new(),
+            unfinalized: HashSet::new(),
             max_nodes,
         }
     }
@@ -49,6 +53,8 @@ impl Dag {
 
         let node_idx = self.graph.add_node(node);
         self.hash_to_index.insert(hash.clone(), node_idx);
+        // New transactions are unfinalized by default
+        self.unfinalized.insert(hash.clone());
 
         for parent_hash in &parents {
             if !parent_hash.is_empty() && parent_hash != &hash {
@@ -93,6 +99,8 @@ impl Dag {
 
         let node_idx = self.graph.add_node(node);
         self.hash_to_index.insert(hash.clone(), node_idx);
+        // New transactions are unfinalized by default
+        self.unfinalized.insert(hash.clone());
 
         let mut linked_parents = 0;
         for parent_hash in &parents {
@@ -225,17 +233,25 @@ impl Dag {
         self.graph.node_weights().map(|n| n.tx.clone()).collect()
     }
 
+    /// Get unfinalized nodes using the O(1) index instead of O(n) scan
     pub fn get_unfinalized_nodes(&self) -> Vec<&DagNode> {
-        self.graph
-            .node_weights()
-            .filter(|n| !n.finalized)
+        self.unfinalized
+            .iter()
+            .filter_map(|hash| self.get_node(hash))
             .collect()
+    }
+    
+    /// Get count of unfinalized transactions (O(1))
+    pub fn unfinalized_count(&self) -> usize {
+        self.unfinalized.len()
     }
 
     pub fn mark_finalized(&mut self, hash: &str, checkpoint_height: u64) -> Result<(), DagError> {
         if let Some(node) = self.get_node_mut(hash) {
             node.finalized = true;
             node.checkpoint_height = Some(checkpoint_height);
+            // Remove from unfinalized index for O(1) checkpoint creation
+            self.unfinalized.remove(hash);
             Ok(())
         } else {
             Err(DagError::NodeNotFound(hash.to_string()))
@@ -247,6 +263,8 @@ impl Dag {
         if let Some(node) = self.get_node_mut(hash) {
             node.finalized = false;
             node.checkpoint_height = None;
+            // Add back to unfinalized index
+            self.unfinalized.insert(hash.to_string());
         }
     }
 
@@ -281,6 +299,7 @@ impl Dag {
                 let hash = node.hash.clone();
                 self.hash_to_index.remove(&hash);
                 self.tips.remove(&hash);
+                self.unfinalized.remove(&hash);
             }
             self.graph.remove_node(idx);
         }
@@ -292,9 +311,13 @@ impl Dag {
 
     fn rebuild_index(&mut self) {
         self.hash_to_index.clear();
+        self.unfinalized.clear();
         for idx in self.graph.node_indices() {
             if let Some(node) = self.graph.node_weight(idx) {
                 self.hash_to_index.insert(node.hash.clone(), idx);
+                if !node.finalized {
+                    self.unfinalized.insert(node.hash.clone());
+                }
             }
         }
     }
@@ -320,6 +343,7 @@ impl Dag {
     pub fn remove_node(&mut self, hash: &str) -> Option<DagNode> {
         let idx = self.hash_to_index.remove(hash)?;
         self.tips.remove(hash);
+        self.unfinalized.remove(hash);
 
         let parent_hashes: Vec<String> = self.graph
             .node_weight(idx)

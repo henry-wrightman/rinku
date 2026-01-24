@@ -431,9 +431,10 @@ pub fn verify_self_contained_proof(proof: &SelfContainedProof) -> ProofVerificat
         result.errors.push("Invalid total weight".to_string());
     } else {
         let weight_ratio = computed_signer_weight / total_weight;
-        if weight_ratio < 0.67 {
+        // Use 0.6666 (exactly 2/3) to allow 2-of-3 validator quorum in small validator sets
+        if weight_ratio < 0.6666 {
             result.errors.push(format!(
-                "Insufficient signer weight: {:.1}% (need 67%)",
+                "Insufficient signer weight: {:.1}% (need 66.66%)",
                 weight_ratio * 100.0
             ));
         }

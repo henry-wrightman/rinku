@@ -127,6 +127,9 @@ pub struct RewardsSnapshot {
     pub config: RewardConfig,
     #[serde(default)]
     pub lifetime_rewards: Vec<(String, LifetimeRewards)>,
+    /// Tracks total claimed rewards per address (used in merge to prevent double-claims)
+    #[serde(default)]
+    pub claimed_rewards: Vec<(String, f64)>,
 }
 
 pub struct RewardsService {
@@ -135,6 +138,8 @@ pub struct RewardsService {
     stakes: HashMap<String, StakePosition>,
     pending_rewards: HashMap<String, f64>,
     lifetime_rewards: HashMap<String, LifetimeRewards>,
+    /// Tracks total claimed rewards per address (used in merge to prevent double-claims)
+    claimed_rewards: HashMap<String, f64>,
     witnessed_txs: HashMap<String, u64>,
     witnessed_queue: Vec<WitnessedEntry>,
     witnessed_queue_head: usize,
@@ -148,6 +153,7 @@ impl RewardsService {
             stakes: HashMap::new(),
             pending_rewards: HashMap::new(),
             lifetime_rewards: HashMap::new(),
+            claimed_rewards: HashMap::new(),
             witnessed_txs: HashMap::new(),
             witnessed_queue: Vec::new(),
             witnessed_queue_head: 0,
@@ -433,6 +439,9 @@ impl RewardsService {
         let pending = self.pending_rewards.get(address).copied().unwrap_or(0.0);
         if pending > 0.0 {
             self.pending_rewards.insert(address.to_string(), 0.0);
+            // Track total claimed for this address (used during sync merge)
+            let prev_claimed = self.claimed_rewards.get(address).copied().unwrap_or(0.0);
+            self.claimed_rewards.insert(address.to_string(), prev_claimed + pending);
         }
         pending
     }
@@ -623,6 +632,7 @@ impl RewardsService {
             witnessed_queue: active_queue,
             config: self.config.clone(),
             lifetime_rewards: self.lifetime_rewards.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            claimed_rewards: self.claimed_rewards.iter().map(|(k, v)| (k.clone(), *v)).collect(),
         }
     }
 
@@ -649,38 +659,31 @@ impl RewardsService {
             service.lifetime_rewards.insert(addr, lifetime);
         }
 
+        for (addr, claimed) in snapshot.claimed_rewards {
+            service.claimed_rewards.insert(addr, claimed);
+        }
+
         service.witnessed_queue = snapshot.witnessed_queue;
         service.witnessed_queue_head = 0;
 
         service
     }
 
-    /// Merge rewards from a peer snapshot, preserving local claim state
-    /// This prevents the "double claim" exploit where syncing from a peer
-    /// that hasn't seen a claim yet could reset pending_rewards
+    /// Merge rewards from a peer snapshot using claimed_rewards to compute correct pending.
+    /// 
+    /// The correct pending for each address is: lifetime_total - claimed_total
+    /// - lifetime_rewards: take MAX (higher = more rewards accumulated)
+    /// - claimed_rewards: take MAX (higher = more rewards claimed)
+    /// - pending_rewards: recompute as (lifetime - claimed) after merge
+    /// 
+    /// This prevents the bug where syncing from a behind node incorrectly lowers pending,
+    /// while still preventing double-claim exploits.
     pub fn merge_from(&mut self, snapshot: RewardsSnapshot) {
         use tracing::info;
         
-        let mut pending_lowered = 0;
         let mut lifetime_raised = 0;
-        
-        // For pending_rewards: use MIN logic only if we have local data
-        // (lower = already claimed). If no local data, take peer's value.
-        for (addr, peer_pending) in &snapshot.pending_rewards {
-            if let Some(local_pending) = self.pending_rewards.get(addr).copied() {
-                // We have local pending - take minimum to preserve claims
-                let merged = local_pending.min(*peer_pending);
-                if merged < local_pending {
-                    pending_lowered += 1;
-                }
-                self.pending_rewards.insert(addr.clone(), merged);
-            } else {
-                // No local data - take peer's pending rewards
-                if *peer_pending > 0.0 {
-                    self.pending_rewards.insert(addr.clone(), *peer_pending);
-                }
-            }
-        }
+        let mut claimed_raised = 0;
+        let mut pending_recomputed = 0;
         
         // For lifetime_rewards: take MAXIMUM (higher = more accumulated)
         for (addr, peer_lifetime) in &snapshot.lifetime_rewards {
@@ -690,6 +693,37 @@ impl RewardsService {
             if peer_total > local_total {
                 self.lifetime_rewards.insert(addr.clone(), peer_lifetime.clone());
                 lifetime_raised += 1;
+            }
+        }
+        
+        // For claimed_rewards: take MAXIMUM (higher = more claimed, prevents double-claim)
+        for (addr, peer_claimed) in &snapshot.claimed_rewards {
+            let local_claimed = self.claimed_rewards.get(addr).copied().unwrap_or(0.0);
+            if *peer_claimed > local_claimed {
+                self.claimed_rewards.insert(addr.clone(), *peer_claimed);
+                claimed_raised += 1;
+            }
+        }
+        
+        // Recompute pending_rewards based on lifetime - claimed for all addresses
+        // This ensures pending is always correctly computed after merge
+        let all_addresses: std::collections::HashSet<String> = self.lifetime_rewards.keys()
+            .chain(self.claimed_rewards.keys())
+            .chain(self.pending_rewards.keys())
+            .cloned()
+            .collect();
+        
+        for addr in &all_addresses {
+            let lifetime = self.lifetime_rewards.get(addr).cloned().unwrap_or_default();
+            let lifetime_total = lifetime.tip_rewards + lifetime.stake_rewards + lifetime.witness_rewards;
+            let claimed = self.claimed_rewards.get(addr).copied().unwrap_or(0.0);
+            let correct_pending = (lifetime_total - claimed).max(0.0);
+            
+            // Only update if different from current
+            let current_pending = self.pending_rewards.get(addr).copied().unwrap_or(0.0);
+            if (correct_pending - current_pending).abs() > 0.0001 {
+                self.pending_rewards.insert(addr.clone(), correct_pending);
+                pending_recomputed += 1;
             }
         }
         
@@ -712,8 +746,8 @@ impl RewardsService {
         }
         
         info!(
-            "Merged rewards snapshot: {} pending lowered (claims preserved), {} lifetime raised",
-            pending_lowered, lifetime_raised
+            "Merged rewards snapshot: {} lifetime raised, {} claimed raised, {} pending recomputed",
+            lifetime_raised, claimed_raised, pending_recomputed
         );
     }
 }

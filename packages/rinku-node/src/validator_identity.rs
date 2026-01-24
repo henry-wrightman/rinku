@@ -446,46 +446,80 @@ impl ValidatorIdentityService {
         &mut self,
         validators: &HashMap<String, rinku_core::types::Validator>,
     ) {
+        let old_count = self.state.active_validators.len();
+        
+        // REPLACE the entire validator set with the synced set
+        // This ensures all nodes converge to the same validator set
+        // 
+        // CRITICAL: We no longer try to "re-add" local validators here because:
+        // 1. LocalValidatorKeys.address is a BLS fingerprint, NOT the ECDSA address
+        //    used in GENESIS_VALIDATORS and network identity
+        // 2. If GENESIS_VALIDATORS is set, it's authoritative - don't add anything else
+        // 3. Adding validators at the wrong address creates phantom entries
+        let mut new_validators = HashMap::new();
+        
         for (addr, legacy) in validators {
-            if !self.state.active_validators.contains_key(addr)
-                && !self.state.pending_validators.contains_key(addr)
-            {
-                let bls_key = legacy.bls_public_key.as_ref()
-                    .and_then(|k| hex::decode(k).ok())
-                    .unwrap_or_default();
+            let bls_key = legacy.bls_public_key.as_ref()
+                .and_then(|k| hex::decode(k).ok())
+                .or_else(|| {
+                    // Try base64url decoding if hex fails
+                    legacy.bls_public_key.as_ref()
+                        .and_then(|k| URL_SAFE_NO_PAD.decode(k).ok())
+                })
+                .unwrap_or_default();
 
-                let identity = ValidatorIdentity {
-                    address: addr.clone(),
-                    bls_public_key_hex: hex::encode(&bls_key),
-                    bls_public_key: bls_key,
-                    stake: legacy.stake,
-                    status: ValidatorStatus::Active,
-                    activation_epoch: 0,
-                    exit_epoch: None,
-                    slashed: false,
-                    effective_stake: legacy.stake,
-                    missed_checkpoints: legacy.missed_checkpoints,
-                    last_checkpoint_signed: 0,
-                };
+            let identity = ValidatorIdentity {
+                address: addr.clone(),
+                bls_public_key_hex: hex::encode(&bls_key),
+                bls_public_key: bls_key,
+                stake: legacy.stake,
+                status: ValidatorStatus::Active,
+                activation_epoch: 0,
+                exit_epoch: None,
+                slashed: false,
+                effective_stake: legacy.stake,
+                missed_checkpoints: legacy.missed_checkpoints,
+                last_checkpoint_signed: 0,
+            };
 
-                self.state.active_validators.insert(addr.clone(), identity);
-            }
+            new_validators.insert(addr.clone(), identity);
         }
+        
+        let new_count = new_validators.len();
+        self.state.active_validators = new_validators;
+        
+        // Also clear pending/exiting sets to match the synced state
+        self.state.pending_validators.clear();
+        self.state.exiting_validators.clear();
+        
+        info!(
+            "ValidatorIdentityService sync: REPLACED validator set ({} -> {} validators)",
+            old_count, new_count
+        );
+        
         self.recalculate_total_stake();
+        
+        // CRITICAL: Persist the change to disk so it survives restarts
+        if let Err(e) = self.save_state() {
+            warn!("Failed to persist validator set after sync: {}", e);
+        }
     }
 
     /// Seed genesis validators into the active set so quorum voting works
     /// before any on-chain validator registry is established.
+    /// 
+    /// CRITICAL: This REPLACES the entire validator set with the genesis validators.
+    /// This ensures that when GENESIS_VALIDATORS env var is set, it becomes the
+    /// authoritative source of truth, preventing stale validators from persisting
+    /// across restarts/redeployments.
     pub fn seed_genesis_validators(&mut self, validators: &[(String, Vec<u8>)]) {
-        let mut seeded = 0usize;
+        let old_count = self.state.active_validators.len();
+        
+        // REPLACE: Clear existing validators and start fresh with genesis set
+        // This prevents stale validators from persisting across deployments
+        let mut new_validators = HashMap::new();
+        
         for (address, bls_public_key) in validators {
-            if self.state.active_validators.contains_key(address)
-                || self.state.pending_validators.contains_key(address)
-                || self.state.exiting_validators.contains_key(address)
-            {
-                continue;
-            }
-
             let identity = ValidatorIdentity {
                 address: address.clone(),
                 bls_public_key_hex: hex::encode(bls_public_key),
@@ -500,14 +534,23 @@ impl ValidatorIdentityService {
                 last_checkpoint_signed: 0,
             };
 
-            self.state.active_validators.insert(address.clone(), identity);
-            seeded += 1;
+            new_validators.insert(address.clone(), identity);
         }
+        
+        let new_count = new_validators.len();
+        self.state.active_validators = new_validators;
+        
+        // Also clear pending/exiting sets since genesis validators are authoritative
+        self.state.pending_validators.clear();
+        self.state.exiting_validators.clear();
 
-        if seeded > 0 {
-            self.recalculate_total_stake();
-            let _ = self.save_state();
-        }
+        info!(
+            "Genesis validators seeded: REPLACED validator set ({} -> {} validators)",
+            old_count, new_count
+        );
+        
+        self.recalculate_total_stake();
+        let _ = self.save_state();
     }
 }
 

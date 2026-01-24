@@ -122,6 +122,9 @@ pub struct DeltaData {
     pub to_checkpoint: u64,
     #[serde(default)]
     pub tx_checkpoint_heights: std::collections::HashMap<String, u64>,
+    /// Validators for bidirectional validator sync
+    #[serde(default)]
+    pub validators: Vec<ValidatorData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
