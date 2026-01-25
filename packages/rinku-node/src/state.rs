@@ -1670,10 +1670,31 @@ impl NodeState {
         let height = checkpoint.height;
         let finalized_count;
         
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        
         // SAFE FINALIZATION: Only finalize if our transaction set matches the leader's
         if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
             // Our unfinalized set matches the checkpoint - safe to finalize
             for hash in &unfinalized_hashes {
+                // Get transaction timestamp for finality time calculation
+                if let Some(node) = state.dag.get_node(hash) {
+                    let tx_time = node.tx.tx.timestamp;
+                    let finality_time_ms = now_ms.saturating_sub(tx_time);
+                    
+                    // Update finality stats (same as checkpoint creation)
+                    state.finality_sum_ms += finality_time_ms;
+                    state.finality_count += 1;
+                    if finality_time_ms > state.finality_max_ms {
+                        state.finality_max_ms = finality_time_ms;
+                    }
+                    if state.finality_times_ms.len() >= 1000 {
+                        state.finality_times_ms.pop_front();
+                    }
+                    state.finality_times_ms.push_back(finality_time_ms);
+                }
                 let _ = state.dag.mark_finalized(hash, height);
             }
             finalized_count = unfinalized_hashes.len();
@@ -1707,10 +1728,7 @@ impl NodeState {
         
         // Add the checkpoint
         state.checkpoints.push(checkpoint.clone());
-        state.last_checkpoint_time_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
+        state.last_checkpoint_time_ms = now_ms;
         
         Ok(())
     }
@@ -2061,6 +2079,32 @@ impl NodeState {
                         }
                         // Future nonce - buffer it for later processing
                         if tx.tx.nonce > account.nonce {
+                            // === DDoS PROTECTION CONSTANTS ===
+                            // Per-sender queue limit
+                            const MAX_PENDING_PER_SENDER: usize = 16;
+                            // Maximum nonce gap allowed (reject if nonce is too far ahead)
+                            const MAX_NONCE_GAP: u64 = 32;
+                            // Maximum unique senders with pending queues
+                            const MAX_PENDING_SENDERS: usize = 500;
+                            // Global queue size limit across all senders
+                            const MAX_GLOBAL_PENDING: usize = 5000;
+                            
+                            // PROTECTION 1: Nonce gap limit
+                            // Reject transactions with nonces too far in the future
+                            // This prevents attackers from creating huge gaps
+                            let nonce_gap = tx.tx.nonce - account.nonce;
+                            if nonce_gap > MAX_NONCE_GAP {
+                                tracing::warn!(
+                                    "Nonce gap too large for {}: expected {}, got {} (gap: {})",
+                                    &tx.tx.from[..16.min(tx.tx.from.len())],
+                                    account.nonce, tx.tx.nonce, nonce_gap
+                                );
+                                return Err(anyhow::anyhow!(
+                                    "Nonce too far ahead: expected {}, got {} (max gap: {})",
+                                    account.nonce, tx.tx.nonce, MAX_NONCE_GAP
+                                ));
+                            }
+                            
                             // Check if we already have this nonce buffered
                             let already_buffered = state.pending_nonce_queue
                                 .get(&tx.tx.from)
@@ -2072,22 +2116,55 @@ impl NodeState {
                                     "Transaction already buffered: nonce {} from {}",
                                     tx.tx.nonce, &tx.tx.from[..16.min(tx.tx.from.len())]
                                 );
-                                return Ok(TransactionResult::Buffered); // Already buffered, no need to add again
+                                return Ok(TransactionResult::Buffered);
                             }
                             
-                            // Max queue size per sender to prevent memory bloat (16 pending txs max)
+                            // PROTECTION 2: Per-sender queue limit
                             let queue_size = state.pending_nonce_queue
                                 .get(&tx.tx.from)
                                 .map(|q| q.len())
                                 .unwrap_or(0);
                             
-                            if queue_size >= 16 {
+                            if queue_size >= MAX_PENDING_PER_SENDER {
                                 tracing::warn!(
-                                    "Pending nonce queue full for {}, rejecting nonce {}",
+                                    "Per-sender queue full for {}, rejecting nonce {}",
                                     &tx.tx.from[..16.min(tx.tx.from.len())], tx.tx.nonce
                                 );
                                 return Err(anyhow::anyhow!(
-                                    "Too many pending transactions, please wait for earlier ones to be processed"
+                                    "Too many pending transactions from this sender (max: {})",
+                                    MAX_PENDING_PER_SENDER
+                                ));
+                            }
+                            
+                            // PROTECTION 3: Global pending count limit
+                            let total_pending: usize = state.pending_nonce_queue
+                                .values()
+                                .map(|q| q.len())
+                                .sum();
+                            
+                            if total_pending >= MAX_GLOBAL_PENDING {
+                                tracing::warn!(
+                                    "Global pending queue full ({}/{}), rejecting tx from {}",
+                                    total_pending, MAX_GLOBAL_PENDING,
+                                    &tx.tx.from[..16.min(tx.tx.from.len())]
+                                );
+                                return Err(anyhow::anyhow!(
+                                    "Network congested: too many pending transactions globally"
+                                ));
+                            }
+                            
+                            // PROTECTION 4: Limit unique senders with pending queues
+                            let sender_count = state.pending_nonce_queue.len();
+                            let is_new_sender = !state.pending_nonce_queue.contains_key(&tx.tx.from);
+                            
+                            if is_new_sender && sender_count >= MAX_PENDING_SENDERS {
+                                tracing::warn!(
+                                    "Too many senders with pending queues ({}/{}), rejecting new sender {}",
+                                    sender_count, MAX_PENDING_SENDERS,
+                                    &tx.tx.from[..16.min(tx.tx.from.len())]
+                                );
+                                return Err(anyhow::anyhow!(
+                                    "Network congested: too many accounts with pending transactions"
                                 ));
                             }
                             
@@ -2105,13 +2182,14 @@ impl NodeState {
                                     .insert(nonce, tx);
                                 
                                 tracing::info!(
-                                    "Buffered future nonce tx: sender={}, nonce={} (queue size: {})",
+                                    "Buffered future nonce tx: sender={}, nonce={} (queue: {}, global: {})",
                                     &sender[..16.min(sender.len())], nonce,
-                                    state.pending_nonce_queue.get(&sender).map(|q| q.len()).unwrap_or(0)
+                                    state.pending_nonce_queue.get(&sender).map(|q| q.len()).unwrap_or(0),
+                                    state.pending_nonce_queue.values().map(|q| q.len()).sum::<usize>()
                                 );
                             }
                             
-                            return Ok(TransactionResult::Buffered); // Successfully buffered, do NOT propagate
+                            return Ok(TransactionResult::Buffered);
                         }
                         // nonce == account.nonce: proceed with normal processing
                     }

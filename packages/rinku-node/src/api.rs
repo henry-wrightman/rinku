@@ -1615,11 +1615,18 @@ async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsR
     let validators = rewards.get_active_validators().len();
     drop(rewards);
     
-    let finality_ratio = if stats.dag_nodes > 0 {
-        stats.finalized_count as f64 / stats.dag_nodes as f64
+    // Finality ratio based on total transactions (not just current DAG nodes)
+    // This accounts for pruned finalized nodes correctly
+    let total_txs = stats.total_transactions as u64;
+    let finality_ratio = if total_txs > 0 {
+        // finality_count tracks all transactions ever finalized
+        // unfinalized_count is current pending transactions
+        let finalized = total_txs.saturating_sub(stats.unfinalized_count as u64);
+        finalized as f64 / total_txs as f64
     } else {
-        0.0
+        1.0 // No transactions = 100% finalized (nothing pending)
     };
+    
     let elapsed_secs = state.get_elapsed_seconds();
     let tps = if elapsed_secs > 0.0 && stats.total_transactions > 0 {
         (stats.total_transactions as f64) / elapsed_secs
@@ -1668,16 +1675,18 @@ async fn get_gas_stats(State(state): State<NodeState>) -> Json<GasStatsResponse>
 }
 
 async fn get_finality_metrics(State(state): State<NodeState>) -> Json<FinalityMetricsResponse> {
-    let (dag_nodes, _, _) = state.get_dag_stats().await;
     let total_transactions = state.get_total_transactions().await as usize;
     let (finalized_count, pending_count) = state.get_finalized_stats().await;
     let (avg_ms, median_ms, p95_ms, last_checkpoint_age_ms, checkpoints_per_min) = 
         state.get_finality_timing().await;
     
-    let finality_rate = if dag_nodes > 0 {
-        finalized_count as f64 / dag_nodes as f64
+    // Use total_transactions as denominator (not dag_nodes which shrinks after pruning)
+    // finality_rate = (total - pending) / total
+    let finality_rate = if total_transactions > 0 {
+        let finalized = total_transactions.saturating_sub(pending_count);
+        finalized as f64 / total_transactions as f64
     } else {
-        1.0
+        1.0 // No transactions = 100% finalized
     };
     let tx_throughput = if total_transactions > 0 { (total_transactions as f64) / 60.0 } else { 0.0 };
     

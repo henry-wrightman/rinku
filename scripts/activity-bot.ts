@@ -8,9 +8,10 @@ const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "500"); // Reduced fr
 const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "1000");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "10"); // Increased from 30
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "30"); // Increased from 20
-const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.6"); // Prefer batch (was 0.6)
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "6");
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "8");
+const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.3");
+const NONCE_WAIT_TIMEOUT_MS = parseInt(process.env.NONCE_WAIT_TIMEOUT_MS || "6000");
 const CONTRACT_INTERVAL_MS = parseInt(
   process.env.CONTRACT_INTERVAL || "120000",
 );
@@ -328,8 +329,15 @@ async function doSingleTransaction(
 ): Promise<boolean> {
   try {
     // Refresh wallet state to get fresh nonce before sending
-    await sender.wallet.refresh();
+    const state = await sender.wallet.refresh();
+    const startingNonce = state.nonce ?? 0;
     await sender.wallet.send(recipient.fingerprint, amount, fee);
+    // Wait until the node reflects the nonce increment
+    const accepted = await waitForNonceIncrement(sender.wallet, startingNonce);
+    if (!accepted) {
+      log(`Nonce not incremented in time for ${sender.fingerprint.slice(0, 12)}...`);
+      return false;
+    }
     totalTransactions++;
     return true;
   } catch (err: any) {
@@ -337,6 +345,23 @@ async function doSingleTransaction(
     errors++;
     return false;
   }
+}
+
+async function waitForNonceIncrement(
+  wallet: Wallet,
+  startingNonce: number,
+): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < NONCE_WAIT_TIMEOUT_MS) {
+    try {
+      const state = await wallet.refresh();
+      if ((state.nonce ?? 0) > startingNonce) return true;
+    } catch {
+      // ignore transient errors
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return false;
 }
 
 async function doConcurrentTransactions(): Promise<void> {
@@ -351,11 +376,11 @@ async function doConcurrentTransactions(): Promise<void> {
   pendingOperations++;
   const lockedForThisBatch: string[] = [];
   try {
-    const txPromises: Promise<boolean>[] = [];
     const txCount = Math.min(
       CONCURRENT_TX_COUNT,
       Math.floor(wallets.length / 2),
     );
+    const txPromises: Promise<boolean>[] = [];
 
     for (let i = 0; i < txCount; i++) {
       // Find sender not locked globally
@@ -391,13 +416,12 @@ async function doConcurrentTransactions(): Promise<void> {
           .finally(() => unlockSender(sender.fingerprint)),
       );
     }
-
     if (txPromises.length > 0) {
       const results = await Promise.all(txPromises);
       const successCount = results.filter((r) => r).length;
       if (successCount > 0) {
         log(
-          `Concurrent TX batch: ${successCount}/${txPromises.length} succeeded (creating ${successCount} potential tips)`,
+          `Concurrent TX batch: ${successCount}/${txPromises.length} succeeded`,
         );
       }
     }
@@ -430,6 +454,7 @@ async function doBatchTransactions(): Promise<void> {
       amount: number;
       signedTx: any;
       publicKey: number[];
+      startingNonce: number;
     }> = [];
 
     for (let i = 0; i < batchCount; i++) {
@@ -454,6 +479,7 @@ async function doBatchTransactions(): Promise<void> {
       try {
         // Refresh wallet state to get fresh nonce before signing
         const state = await sender.wallet.refresh();
+        const startingNonce = state.nonce ?? 0;
         const needed = amount + gasPrice + 5;
         if (state.balance < needed) {
           skippedDueToBalance++;
@@ -474,6 +500,7 @@ async function doBatchTransactions(): Promise<void> {
             amount,
             signedTx,
             publicKey: Array.from(publicKey),
+            startingNonce,
           });
         }
       } catch {
@@ -510,6 +537,12 @@ async function doBatchTransactions(): Promise<void> {
       totalTransactions += result.successful;
       log(
         `Batch TX: ${result.successful}/${result.total} succeeded via batch API`,
+      );
+      // Ensure nonces move forward for each sender
+      await Promise.all(
+        preparedTxs.map((tx) =>
+          waitForNonceIncrement(tx.sender.wallet, tx.startingNonce),
+        ),
       );
     } else {
       const errData = await res.json().catch(() => ({}));

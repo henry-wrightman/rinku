@@ -18,8 +18,11 @@ const TIPS_PER_CONSOLIDATION: usize = 16;
 const ANCHOR_INTERVAL_MS: u64 = 500;
 const CONSOLIDATION_COOLDOWN_MS: u64 = 1000;
 
-/// Minimum tips to trigger anchor creation (below this, natural convergence is fine)
-const MIN_TIPS_FOR_ANCHOR: usize = 4;
+/// Minimum tips to trigger anchor creation
+/// Set to 1 to ensure anchors are always created, preventing network stalls
+/// when there's no external transaction activity. Without this, the network
+/// can deadlock after a checkpoint finalizes all transactions.
+const MIN_TIPS_FOR_ANCHOR: usize = 2;
 
 pub struct TipConsolidator {
     state: NodeState,
