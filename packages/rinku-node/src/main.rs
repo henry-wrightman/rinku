@@ -393,17 +393,7 @@ async fn main() -> Result<()> {
         checkpoint_service = checkpoint_service.with_network_handle(handle.clone());
     }
 
-    let checkpoint_handle = tokio::spawn(async move {
-        if let Err(e) = checkpoint_service.start().await {
-            tracing::error!("Checkpoint service error: {}", e);
-        }
-    });
-    info!(
-        "Checkpoint service started ({}ms interval)",
-        config.checkpoint_interval_ms
-    );
-
-    // Create GossipService - shared between background task and API
+    // Create GossipService BEFORE spawning CheckpointService (for checkpoint broadcast)
     let gossip_service = if config.gossip_enabled {
         let mut service = GossipService::new(
             state.clone(),
@@ -426,7 +416,29 @@ async fn main() -> Result<()> {
             info!("GossipService connected to libp2p network");
         }
         
-        let service_for_task = service.clone();
+        Some(std::sync::Arc::new(service))
+    } else {
+        None
+    };
+    
+    // Wire up GossipService to CheckpointService for immediate checkpoint broadcast
+    if let Some(ref gs) = gossip_service {
+        checkpoint_service = checkpoint_service.with_gossip_service(gs.clone());
+    }
+
+    let checkpoint_handle = tokio::spawn(async move {
+        if let Err(e) = checkpoint_service.start().await {
+            tracing::error!("Checkpoint service error: {}", e);
+        }
+    });
+    info!(
+        "Checkpoint service started ({}ms interval)",
+        config.checkpoint_interval_ms
+    );
+    
+    // Start GossipService background task
+    if let Some(ref gs) = gossip_service {
+        let service_for_task = gs.clone();
         tokio::spawn(async move {
             if let Err(e) = service_for_task.start().await {
                 tracing::error!("Gossip service error: {}", e);
@@ -436,12 +448,14 @@ async fn main() -> Result<()> {
             "Gossip service started ({}ms interval)",
             config.gossip_interval_ms
         );
-        Some(service)
-    } else {
-        None
-    };
+    }
 
     let tip_consolidator = TipConsolidator::new(state.clone(), validator_address);
+    let tip_consolidator = if let Some(ref gs) = gossip_service {
+        tip_consolidator.with_gossip_service(gs.clone())
+    } else {
+        tip_consolidator
+    };
     let tip_handle = tokio::spawn(async move {
         if let Err(e) = tip_consolidator.start().await {
             tracing::error!("Tip consolidator error: {}", e);

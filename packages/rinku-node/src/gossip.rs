@@ -334,6 +334,12 @@ pub enum GossipMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
     },
+    /// Immediate broadcast of a newly created checkpoint (high priority)
+    CheckpointAnnouncement {
+        checkpoint: Checkpoint,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -507,7 +513,7 @@ impl GossipService {
         }
     }
 
-    pub async fn start(self) -> Result<()> {
+    pub async fn start(self: Arc<Self>) -> Result<()> {
         let peer_count = self.inner.read().await.peers.len();
         #[cfg(feature = "p2p")]
         let has_p2p = self.network_handle.is_some();
@@ -527,14 +533,14 @@ impl GossipService {
         // If we have a libp2p network handle, spawn a task to receive messages
         #[cfg(feature = "p2p")]
         if let Some(ref handle) = self.network_handle {
-            let gossip_clone = self.clone();
+            let gossip_clone = Arc::clone(&self);
             let handle_clone = handle.clone();
             tokio::spawn(async move {
                 gossip_clone.run_p2p_receiver(handle_clone).await;
             });
             
             // Spawn a task to handle incoming sync requests
-            let gossip_clone2 = self.clone();
+            let gossip_clone2 = Arc::clone(&self);
             let handle_clone2 = handle.clone();
             tokio::spawn(async move {
                 gossip_clone2.run_sync_request_handler(handle_clone2).await;
@@ -1388,6 +1394,39 @@ impl GossipService {
         }
     }
     
+    /// Immediately broadcast a newly created checkpoint to all peers
+    /// This is called by the leader after creating a checkpoint for fast propagation
+    pub async fn broadcast_checkpoint(&self, checkpoint: Checkpoint) {
+        let public_url = std::env::var("PUBLIC_URL").ok();
+        let peers: Vec<String> = {
+            let inner = self.inner.read().await;
+            inner.peers.keys().cloned().collect()
+        };
+        
+        info!(
+            "Broadcasting checkpoint {} at height {} to {} peers",
+            &checkpoint.hash[..16.min(checkpoint.hash.len())],
+            checkpoint.height,
+            peers.len()
+        );
+
+        let message = GossipMessage::CheckpointAnnouncement {
+            checkpoint,
+            sender_url: public_url,
+        };
+
+        // Broadcast via HTTP to all known peers
+        for peer in &peers {
+            let _ = self.send_to_peer(peer, &message).await;
+        }
+
+        // Also broadcast via P2P GossipSub for redundancy
+        #[cfg(feature = "p2p")]
+        if self.network_handle.is_some() {
+            self.broadcast_via_p2p(&message).await;
+        }
+    }
+    
     async fn broadcast_peer_list(&self) {
         let (known_peers, current_peers): (Vec<String>, Vec<String>) = {
             let inner = self.inner.read().await;
@@ -2213,6 +2252,54 @@ impl GossipService {
                 }
                 Ok(None)
             }
+            
+            GossipMessage::CheckpointAnnouncement { checkpoint, .. } => {
+                // Immediately apply checkpoint from network leader
+                let local_height = self.state.get_checkpoint_height().await;
+                
+                if checkpoint.height <= local_height {
+                    debug!(
+                        "Ignoring checkpoint {} at height {} (local height: {})",
+                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                        checkpoint.height,
+                        local_height
+                    );
+                    return Ok(None);
+                }
+                
+                // Check if this is the next expected checkpoint
+                if checkpoint.height == local_height + 1 {
+                    info!(
+                        "Received checkpoint announcement {} at height {} (leader broadcast)",
+                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                        checkpoint.height
+                    );
+                    
+                    // Apply the checkpoint directly
+                    if let Err(e) = self.state.apply_checkpoint(checkpoint.clone()).await {
+                        warn!(
+                            "Failed to apply announced checkpoint {}: {}",
+                            &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                            e
+                        );
+                    } else {
+                        info!(
+                            "Applied announced checkpoint {} at height {}",
+                            &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                            checkpoint.height
+                        );
+                    }
+                } else {
+                    debug!(
+                        "Checkpoint {} at height {} too far ahead (local: {}), will sync",
+                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                        checkpoint.height,
+                        local_height
+                    );
+                }
+                
+                Ok(None)
+            }
         }
     }
 
@@ -2474,6 +2561,7 @@ impl GossipService {
             GossipMessage::SyncResponse { sender_url, .. } => sender_url.clone(),
             GossipMessage::BloomAnnouncement { sender_url, .. } => sender_url.clone(),
             GossipMessage::SlashingEvidence { sender_url, .. } => sender_url.clone(),
+            GossipMessage::CheckpointAnnouncement { sender_url, .. } => sender_url.clone(),
         }
     }
 

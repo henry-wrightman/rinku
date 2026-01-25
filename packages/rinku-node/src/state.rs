@@ -1523,6 +1523,14 @@ impl NodeState {
         state.dag.tips()
     }
 
+    /// Get a weighted random sample of tips for new transactions (Sparse DAG Sampling)
+    /// Returns at most MAX_SAMPLED_TIPS (16) tips, preferring higher-weight tips
+    /// This prevents tip explosion while maintaining DAG connectivity
+    pub async fn get_sampled_tips(&self) -> Vec<String> {
+        let state = self.inner.read().await;
+        state.dag.get_sampled_tips()
+    }
+
     /// Get tip count without cloning the entire tips vector (more efficient for backpressure checks)
     pub async fn get_tip_count(&self) -> usize {
         let state = self.inner.read().await;
@@ -1598,6 +1606,113 @@ impl NodeState {
     pub async fn get_checkpoint_height(&self) -> u64 {
         let state = self.inner.read().await;
         state.checkpoints.len() as u64
+    }
+    
+    /// Apply a checkpoint received from the network (via CheckpointAnnouncement)
+    /// 
+    /// SAFETY: We finalize transactions ONLY if our unfinalized set's merkle root
+    /// matches the checkpoint's tx_merkle_root. This ensures we have the same
+    /// transaction set as the leader before finalizing.
+    /// 
+    /// In production, this should verify:
+    /// 1. Validator signatures meet quorum threshold
+    /// 2. The checkpoint merkle roots match expected state
+    /// For now in testnet mode, we trust the checkpoint if prev_hash links correctly.
+    pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint) -> anyhow::Result<()> {
+        use rinku_core::merkle::MerkleTree;
+        
+        let mut state = self.inner.write().await;
+        
+        // Validate this is the next expected checkpoint
+        let expected_height = state.checkpoints.len() as u64 + 1;
+        if checkpoint.height != expected_height {
+            return Err(anyhow::anyhow!(
+                "Checkpoint height mismatch: expected {}, got {}",
+                expected_height,
+                checkpoint.height
+            ));
+        }
+        
+        // Validate prev_hash linkage (critical for chain integrity)
+        if let Some(last_checkpoint) = state.checkpoints.last() {
+            let expected_prev = &last_checkpoint.hash;
+            let got_prev = checkpoint.previous_hash.as_deref().unwrap_or("");
+            if got_prev != expected_prev {
+                return Err(anyhow::anyhow!(
+                    "Checkpoint prev_hash mismatch: expected {}, got {}",
+                    &expected_prev[..16.min(expected_prev.len())],
+                    &got_prev[..16.min(got_prev.len())]
+                ));
+            }
+        }
+        
+        // Get our unfinalized transactions and compute merkle root
+        let mut unfinalized_hashes: Vec<String> = state
+            .dag
+            .get_unfinalized_nodes()
+            .iter()
+            .map(|n| n.hash.clone())
+            .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+            .collect();
+        
+        // Sort for deterministic merkle root (must match leader's computation)
+        unfinalized_hashes.sort();
+        
+        let our_merkle_root = if unfinalized_hashes.is_empty() {
+            "0".repeat(64)
+        } else {
+            match MerkleTree::from_hex_leaves(&unfinalized_hashes) {
+                Ok(tree) => tree.root(),
+                Err(_) => "0".repeat(64),
+            }
+        };
+        
+        let height = checkpoint.height;
+        let finalized_count;
+        
+        // SAFE FINALIZATION: Only finalize if our transaction set matches the leader's
+        if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
+            // Our unfinalized set matches the checkpoint - safe to finalize
+            for hash in &unfinalized_hashes {
+                let _ = state.dag.mark_finalized(hash, height);
+            }
+            finalized_count = unfinalized_hashes.len();
+            tracing::info!(
+                "Applied checkpoint {} at height {} ({} txs finalized, merkle matched)",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                height,
+                finalized_count
+            );
+        } else if our_merkle_root != checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
+            // Merkle root mismatch - we have different transactions than the leader
+            // Sync mechanism will reconcile the difference
+            finalized_count = 0;
+            tracing::info!(
+                "Applied checkpoint {} at height {} (merkle mismatch: ours={} theirs={}, {} unfinalized)",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                height,
+                &our_merkle_root[..16],
+                &checkpoint.tx_merkle_root[..16.min(checkpoint.tx_merkle_root.len())],
+                unfinalized_hashes.len()
+            );
+        } else {
+            // No unfinalized transactions
+            finalized_count = 0;
+            tracing::info!(
+                "Applied checkpoint {} at height {} (no unfinalized txs)",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                height
+            );
+        }
+        
+        // Add the checkpoint
+        state.checkpoints.push(checkpoint.clone());
+        state.last_checkpoint_time_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        
+        Ok(())
     }
 
     pub async fn get_latest_checkpoint_id(&self) -> Option<String> {
@@ -1874,9 +1989,18 @@ impl NodeState {
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+        let is_consolidation_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation));
+        
+        // System transactions (consolidation/anchor) bypass normal validation
+        // They're created by validators to consolidate DAG tips
+        let is_system_tx = is_consolidation_tx 
+            || tx.signature.starts_with("anchor-")
+            || tx.tx.from == "faucet"
+            || tx.tx.from == "genesis";
         
         // Pre-check balance and stake minimum validation
-        {
+        // System transactions (anchor/consolidation) skip this entirely
+        if !is_system_tx {
             let state = self.inner.read().await;
             let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
             

@@ -8,6 +8,6 @@ pub mod weight;
 pub use types::*;
 pub use crypto::{CryptoError, KeyPair, sha256, sha256_hex, double_sha256, hash_transaction, verify_signature, verify_signature_hex};
 pub use merkle::{MerkleTree, MerkleError, verify_proof};
-pub use dag::{Dag, DagError};
+pub use dag::{Dag, DagError, MAX_SAMPLED_TIPS};
 pub use encoding::*;
 pub use weight::*;

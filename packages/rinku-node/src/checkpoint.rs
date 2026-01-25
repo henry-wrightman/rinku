@@ -53,6 +53,8 @@ pub struct CheckpointService {
     local_url: Option<String>,
     /// Enforce strict quorum/signature requirements
     mainnet_mode: bool,
+    /// GossipService for immediate checkpoint broadcast
+    gossip_service: Option<Arc<crate::gossip::GossipService>>,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
@@ -88,7 +90,13 @@ impl CheckpointService {
             leader_election: None,
             local_url: None,
             mainnet_mode,
+            gossip_service: None,
         }
+    }
+    
+    pub fn with_gossip_service(mut self, gossip: Arc<crate::gossip::GossipService>) -> Self {
+        self.gossip_service = Some(gossip);
+        self
     }
 
     pub fn with_validator_identity(mut self, identity: Arc<RwLock<ValidatorIdentityService>>) -> Self {
@@ -1254,6 +1262,12 @@ impl CheckpointService {
                 "Tracked liveness for checkpoint {}: {} validators participated",
                 height, participating_validators.len()
             );
+        }
+        
+        // IMMEDIATELY broadcast the checkpoint to all peers for fast propagation
+        // This ensures other nodes receive the checkpoint without waiting for sync
+        if let Some(ref gossip) = self.gossip_service {
+            gossip.broadcast_checkpoint(checkpoint).await;
         }
 
         Ok(())

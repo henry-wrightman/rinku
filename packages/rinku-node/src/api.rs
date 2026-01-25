@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
@@ -30,6 +30,8 @@ static ACTIVE_SYNC_REQUESTS: std::sync::atomic::AtomicU32 = std::sync::atomic::A
 const MAX_CONCURRENT_SYNC_REQUESTS: u32 = 5;
 
 /// Maximum tips before rejecting new transactions (backpressure)
+/// With Sparse DAG Sampling (16 tips per tx), this should rarely be hit.
+/// Kept at 1000 as a safety net for extreme scenarios.
 const MAX_TIPS_BACKPRESSURE: usize = 1000;
 
 /// Guard to automatically decrement active sync request count on drop
@@ -45,7 +47,7 @@ use crate::state::NodeState;
 #[derive(Clone)]
 pub struct ApiState {
     pub node_state: NodeState,
-    pub gossip_service: Option<GossipService>,
+    pub gossip_service: Option<Arc<GossipService>>,
 }
 
 #[derive(Serialize)]
@@ -700,6 +702,34 @@ async fn post_gossip(
                     warn!("Gossip: invalid slashing evidence rejected");
                 }
             }
+            GossipMessage::CheckpointAnnouncement { checkpoint, .. } => {
+                let local_height = state.get_checkpoint_height().await;
+                let expected_height = local_height + 1;
+                
+                info!(
+                    "Gossip: checkpoint announcement {} at height {} (local: {})",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    checkpoint.height,
+                    local_height
+                );
+                
+                if checkpoint.height == expected_height {
+                    // Apply the checkpoint if it's the next expected one
+                    if let Err(e) = state.apply_checkpoint(checkpoint.clone()).await {
+                        warn!("Failed to apply announced checkpoint: {}", e);
+                    }
+                } else if checkpoint.height > expected_height {
+                    // We're behind - the normal gossip sync will catch us up
+                    // Log this for visibility but don't error
+                    info!(
+                        "Checkpoint {} is ahead (height {} > local {}), sync will catch up",
+                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                        checkpoint.height,
+                        local_height
+                    );
+                }
+                // If checkpoint.height < expected_height, it's an old checkpoint we already have - ignore
+            }
         }
     }
 
@@ -1317,7 +1347,9 @@ async fn get_tips(State(state): State<NodeState>) -> Json<TipsResponse> {
 }
 
 async fn get_tip_urls(State(state): State<NodeState>) -> Json<TipUrlsResponse> {
-    let tips = state.get_tips().await;
+    // Use sparse DAG sampling to return at most 16 tips
+    // This prevents tip explosion and bounds transaction parent counts
+    let tips = state.get_sampled_tips().await;
     let tip_urls: Vec<String> = tips
         .into_iter()
         .map(|hash| format!("rinku://tx/h/{}", hash))
@@ -2648,7 +2680,7 @@ rinku_uptime_seconds {}
 
 pub async fn start_api_server(
     state: NodeState,
-    gossip_service: Option<GossipService>,
+    gossip_service: Option<Arc<GossipService>>,
     port: u16,
     static_dir: Option<PathBuf>,
 ) -> anyhow::Result<JoinHandle<()>> {
@@ -2736,7 +2768,7 @@ pub async fn start_api_server(
             let index_path = static_path.join("index.html");
             let serve_dir = ServeDir::new(&static_path)
                 .not_found_service(ServeFile::new(&index_path));
-            info!("Serving static files from {:?}", static_path);
+            info!("Serving static files from {:?} with SPA routing fallback to {:?}", static_path, index_path);
             api_routes.fallback_service(serve_dir)
         } else {
             info!("Static directory {:?} not found, API-only mode with root health check", static_path);

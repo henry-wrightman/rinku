@@ -1,7 +1,13 @@
 use crate::types::DagNode;
 use petgraph::graph::{DiGraph, NodeIndex};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use std::collections::{HashMap, HashSet, VecDeque};
 use thiserror::Error;
+
+/// Maximum number of tips to sample for new transactions (Sparse DAG Sampling)
+/// This prevents tip explosion while maintaining DAG connectivity
+pub const MAX_SAMPLED_TIPS: usize = 16;
 
 #[derive(Error, Debug)]
 pub enum DagError {
@@ -152,6 +158,61 @@ impl Dag {
 
     pub fn tip_count(&self) -> usize {
         self.tips.len()
+    }
+
+    /// Get a weighted random sample of tips for new transactions (Sparse DAG Sampling)
+    /// - Returns at most MAX_SAMPLED_TIPS tips
+    /// - Prefers tips with higher node weight (sender's account weight = Sybil resistance)
+    /// - If fewer tips than MAX_SAMPLED_TIPS, returns all tips
+    /// 
+    /// Weight selection: Uses the tip node's inherent weight (from sender's account),
+    /// not cumulative descendant weight (which is always 0 for tips since tips have no children).
+    pub fn get_sampled_tips(&self) -> Vec<String> {
+        let all_tips: Vec<String> = self.tips.iter().cloned().collect();
+        
+        // If we have fewer tips than the max, return all of them
+        if all_tips.len() <= MAX_SAMPLED_TIPS {
+            return all_tips;
+        }
+        
+        // Get node weights for all tips (sender's account weight = Sybil resistance)
+        // Higher weight = sender has more stake/age = more trustworthy
+        let mut weighted_tips: Vec<(String, f64)> = all_tips
+            .iter()
+            .filter_map(|tip| {
+                self.get_node(tip).map(|node| (tip.clone(), node.weight))
+            })
+            .collect();
+        
+        // Sort by weight descending (higher weight = more trustworthy sender)
+        weighted_tips.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        // Take top half by weight, randomly sample from rest for diversity
+        let guaranteed_count = MAX_SAMPLED_TIPS / 2;
+        let random_count = MAX_SAMPLED_TIPS - guaranteed_count;
+        
+        let mut result: Vec<String> = weighted_tips
+            .iter()
+            .take(guaranteed_count)
+            .map(|(tip, _)| tip.clone())
+            .collect();
+        
+        // Randomly sample from remaining tips for DAG diversity
+        let remaining: Vec<String> = weighted_tips
+            .iter()
+            .skip(guaranteed_count)
+            .map(|(tip, _)| tip.clone())
+            .collect();
+        
+        if !remaining.is_empty() {
+            let mut rng = thread_rng();
+            let sample_size = random_count.min(remaining.len());
+            let mut shuffled = remaining;
+            shuffled.shuffle(&mut rng);
+            result.extend(shuffled.into_iter().take(sample_size));
+        }
+        
+        result
     }
 
     pub fn node_count(&self) -> usize {
