@@ -339,6 +339,10 @@ pub enum GossipMessage {
         checkpoint: Checkpoint,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
+        /// List of transaction hashes finalized in this checkpoint
+        /// Used by receivers to finalize transactions even if merkle roots don't match
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        finalized_tx_hashes: Vec<String>,
     },
 }
 
@@ -357,6 +361,12 @@ pub struct PeerInfo {
     pub backoff_until: u64,
 }
 
+/// Maximum size for stale nonce cache (addresses tracked)
+const STALE_NONCE_CACHE_MAX: usize = 10_000;
+
+/// Maximum pending transactions to buffer before dropping (prevents OOM under high load)
+const PENDING_TXS_MAX: usize = 10_000;
+
 pub struct GossipServiceInner {
     pub peers: HashMap<String, PeerInfo>,
     pub known_txs: BoundedHashSet,
@@ -370,12 +380,25 @@ pub struct GossipServiceInner {
     pub peer_bloom_filters: HashMap<String, BloomFilter>,
     /// Cooldown: last time sync failed (prevents sync storm)
     pub last_sync_failure: Option<std::time::Instant>,
+    /// Global debounce: last time ANY sync was started (prevents sync storm across all peers)
+    pub last_any_sync: Option<std::time::Instant>,
     /// Per-peer debounce: last sync attempt time for each peer
     pub peer_last_sync: HashMap<String, std::time::Instant>,
     /// Rate limit recovery attempts: max 1 per 30 seconds per peer
     pub peer_last_recovery: HashMap<String, std::time::Instant>,
     /// Count of active sync requests (to limit concurrency)
     pub active_sync_count: u32,
+    /// Quick-reject cache for stale nonces: maps sender address to minimum expected nonce
+    /// Transactions with nonce < cached value are rejected instantly without full validation
+    pub stale_nonce_cache: HashMap<String, u64>,
+    /// FIFO queue for cache eviction - tracks insertion order of addresses
+    pub stale_nonce_cache_order: VecDeque<String>,
+    /// Counter for stale nonce rejections (for stats/logging)
+    pub stale_nonce_rejections: u64,
+    /// Counter for cache hits (quick-rejected without full validation)
+    pub stale_nonce_cache_hits: u64,
+    /// Flag to prevent overlapping propagation tasks
+    pub propagation_in_flight: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -463,9 +486,15 @@ impl GossipService {
                 sync_in_flight: false,
                 peer_bloom_filters: HashMap::new(),
                 last_sync_failure: None,
+                last_any_sync: None,
                 peer_last_sync: HashMap::new(),
                 peer_last_recovery: HashMap::new(),
                 active_sync_count: 0,
+                stale_nonce_cache: HashMap::new(),
+                stale_nonce_cache_order: VecDeque::new(),
+                stale_nonce_rejections: 0,
+                stale_nonce_cache_hits: 0,
+                propagation_in_flight: false,
             })),
             node_id,
             interval_ms,
@@ -548,10 +577,11 @@ impl GossipService {
         }
 
         let mut tick = interval(Duration::from_millis(self.interval_ms));
+        let gossip_arc = Arc::clone(&self);
 
         loop {
             tick.tick().await;
-            self.gossip_round().await;
+            self.gossip_round(&gossip_arc).await;
         }
     }
 
@@ -649,6 +679,8 @@ impl GossipService {
                                 signature: stx.signature.clone(),
                                 parents: stx.tx.parents.clone(),
                                 gas_price: stx.tx.gas_price.unwrap_or(0.0),
+                                memo: stx.tx.memo.clone(),
+                                references: stx.tx.references.clone(),
                             }).collect();
                             
                             // Get merkle root from latest checkpoint
@@ -1194,7 +1226,7 @@ impl GossipService {
         Ok(())
     }
 
-    async fn gossip_round(&self) {
+    async fn gossip_round(&self, gossip_arc: &Arc<Self>) {
         let peers: Vec<String> = {
             let inner = self.inner.read().await;
             inner.peers.keys().cloned().collect()
@@ -1230,6 +1262,18 @@ impl GossipService {
                 inner.peer_last_recovery.retain(|_, last_recovery| {
                     last_recovery.elapsed().as_secs() < 60
                 });
+                
+                // Log stale nonce cache stats
+                // The cache tracks (address -> min_expected_nonce) to quick-reject stale gossip
+                let cache_size = inner.stale_nonce_cache.len();
+                let cache_hits = inner.stale_nonce_cache_hits;
+                let rejections = inner.stale_nonce_rejections;
+                if cache_size > 0 || cache_hits > 0 || rejections > 0 {
+                    info!(
+                        "Stale nonce cache: {} addresses, {} cache hits, {} new rejections",
+                        cache_size, cache_hits, rejections
+                    );
+                }
                 
                 true
             } else {
@@ -1296,7 +1340,9 @@ impl GossipService {
             );
         }
 
-        self.propagate_pending_txs().await;
+        // Spawn propagation as background task (non-blocking)
+        Self::spawn_propagation_task(gossip_arc);
+        
         self.request_sync_if_needed(checkpoint_height).await;
         
         // Periodic peer exchange: every 30 seconds, share known peers
@@ -1396,7 +1442,7 @@ impl GossipService {
     
     /// Immediately broadcast a newly created checkpoint to all peers
     /// This is called by the leader after creating a checkpoint for fast propagation
-    pub async fn broadcast_checkpoint(&self, checkpoint: Checkpoint) {
+    pub async fn broadcast_checkpoint(&self, checkpoint: Checkpoint, finalized_tx_hashes: Vec<String>) {
         let public_url = std::env::var("PUBLIC_URL").ok();
         let peers: Vec<String> = {
             let inner = self.inner.read().await;
@@ -1404,15 +1450,17 @@ impl GossipService {
         };
         
         info!(
-            "Broadcasting checkpoint {} at height {} to {} peers",
+            "Broadcasting checkpoint {} at height {} to {} peers ({} finalized txs)",
             &checkpoint.hash[..16.min(checkpoint.hash.len())],
             checkpoint.height,
-            peers.len()
+            peers.len(),
+            finalized_tx_hashes.len()
         );
 
         let message = GossipMessage::CheckpointAnnouncement {
             checkpoint,
             sender_url: public_url,
+            finalized_tx_hashes,
         };
 
         // Broadcast via HTTP to all known peers
@@ -1458,46 +1506,136 @@ impl GossipService {
         info!("Broadcast peer list to {} peers", current_peers.len());
     }
 
-    async fn propagate_pending_txs(&self) {
-        let (pending_txs, peers): (Vec<SignedTransaction>, Vec<String>) = {
-            let mut inner = self.inner.write().await;
-            let txs = std::mem::take(&mut inner.pending_txs);
-            let peer_addrs = inner.peers.keys().cloned().collect();
-            (txs, peer_addrs)
-        };
-
-        if !pending_txs.is_empty() {
-            info!("Propagating {} pending transactions to {} peers", pending_txs.len(), peers.len());
-            if peers.is_empty() {
-                warn!("NO PEERS AVAILABLE - transactions will NOT be propagated!");
+    /// Non-blocking propagation: spawns a background task to propagate transactions
+    /// so it doesn't block the gossip round or API handlers
+    fn spawn_propagation_task(self: &Arc<Self>) {
+        // Check if propagation is already in flight (non-blocking check)
+        let should_spawn = {
+            let inner = self.inner.try_read();
+            match inner {
+                Ok(guard) => !guard.propagation_in_flight && !guard.pending_txs.is_empty(),
+                Err(_) => false, // Lock contention, skip this round
             }
+        };
+        
+        if !should_spawn {
+            return;
+        }
+        
+        // Clone self for the spawned task
+        let gossip = Arc::clone(self);
+        
+        tokio::spawn(async move {
+            gossip.propagate_pending_txs_background().await;
+        });
+    }
+    
+    /// Background propagation task - runs in a separate tokio task
+    async fn propagate_pending_txs_background(&self) {
+        // Limit batch size to prevent overwhelming P2P layer and causing node crashes
+        // This was the root cause of validator-1 crash during stress test (783 txs in one batch)
+        const MAX_PROPAGATION_BATCH: usize = 100;
+        
+        // Set propagation_in_flight flag and take pending transactions (limited batch)
+        let (batch_txs, overflow_txs, peers): (Vec<SignedTransaction>, Vec<SignedTransaction>, Vec<String>) = {
+            let mut inner = self.inner.write().await;
+            if inner.propagation_in_flight {
+                return; // Another task is already propagating
+            }
+            inner.propagation_in_flight = true;
+            let all_txs = std::mem::take(&mut inner.pending_txs);
+            let peer_addrs = inner.peers.keys().cloned().collect();
+            
+            // Split into batch (to propagate now) and overflow (to re-queue)
+            if all_txs.len() <= MAX_PROPAGATION_BATCH {
+                (all_txs, Vec::new(), peer_addrs)
+            } else {
+                let (batch, overflow) = all_txs.split_at(MAX_PROPAGATION_BATCH);
+                (batch.to_vec(), overflow.to_vec(), peer_addrs)
+            }
+        };
+        
+        if batch_txs.is_empty() {
+            // Nothing to propagate, clear flag and return
+            let mut inner = self.inner.write().await;
+            inner.propagation_in_flight = false;
+            return;
+        }
+
+        let batch_count = batch_txs.len();
+        let overflow_count = overflow_txs.len();
+        if overflow_count > 0 {
+            info!("Background propagation: {} transactions to {} peers ({} deferred to next cycle)", 
+                  batch_count, peers.len(), overflow_count);
+        } else {
+            info!("Background propagation: {} transactions to {} peers", batch_count, peers.len());
+        }
+        
+        if peers.is_empty() {
+            warn!("NO PEERS AVAILABLE - transactions will NOT be propagated!");
         }
 
         let public_url = std::env::var("PUBLIC_URL").ok();
-        for tx in pending_txs {
+        let mut propagated_count = 0u64;
+        let mut tx_hashes: Vec<String> = Vec::with_capacity(batch_count);
+        
+        // Batch process: broadcast via p2p (limited to MAX_PROPAGATION_BATCH)
+        for tx in &batch_txs {
             let message = GossipMessage::Transaction {
                 hash: tx.hash.clone(),
                 tx: tx.clone(),
                 sender_url: public_url.clone(),
             };
 
-            // Broadcast via libp2p (reaches all connected peers)
             #[cfg(feature = "p2p")]
             self.broadcast_via_p2p(&message).await;
-
-            // Also send via HTTP to known HTTP peers
+            
+            tx_hashes.push(tx.hash.clone());
+            propagated_count += 1;
+        }
+        
+        // HTTP propagation: same batch (already limited to 100)
+        if !batch_txs.is_empty() && !peers.is_empty() {
             for peer in &peers {
-                if let Err(e) = self.send_to_peer(peer, &message).await {
-                    warn!("Failed to propagate tx {} to {}: {}", &tx.hash[..16.min(tx.hash.len())], peer, e);
-                } else {
-                    debug!("Propagated tx {} to peer {}", &tx.hash[..16.min(tx.hash.len())], peer);
+                let mut peer_failures = 0;
+                for tx in &batch_txs {
+                    let message = GossipMessage::Transaction {
+                        hash: tx.hash.clone(),
+                        tx: tx.clone(),
+                        sender_url: public_url.clone(),
+                    };
+                    
+                    if let Err(_) = self.send_to_peer(peer, &message).await {
+                        peer_failures += 1;
+                        // Stop sending to this peer after 3 consecutive failures
+                        if peer_failures >= 3 {
+                            debug!("Stopping HTTP propagation to {} after {} failures", peer, peer_failures);
+                            break;
+                        }
+                    }
                 }
             }
-
-            let mut inner = self.inner.write().await;
-            inner.stats.txs_propagated += 1;
-            inner.known_txs.insert(tx.hash.clone());
         }
+        
+        // Batch update stats and re-queue overflow transactions
+        {
+            let mut inner = self.inner.write().await;
+            inner.stats.txs_propagated += propagated_count;
+            for hash in tx_hashes {
+                inner.known_txs.insert(hash);
+            }
+            
+            // Re-queue overflow transactions for next propagation cycle
+            if !overflow_txs.is_empty() {
+                for tx in overflow_txs {
+                    inner.pending_txs.push(tx);
+                }
+            }
+            
+            inner.propagation_in_flight = false;
+        }
+        
+        debug!("Background propagation complete: {} transactions", propagated_count);
     }
 
     async fn request_sync_if_needed(&self, local_checkpoint: u64) {
@@ -1529,12 +1667,57 @@ impl GossipService {
     }
 
     async fn refresh_peer_status_and_sync(&self) {
+        // CRITICAL: Check debounce before any sync operations
+        // This prevents sync storms that block the API under high volume
+        const GLOBAL_SYNC_DEBOUNCE_SECS: u64 = 15;
+        const PEER_SYNC_DEBOUNCE_SECS: u64 = 30;
+        const SYNC_FAILURE_COOLDOWN_SECS: u64 = 30;
+        // Minimum DAG difference to trigger delta sync - small diffs handled by gossip
+        const MIN_DAG_DIFF_FOR_SYNC: usize = 50;
+        
+        {
+            let inner = self.inner.read().await;
+            
+            // Check 1: Is sync already in flight?
+            if inner.sync_in_flight {
+                debug!("refresh_peer_status_and_sync: sync already in flight, skipping");
+                return;
+            }
+            
+            // Check 2: Are we in cooldown after a failed sync?
+            if let Some(last_fail) = inner.last_sync_failure {
+                if last_fail.elapsed().as_secs() < SYNC_FAILURE_COOLDOWN_SECS {
+                    debug!("refresh_peer_status_and_sync: sync cooldown active, skipping");
+                    return;
+                }
+            }
+            
+            // Check 3: Global sync debounce - did ANY sync happen recently?
+            if let Some(last_sync) = inner.last_any_sync {
+                if last_sync.elapsed().as_secs() < GLOBAL_SYNC_DEBOUNCE_SECS {
+                    debug!("refresh_peer_status_and_sync: global debounce active, skipping");
+                    return;
+                }
+            }
+        }
+        
         let peers: Vec<String> = {
             let inner = self.inner.read().await;
             inner.peers.keys().cloned().collect()
         };
 
         for peer in &peers {
+            // Check per-peer debounce
+            {
+                let inner = self.inner.read().await;
+                if let Some(last_sync) = inner.peer_last_sync.get(peer) {
+                    if last_sync.elapsed().as_secs() < PEER_SYNC_DEBOUNCE_SECS {
+                        debug!("refresh_peer_status_and_sync: peer {} synced recently, skipping", peer);
+                        continue;
+                    }
+                }
+            }
+            
             // Re-check local state before each peer to avoid redundant syncs
             let local_checkpoint = self.state.get_checkpoint_height().await;
             let (local_dag_size, _, _) = self.state.get_dag_stats().await;
@@ -1555,11 +1738,25 @@ impl GossipService {
                         }
                     }
 
-                    // Check if peer has more data than us
-                    let needs_sync = status.checkpoint_height > local_checkpoint 
-                        || status.dag_size > local_dag_size;
+                    // Check if peer has significantly more data than us
+                    // Small differences (<50 txs) are handled by gossip propagation
+                    let dag_diff = (status.dag_size as usize).saturating_sub(local_dag_size);
+                    let needs_checkpoint_sync = status.checkpoint_height > local_checkpoint;
+                    let needs_dag_sync = dag_diff >= MIN_DAG_DIFF_FOR_SYNC;
 
-                    if needs_sync {
+                    if needs_checkpoint_sync || needs_dag_sync {
+                        // Mark sync in flight and update timestamps BEFORE starting sync
+                        {
+                            let mut inner = self.inner.write().await;
+                            if inner.sync_in_flight {
+                                debug!("refresh_peer_status_and_sync: sync started by another task, aborting");
+                                return;
+                            }
+                            inner.sync_in_flight = true;
+                            inner.last_any_sync = Some(std::time::Instant::now());
+                            inner.peer_last_sync.insert(peer.clone(), std::time::Instant::now());
+                        }
+                        
                         // SYNC STRATEGY: Always use snapshot sync when behind on checkpoints
                         // Delta sync only transfers transactions, NOT account state (nonces/balances)
                         // This causes validation failures when nonces don't match
@@ -1574,30 +1771,42 @@ impl GossipService {
                                 peer, checkpoint_gap, status.checkpoint_height, local_checkpoint
                             );
                             
-                            if let Err(e) = self.bootstrap_from_peer(peer, local_checkpoint).await {
-                                warn!("Snapshot sync from {} failed: {}", peer, e);
+                            let sync_result = self.bootstrap_from_peer(peer, local_checkpoint).await;
+                            
+                            // Update sync state based on result
+                            let mut inner = self.inner.write().await;
+                            inner.sync_in_flight = false;
+                            if sync_result.is_err() {
+                                inner.last_sync_failure = Some(std::time::Instant::now());
+                                warn!("Snapshot sync from {} failed: {:?}", peer, sync_result.err());
+                            } else {
+                                inner.last_sync_failure = None;
                             }
-                        } else if status.dag_size > local_dag_size {
+                            return; // Only sync from one peer per cycle
+                        } else if dag_diff >= MIN_DAG_DIFF_FOR_SYNC {
                             // Same checkpoint height but peer has more unfinalized DAG transactions
                             // Try delta sync for just the recent transactions
                             info!(
-                                "Peer {} has more DAG data (dag: {} vs {}), requesting delta sync...",
-                                peer, status.dag_size, local_dag_size
+                                "Peer {} has more DAG data (dag: {} vs {}, diff: {}), requesting delta sync...",
+                                peer, status.dag_size, local_dag_size, dag_diff
                             );
                             
-                            let result = self.sync_from_peer(peer, local_checkpoint).await;
+                            let result = self.sync_from_peer_optimized(peer, local_checkpoint, local_dag_size as u64).await;
+                            
+                            // Clear sync_in_flight after delta sync completes
+                            let mut inner = self.inner.write().await;
+                            inner.sync_in_flight = false;
+                            
                             match result {
                                 Ok(sync_result) => {
+                                    inner.last_sync_failure = None;
                                     // If delta sync had failures, force snapshot to fix state divergence
                                     if sync_result.failed > 0 && sync_result.failed > sync_result.added {
                                         // Rate limit recovery attempts: max 1 per 30 seconds per peer
-                                        let should_recover = {
-                                            let inner = self.inner.read().await;
-                                            if let Some(last_recovery) = inner.peer_last_recovery.get(peer) {
-                                                last_recovery.elapsed().as_secs() >= 30
-                                            } else {
-                                                true
-                                            }
+                                        let should_recover = if let Some(last_recovery) = inner.peer_last_recovery.get(peer) {
+                                            last_recovery.elapsed().as_secs() >= 30
+                                        } else {
+                                            true
                                         };
                                         
                                         if should_recover {
@@ -1606,10 +1815,8 @@ impl GossipService {
                                                 sync_result.failed, sync_result.added
                                             );
                                             // Record this recovery attempt
-                                            {
-                                                let mut inner = self.inner.write().await;
-                                                inner.peer_last_recovery.insert(peer.to_string(), std::time::Instant::now());
-                                            }
+                                            inner.peer_last_recovery.insert(peer.to_string(), std::time::Instant::now());
+                                            drop(inner); // Release lock before sync
                                             if let Err(e) = self.bootstrap_from_peer_force(peer).await {
                                                 warn!("RECOVERY: Force snapshot sync from {} failed: {}", peer, e);
                                             }
@@ -1619,9 +1826,11 @@ impl GossipService {
                                     }
                                 }
                                 Err(e) => {
+                                    inner.last_sync_failure = Some(std::time::Instant::now());
                                     warn!("Sync from {} failed: {}", peer, e);
                                 }
                             }
+                            return; // Only sync from one peer per cycle
                         }
                     } else if status.checkpoint_height == local_checkpoint && status.faucet_balance > 0.0 {
                         // ACCOUNT STATE VERIFICATION: Even when checkpoints match, account states may differ
@@ -1676,6 +1885,117 @@ impl GossipService {
         }
     }
 
+    /// Optimized delta sync that starts from an offset based on local DAG size
+    /// This avoids downloading the entire DAG when we only need recent transactions
+    async fn sync_from_peer_optimized(&self, peer: &str, local_checkpoint: u64, local_dag_size: u64) -> Result<DeltaSyncResult> {
+        let client = reqwest::Client::new();
+        // Start from an offset near our local DAG size, with a buffer for safety
+        // This dramatically reduces bandwidth when we only need recent transactions
+        let start_offset = if local_dag_size > 500 {
+            (local_dag_size - 500) as usize // Buffer of 500 to catch any gaps
+        } else {
+            0
+        };
+        let mut offset = start_offset;
+        let limit = 1000usize;
+        let mut result = DeltaSyncResult::default();
+        
+        info!(
+            "Optimized delta sync from {} starting at offset {} (local DAG: {})",
+            peer, start_offset, local_dag_size
+        );
+        
+        // Get local validators for bidirectional sync
+        let local_validators = self.state.get_validators_map().await;
+        
+        loop {
+            // Use POST for bidirectional validator sync
+            let url = format!("{}/api/sync/delta", peer);
+            
+            #[derive(serde::Serialize)]
+            #[serde(rename_all = "camelCase")]
+            struct DeltaSyncRequest {
+                from_checkpoint: u64,
+                offset: usize,
+                limit: usize,
+                validators: std::collections::HashMap<String, Validator>,
+            }
+            
+            let request_body = DeltaSyncRequest {
+                from_checkpoint: local_checkpoint,
+                offset,
+                limit,
+                validators: local_validators.clone(),
+            };
+            
+            let response = client
+                .post(&url)
+                .json(&request_body)
+                .timeout(Duration::from_secs(30))
+                .send()
+                .await?;
+            
+            if !response.status().is_success() {
+                anyhow::bail!("Sync request failed with status {}", response.status());
+            }
+            
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct DeltaResponse {
+                transactions: Vec<SignedTransaction>,
+                #[serde(default)]
+                account_states: std::collections::HashMap<String, Account>,
+                #[serde(default)]
+                total: usize,
+                #[serde(default)]
+                has_more: bool,
+                #[serde(default)]
+                validators: std::collections::HashMap<String, Validator>,
+            }
+            
+            let response_text = response.text().await?;
+            let delta: DeltaResponse = serde_json::from_str(&response_text)
+                .map_err(|e| anyhow::anyhow!("Failed to parse sync response: {}", e))?;
+            
+            info!(
+                "Optimized sync page: received {}/{} txs (offset={}, has_more={})", 
+                delta.transactions.len(), delta.total, offset, delta.has_more
+            );
+            
+            // Merge validators from peer
+            if !delta.validators.is_empty() {
+                self.state.merge_validators_from_peer(&delta.validators).await;
+            }
+            
+            // Apply transactions (skip known ones)
+            for tx in &delta.transactions {
+                // Quick check if we already have this transaction
+                if self.state.has_transaction(&tx.hash).await {
+                    continue; // Skip - we already have it
+                }
+                
+                match self.state.add_transaction(tx.clone()).await {
+                    Ok(_) => result.added += 1,
+                    Err(e) => {
+                        // Only count as failure if it's not a "duplicate" type error
+                        let err_msg = format!("{:?}", e);
+                        if !err_msg.contains("already exists") && !err_msg.contains("duplicate") {
+                            result.failed += 1;
+                        }
+                    }
+                }
+            }
+            
+            if !delta.has_more {
+                break;
+            }
+            offset += limit;
+        }
+        
+        info!("Optimized delta sync complete: {} added, {} failed", result.added, result.failed);
+        Ok(result)
+    }
+    
     async fn sync_from_peer(&self, peer: &str, local_checkpoint: u64) -> Result<DeltaSyncResult> {
         let client = reqwest::Client::new();
         let mut offset = 0usize;
@@ -1779,6 +2099,8 @@ impl GossipService {
                             signature: tx.signature.clone(),
                             parents: tx.tx.parents.clone(),
                             gas_price: tx.tx.gas_price.unwrap_or(0.0),
+                            memo: tx.tx.memo.clone(),
+                            references: tx.tx.references.clone(),
                         }
                     }).collect();
                     let delta_data = DeltaData {
@@ -1989,6 +2311,22 @@ impl GossipService {
         
         match message {
             GossipMessage::Transaction { hash, tx, .. } => {
+                // QUICK-REJECT: Check stale nonce cache BEFORE any state operations
+                // This prevents CPU-intensive validation of known-stale transactions
+                {
+                    let inner = self.inner.read().await;
+                    if let Some(&min_nonce) = inner.stale_nonce_cache.get(&tx.tx.from) {
+                        if tx.tx.nonce < min_nonce {
+                            // Silently drop - no logging to avoid log spam
+                            // This is a known-stale transaction from gossip echo
+                            drop(inner);
+                            let mut inner_mut = self.inner.write().await;
+                            inner_mut.stale_nonce_cache_hits += 1;
+                            return Ok(None);
+                        }
+                    }
+                }
+                
                 let is_new = {
                     let mut inner = self.inner.write().await;
                     if inner.known_txs.contains(&hash) {
@@ -2005,14 +2343,56 @@ impl GossipService {
                         Ok(TransactionResult::Accepted) => {
                             // Only propagate fully accepted transactions
                             let mut inner = self.inner.write().await;
-                            inner.pending_txs.push(tx);
+                            // Limit pending_txs to prevent OOM under high load
+                            if inner.pending_txs.len() < PENDING_TXS_MAX {
+                                inner.pending_txs.push(tx);
+                            } else {
+                                debug!("Pending TX queue full ({} txs), dropping propagation for {}", 
+                                    PENDING_TXS_MAX, &hash[..16.min(hash.len())]);
+                            }
                         }
                         Ok(TransactionResult::Buffered) => {
                             // Transaction was buffered for later - do NOT propagate
                             debug!("Gossiped tx {} buffered (future nonce), not propagating", hash);
                         }
                         Err(e) => {
-                            warn!("Failed to add gossiped tx {}: {}", hash, e);
+                            // Check if this is a stale nonce error and update cache
+                            let err_str = e.to_string();
+                            if err_str.contains("Stale nonce") {
+                                // Get the actual account nonce from state (robust, not string parsing)
+                                let expected_nonce = if let Some(account) = self.state.get_account(&tx.tx.from).await {
+                                    account.nonce
+                                } else {
+                                    0 // New account, expected nonce is 0
+                                };
+                                
+                                let mut inner = self.inner.write().await;
+                                let current = inner.stale_nonce_cache.get(&tx.tx.from).copied().unwrap_or(0);
+                                
+                                // Only update if new nonce is higher
+                                if expected_nonce > current {
+                                    // Check if this is a new entry or update
+                                    let is_new_entry = !inner.stale_nonce_cache.contains_key(&tx.tx.from);
+                                    inner.stale_nonce_cache.insert(tx.tx.from.clone(), expected_nonce);
+                                    
+                                    if is_new_entry {
+                                        // Track insertion order for FIFO eviction
+                                        inner.stale_nonce_cache_order.push_back(tx.tx.from.clone());
+                                        
+                                        // FIFO eviction when cache is full
+                                        while inner.stale_nonce_cache.len() > STALE_NONCE_CACHE_MAX {
+                                            if let Some(oldest_addr) = inner.stale_nonce_cache_order.pop_front() {
+                                                inner.stale_nonce_cache.remove(&oldest_addr);
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                inner.stale_nonce_rejections += 1;
+                            } else {
+                                warn!("Failed to add gossiped tx {}: {}", hash, e);
+                            }
                         }
                     }
                 }
@@ -2028,11 +2408,15 @@ impl GossipService {
                 let (local_dag_size, _, _) = self.state.get_dag_stats().await;
                 
                 // Sync cooldown and debounce constants
-                const SYNC_FAILURE_COOLDOWN_SECS: u64 = 10;
-                const PEER_SYNC_DEBOUNCE_SECS: u64 = 5;
+                // Increased from 10s/5s to reduce sync storm that overwhelms API
+                const SYNC_FAILURE_COOLDOWN_SECS: u64 = 30;
+                const PEER_SYNC_DEBOUNCE_SECS: u64 = 30;
+                const GLOBAL_SYNC_DEBOUNCE_SECS: u64 = 15;
+                // Minimum DAG difference to trigger sync - small diffs handled by gossip
+                const MIN_DAG_DIFF_FOR_SYNC: usize = 50;
                 
-                if dag_size > local_dag_size + 10 {
-                    // Peer has significantly more DAG data (10+ transactions ahead)
+                if dag_size > local_dag_size + MIN_DAG_DIFF_FOR_SYNC {
+                    // Peer has significantly more DAG data (50+ transactions ahead)
                     // Check cooldowns, debounce, and if sync is already in flight
                     let should_sync = {
                         let mut inner = self.inner.write().await;
@@ -2052,7 +2436,16 @@ impl GossipService {
                             }
                         }
                         
-                        // Check 3: Per-peer debounce - did we try this peer recently?
+                        // Check 3: Global sync debounce - did ANY sync happen recently?
+                        if let Some(last_sync) = inner.last_any_sync {
+                            if last_sync.elapsed().as_secs() < GLOBAL_SYNC_DEBOUNCE_SECS {
+                                debug!("TipAnnouncement: global sync debounce active ({}s remaining), skipping",
+                                    GLOBAL_SYNC_DEBOUNCE_SECS - last_sync.elapsed().as_secs());
+                                return Ok(None);
+                            }
+                        }
+                        
+                        // Check 4: Per-peer debounce - did we try this peer recently?
                         if let Some(ref peer_url) = sender_url {
                             if let Some(last_sync) = inner.peer_last_sync.get(peer_url) {
                                 if last_sync.elapsed().as_secs() < PEER_SYNC_DEBOUNCE_SECS {
@@ -2066,6 +2459,7 @@ impl GossipService {
                         
                         // All checks passed, proceed with sync
                         inner.sync_in_flight = true;
+                        inner.last_any_sync = Some(std::time::Instant::now());
                         true
                     };
                     
@@ -2253,7 +2647,7 @@ impl GossipService {
                 Ok(None)
             }
             
-            GossipMessage::CheckpointAnnouncement { checkpoint, .. } => {
+            GossipMessage::CheckpointAnnouncement { checkpoint, finalized_tx_hashes, .. } => {
                 // Immediately apply checkpoint from network leader
                 let local_height = self.state.get_checkpoint_height().await;
                 
@@ -2270,13 +2664,18 @@ impl GossipService {
                 // Check if this is the next expected checkpoint
                 if checkpoint.height == local_height + 1 {
                     info!(
-                        "Received checkpoint announcement {} at height {} (leader broadcast)",
+                        "Received checkpoint announcement {} at height {} (leader broadcast, {} finalized txs)",
                         &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                        checkpoint.height
+                        checkpoint.height,
+                        finalized_tx_hashes.len()
                     );
                     
-                    // Apply the checkpoint directly
-                    if let Err(e) = self.state.apply_checkpoint(checkpoint.clone()).await {
+                    // Apply the checkpoint with the finalized transaction hashes
+                    // This allows us to finalize transactions even if merkle roots don't match
+                    if let Err(e) = self.state.apply_checkpoint_with_finalized_hashes(
+                        checkpoint.clone(), 
+                        finalized_tx_hashes
+                    ).await {
                         warn!(
                             "Failed to apply announced checkpoint {}: {}",
                             &checkpoint.hash[..16.min(checkpoint.hash.len())],
@@ -2308,7 +2707,10 @@ impl GossipService {
             let mut inner = self.inner.write().await;
             if !inner.known_txs.contains(&tx.hash) {
                 inner.known_txs.insert(tx.hash.clone());
-                inner.pending_txs.push(tx.clone());
+                // Limit pending_txs to prevent OOM under high load
+                if inner.pending_txs.len() < PENDING_TXS_MAX {
+                    inner.pending_txs.push(tx.clone());
+                }
                 inner.stats.txs_propagated += 1;
                 true
             } else {
@@ -2384,6 +2786,7 @@ impl GossipService {
     /// Trigger sync from a specific peer (used by TipAnnouncement background task)
     async fn trigger_sync_from_peer(&self, peer_url: &str) -> anyhow::Result<()> {
         let local_checkpoint = self.state.get_checkpoint_height().await;
+        let (local_dag_size, _, _) = self.state.get_dag_stats().await;
         
         let status = self.fetch_peer_status(peer_url).await
             .map_err(|e| anyhow::anyhow!("Failed to fetch peer status: {}", e))?;
@@ -2399,9 +2802,11 @@ impl GossipService {
                     e
                 })?;
         } else {
-            // Same checkpoint, just missing DAG transactions - use delta sync
-            info!("Background sync: peer {} at same checkpoint, using delta sync", peer_url);
-            self.sync_from_peer(peer_url, local_checkpoint).await
+            // Same checkpoint, just missing DAG transactions - use OPTIMIZED delta sync
+            // This starts from near our local DAG size instead of offset 0
+            info!("Background sync: peer {} at same checkpoint, using optimized delta sync (start offset: {})", 
+                  peer_url, local_dag_size.saturating_sub(500));
+            self.sync_from_peer_optimized(peer_url, local_checkpoint, local_dag_size as u64).await
                 .map_err(|e| {
                     warn!("Background delta sync from {} failed: {}", peer_url, e);
                     e
@@ -2564,7 +2969,6 @@ impl GossipService {
             GossipMessage::CheckpointAnnouncement { sender_url, .. } => sender_url.clone(),
         }
     }
-
     /// Generate a bloom filter containing all known transaction hashes
     pub async fn generate_bloom_filter(&self) -> BloomFilter {
         let inner = self.inner.read().await;

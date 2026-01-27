@@ -22,7 +22,7 @@ const CONSOLIDATION_COOLDOWN_MS: u64 = 1000;
 /// Set to 1 to ensure anchors are always created, preventing network stalls
 /// when there's no external transaction activity. Without this, the network
 /// can deadlock after a checkpoint finalizes all transactions.
-const MIN_TIPS_FOR_ANCHOR: usize = 2;
+const MIN_TIPS_FOR_ANCHOR: usize = 1;
 
 pub struct TipConsolidator {
     state: NodeState,
@@ -141,6 +141,8 @@ impl TipConsolidator {
             gas_price: Some(0.0), // System transaction, no gas
             data: Some("anchor".to_string()), // Mark as anchor
             signature: None,
+            memo: None,
+            references: None,
         };
 
         let tx = SignedTransaction {

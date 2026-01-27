@@ -80,6 +80,7 @@ ark-ff = { workspace = true, optional = true }
 ark-ec = { workspace = true, optional = true }
 ark-relations = { workspace = true, optional = true }
 light-poseidon = { workspace = true, optional = true }
+futures = "0.3.31"
 
 [dev-dependencies]
 proptest = { workspace = true }

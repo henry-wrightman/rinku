@@ -3,6 +3,17 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::env;
 use tracing::{info, warn};
 
+/// Propagation grace period in milliseconds
+/// Transactions must be at least this old to be included in checkpoints
+/// This gives time for transactions to propagate to all validators before finalization
+/// Reduces merkle root mismatches due to transaction propagation delays during high volume
+pub const PROPAGATION_GRACE_MS: u64 = 5000; // 5 seconds
+
+/// Maximum allowed future timestamp offset for transactions (in milliseconds)
+/// Transactions with timestamps more than this far in the future are rejected
+/// Prevents malicious actors from using far-future timestamps to delay finalization
+pub const MAX_FUTURE_TIMESTAMP_MS: u64 = 30_000; // 30 seconds
+
 #[derive(Debug, Clone)]
 pub struct GenesisValidator {
     pub address: String,

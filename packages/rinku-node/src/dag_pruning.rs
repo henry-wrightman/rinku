@@ -146,7 +146,49 @@ impl DagPruningService {
         _prune_boundary: u64,
         finalized_tx_hashes: &HashSet<String>,
     ) -> bool {
-        !finalized_tx_hashes.contains(&tx.hash)
+        // CRITICAL FIX: 
+        // 1. Prefer keeping unfinalized transactions to allow them to finalize
+        // 2. Only prune finalized transactions that are old enough
+        // 3. Safety cap: prune VERY old unfinalized transactions (10x retention) to prevent
+        //    memory exhaustion from stuck transactions (e.g., permanent merkle mismatches)
+        //
+        // Previously this was inverted (!contains), causing unfinalized txs to be pruned
+        // while finalized ones were kept forever - completely backwards!
+        
+        let is_finalized = finalized_tx_hashes.contains(&tx.hash);
+        
+        // Calculate retention periods
+        // Normal retention: assume ~10s per checkpoint
+        let retention_ms = self.config.retention_checkpoints * 10_000;
+        // Safety cap: unfinalized transactions older than 10x retention are pruned
+        // This prevents unbounded memory growth from stuck transactions
+        let max_unfinalized_age_ms = retention_ms * 10;
+        
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        
+        let tx_age_ms = now_ms.saturating_sub(tx.tx.timestamp);
+        
+        if is_finalized {
+            // Prune finalized transactions older than retention period
+            tx_age_ms > retention_ms
+        } else {
+            // Safety cap: prune VERY old unfinalized transactions to prevent memory exhaustion
+            // This should rarely trigger - indicates a stuck transaction that never finalized
+            if tx_age_ms > max_unfinalized_age_ms {
+                debug!(
+                    "Pruning stuck unfinalized tx {} (age: {}ms, max: {}ms)",
+                    &tx.hash[..16.min(tx.hash.len())],
+                    tx_age_ms,
+                    max_unfinalized_age_ms
+                );
+                true
+            } else {
+                false
+            }
+        }
     }
 
     pub fn get_stats(&self) -> &PruningStats {

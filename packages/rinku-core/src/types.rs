@@ -37,6 +37,12 @@ pub struct Transaction {
         skip_serializing_if = "Option::is_none"
     )]
     pub signature: Option<String>,
+    /// Optional memo/message content (max 256 bytes for messaging apps)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memo: Option<String>,
+    /// Optional references to other transaction hashes (for threading/chaining messages)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub references: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +99,8 @@ pub struct Checkpoint {
     pub aggregated_signature: Option<String>,
     #[serde(default)]
     pub signer_bitmap: Option<Vec<u8>>,
+    #[serde(default)]
+    pub finalized_tx_hashes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

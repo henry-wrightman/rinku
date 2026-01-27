@@ -104,6 +104,26 @@ struct AccountResponse {
     staked: f64,
 }
 
+#[derive(Serialize)]
+struct AccountTransactionItem {
+    hash: String,
+    from: String,
+    to: String,
+    amount: f64,
+    timestamp: u64,
+    direction: String,
+    finalized: bool,
+    memo: Option<String>,
+    references: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+struct AccountTransactionsResponse {
+    address: String,
+    transactions: Vec<AccountTransactionItem>,
+    total: usize,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TxInner {
@@ -120,6 +140,10 @@ struct TxInner {
     hash: String,
     #[serde(default)]
     kind: Option<rinku_core::types::TransactionKind>,
+    #[serde(default)]
+    memo: Option<String>,
+    #[serde(default)]
+    references: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -1238,6 +1262,8 @@ async fn handle_faucet_request(
         gas_price: Some(0.0),
         data: None,
         signature: None,
+        memo: None,
+        references: None,
     };
 
     let tx = rinku_core::types::SignedTransaction {
@@ -1376,6 +1402,44 @@ async fn get_account(
     }
 }
 
+async fn get_account_transactions(
+    State(state): State<NodeState>,
+    Path(address): Path<String>,
+) -> Json<AccountTransactionsResponse> {
+    let txs = state.get_transactions_by_address(&address, 100).await;
+    
+    let transactions: Vec<AccountTransactionItem> = txs
+        .into_iter()
+        .map(|(stx, finalized)| {
+            let direction = if stx.tx.from == address {
+                "sent".to_string()
+            } else {
+                "received".to_string()
+            };
+            
+            AccountTransactionItem {
+                hash: stx.hash.clone(),
+                from: stx.tx.from.clone(),
+                to: stx.tx.to.clone(),
+                amount: stx.tx.amount,
+                timestamp: stx.tx.timestamp,
+                direction,
+                finalized,
+                memo: stx.tx.memo.clone(),
+                references: stx.tx.references.clone(),
+            }
+        })
+        .collect();
+    
+    let total = transactions.len();
+    
+    Json(AccountTransactionsResponse {
+        address,
+        transactions,
+        total,
+    })
+}
+
 async fn submit_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<SubmitTxRequest>,
@@ -1408,6 +1472,8 @@ async fn submit_transaction(
             gas_price: Some(inner.fee),
             data: None,
             signature: Some(inner.sig.clone()),
+            memo: inner.memo.clone(),
+            references: inner.references.clone(),
         },
         hash: inner.hash.clone(),
         signature: inner.sig.clone(),
@@ -1487,6 +1553,8 @@ async fn submit_batch_transaction(
                     gas_price: Some(inner.fee),
                     data: None,
                     signature: Some(inner.sig.clone()),
+                    memo: inner.memo,
+                    references: inner.references,
                 },
                 hash: inner.hash,
                 signature: inner.sig,
@@ -1725,8 +1793,12 @@ async fn get_transaction(
     State(state): State<NodeState>,
     Path(hash): Path<String>,
 ) -> Result<Json<TransactionResponse>, ApiError> {
+    // Debug: log lookup attempt
+    tracing::debug!("Looking up transaction hash: {}", hash);
+    
     // Get transaction with weight from DAG node
     if let Some((tx, weight)) = state.get_transaction_with_weight(&hash).await {
+        tracing::debug!("Found transaction {} in DAG", hash);
         let finalized = state.is_finalized(&hash).await;
         // Normalize parents to /tx/h/{hash} format for explorer navigation
         let tip_urls: Vec<String> = tx.tx.parents.iter()
@@ -1757,6 +1829,9 @@ async fn get_transaction(
             url: format!("/tx/h/{}", tx.hash),
         }))
     } else {
+        // Debug: log lookup failure with DAG stats
+        let (dag_size, _, _) = state.get_dag_stats().await;
+        tracing::warn!("Transaction {} not found in DAG (DAG size: {})", hash, dag_size);
         Err(ApiError::not_found(format!("Transaction {} not found (may have been pruned after finalization)", hash)))
     }
 }
@@ -2481,6 +2556,36 @@ async fn get_rewards_address(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ReconcileStakesResponse {
+    reconciled_count: usize,
+    changes: Vec<StakeReconcileChange>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StakeReconcileChange {
+    address: String,
+    old_staked: f64,
+    new_staked: f64,
+}
+
+async fn post_reconcile_stakes(
+    State(state): State<NodeState>,
+) -> Json<ReconcileStakesResponse> {
+    let (count, changes) = state.reconcile_stakes().await;
+    
+    Json(ReconcileStakesResponse {
+        reconciled_count: count,
+        changes: changes.into_iter().map(|(addr, old, new)| StakeReconcileChange {
+            address: addr,
+            old_staked: old,
+            new_staked: new,
+        }).collect(),
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StakingAddressResponse {
     address: String,
     staked_amount: f64,
@@ -2727,6 +2832,7 @@ pub async fn start_api_server(
         .route("/api/tips", get(get_tips))
         .route("/api/tipUrls", get(get_tip_urls))
         .route("/api/account/:address", get(get_account))
+        .route("/api/account/:address/transactions", get(get_account_transactions))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))
@@ -2747,6 +2853,7 @@ pub async fn start_api_server(
         .route("/api/tokenomics/slashing", get(get_tokenomics_slashing))
         .route("/api/rewards/config", get(get_rewards_config))
         .route("/api/rewards/:address", get(get_rewards_address))
+        .route("/api/admin/reconcile-stakes", post(post_reconcile_stakes))
         .route("/api/checkpoints", get(get_checkpoints))
         .route("/api/checkpoints/latest", get(get_checkpoints_latest))
         .route("/api/checkpoints/:height", get(get_checkpoint_by_height))

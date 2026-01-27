@@ -345,6 +345,7 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
             validator_signatures: Vec::new(),
             aggregated_signature: c.signature.clone(),
             signer_bitmap: None,
+            finalized_tx_hashes: Vec::new(),
         }
     }).collect();
     
@@ -363,6 +364,8 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
                 gas_price: Some(t.gas_price),
                 data: None,
                 signature: Some(t.signature.clone()),
+                memo: t.memo,
+                references: t.references,
             },
             hash: t.hash,
             signature: t.signature,
@@ -943,6 +946,8 @@ impl NodeState {
                         gas_price: Some(0.0),
                         data: None,
                         signature: Some("genesis-signature".to_string()),
+                        memo: None,
+                        references: None,
                     },
                     hash: genesis_hash.clone(),
                     signature: "genesis-signature".to_string(),
@@ -995,6 +1000,7 @@ impl NodeState {
                     validator_signatures: vec![], // Will be updated when checkpoint service starts
                     aggregated_signature: None,
                     signer_bitmap: None,
+                    finalized_tx_hashes: vec![genesis_hash.clone()],
                 };
                 
                 info!("Genesis hash created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
@@ -1647,10 +1653,22 @@ impl NodeState {
         }
         
         // Get our unfinalized transactions and compute merkle root
+        // CRITICAL: Apply same propagation grace period as checkpoint creation
+        // Only include transactions older than 5 seconds for merkle root calculation
+        // This ensures leader and followers compute the same merkle root
+        use crate::config::PROPAGATION_GRACE_MS;
+        
+        let now_ms_filter = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let cutoff_time = now_ms_filter.saturating_sub(PROPAGATION_GRACE_MS);
+        
         let mut unfinalized_hashes: Vec<String> = state
             .dag
             .get_unfinalized_nodes()
             .iter()
+            .filter(|n| n.tx.tx.timestamp <= cutoff_time)
             .map(|n| n.hash.clone())
             .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
             .collect();
@@ -1729,6 +1747,161 @@ impl NodeState {
         // Add the checkpoint
         state.checkpoints.push(checkpoint.clone());
         state.last_checkpoint_time_ms = now_ms;
+        
+        Ok(())
+    }
+
+    /// Apply a checkpoint received with its finalized transaction hashes
+    /// This is the preferred method when receiving CheckpointAnnouncement from the leader
+    /// because it allows finalizing transactions even if merkle roots don't match
+    pub async fn apply_checkpoint_with_finalized_hashes(
+        &self, 
+        checkpoint: Checkpoint,
+        finalized_tx_hashes: Vec<String>,
+    ) -> Result<()> {
+        let mut state = self.inner.write().await;
+        
+        // Validate checkpoint height
+        if checkpoint.height <= state.checkpoints.len() as u64 {
+            let local_height = state.checkpoints.len() as u64;
+            if checkpoint.height <= local_height {
+                return Err(anyhow::anyhow!(
+                    "Checkpoint height {} not greater than local height {}",
+                    checkpoint.height,
+                    local_height
+                ));
+            }
+        }
+        
+        let height = checkpoint.height;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        
+        // If leader provided finalized hashes, use them to finalize transactions
+        // This solves the "merkle mismatch" problem where transactions stay pending
+        let finalized_count = if !finalized_tx_hashes.is_empty() {
+            let mut count = 0;
+            let mut missing = 0;
+            
+            for hash in &finalized_tx_hashes {
+                // Only finalize transactions we have in our DAG
+                if let Some(node) = state.dag.get_node(hash) {
+                    let tx_time = node.tx.tx.timestamp;
+                    let finality_time_ms = now_ms.saturating_sub(tx_time);
+                    
+                    // Update finality stats
+                    state.finality_sum_ms += finality_time_ms;
+                    state.finality_count += 1;
+                    if finality_time_ms > state.finality_max_ms {
+                        state.finality_max_ms = finality_time_ms;
+                    }
+                    if state.finality_times_ms.len() >= 1000 {
+                        state.finality_times_ms.pop_front();
+                    }
+                    state.finality_times_ms.push_back(finality_time_ms);
+                    
+                    let _ = state.dag.mark_finalized(hash, height);
+                    count += 1;
+                } else {
+                    missing += 1;
+                }
+            }
+            
+            if missing > 0 {
+                tracing::debug!(
+                    "Checkpoint {} finalized {} txs, {} missing locally (will sync)",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    count, missing
+                );
+            }
+            
+            tracing::info!(
+                "Applied checkpoint {} at height {} ({} of {} txs finalized from leader list)",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                height,
+                count,
+                finalized_tx_hashes.len()
+            );
+            
+            count
+        } else {
+            // Fallback to old behavior if no hashes provided
+            // (for backwards compatibility with older nodes)
+            use crate::config::PROPAGATION_GRACE_MS;
+            use rinku_core::merkle::MerkleTree;
+            
+            let now_ms_filter = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let cutoff_time = now_ms_filter.saturating_sub(PROPAGATION_GRACE_MS);
+            
+            let mut unfinalized_hashes: Vec<String> = state
+                .dag
+                .get_unfinalized_nodes()
+                .iter()
+                .filter(|n| n.tx.tx.timestamp <= cutoff_time)
+                .map(|n| n.hash.clone())
+                .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+                .collect();
+            
+            unfinalized_hashes.sort();
+            
+            let our_merkle_root = if unfinalized_hashes.is_empty() {
+                "0".repeat(64)
+            } else {
+                match MerkleTree::from_hex_leaves(&unfinalized_hashes) {
+                    Ok(tree) => tree.root(),
+                    Err(_) => "0".repeat(64),
+                }
+            };
+            
+            if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
+                for hash in &unfinalized_hashes {
+                    if let Some(node) = state.dag.get_node(hash) {
+                        let tx_time = node.tx.tx.timestamp;
+                        let finality_time_ms = now_ms.saturating_sub(tx_time);
+                        state.finality_sum_ms += finality_time_ms;
+                        state.finality_count += 1;
+                        if finality_time_ms > state.finality_max_ms {
+                            state.finality_max_ms = finality_time_ms;
+                        }
+                        if state.finality_times_ms.len() >= 1000 {
+                            state.finality_times_ms.pop_front();
+                        }
+                        state.finality_times_ms.push_back(finality_time_ms);
+                    }
+                    let _ = state.dag.mark_finalized(hash, height);
+                }
+                tracing::info!(
+                    "Applied checkpoint {} at height {} ({} txs finalized, merkle matched, no leader list)",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    height,
+                    unfinalized_hashes.len()
+                );
+                unfinalized_hashes.len()
+            } else {
+                tracing::warn!(
+                    "Applied checkpoint {} at height {} (no finalized txs - merkle mismatch and no leader list)",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    height
+                );
+                0
+            }
+        };
+        
+        // Add the checkpoint with finalized hashes for proof generation
+        let mut checkpoint_with_hashes = checkpoint.clone();
+        if checkpoint_with_hashes.finalized_tx_hashes.is_empty() && !finalized_tx_hashes.is_empty() {
+            checkpoint_with_hashes.finalized_tx_hashes = finalized_tx_hashes;
+        }
+        state.checkpoints.push(checkpoint_with_hashes);
+        state.last_checkpoint_time_ms = now_ms;
+        
+        // Suppress unused variable warning
+        let _ = finalized_count;
         
         Ok(())
     }
@@ -1980,14 +2153,17 @@ impl NodeState {
     /// Combined dashboard stats - single lock acquisition for all Explorer stats
     pub async fn get_dashboard_stats(&self) -> DashboardStats {
         let state = self.inner.read().await;
-        let all_nodes = state.dag.get_all_nodes();
-        let finalized_count = all_nodes.iter().filter(|n| n.finalized).count();
-        let unfinalized_count = all_nodes.len() - finalized_count;
+        
+        // Use O(1) methods instead of O(n) get_all_nodes() iteration
+        // This prevents lock starvation under high transaction load
+        let dag_nodes = state.dag.node_count();
+        let unfinalized_count = state.dag.unfinalized_count();
+        let finalized_count = dag_nodes.saturating_sub(unfinalized_count);
         
         let latest_checkpoint_id = state.checkpoints.last().map(|cp| cp.hash.clone());
         
         DashboardStats {
-            dag_nodes: all_nodes.len(),
+            dag_nodes,
             tip_count: state.dag.tip_count(),
             account_count: state.accounts.len(),
             checkpoint_height: state.checkpoints.len() as u64,
@@ -1997,7 +2173,7 @@ impl NodeState {
             tips: state.dag.tips(),
             gas_price: state.current_gas_price,
             total_burned: state.total_burned,
-            avg_gas: state.current_gas_price, // Could compute from history if needed
+            avg_gas: state.current_gas_price,
             latest_checkpoint_id,
         }
     }
@@ -2040,6 +2216,54 @@ impl NodeState {
                 }
             }
             
+            // Validate memo size (max 256 bytes for messaging apps)
+            const MAX_MEMO_SIZE: usize = 256;
+            if let Some(ref memo) = tx.tx.memo {
+                if memo.len() > MAX_MEMO_SIZE {
+                    tracing::warn!(
+                        "Transaction rejected: memo too large ({} bytes, max {})",
+                        memo.len(), MAX_MEMO_SIZE
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Memo too large: {} bytes (max {} bytes)",
+                        memo.len(), MAX_MEMO_SIZE
+                    ));
+                }
+            }
+            
+            // Validate references (max 4 references, must be valid tx hashes)
+            const MAX_REFERENCES: usize = 4;
+            if let Some(ref refs) = tx.tx.references {
+                if refs.len() > MAX_REFERENCES {
+                    tracing::warn!(
+                        "Transaction rejected: too many references ({}, max {})",
+                        refs.len(), MAX_REFERENCES
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Too many references: {} (max {})",
+                        refs.len(), MAX_REFERENCES
+                    ));
+                }
+            }
+            
+            // Validate timestamp is not too far in the future
+            // This prevents malicious actors from using far-future timestamps to delay finalization
+            use crate::config::MAX_FUTURE_TIMESTAMP_MS;
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            
+            if tx.tx.timestamp > now_ms + MAX_FUTURE_TIMESTAMP_MS {
+                tracing::warn!(
+                    "Transaction rejected: timestamp {} too far in future (max {} ahead)",
+                    tx.tx.timestamp, MAX_FUTURE_TIMESTAMP_MS
+                );
+                return Err(anyhow::anyhow!(
+                    "Transaction timestamp is too far in the future"
+                ));
+            }
+            
             // Calculate required balance based on transaction type
             let required_balance = if is_stake_tx {
                 tx.tx.amount + gas_fee // Stake: need amount + gas
@@ -2080,14 +2304,15 @@ impl NodeState {
                         // Future nonce - buffer it for later processing
                         if tx.tx.nonce > account.nonce {
                             // === DDoS PROTECTION CONSTANTS ===
-                            // Per-sender queue limit
-                            const MAX_PENDING_PER_SENDER: usize = 16;
+                            // Per-sender queue limit (increased for high-volume dapps like messaging)
+                            const MAX_PENDING_PER_SENDER: usize = 128;
                             // Maximum nonce gap allowed (reject if nonce is too far ahead)
-                            const MAX_NONCE_GAP: u64 = 32;
+                            // Increased to handle validator divergence during high transaction volume
+                            const MAX_NONCE_GAP: u64 = 256;
                             // Maximum unique senders with pending queues
-                            const MAX_PENDING_SENDERS: usize = 500;
+                            const MAX_PENDING_SENDERS: usize = 1000;
                             // Global queue size limit across all senders
-                            const MAX_GLOBAL_PENDING: usize = 5000;
+                            const MAX_GLOBAL_PENDING: usize = 20000;
                             
                             // PROTECTION 1: Nonce gap limit
                             // Reject transactions with nonces too far in the future
@@ -3139,6 +3364,12 @@ impl NodeState {
         state.dag.get_node(hash).map(|n| n.tx.clone())
     }
     
+    /// Quick check if a transaction exists in the DAG (O(1) lookup)
+    pub async fn has_transaction(&self, hash: &str) -> bool {
+        let state = self.inner.read().await;
+        state.dag.get_node(hash).is_some()
+    }
+    
     /// Get recent transactions from the DAG (up to limit)
     /// Used to flush local transactions to peers before snapshot sync
     pub async fn get_recent_transactions(&self, limit: usize) -> Vec<SignedTransaction> {
@@ -3151,10 +3382,37 @@ impl NodeState {
             .collect()
     }
     
+    /// Get transactions involving an address (as sender or recipient)
+    /// Returns transactions sorted by timestamp (newest first)
+    pub async fn get_transactions_by_address(&self, address: &str, limit: usize) -> Vec<(SignedTransaction, bool)> {
+        let state = self.inner.read().await;
+        let mut txs: Vec<_> = state.dag
+            .get_all_nodes()
+            .into_iter()
+            .filter(|n| n.tx.tx.from == address || n.tx.tx.to == address)
+            .map(|n| {
+                let finalized = n.finalized;
+                (n.tx.clone(), finalized)
+            })
+            .collect();
+        
+        // Sort by timestamp descending (newest first)
+        txs.sort_by(|a, b| b.0.tx.timestamp.cmp(&a.0.tx.timestamp));
+        txs.truncate(limit);
+        txs
+    }
+    
     /// Get transaction with its weight from the DAG node
     pub async fn get_transaction_with_weight(&self, hash: &str) -> Option<(SignedTransaction, f64)> {
         let state = self.inner.read().await;
-        state.dag.get_node(hash).map(|n| (n.tx.clone(), n.weight))
+        let result = state.dag.get_node(hash).map(|n| (n.tx.clone(), n.weight));
+        if result.is_none() {
+            // Debug: check if hash is in all_nodes but not in index
+            let all_hashes: Vec<_> = state.dag.get_all_nodes().iter().take(5).map(|n| &n.hash).collect();
+            tracing::debug!("get_transaction_with_weight: hash '{}' not found. DAG has {} nodes. Sample hashes: {:?}", 
+                hash, state.dag.node_count(), all_hashes);
+        }
+        result
     }
 
     pub async fn is_finalized(&self, hash: &str) -> bool {
@@ -3273,13 +3531,19 @@ impl NodeState {
             .find(|c| c.height == checkpoint_height)?
             .clone();
 
-        let mut finalized_hashes: Vec<String> = state
-            .dag
-            .get_all_nodes()
-            .into_iter()
-            .filter(|n| n.finalized && n.checkpoint_height == Some(checkpoint_height))
-            .map(|n| n.hash.clone())
-            .collect();
+        // Use checkpoint's stored finalized_tx_hashes if available (new format)
+        // Fall back to DAG query for backwards compatibility with old checkpoints
+        let mut finalized_hashes: Vec<String> = if !checkpoint.finalized_tx_hashes.is_empty() {
+            checkpoint.finalized_tx_hashes.clone()
+        } else {
+            state
+                .dag
+                .get_all_nodes()
+                .into_iter()
+                .filter(|n| n.finalized && n.checkpoint_height == Some(checkpoint_height))
+                .map(|n| n.hash.clone())
+                .collect()
+        };
 
         if finalized_hashes.is_empty() {
             return None;
@@ -3624,6 +3888,8 @@ impl NodeState {
                 gas_limit: None,
                 data: None,
                 signature: None,
+                memo: None,
+                references: None,
             },
             hash: genesis_hash.clone(),
             signature: "genesis".to_string(),
@@ -3782,6 +4048,16 @@ impl NodeState {
         let checkpoint_count = state.checkpoints.len();
         let contract_count = state.contracts.len();
         
+        // NOTE: We intentionally do NOT reconcile nonces after sync.
+        // Account nonces from the peer are authoritative and represent finalized state.
+        // Lowering nonces could allow replay attacks on already-finalized transactions.
+        // 
+        // The "stale nonce" rejections seen during sync are expected behavior:
+        // - Old transactions in gossip that were already finalized on the peer
+        // - The stale_nonce_cache will cache these and prevent log spam
+        // 
+        // The activity-bot should fetch current nonce from the node before submitting.
+        
         // Release state lock before acquiring service locks
         drop(state);
         
@@ -3791,6 +4067,39 @@ impl NodeState {
         if let Some(rewards_snap) = rewards_to_apply {
             let mut rewards = self.rewards.write().await;
             rewards.merge_from(rewards_snap);
+            
+            // CRITICAL: Reconcile account.staked with rewards stake positions
+            // This fixes divergence where account.staked != rewards.stake_position.amount
+            let stake_reconciliations: Vec<(String, f64, u64)> = rewards
+                .get_all_stakes()
+                .iter()
+                .map(|pos| (pos.staker.clone(), pos.amount, pos.staked_at))
+                .collect();
+            drop(rewards);
+            
+            if !stake_reconciliations.is_empty() {
+                let mut state = self.inner.write().await;
+                let mut reconciled_count = 0;
+                for (staker, amount, staked_at) in &stake_reconciliations {
+                    if let Some(account) = state.accounts.get_mut(staker) {
+                        let diff = (account.staked - amount).abs();
+                        if diff > 0.0001 {
+                            info!(
+                                "Reconciling account.staked for {}: {} -> {} (diff: {:.4})",
+                                &staker[..staker.len().min(12)],
+                                account.staked,
+                                amount,
+                                diff
+                            );
+                            account.staked = *amount;
+                            reconciled_count += 1;
+                        }
+                    }
+                }
+                if reconciled_count > 0 {
+                    info!("Reconciled {} account stake values from rewards snapshot", reconciled_count);
+                }
+            }
         }
         
         // Use merge_from for emission to prevent double-emission exploits
@@ -3944,5 +4253,45 @@ impl NodeState {
         } else {
             anyhow::bail!("Contract {} not found", contract_id)
         }
+    }
+
+    /// Reconcile account.staked values with rewards stake positions
+    /// This fixes any divergence between the two data stores
+    pub async fn reconcile_stakes(&self) -> (usize, Vec<(String, f64, f64)>) {
+        let rewards = self.rewards.read().await;
+        let stake_positions: Vec<(String, f64)> = rewards
+            .get_all_stakes()
+            .iter()
+            .map(|pos| (pos.staker.clone(), pos.amount))
+            .collect();
+        drop(rewards);
+        
+        let mut state = self.inner.write().await;
+        let mut reconciled_count = 0;
+        let mut changes: Vec<(String, f64, f64)> = Vec::new();
+        
+        for (staker, rewards_amount) in &stake_positions {
+            if let Some(account) = state.accounts.get_mut(staker) {
+                let diff = (account.staked - rewards_amount).abs();
+                if diff > 0.0001 {
+                    info!(
+                        "RECONCILE: account.staked for {}: {} -> {} (diff: {:.4})",
+                        &staker[..staker.len().min(16)],
+                        account.staked,
+                        rewards_amount,
+                        diff
+                    );
+                    changes.push((staker.clone(), account.staked, *rewards_amount));
+                    account.staked = *rewards_amount;
+                    reconciled_count += 1;
+                }
+            }
+        }
+        
+        if reconciled_count > 0 {
+            info!("Reconciled {} account stake values", reconciled_count);
+        }
+        
+        (reconciled_count, changes)
     }
 }

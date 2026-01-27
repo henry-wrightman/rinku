@@ -704,6 +704,8 @@ impl ConsensusService {
             gas_price: tx.tx.gas_price,
             data: tx.tx.data.clone(),
             signature: None,
+            memo: tx.tx.memo.clone(),
+            references: tx.tx.references.clone(),
         };
 
         let tx_json = serde_json::to_string(&tx_for_hash)?;
@@ -940,6 +942,8 @@ mod tests {
             gas_price,
             data: None,
             signature: None,
+            memo: None,
+            references: None,
         };
         let tx_json = serde_json::to_string(&tx).unwrap();
         let hash = sha256_hex(&tx_json);

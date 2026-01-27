@@ -18,6 +18,8 @@ export interface Transaction {
   sig: string;
   ts: number;
   kind?: TransactionKind;  // Default: 'transfer' - other kinds for staking, rewards, contracts, etc.
+  memo?: string;           // Optional message content (max 256 bytes for messaging apps)
+  references?: string[];   // Optional references to other tx hashes (for threading/chaining)
 }
 
 // ============================================

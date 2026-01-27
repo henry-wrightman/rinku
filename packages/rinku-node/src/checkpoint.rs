@@ -1,5 +1,6 @@
 use anyhow::Result;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use futures::future::join_all;
 use rinku_core::{
     merkle::MerkleTree,
     types::{Checkpoint, ValidatorSignature},
@@ -58,6 +59,9 @@ pub struct CheckpointService {
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
+
+// Use centralized constant from config
+use crate::config::PROPAGATION_GRACE_MS;
 
 impl CheckpointService {
     pub fn new(
@@ -835,44 +839,22 @@ impl CheckpointService {
     }
 
     async fn create_checkpoint(&self) -> Result<()> {
-        let (unfinalized_hashes, tx_merkle_root, height, previous_hash) = {
+        // STEP 1: Get checkpoint height and previous hash first (needed for leader election)
+        let (height, previous_hash) = {
             let state = self.state.inner.read().await;
-
-            let mut unfinalized: Vec<String> = state
-                .dag
-                .get_unfinalized_nodes()
-                .iter()
-                .map(|n| n.hash.clone())
-                .filter(|h| Self::is_valid_hex_hash(h))
-                .collect();
-
-            if unfinalized.is_empty() {
-                return Ok(());
-            }
-
-            // CRITICAL: Sort hashes for deterministic merkle root computation
-            // This ensures proof generation uses the same order as checkpoint creation
-            unfinalized.sort();
-
-            let tx_merkle_root = if unfinalized.is_empty() {
-                "0".repeat(64)
-            } else {
-                let tree = MerkleTree::from_hex_leaves(&unfinalized)?;
-                tree.root()
-            };
-
             let height = state.checkpoints.len() as u64 + 1;
             let previous_hash = state.checkpoints.last().map(|c| c.hash.clone());
-
-            (unfinalized, tx_merkle_root, height, previous_hash)
+            (height, previous_hash)
         };
 
-        // LEADER ELECTION: Only the elected leader should create the checkpoint
-        // Other nodes should wait and sync from the leader
+        // STEP 2: LEADER ELECTION FIRST - before checking unfinalized transactions
+        // This prevents deadlock where:
+        // - Leader has no unfinalized txs (behind), returns early without creating checkpoint
+        // - Non-leaders wait for leader's checkpoint that never comes
         // 
         // CRITICAL: Use validator addresses (synced across all nodes) instead of peer URLs
         // to ensure ALL nodes elect the same leader. This prevents divergent checkpoint creation.
-        if let Some(ref leader_election) = self.leader_election {
+        let is_leader = if let Some(ref leader_election) = self.leader_election {
             let prev_hash_for_election = previous_hash.as_deref().unwrap_or("genesis");
             
             // Get validator addresses from the synced validator registry
@@ -911,8 +893,7 @@ impl CheckpointService {
             );
             
             if !should_create {
-                // We are not the leader - check if we should adopt a peer's checkpoint
-                // The leader should be creating the checkpoint; we wait and sync
+                // We are not the leader - try to fetch and adopt leader's checkpoint
                 debug!(
                     "LEADER ELECTION: Not elected for checkpoint {} (leader: {}), waiting for peer checkpoint",
                     height,
@@ -921,6 +902,34 @@ impl CheckpointService {
                 
                 // Try to fetch and adopt the leader's checkpoint
                 if let Some(peer_checkpoint) = self.fetch_peer_checkpoint(height).await {
+                    // Get unfinalized txs for validation (may be empty if we're behind)
+                    // Apply same propagation grace period as leader
+                    let (unfinalized_hashes, tx_merkle_root) = {
+                        let state = self.state.inner.read().await;
+                        
+                        let now_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        let cutoff_time = now_ms.saturating_sub(PROPAGATION_GRACE_MS);
+                        
+                        let mut unfinalized: Vec<String> = state
+                            .dag
+                            .get_unfinalized_nodes()
+                            .iter()
+                            .filter(|n| n.tx.tx.timestamp <= cutoff_time)
+                            .map(|n| n.hash.clone())
+                            .filter(|h| Self::is_valid_hex_hash(h))
+                            .collect();
+                        unfinalized.sort();
+                        let tx_merkle_root = if unfinalized.is_empty() {
+                            "0".repeat(64)
+                        } else {
+                            MerkleTree::from_hex_leaves(&unfinalized).map(|t| t.root()).unwrap_or_else(|_| "0".repeat(64))
+                        };
+                        (unfinalized, tx_merkle_root)
+                    };
+                    
                     let (adopted, _) = self.validate_and_adopt_peer_checkpoint(
                         peer_checkpoint,
                         &tx_merkle_root,
@@ -939,7 +948,119 @@ impl CheckpointService {
                 return Ok(());
             }
             
-            // We are the leader - record the checkpoint creation
+            true // We are the leader
+        } else {
+            true // No leader election configured, proceed with checkpoint creation
+        };
+
+        // STEP 3: Get unfinalized transactions (only leaders reach this point)
+        // Apply propagation grace period: only include transactions that are old enough
+        // This reduces merkle root mismatches due to transaction propagation delays
+        let (unfinalized_hashes, tx_merkle_root) = {
+            let state = self.state.inner.read().await;
+            
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let cutoff_time = now_ms.saturating_sub(PROPAGATION_GRACE_MS);
+
+            let mut unfinalized: Vec<String> = state
+                .dag
+                .get_unfinalized_nodes()
+                .iter()
+                .filter(|n| {
+                    // Only include transactions older than the grace period
+                    // This gives time for the tx to propagate to all validators
+                    n.tx.tx.timestamp <= cutoff_time
+                })
+                .map(|n| n.hash.clone())
+                .filter(|h| Self::is_valid_hex_hash(h))
+                .collect();
+            
+            // Log how many txs were excluded due to propagation grace
+            let total_unfinalized = state.dag.get_unfinalized_nodes().len();
+            if total_unfinalized > unfinalized.len() {
+                debug!(
+                    "Propagation grace: {} of {} unfinalized txs excluded (too new, cutoff={}ms)",
+                    total_unfinalized - unfinalized.len(),
+                    total_unfinalized,
+                    PROPAGATION_GRACE_MS
+                );
+            }
+
+            if unfinalized.is_empty() {
+                // LEADER WITH NO UNFINALIZED TXS: We're the leader but have no transactions to checkpoint
+                // This can happen if we're behind. Try to adopt a peer's checkpoint if available.
+                if is_leader {
+                    info!(
+                        "Leader for checkpoint {} but no unfinalized transactions - checking for peer checkpoint to adopt",
+                        height
+                    );
+                    
+                    // Drop the lock before async call
+                    drop(state);
+                    
+                    if let Some(peer_checkpoint) = self.fetch_peer_checkpoint(height).await {
+                        // Validate the peer checkpoint before adopting
+                        // 1. Height must match expected
+                        if peer_checkpoint.height != height {
+                            warn!(
+                                "Peer checkpoint height mismatch: expected {}, got {}",
+                                height, peer_checkpoint.height
+                            );
+                            return Ok(());
+                        }
+                        
+                        // 2. Previous hash must link to our chain
+                        let peer_prev = peer_checkpoint.previous_hash.as_deref().unwrap_or("");
+                        let our_prev = previous_hash.as_deref().unwrap_or("");
+                        if peer_prev != our_prev {
+                            warn!(
+                                "Peer checkpoint prev_hash mismatch: expected {}, got {}",
+                                &our_prev[..16.min(our_prev.len())],
+                                &peer_prev[..16.min(peer_prev.len())]
+                            );
+                            return Ok(());
+                        }
+                        
+                        info!(
+                            "Found valid peer checkpoint at height {} - adopting as leader fallback",
+                            height
+                        );
+                        
+                        // Apply the checkpoint (apply_checkpoint does additional validation)
+                        if let Err(e) = self.state.apply_checkpoint(peer_checkpoint).await {
+                            warn!("Failed to apply peer checkpoint as leader fallback: {}", e);
+                        } else {
+                            // Record that we adopted a checkpoint (even though we didn't create it)
+                            if let Some(ref leader_election) = self.leader_election {
+                                leader_election.record_checkpoint_created();
+                            }
+                            self.reset_fork_failures();
+                            return Ok(());
+                        }
+                    }
+                }
+                return Ok(());
+            }
+
+            // CRITICAL: Sort hashes for deterministic merkle root computation
+            // This ensures proof generation uses the same order as checkpoint creation
+            unfinalized.sort();
+
+            let tx_merkle_root = if unfinalized.is_empty() {
+                "0".repeat(64)
+            } else {
+                let tree = MerkleTree::from_hex_leaves(&unfinalized)?;
+                tree.root()
+            };
+
+            (unfinalized, tx_merkle_root)
+        };
+
+        // Record that we're creating the checkpoint (leader only)
+        if let Some(ref leader_election) = self.leader_election {
             leader_election.record_checkpoint_created();
         }
 
@@ -1161,6 +1282,7 @@ impl CheckpointService {
             validator_signatures: final_signatures,
             aggregated_signature: Some(URL_SAFE_NO_PAD.encode(&aggregated_sig)),
             signer_bitmap: Some(signer_bitmap),
+            finalized_tx_hashes: unfinalized_hashes.clone(),
         };
 
         // Process emissions and rewards for this checkpoint
@@ -1266,8 +1388,10 @@ impl CheckpointService {
         
         // IMMEDIATELY broadcast the checkpoint to all peers for fast propagation
         // This ensures other nodes receive the checkpoint without waiting for sync
+        // Include the list of finalized transaction hashes so receivers can finalize
+        // transactions even if their merkle roots don't match (due to propagation delays)
         if let Some(ref gossip) = self.gossip_service {
-            gossip.broadcast_checkpoint(checkpoint).await;
+            gossip.broadcast_checkpoint(checkpoint, unfinalized_hashes.clone()).await;
         }
 
         Ok(())
@@ -1278,6 +1402,9 @@ impl CheckpointService {
     /// Uses stake-weighted quorum threshold (2/3 of total stake) to determine
     /// when enough signatures have been collected. Falls back to single-validator
     /// mode if P2P network is unavailable or insufficient votes are collected.
+    /// 
+    /// CRITICAL: Requests votes from all peers in PARALLEL to avoid blocking on slow peers.
+    /// A slow/unresponsive peer should not prevent quorum from being reached with healthy peers.
     async fn collect_validator_quorum(
         &self,
         checkpoint_hash: &[u8],
@@ -1287,9 +1414,9 @@ impl CheckpointService {
         tx_merkle_root: &str,
         state_root: &str,
     ) -> (Vec<ValidatorSignature>, Vec<Vec<u8>>, f64) {
-        // Increased from 5s to 10s to allow more time for peers that are syncing
-        // When transaction volume is high, peers may be busy processing delta sync
-        const QUORUM_TIMEOUT_MS: u64 = 10000;
+        // Reduced from 10s to 3s - we request in parallel, so we don't need long waits
+        // If a peer can't respond in 3s, it's too slow to participate in this round
+        const QUORUM_TIMEOUT_MS: u64 = 3000;
         
         let mut signatures = vec![our_validator_sig];
         let mut raw_signatures = vec![our_signature];
@@ -1319,31 +1446,58 @@ impl CheckpointService {
         #[cfg(feature = "p2p")]
         if let Some(ref network) = self.network_handle {
             let checkpoint_hash_hex = hex::encode(checkpoint_hash);
-            let start_time = std::time::Instant::now();
             
             // Get connected peer IDs
             let peer_ids = {
                 let locked = network.lock().await;
                 locked.get_connected_peer_ids().await
             };
-            debug!("Requesting checkpoint votes from {} connected peers", peer_ids.len());
+            debug!("Requesting checkpoint votes from {} connected peers IN PARALLEL", peer_ids.len());
             
-            for peer_id in peer_ids {
-                if start_time.elapsed().as_millis() as u64 >= QUORUM_TIMEOUT_MS {
-                    debug!("Quorum collection timeout after {}ms", QUORUM_TIMEOUT_MS);
-                    break;
-                }
+            // PARALLEL VOTE COLLECTION: Request votes from ALL peers simultaneously
+            // This prevents a slow peer from blocking the entire quorum collection
+            let vote_futures: Vec<_> = peer_ids.iter().map(|peer_id| {
+                let network = Arc::clone(network);
+                let checkpoint_hash_hex = checkpoint_hash_hex.clone();
+                let tx_merkle_root = tx_merkle_root.to_string();
+                let state_root = state_root.to_string();
+                let checkpoint_hash_bytes = checkpoint_hash.to_vec();
+                let peer_id = peer_id.clone();
+                let validator_identity = self.validator_identity.clone();
                 
-                // Request vote from peer
-                if let Some((peer_sig, peer_raw, peer_stake)) = self.request_checkpoint_vote_p2p(
-                    network,
-                    &peer_id,
-                    &checkpoint_hash_hex,
-                    height,
-                    tx_merkle_root,
-                    state_root,
-                    checkpoint_hash,
-                ).await {
+                async move {
+                    // Per-request timeout to prevent blocking on slow peers
+                    let result = tokio::time::timeout(
+                        std::time::Duration::from_millis(QUORUM_TIMEOUT_MS),
+                        Self::request_checkpoint_vote_p2p_static(
+                            &network,
+                            &peer_id,
+                            &checkpoint_hash_hex,
+                            height,
+                            &tx_merkle_root,
+                            &state_root,
+                            &checkpoint_hash_bytes,
+                            validator_identity.as_ref(),
+                        )
+                    ).await;
+                    
+                    match result {
+                        Ok(Some(vote)) => Some(vote),
+                        Ok(None) => None,
+                        Err(_) => {
+                            debug!("Timeout requesting vote from peer {}", peer_id);
+                            None
+                        }
+                    }
+                }
+            }).collect();
+            
+            // Wait for all vote requests to complete (with their individual timeouts)
+            let results = join_all(vote_futures).await;
+            
+            // Process results and collect valid signatures
+            for result in results {
+                if let Some((peer_sig, peer_raw, peer_stake)) = result {
                     // Avoid duplicate signatures from same validator
                     if !signatures.iter().any(|s| s.validator == peer_sig.validator) {
                         info!(
@@ -1355,33 +1509,24 @@ impl CheckpointService {
                         signatures.push(peer_sig);
                         raw_signatures.push(peer_raw);
                         total_stake_collected += peer_stake;
-                        
-                        // Check if quorum reached
-                        if total_stake_collected >= quorum_stake_needed {
-                            info!(
-                                "Quorum reached with {:.0}/{:.0} stake from {} validators",
-                                total_stake_collected, total_network_stake, signatures.len()
-                            );
-                            break;
-                        }
                     }
                 }
+            }
+            
+            if total_stake_collected >= quorum_stake_needed {
+                info!(
+                    "Quorum reached with {:.0}/{:.0} stake from {} validators",
+                    total_stake_collected, total_network_stake, signatures.len()
+                );
             }
         }
         
         (signatures, raw_signatures, total_stake_collected)
     }
     
-    /// Request a checkpoint vote from a peer validator via P2P.
-    /// 
-    /// Security: This method validates votes against the local validator registry:
-    /// 1. Verifies the validator address exists in our registry
-    /// 2. Verifies the BLS public key matches our known key for that validator
-    /// 3. Verifies the BLS signature using verified bytes (not peer-supplied)
-    /// 4. Uses locally-known stake weight (not peer-supplied)
+    /// Static version of request_checkpoint_vote_p2p for parallel execution
     #[cfg(feature = "p2p")]
-    async fn request_checkpoint_vote_p2p(
-        &self,
+    async fn request_checkpoint_vote_p2p_static(
         network: &Arc<tokio::sync::Mutex<NetworkHandle>>,
         peer_id: &str,
         checkpoint_hash_hex: &str,
@@ -1389,6 +1534,7 @@ impl CheckpointService {
         tx_merkle_root: &str,
         state_root: &str,
         checkpoint_hash_bytes: &[u8],
+        validator_identity: Option<&Arc<RwLock<ValidatorIdentityService>>>,
     ) -> Option<(ValidatorSignature, Vec<u8>, f64)> {
         let request = SyncRequest::CheckpointVote(CheckpointVoteRequest {
             checkpoint_hash: checkpoint_hash_hex.to_string(),
@@ -1404,7 +1550,7 @@ impl CheckpointService {
         match response {
             Ok(SyncResponse::CheckpointVote(Some(vote))) => {
                 // SECURITY: Validate the validator against our local registry
-                let (verified_pk, verified_stake) = if let Some(ref identity) = self.validator_identity {
+                let (verified_pk, verified_stake) = if let Some(identity) = validator_identity {
                     let identity = identity.read().await;
                     
                     // Check if this validator is known and active in our registry
@@ -1418,27 +1564,24 @@ impl CheckpointService {
                     }
                     
                     // Get the known BLS public key for this validator from our registry
-                    // This prevents peers from substituting a different key
                     match identity.get_validator_bls_key(&vote.validator_address) {
                         Some(known_pk) => {
                             // Verify the peer's claimed public key matches our known key
                             let claimed_pk = URL_SAFE_NO_PAD.decode(&vote.bls_public_key).ok()?;
                             if claimed_pk != known_pk {
                                 warn!(
-                                    "BLS key mismatch for validator {} (peer {}): claimed key doesn't match registry",
+                                    "Rejecting vote: BLS key mismatch for validator {} (peer {})",
                                     &vote.validator_address[..16.min(vote.validator_address.len())],
                                     peer_id
                                 );
                                 return None;
                             }
-                            
-                            // Get the validator's stake from our registry (not from peer)
                             let stake = identity.get_validator_stake(&vote.validator_address).unwrap_or(0.0);
                             (known_pk, stake)
                         }
                         None => {
                             warn!(
-                                "No BLS key in registry for validator {} (peer {})",
+                                "Rejecting vote: no BLS key in registry for validator {} (peer {})",
                                 &vote.validator_address[..16.min(vote.validator_address.len())],
                                 peer_id
                             );
@@ -1446,67 +1589,46 @@ impl CheckpointService {
                         }
                     }
                 } else {
-                    // No validator identity service - use trust verifier as fallback
-                    // This is less secure but maintains backward compatibility
-                    debug!("No validator identity service, using peer-supplied data (testnet mode)");
+                    // No validator identity service, accept the peer's claimed key/stake (testnet mode)
                     let pk = URL_SAFE_NO_PAD.decode(&vote.bls_public_key).ok()?;
                     (pk, vote.stake)
                 };
                 
-                // SECURITY: Decode signature from the encoded string (not peer-supplied bytes)
-                // This ensures we verify and use the same bytes
-                let sig_bytes = match URL_SAFE_NO_PAD.decode(&vote.signature) {
-                    Ok(bytes) => bytes,
-                    Err(_) => {
-                        warn!("Invalid signature encoding from peer {}", peer_id);
-                        return None;
-                    }
-                };
-                
-                // Verify BLS signature using our verified public key
-                if !bls_verify(checkpoint_hash_bytes, &sig_bytes, &verified_pk) {
+                // Verify the BLS signature using the verified public key
+                let raw_signature = URL_SAFE_NO_PAD.decode(&vote.signature).ok()?;
+                if !bls_verify(checkpoint_hash_bytes, &raw_signature, &verified_pk) {
                     warn!(
-                        "Invalid BLS signature from validator {} (peer {}) for checkpoint {}",
+                        "Rejecting vote: invalid BLS signature from validator {} (peer {})",
                         &vote.validator_address[..16.min(vote.validator_address.len())],
-                        peer_id,
-                        height
+                        peer_id
                     );
                     return None;
                 }
                 
-                // Signature verified - create validated vote
                 let validator_sig = ValidatorSignature {
-                    validator: vote.validator_address.clone(),
-                    signature: vote.signature.clone(),
-                    weight: verified_stake, // Use locally-verified stake
-                    bls_public_key: Some(vote.bls_public_key.clone()),
+                    validator: vote.validator_address,
+                    signature: vote.signature,
+                    weight: verified_stake,
+                    bls_public_key: Some(URL_SAFE_NO_PAD.encode(&verified_pk)),
                 };
                 
-                debug!(
-                    "Verified checkpoint vote from {} (stake: {:.0}) for height {}",
-                    &vote.validator_address[..16.min(vote.validator_address.len())],
-                    verified_stake,
-                    height
-                );
-                
-                // Return decoded sig_bytes (verified), not peer-supplied signature_bytes
-                return Some((validator_sig, sig_bytes, verified_stake));
+                Some((validator_sig, raw_signature, verified_stake))
             }
             Ok(SyncResponse::CheckpointVote(None)) => {
                 debug!("Peer {} declined to vote on checkpoint {}", peer_id, height);
+                None
             }
             Ok(SyncResponse::Error { message }) => {
                 warn!("Peer {} returned error for checkpoint vote: {}", peer_id, message);
+                None
             }
-            Ok(_) => {
-                warn!("Unexpected response type from peer {} for checkpoint vote", peer_id);
-            }
-            Err(e) => {
-                debug!("Failed to request checkpoint vote from {}: {}", peer_id, e);
+            _ => {
+                debug!("Unexpected or failed response from peer {} for checkpoint vote", peer_id);
+                None
             }
         }
-        None
     }
+    
 }
 
 #[cfg(test)]

@@ -25,6 +25,8 @@ use crate::gossip::GossipMessage;
 const PROTOCOL_TOPIC: &str = "rinku/1.0.0";
 const SYNC_PROTOCOL: &str = "/rinku/sync/1.0.0";
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+const MESH_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(10);
+const MIN_MESH_PEERS: usize = 1;
 
 /// Sync request types for P2P sync operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +174,10 @@ pub struct TransactionData {
     pub parents: Vec<String>,
     #[serde(default)]
     pub gas_price: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub references: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -380,7 +386,9 @@ impl NetworkService {
                 let hash = hasher.finalize();
                 gossipsub::MessageId::from(hex::encode(&hash[..16]))
             })
-            .max_transmit_size(65536)
+            // Increased from 64KB to 2MB to handle checkpoint announcements with thousands of finalized tx hashes
+            // Each tx hash is ~64 chars, so 10k transactions = ~640KB. 2MB provides headroom for growth.
+            .max_transmit_size(2 * 1024 * 1024)
             .build()
             .map_err(|e| anyhow::anyhow!("Invalid gossipsub config: {}", e))?;
 
@@ -515,6 +523,9 @@ impl NetworkService {
     }
 
     async fn run_event_loop(&mut self) -> Result<()> {
+        let mut mesh_maintenance_interval = tokio::time::interval(MESH_MAINTENANCE_INTERVAL);
+        mesh_maintenance_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        
         loop {
             tokio::select! {
                 Some(msg) = self.outbound_rx.recv() => {
@@ -533,10 +544,38 @@ impl NetworkService {
                 Some(cmd) = self.command_rx.recv() => {
                     self.handle_command(cmd).await;
                 }
+                _ = mesh_maintenance_interval.tick() => {
+                    self.perform_mesh_maintenance().await;
+                }
                 event = self.swarm.select_next_some() => {
                     self.handle_swarm_event(event).await;
                 }
             }
+        }
+    }
+    
+    async fn perform_mesh_maintenance(&mut self) {
+        let validated_peer_count = {
+            let peers = self.peers.read().await;
+            peers.values().filter(|p| p.handshake_validated).count()
+        };
+        
+        if validated_peer_count < MIN_MESH_PEERS {
+            info!(
+                "Mesh unhealthy: {} validated peers (min: {}), re-dialing bootstrap peers",
+                validated_peer_count, MIN_MESH_PEERS
+            );
+            
+            for peer_addr in &self.config.bootstrap_peers.clone() {
+                if let Ok(addr) = peer_addr.parse::<Multiaddr>() {
+                    info!("Re-dialing bootstrap peer: {}", addr);
+                    if let Err(e) = self.swarm.dial(addr.clone()) {
+                        debug!("Failed to re-dial {}: {}", addr, e);
+                    }
+                }
+            }
+        } else {
+            debug!("Mesh healthy: {} validated peers", validated_peer_count);
         }
     }
 
@@ -574,8 +613,8 @@ impl NetworkService {
                 }
 
                 if !self.check_rate_limit_sync(&propagation_source) {
-                    warn!("Rate limit exceeded for peer: {}", propagation_source);
-                    self.record_misbehavior_sync(&propagation_source.to_string());
+                    // Just drop the message, don't penalize - high load is not misbehavior
+                    debug!("Rate limit exceeded for peer: {}, dropping message", propagation_source);
                     return;
                 }
 
@@ -662,6 +701,10 @@ impl NetworkService {
 
                 info!("Connected to peer: {} via {:?}", peer_id, endpoint);
                 
+                // Add peer to GossipSub mesh immediately upon connection
+                // This is critical for non-mDNS environments (e.g., fly.io)
+                self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+                
                 let now = current_time_secs();
                 let max_tokens = self.dos_config.max_rate_limit_tokens;
                 let saved_score = self.get_saved_peer_score_sync(&peer_id);
@@ -693,6 +736,9 @@ impl NetworkService {
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                 info!("Disconnected from peer: {} (cause: {:?})", peer_id, cause);
                 
+                // Remove from GossipSub mesh
+                self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
+                
                 let mut peers = self.peers.write().await;
                 if let Some(peer_stats) = peers.remove(&peer_id) {
                     self.persist_peer_score_sync(&peer_id, peer_stats.score);
@@ -710,8 +756,8 @@ impl NetworkService {
                 match message {
                     request_response::Message::Request { request, channel, .. } => {
                         if !self.check_rate_limit_sync(&peer) {
-                            warn!("Rate limit exceeded for sync request from: {}", peer);
-                            self.record_misbehavior_sync(&peer.to_string());
+                            // Just reject request, don't penalize - high load is not misbehavior
+                            debug!("Rate limit exceeded for sync request from: {}, rejecting", peer);
                             let _ = self.swarm.behaviour_mut().request_response.send_response(
                                 channel,
                                 SyncResponse::Error { message: "Rate limit exceeded".to_string() }

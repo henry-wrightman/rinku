@@ -13,6 +13,7 @@
     "dev:explorer": "npm run dev -w @rinku/explorer",
     "dev:faucet": "npm run dev -w @rinku/faucet",
     "validate": "npx tsx scripts/validate-testnet.ts",
+    "mega-stress": "npx tsx scripts/mega-stress.ts",
     "stress-test": "npx tsx scripts/stress-test.ts",
     "activity-bot": "npx tsx scripts/activity-bot.ts",
     "p2p-test": "npx tsx scripts/p2p-sync-test.ts"

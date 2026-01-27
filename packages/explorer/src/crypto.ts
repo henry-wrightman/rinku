@@ -14,7 +14,7 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data.buffer as ArrayBuffer);
   return new Uint8Array(hashBuffer);
 }
 
@@ -63,7 +63,7 @@ async function importPrivateKey(privateKeyHex: string): Promise<CryptoKey> {
   const privateKeyBytes = hexToBytes(privateKeyHex);
   return crypto.subtle.importKey(
     'pkcs8',
-    privateKeyBytes,
+    privateKeyBytes.buffer as ArrayBuffer,
     P256_CURVE,
     false,
     ['sign']
@@ -74,7 +74,7 @@ async function importPublicKey(publicKeyHex: string): Promise<CryptoKey> {
   const publicKeyBytes = hexToBytes(publicKeyHex);
   return crypto.subtle.importKey(
     'raw',
-    publicKeyBytes,
+    publicKeyBytes.buffer as ArrayBuffer,
     P256_CURVE,
     false,
     ['verify']
@@ -110,6 +110,8 @@ export interface TransactionInner {
   fee?: number;
   sig: string;
   hash: string;
+  memo?: string;
+  references?: string[];
 }
 
 export interface SignedTransaction {
@@ -118,9 +120,18 @@ export interface SignedTransaction {
 
 export async function createSignedTransaction(
   keyPair: SerializedKeyPair,
-  payload: { to: string; amount: number; nonce: number; parents: string[]; kind?: string; gasPrice?: number }
+  payload: { 
+    to: string; 
+    amount: number; 
+    nonce: number; 
+    parents: string[]; 
+    kind?: string; 
+    gasPrice?: number;
+    memo?: string;
+    references?: string[];
+  }
 ): Promise<SignedTransaction> {
-  const txData = {
+  const txData: Record<string, unknown> = {
     from: keyPair.fingerprint,
     to: payload.to,
     amount: payload.amount,
@@ -131,12 +142,22 @@ export async function createSignedTransaction(
     fee: payload.gasPrice ?? 0.001,
   };
   
+  // Only include memo if provided (max 256 bytes)
+  if (payload.memo && payload.memo.trim()) {
+    txData.memo = payload.memo.slice(0, 256);
+  }
+  
+  // Only include references if provided (max 4)
+  if (payload.references && payload.references.length > 0) {
+    txData.references = payload.references.slice(0, 4).filter(r => r.trim());
+  }
+  
   const txJson = JSON.stringify(txData);
   const hash = await hashTransaction(txJson);
   const sig = await signMessage(keyPair.privateKey, txJson);
   
   const tx: TransactionInner = {
-    ...txData,
+    ...txData as Omit<TransactionInner, 'sig' | 'hash'>,
     sig,
     hash,
   };
