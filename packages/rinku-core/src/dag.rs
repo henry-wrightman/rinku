@@ -319,6 +319,24 @@ impl Dag {
         }
     }
 
+    /// Batch mark multiple transactions as finalized (optimized for checkpoint creation)
+    /// Returns the number of transactions successfully marked
+    pub fn mark_finalized_batch(&mut self, hashes: &[String], checkpoint_height: u64) -> usize {
+        let mut count = 0;
+        for hash in hashes {
+            if let Some(node) = self.get_node_mut(hash) {
+                node.finalized = true;
+                node.checkpoint_height = Some(checkpoint_height);
+                count += 1;
+            }
+        }
+        // Bulk remove from unfinalized set (more efficient than individual removes)
+        for hash in hashes {
+            self.unfinalized.remove(hash);
+        }
+        count
+    }
+
     /// Unfinalize a transaction (used during checkpoint chain recovery)
     pub fn unfinalize(&mut self, hash: &str) {
         if let Some(node) = self.get_node_mut(hash) {

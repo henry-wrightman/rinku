@@ -1337,28 +1337,32 @@ impl CheckpointService {
             })
             .collect();
 
-        // PHASE 3: Minimal write lock - just mutations
+        // PHASE 3: Pre-compute finality stats outside the lock
+        let finality_sum: u64 = finality_times.iter().sum();
+        let finality_max: u64 = finality_times.iter().copied().max().unwrap_or(0);
+        let finality_count = finality_times.len() as u64;
+
+        // PHASE 4: Minimal write lock - batch mutations
         let mut state = self.state.inner.write().await;
         state.checkpoints.push(checkpoint.clone());
         state.last_checkpoint_time_ms = now_ms;
 
-        // Update finality stats
+        // Update finality stats (pre-computed values)
+        state.finality_sum_ms += finality_sum;
+        state.finality_count += finality_count;
+        if finality_max > state.finality_max_ms {
+            state.finality_max_ms = finality_max;
+        }
+        // Add to rolling window (batch)
         for finality_time in &finality_times {
-            state.finality_sum_ms += finality_time;
-            state.finality_count += 1;
-            if *finality_time > state.finality_max_ms {
-                state.finality_max_ms = *finality_time;
-            }
             if state.finality_times_ms.len() >= 1000 {
                 state.finality_times_ms.pop_front();
             }
             state.finality_times_ms.push_back(*finality_time);
         }
 
-        // Mark all as finalized
-        for hash in &unfinalized_hashes {
-            let _ = state.dag.mark_finalized(hash, height);
-        }
+        // Batch mark all as finalized (single operation instead of loop)
+        let _finalized = state.dag.mark_finalized_batch(&unfinalized_hashes, height);
         
         // Release write lock before logging
         drop(state);

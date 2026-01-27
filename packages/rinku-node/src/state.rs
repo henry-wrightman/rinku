@@ -646,6 +646,8 @@ pub struct StateInner {
     // Pending nonce queue: buffers transactions with future nonces until gaps fill
     // Key: sender address, Value: BTreeMap of nonce -> transaction (ordered by nonce)
     pub pending_nonce_queue: HashMap<String, BTreeMap<u64, SignedTransaction>>,
+    // Cached total count of pending transactions (O(1) lookup instead of O(n) sum)
+    pub pending_queue_total: usize,
 }
 
 #[derive(Clone)]
@@ -763,6 +765,7 @@ impl NodeState {
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: true, // Restored from storage = already synced
                     pending_nonce_queue: HashMap::new(),
+                    pending_queue_total: 0,
                 }
             } else {
                 // Try to sync from P2P bootstrap peers BEFORE creating genesis
@@ -855,6 +858,7 @@ impl NodeState {
                         finalized_tx_history: VecDeque::new(),
                         has_synced_from_network: true,
                         pending_nonce_queue: HashMap::new(),
+                        pending_queue_total: 0,
                     };
                     
                     // Handle emission, slashing, rewards from snapshot
@@ -1035,6 +1039,7 @@ impl NodeState {
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: false, // Fresh node = hasn't synced yet
                     pending_nonce_queue: HashMap::new(),
+                    pending_queue_total: 0,
                 }
             };
 
@@ -1699,8 +1704,14 @@ impl NodeState {
             for hash in &unfinalized_hashes {
                 // Get transaction timestamp for finality time calculation
                 if let Some(node) = state.dag.get_node(hash) {
-                    let tx_time = node.tx.tx.timestamp;
-                    let finality_time_ms = now_ms.saturating_sub(tx_time);
+                    let tx_timestamp = node.tx.tx.timestamp;
+                    // Handle both seconds and milliseconds timestamp formats
+                    let tx_time_ms = if tx_timestamp < 4_000_000_000 {
+                        tx_timestamp * 1000  // Convert seconds to milliseconds
+                    } else {
+                        tx_timestamp
+                    };
+                    let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
                     
                     // Update finality stats (same as checkpoint creation)
                     state.finality_sum_ms += finality_time_ms;
@@ -1788,8 +1799,14 @@ impl NodeState {
             for hash in &finalized_tx_hashes {
                 // Only finalize transactions we have in our DAG
                 if let Some(node) = state.dag.get_node(hash) {
-                    let tx_time = node.tx.tx.timestamp;
-                    let finality_time_ms = now_ms.saturating_sub(tx_time);
+                    let tx_timestamp = node.tx.tx.timestamp;
+                    // Handle both seconds and milliseconds timestamp formats
+                    let tx_time_ms = if tx_timestamp < 4_000_000_000 {
+                        tx_timestamp * 1000  // Convert seconds to milliseconds
+                    } else {
+                        tx_timestamp
+                    };
+                    let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
                     
                     // Update finality stats
                     state.finality_sum_ms += finality_time_ms;
@@ -1861,8 +1878,14 @@ impl NodeState {
             if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                 for hash in &unfinalized_hashes {
                     if let Some(node) = state.dag.get_node(hash) {
-                        let tx_time = node.tx.tx.timestamp;
-                        let finality_time_ms = now_ms.saturating_sub(tx_time);
+                        let tx_timestamp = node.tx.tx.timestamp;
+                        // Handle both seconds and milliseconds timestamp formats
+                        let tx_time_ms = if tx_timestamp < 4_000_000_000 {
+                            tx_timestamp * 1000  // Convert seconds to milliseconds
+                        } else {
+                            tx_timestamp
+                        };
+                        let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
                         state.finality_sum_ms += finality_time_ms;
                         state.finality_count += 1;
                         if finality_time_ms > state.finality_max_ms {
@@ -2361,16 +2384,11 @@ impl NodeState {
                                 ));
                             }
                             
-                            // PROTECTION 3: Global pending count limit
-                            let total_pending: usize = state.pending_nonce_queue
-                                .values()
-                                .map(|q| q.len())
-                                .sum();
-                            
-                            if total_pending >= MAX_GLOBAL_PENDING {
+                            // PROTECTION 3: Global pending count limit (O(1) cached lookup)
+                            if state.pending_queue_total >= MAX_GLOBAL_PENDING {
                                 tracing::warn!(
                                     "Global pending queue full ({}/{}), rejecting tx from {}",
-                                    total_pending, MAX_GLOBAL_PENDING,
+                                    state.pending_queue_total, MAX_GLOBAL_PENDING,
                                     &tx.tx.from[..16.min(tx.tx.from.len())]
                                 );
                                 return Err(anyhow::anyhow!(
@@ -2405,12 +2423,13 @@ impl NodeState {
                                     .entry(sender.clone())
                                     .or_insert_with(BTreeMap::new)
                                     .insert(nonce, tx);
+                                state.pending_queue_total += 1; // O(1) increment
                                 
                                 tracing::info!(
                                     "Buffered future nonce tx: sender={}, nonce={} (queue: {}, global: {})",
                                     &sender[..16.min(sender.len())], nonce,
                                     state.pending_nonce_queue.get(&sender).map(|q| q.len()).unwrap_or(0),
-                                    state.pending_nonce_queue.values().map(|q| q.len()).sum::<usize>()
+                                    state.pending_queue_total
                                 );
                             }
                             
@@ -2715,24 +2734,33 @@ impl NodeState {
                     .unwrap_or(0);
                 
                 // Check if there's a pending queue for this sender with the expected nonce
-                let queue = match state.pending_nonce_queue.get_mut(sender) {
-                    Some(q) => q,
-                    None => return, // No pending transactions
+                // Extract tx and check if queue is empty in one scope to avoid borrow conflicts
+                let (tx, queue_empty) = {
+                    let queue = match state.pending_nonce_queue.get_mut(sender) {
+                        Some(q) => q,
+                        None => return, // No pending transactions
+                    };
+                    let tx = queue.remove(&expected_nonce);
+                    let empty = queue.is_empty();
+                    (tx, empty)
                 };
                 
-                // Try to get transaction with expected nonce
-                let tx = queue.remove(&expected_nonce);
+                // Now we can safely update counter (queue borrow is released)
+                if tx.is_some() {
+                    state.pending_queue_total = state.pending_queue_total.saturating_sub(1);
+                }
                 
                 // Clean up empty queue
-                if queue.is_empty() {
+                if queue_empty {
                     state.pending_nonce_queue.remove(sender);
                 }
                 
-                if let Some(ref t) = tx {
+                if let Some(ref _t) = tx {
                     tracing::info!(
-                        "Processing buffered tx for {} (nonce {})",
+                        "Processing buffered tx for {} (nonce {}, remaining: {})",
                         &sender[..16.min(sender.len())],
-                        expected_nonce
+                        expected_nonce,
+                        state.pending_queue_total
                     );
                 }
                 

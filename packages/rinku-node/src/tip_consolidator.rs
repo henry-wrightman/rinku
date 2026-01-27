@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::sync::Arc;
-use tokio::time::{interval, Duration};
+use tokio::time::{sleep, Duration};
 use tracing::{debug, info, warn};
 
 use crate::gossip::GossipService;
@@ -13,10 +13,17 @@ const UPPER_THRESHOLD: usize = 100;
 const LOWER_THRESHOLD: usize = 50;
 /// Consolidate same number as MAX_SAMPLED_TIPS for efficient merging
 const TIPS_PER_CONSOLIDATION: usize = 16;
-/// Anchor interval in milliseconds - how often to create anchor transactions
-/// Shoal++ recommends every few hundred ms for faster finality
-const ANCHOR_INTERVAL_MS: u64 = 500;
-const CONSOLIDATION_COOLDOWN_MS: u64 = 1000;
+
+/// Dynamic consolidation intervals based on TPS
+const INTERVAL_HIGH_TPS_MS: u64 = 150;    // >500 TPS: aggressive
+const INTERVAL_MEDIUM_TPS_MS: u64 = 500;  // 50-500 TPS: balanced
+const INTERVAL_LOW_TPS_MS: u64 = 1500;    // 10-50 TPS: relaxed
+const INTERVAL_IDLE_MS: u64 = 10000;       // <10 TPS: minimal overhead
+
+/// TPS thresholds for interval selection
+const TPS_HIGH: f64 = 500.0;
+const TPS_MEDIUM: f64 = 50.0;
+const TPS_LOW: f64 = 10.0;
 
 /// Minimum tips to trigger anchor creation
 /// Set to 1 to ensure anchors are always created, preventing network stalls
@@ -32,6 +39,7 @@ pub struct TipConsolidator {
     is_consolidating: bool,
     last_consolidation: std::time::Instant,
     gossip_service: Option<Arc<GossipService>>,
+    current_interval_ms: u64,
 }
 
 impl TipConsolidator {
@@ -44,6 +52,7 @@ impl TipConsolidator {
             is_consolidating: false,
             last_consolidation: std::time::Instant::now(),
             gossip_service: None,
+            current_interval_ms: INTERVAL_MEDIUM_TPS_MS,
         }
     }
     
@@ -53,16 +62,42 @@ impl TipConsolidator {
         self
     }
 
+    /// Calculate dynamic interval based on current network TPS
+    async fn calculate_interval(&self) -> u64 {
+        let tps = self.state.get_finalized_tps().await;
+        
+        if tps >= TPS_HIGH {
+            INTERVAL_HIGH_TPS_MS
+        } else if tps >= TPS_MEDIUM {
+            INTERVAL_MEDIUM_TPS_MS
+        } else if tps >= TPS_LOW {
+            INTERVAL_LOW_TPS_MS
+        } else {
+            INTERVAL_IDLE_MS
+        }
+    }
+
     pub async fn start(mut self) -> Result<()> {
         info!(
-            "[TipConsolidator] Started with Shoal++ anchoring (threshold: {}, interval: {}ms)",
-            UPPER_THRESHOLD, ANCHOR_INTERVAL_MS
+            "[TipConsolidator] Started with dynamic intervals (high TPS: {}ms, medium: {}ms, low: {}ms, idle: {}ms)",
+            INTERVAL_HIGH_TPS_MS, INTERVAL_MEDIUM_TPS_MS, INTERVAL_LOW_TPS_MS, INTERVAL_IDLE_MS
         );
 
-        let mut tick = interval(Duration::from_millis(ANCHOR_INTERVAL_MS));
-
         loop {
-            tick.tick().await;
+            // Calculate dynamic interval based on current TPS
+            let new_interval = self.calculate_interval().await;
+            
+            // Log interval changes
+            if new_interval != self.current_interval_ms {
+                let tps = self.state.get_finalized_tps().await;
+                debug!(
+                    "[TipConsolidator] Interval adjusted: {}ms -> {}ms (TPS: {:.1})",
+                    self.current_interval_ms, new_interval, tps
+                );
+                self.current_interval_ms = new_interval;
+            }
+            
+            sleep(Duration::from_millis(self.current_interval_ms)).await;
             self.check_and_consolidate().await;
         }
     }
@@ -98,9 +133,15 @@ impl TipConsolidator {
             return;
         }
 
-        let elapsed = self.last_consolidation.elapsed();
-        if elapsed < Duration::from_millis(CONSOLIDATION_COOLDOWN_MS) && !self.is_consolidating {
-            return;
+        // In aggressive mode (high tips), always consolidate
+        // In normal mode, respect dynamic interval timing
+        if !self.is_consolidating {
+            let elapsed = self.last_consolidation.elapsed();
+            // Add small buffer to prevent excessive consolidation at idle
+            let min_cooldown = Duration::from_millis(self.current_interval_ms / 2);
+            if elapsed < min_cooldown {
+                return;
+            }
         }
 
         // Create anchor transaction referencing current tips
@@ -157,9 +198,10 @@ impl TipConsolidator {
         let tx = SignedTransaction { hash: hash.clone(), ..tx };
 
         debug!(
-            "[TipConsolidator] Creating anchor tx {} referencing {} tips",
+            "[TipConsolidator] Creating anchor tx {} referencing {} tips (interval: {}ms)",
             &hash[..16.min(hash.len())],
-            tips_to_consolidate.len()
+            tips_to_consolidate.len(),
+            self.current_interval_ms
         );
 
         // Submit to local DAG
