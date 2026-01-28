@@ -133,4 +133,5 @@ RINKU_NODE_URL=http://localhost:3001 npm run activity-bot
 ## Docs
 
 - `packages/rinku-node/CONSENSUS.md` — consensus protocol notes
-- `WHITEPAPER.md` — full protocol writeup
+- `WHITEPAPER.md` — full protocol writeup (and ai slop)
+- `rinku.pdf` - self-provable units which are kinda sick
