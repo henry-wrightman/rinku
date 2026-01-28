@@ -15,7 +15,7 @@ use super::ui;
 use crate::gossip::GossipService;
 use crate::state::NodeState;
 
-pub async fn run_tui(state: Arc<NodeState>, gossip_service: Option<GossipService>, node_id: String) -> anyhow::Result<()> {
+pub async fn run_tui(state: Arc<NodeState>, gossip_service: Option<Arc<GossipService>>, node_id: String) -> anyhow::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;

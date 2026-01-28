@@ -1582,20 +1582,18 @@ impl NodeState {
             0.0
         };
 
-        // Use aggregate stats for accurate average (not biased by rolling window)
-        let avg = if state.finality_count > 0 {
-            state.finality_sum_ms as f64 / state.finality_count as f64
-        } else {
-            0.0
-        };
-
         if state.finality_times_ms.is_empty() {
-            return (avg, avg, avg, last_checkpoint_age, checkpoints_per_minute);
+            return (0.0, 0.0, 0.0, last_checkpoint_age, checkpoints_per_minute);
         }
 
-        // Use rolling window for percentile calculations
+        // Use rolling window for ALL calculations (avg, median, p95)
+        // This gives recent performance, not historical data polluted by stalls
         let mut times: Vec<u64> = state.finality_times_ms.iter().copied().collect();
         times.sort();
+
+        // Calculate average from rolling window (not all-time cumulative)
+        let sum: u64 = times.iter().sum();
+        let avg = sum as f64 / times.len() as f64;
 
         let median = times[times.len() / 2] as f64;
         let p95_idx = (times.len() as f64 * 0.95) as usize;

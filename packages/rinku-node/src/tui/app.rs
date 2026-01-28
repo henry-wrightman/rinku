@@ -116,14 +116,14 @@ pub struct App {
     pub logs: Vec<String>,
     pub scroll_offset: usize,
     pub state: Arc<NodeState>,
-    pub gossip_service: Option<GossipService>,
+    pub gossip_service: Option<Arc<GossipService>>,
     pub system: System,
     pub start_time: std::time::Instant,
     pub node_id: String,
 }
 
 impl App {
-    pub fn new(state: Arc<NodeState>, gossip_service: Option<GossipService>, node_id: String) -> Self {
+    pub fn new(state: Arc<NodeState>, gossip_service: Option<Arc<GossipService>>, node_id: String) -> Self {
         Self {
             running: true,
             current_tab: Tab::Dashboard,
