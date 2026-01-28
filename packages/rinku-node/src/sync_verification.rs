@@ -570,6 +570,8 @@ mod tests {
                 signature: "sig".to_string(),
                 parents: vec![],
                 gas_price: 0.0,
+                memo: None,
+                references: None,
             },
             TransactionData {
                 hash: "b2".repeat(32),
@@ -581,6 +583,8 @@ mod tests {
                 signature: "sig".to_string(),
                 parents: vec![],
                 gas_price: 0.0,
+                memo: None,
+                references: None,
             },
         ];
         let mut tx_hashes: Vec<String> = transactions.iter().map(|tx| tx.hash.clone()).collect();

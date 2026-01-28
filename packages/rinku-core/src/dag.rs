@@ -518,6 +518,8 @@ mod tests {
             gas_price: None,
             data: None,
             signature: None,
+            memo: None,
+            references: None,
         };
 
         let signed = SignedTransaction {

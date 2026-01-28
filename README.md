@@ -71,8 +71,8 @@ Common environment variables:
 - `MAINNET_MODE` — Enforce mainnet-grade checks (default: `false`)
 - `GENESIS_VALIDATORS` — Bootstrap validators (`addr:bls_pubkey;...`)
 - `PUBLIC_URL` — Node URL for leader election
-- `CHAIN_ID` — Chain identifier (default: `rinku-mainnet`)
-- `NETWORK_ID` — Network identifier (default: `mainnet`)
+- `CHAIN_ID` — Chain identifier (default: `rinku-testnet`)
+- `NETWORK_ID` — Network identifier (default: `testnet`)
 
 For a complete multi-node testnet guide, see `scripts/TESTNET_SETUP.md`.
 

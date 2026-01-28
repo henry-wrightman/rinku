@@ -1,6 +1,8 @@
 pub mod api;
 pub mod benchmark;
 pub mod bls;
+#[cfg(feature = "p2p")]
+pub mod cbor_codec;
 pub mod checkpoint;
 pub mod config;
 pub mod consensus;
@@ -12,7 +14,6 @@ pub mod gas;
 pub mod gossip;
 pub mod leader_election;
 #[cfg(feature = "p2p")]
-pub mod cbor_codec;
 pub mod network;
 pub mod persistence;
 pub mod proofs;

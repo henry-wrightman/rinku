@@ -257,6 +257,7 @@ mod tests {
             validator_signatures: vec![],
             aggregated_signature: None,
             signer_bitmap: None,
+            finalized_tx_hashes: vec![],
         }
     }
 

@@ -9,7 +9,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{io, marker::PhantomData, pin::Pin};
 
 /// Custom CBOR codec with configurable max request/response sizes.
-/// 
+///
 /// Unlike the built-in `libp2p::request_response::cbor` codec which has
 /// a hardcoded ~1MB limit, this codec allows configuring larger limits
 /// for protocols that need to transfer larger payloads (like checkpoint
@@ -25,7 +25,7 @@ pub struct CborCodec<Req, Resp> {
 
 impl<Req, Resp> CborCodec<Req, Resp> {
     /// Create a new CBOR codec with specified max sizes.
-    /// 
+    ///
     /// # Arguments
     /// * `max_request_size` - Maximum size for request messages in bytes
     /// * `max_response_size` - Maximum size for response messages in bytes
@@ -53,21 +53,21 @@ async fn read_length_prefixed<T: AsyncRead + Unpin>(
     // Read varint length prefix byte by byte
     let mut len: usize = 0;
     let mut shift: u32 = 0;
-    
+
     loop {
         let mut byte_buf = [0u8; 1];
         io.read_exact(&mut byte_buf).await?;
         let byte = byte_buf[0];
-        
+
         // Add lower 7 bits to length
         len |= ((byte & 0x7f) as usize) << shift;
         shift += 7;
-        
+
         // If high bit is 0, we're done
         if byte & 0x80 == 0 {
             break;
         }
-        
+
         // Prevent overflow (varint too long)
         if shift >= 64 {
             return Err(io::Error::new(
@@ -76,14 +76,14 @@ async fn read_length_prefixed<T: AsyncRead + Unpin>(
             ));
         }
     }
-    
+
     if len > max_size {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("Message size {} exceeds max {}", len, max_size),
         ));
     }
-    
+
     let mut buf = vec![0u8; len];
     io.read_exact(&mut buf).await?;
     Ok(buf)
@@ -101,12 +101,12 @@ async fn write_length_prefixed<T: AsyncWrite + Unpin>(
             format!("Message size {} exceeds max {}", data.len(), max_size),
         ));
     }
-    
+
     // Encode length as varint
     let mut len = data.len();
     let mut varint_buf = [0u8; 10]; // Max 10 bytes for 64-bit varint
     let mut i = 0;
-    
+
     loop {
         let mut byte = (len & 0x7f) as u8;
         len >>= 7;
@@ -119,13 +119,13 @@ async fn write_length_prefixed<T: AsyncWrite + Unpin>(
             break;
         }
     }
-    
+
     // Write varint prefix
     io.write_all(&varint_buf[..i]).await?;
     // Write data
     io.write_all(data).await?;
     io.flush().await?;
-    
+
     Ok(())
 }
 
@@ -154,7 +154,10 @@ where
         Box::pin(async move {
             let buf = read_length_prefixed(io, max_size).await?;
             serde_cbor::from_slice(&buf).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("CBOR decode error: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("CBOR decode error: {}", e),
+                )
             })
         })
     }
@@ -175,7 +178,10 @@ where
         Box::pin(async move {
             let buf = read_length_prefixed(io, max_size).await?;
             serde_cbor::from_slice(&buf).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("CBOR decode error: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("CBOR decode error: {}", e),
+                )
             })
         })
     }
@@ -196,7 +202,10 @@ where
         let max_size = self.max_request_size;
         Box::pin(async move {
             let data = serde_cbor::to_vec(&req).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("CBOR encode error: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("CBOR encode error: {}", e),
+                )
             })?;
             write_length_prefixed(io, &data, max_size).await
         })
@@ -218,7 +227,10 @@ where
         let max_size = self.max_response_size;
         Box::pin(async move {
             let data = serde_cbor::to_vec(&resp).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("CBOR encode error: {}", e))
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("CBOR encode error: {}", e),
+                )
             })?;
             write_length_prefixed(io, &data, max_size).await
         })

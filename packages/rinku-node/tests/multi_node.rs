@@ -34,6 +34,8 @@ fn create_test_transaction(from: &str, to: &str, amount: f64, nonce: u64, parent
         gas_price: Some(0.001),
         data: None,
         signature: None,
+        memo: None,
+        references: None,
     };
     
     let hash = format!("tx_{}_{}_{}_{}", from, to, nonce, amount);
@@ -85,6 +87,7 @@ fn create_test_checkpoint(height: u64, previous_hash: Option<String>, tx_hashes:
         timestamp: 1700000000 + height,
         aggregated_signature: None,
         signer_bitmap: None,
+        finalized_tx_hashes: vec![],
     }
 }
 
@@ -474,6 +477,7 @@ mod checkpoint_adoption_tests {
             timestamp: 1700000002,
             aggregated_signature: None,
             signer_bitmap: None,
+            finalized_tx_hashes: vec![],
         };
         
         let can_adopt_orphan = orphan_checkpoint.previous_hash == Some(cp1.hash.clone());

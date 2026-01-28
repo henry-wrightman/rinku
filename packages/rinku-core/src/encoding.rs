@@ -123,6 +123,8 @@ mod tests {
             gas_price: Some(0.001),
             data: None,
             signature: None,
+            memo: None,
+            references: None,
         };
 
         let encoded = encode_to_url(&tx).unwrap();

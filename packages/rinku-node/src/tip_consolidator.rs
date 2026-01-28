@@ -15,10 +15,10 @@ const LOWER_THRESHOLD: usize = 50;
 const TIPS_PER_CONSOLIDATION: usize = 16;
 
 /// Dynamic consolidation intervals based on TPS
-const INTERVAL_HIGH_TPS_MS: u64 = 150;    // >500 TPS: aggressive
-const INTERVAL_MEDIUM_TPS_MS: u64 = 500;  // 50-500 TPS: balanced
-const INTERVAL_LOW_TPS_MS: u64 = 1000;    // 10-50 TPS: relaxed
-const INTERVAL_IDLE_MS: u64 = 1000;       // <10 TPS: minimal overhead
+const INTERVAL_HIGH_TPS_MS: u64 = 150; // >500 TPS: aggressive
+const INTERVAL_MEDIUM_TPS_MS: u64 = 500; // 50-500 TPS: balanced
+const INTERVAL_LOW_TPS_MS: u64 = 1500; // 10-50 TPS: relaxed
+const INTERVAL_IDLE_MS: u64 = 10000; // <10 TPS: minimal overhead
 
 /// TPS thresholds for interval selection
 const TPS_HIGH: f64 = 500.0;
@@ -55,7 +55,7 @@ impl TipConsolidator {
             current_interval_ms: INTERVAL_MEDIUM_TPS_MS,
         }
     }
-    
+
     /// Set the gossip service for broadcasting anchor transactions
     pub fn with_gossip_service(mut self, gossip: Arc<GossipService>) -> Self {
         self.gossip_service = Some(gossip);
@@ -65,7 +65,8 @@ impl TipConsolidator {
     /// Calculate dynamic interval based on current network TPS
     async fn calculate_interval(&self) -> u64 {
         let tps = self.state.get_finalized_tps().await;
-        
+        debug!("[TipConsolidator] Current TPS: {:.1}", tps);
+
         if tps >= TPS_HIGH {
             INTERVAL_HIGH_TPS_MS
         } else if tps >= TPS_MEDIUM {
@@ -86,7 +87,7 @@ impl TipConsolidator {
         loop {
             // Calculate dynamic interval based on current TPS
             let new_interval = self.calculate_interval().await;
-            
+
             // Log interval changes
             if new_interval != self.current_interval_ms {
                 let tps = self.state.get_finalized_tps().await;
@@ -96,7 +97,7 @@ impl TipConsolidator {
                 );
                 self.current_interval_ms = new_interval;
             }
-            
+
             sleep(Duration::from_millis(self.current_interval_ms)).await;
             self.check_and_consolidate().await;
         }
@@ -108,7 +109,7 @@ impl TipConsolidator {
             Some(addr) => addr.clone(),
             None => return,
         };
-        
+
         let tips = self.state.get_tips().await;
         let tip_count = tips.len();
 
@@ -145,10 +146,8 @@ impl TipConsolidator {
         }
 
         // Create anchor transaction referencing current tips
-        let tips_to_consolidate: Vec<String> = tips
-            .into_iter()
-            .take(TIPS_PER_CONSOLIDATION)
-            .collect();
+        let tips_to_consolidate: Vec<String> =
+            tips.into_iter().take(TIPS_PER_CONSOLIDATION).collect();
 
         if tips_to_consolidate.is_empty() {
             return;
@@ -164,7 +163,7 @@ impl TipConsolidator {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        
+
         // Use timestamp as nonce for anchor transactions (system tx bypass nonce validation)
         // This ensures unique hashes for each anchor without consuming validator's account nonce
         let nonce = now;
@@ -173,13 +172,13 @@ impl TipConsolidator {
         let inner_tx = Transaction {
             from: validator_address.clone(),
             to: validator_address.clone(), // Self-transfer
-            amount: 0.0, // Zero value
+            amount: 0.0,                   // Zero value
             nonce,
             timestamp: now,
             parents: tip_urls,
             kind: Some(TransactionKind::Consolidation),
             gas_limit: None,
-            gas_price: Some(0.0), // System transaction, no gas
+            gas_price: Some(0.0),             // System transaction, no gas
             data: Some("anchor".to_string()), // Mark as anchor
             signature: None,
             memo: None,
@@ -195,7 +194,10 @@ impl TipConsolidator {
         // Hash the transaction
         let tx_json = serde_json::to_string(&tx.tx).unwrap_or_default();
         let hash = rinku_core::crypto::hash_transaction(&tx_json);
-        let tx = SignedTransaction { hash: hash.clone(), ..tx };
+        let tx = SignedTransaction {
+            hash: hash.clone(),
+            ..tx
+        };
 
         debug!(
             "[TipConsolidator] Creating anchor tx {} referencing {} tips (interval: {}ms)",
@@ -224,10 +226,7 @@ impl TipConsolidator {
                 );
             }
             Err(e) => {
-                warn!(
-                    "[TipConsolidator] Failed to create anchor tx: {}",
-                    e
-                );
+                warn!("[TipConsolidator] Failed to create anchor tx: {}", e);
             }
         }
     }

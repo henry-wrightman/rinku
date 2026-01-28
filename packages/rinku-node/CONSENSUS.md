@@ -232,7 +232,7 @@ Environment variables for consensus tuning:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CHECKPOINT_INTERVAL_MS` | 15000 | Time between checkpoints |
-| `CHECKPOINT_QUORUM_THRESHOLD` | 0.67 | Required stake for finality |
+| `CHECKPOINT_QUORUM_THRESHOLD` | 0.6666 | Required stake for finality (2/3) |
 | `GENESIS_VALIDATORS` | - | Bootstrap validators (addr:pubkey;...) |
 
 ## API Endpoints
