@@ -4,7 +4,7 @@ use rinku_core::types::SignedTransaction;
 use std::collections::{HashSet, VecDeque};
 use tracing::{debug, info};
 
-pub const DEFAULT_RETENTION_CHECKPOINTS: u64 = 100;
+pub const DEFAULT_RETENTION_CHECKPOINTS: u64 = 500;
 pub const DEFAULT_MAX_DAG_NODES: usize = 100_000;
 pub const PRUNING_BATCH_SIZE: usize = 1000;
 
@@ -102,17 +102,13 @@ impl DagPruningService {
             }
         })?;
 
-        for key in &keys_to_delete {
-            storage.delete_dag(key)?;
-            nodes_pruned += 1;
+        if !keys_to_delete.is_empty() {
+            nodes_pruned = storage.batch_delete_dag(&keys_to_delete)? as u64;
         }
 
-        for height in 0..prune_boundary {
-            let key = height.to_be_bytes();
-            if storage.get_checkpoint::<Vec<u8>>(&key)?.is_some() {
-                storage.delete_checkpoint(&key)?;
-                checkpoints_pruned += 1;
-            }
+        let checkpoint_heights_to_delete: Vec<u64> = (0..prune_boundary).collect();
+        if !checkpoint_heights_to_delete.is_empty() {
+            checkpoints_pruned = storage.batch_delete_checkpoints(&checkpoint_heights_to_delete)? as u64;
         }
 
         let now = std::time::SystemTime::now()
@@ -132,10 +128,6 @@ impl DagPruningService {
             "Prune complete: {} DAG nodes, {} checkpoints removed, oldest retained: {}",
             nodes_pruned, checkpoints_pruned, prune_boundary
         );
-
-        if nodes_pruned > 0 || checkpoints_pruned > 0 {
-            storage.compact()?;
-        }
 
         Ok(self.stats.clone())
     }
@@ -273,29 +265,29 @@ mod tests {
     #[test]
     fn test_prune_boundary_calculation() {
         let config = PruningConfig {
-            retention_checkpoints: 100,
+            retention_checkpoints: 500,
             ..Default::default()
         };
         let service = DagPruningService::new(config);
 
         assert_eq!(service.calculate_prune_boundary(50), 0);
-        assert_eq!(service.calculate_prune_boundary(100), 0);
-        assert_eq!(service.calculate_prune_boundary(101), 1);
-        assert_eq!(service.calculate_prune_boundary(200), 100);
-        assert_eq!(service.calculate_prune_boundary(1000), 900);
+        assert_eq!(service.calculate_prune_boundary(500), 0);
+        assert_eq!(service.calculate_prune_boundary(501), 1);
+        assert_eq!(service.calculate_prune_boundary(600), 100);
+        assert_eq!(service.calculate_prune_boundary(1000), 500);
     }
 
     #[test]
     fn test_should_prune() {
         let config = PruningConfig {
-            retention_checkpoints: 100,
+            retention_checkpoints: 500,
             ..Default::default()
         };
         let service = DagPruningService::new(config);
 
         assert!(!service.should_prune(50));
-        assert!(!service.should_prune(100));
-        assert!(service.should_prune(101));
+        assert!(!service.should_prune(500));
+        assert!(service.should_prune(501));
         assert!(service.should_prune(1000));
     }
 

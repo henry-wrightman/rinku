@@ -37,14 +37,6 @@ use crate::network::{PeerHandshake, SyncRequest, SyncResponse, SnapshotData};
 /// Uses exponential backoff retry for robustness - genesis node may still be starting
 #[cfg(feature = "p2p")]
 async fn try_presync_from_peers(bootstrap_peers: &[String], is_genesis_node: bool) -> Option<SyncSnapshot> {
-    use libp2p::{
-        identity::Keypair,
-        noise, tcp, yamux,
-        request_response::{self, cbor, ProtocolSupport},
-        swarm::SwarmEvent,
-        Multiaddr, PeerId, StreamProtocol,
-    };
-    use libp2p::futures::StreamExt;
     use std::time::Duration;
     
     if bootstrap_peers.is_empty() {
@@ -89,12 +81,13 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
     use libp2p::{
         identity::Keypair,
         noise, tcp, yamux,
-        request_response::{self, cbor, ProtocolSupport},
+        request_response::{self, ProtocolSupport},
         swarm::SwarmEvent,
         Multiaddr, PeerId, StreamProtocol,
     };
     use libp2p::futures::StreamExt;
     use std::{env, time::Duration};
+    use crate::cbor_codec::CborCodec;
     
     // Parse bootstrap peers - peer ID is now OPTIONAL (allows connecting without knowing peer ID)
     let mut targets: Vec<(Option<PeerId>, Multiaddr)> = Vec::new();
@@ -139,6 +132,11 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
     info!("PRE-SYNC: Temporary peer ID: {}", local_peer_id);
     
     // Build minimal swarm for sync only
+    // Use our custom CborCodec with 16MB limits to match the main node's protocol
+    let cbor_codec: CborCodec<SyncRequest, SyncResponse> = CborCodec::new(
+        16 * 1024 * 1024,  // 16 MB max request
+        16 * 1024 * 1024,  // 16 MB max response
+    );
     let swarm_result = libp2p::SwarmBuilder::with_existing_identity(local_key)
         .with_tokio()
         .with_tcp(
@@ -148,7 +146,8 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
         )
         .map(|builder| {
             builder.with_behaviour(|_| {
-                cbor::Behaviour::<SyncRequest, SyncResponse>::new(
+                request_response::Behaviour::with_codec(
+                    cbor_codec,
                     [(StreamProtocol::new("/rinku/sync/1.0.0"), ProtocolSupport::Full)],
                     request_response::Config::default()
                         .with_request_timeout(Duration::from_secs(30)),
@@ -1559,9 +1558,9 @@ impl NodeState {
 
     pub async fn get_finalized_stats(&self) -> (usize, usize) {
         let state = self.inner.read().await;
-        let all_nodes = state.dag.get_all_nodes();
-        let finalized = all_nodes.iter().filter(|n| n.finalized).count();
-        let unfinalized = all_nodes.len() - finalized;
+        let total = state.dag.node_count();
+        let unfinalized = state.dag.unfinalized_count();
+        let finalized = total.saturating_sub(unfinalized);
         (finalized, unfinalized)
     }
 
@@ -1616,7 +1615,11 @@ impl NodeState {
 
     pub async fn get_checkpoint_height(&self) -> u64 {
         let state = self.inner.read().await;
-        state.checkpoints.len() as u64
+        // CRITICAL: Return the actual height of the last checkpoint, NOT the count!
+        // After pruning, len() can be 500 while actual height is 516+
+        state.checkpoints.last()
+            .map(|cp| cp.height)
+            .unwrap_or(0)
     }
     
     /// Apply a checkpoint received from the network (via CheckpointAnnouncement)
@@ -1635,12 +1638,15 @@ impl NodeState {
         let mut state = self.inner.write().await;
         
         // Validate this is the next expected checkpoint
-        let expected_height = state.checkpoints.len() as u64 + 1;
+        // CRITICAL: Use actual last checkpoint height, NOT len() which breaks after pruning
+        let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        let expected_height = current_height + 1;
         if checkpoint.height != expected_height {
             return Err(anyhow::anyhow!(
-                "Checkpoint height mismatch: expected {}, got {}",
+                "Checkpoint height mismatch: expected {}, got {} (current: {})",
                 expected_height,
-                checkpoint.height
+                checkpoint.height,
+                current_height
             ));
         }
         
@@ -1773,15 +1779,14 @@ impl NodeState {
         let mut state = self.inner.write().await;
         
         // Validate checkpoint height
-        if checkpoint.height <= state.checkpoints.len() as u64 {
-            let local_height = state.checkpoints.len() as u64;
-            if checkpoint.height <= local_height {
-                return Err(anyhow::anyhow!(
-                    "Checkpoint height {} not greater than local height {}",
-                    checkpoint.height,
-                    local_height
-                ));
-            }
+        // CRITICAL: Use actual checkpoint height, NOT len() which breaks after pruning
+        let local_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        if checkpoint.height <= local_height {
+            return Err(anyhow::anyhow!(
+                "Checkpoint height {} not greater than local height {}",
+                checkpoint.height,
+                local_height
+            ));
         }
         
         let height = checkpoint.height;
@@ -2189,7 +2194,8 @@ impl NodeState {
             dag_nodes,
             tip_count: state.dag.tip_count(),
             account_count: state.accounts.len(),
-            checkpoint_height: state.checkpoints.len() as u64,
+            // CRITICAL: Use actual checkpoint height, NOT len() which breaks after pruning
+            checkpoint_height: state.checkpoints.last().map(|cp| cp.height).unwrap_or(0),
             finalized_count,
             unfinalized_count,
             total_transactions: state.total_transactions,
@@ -3056,6 +3062,54 @@ impl NodeState {
         Ok(())
     }
 
+    /// Force-add a transaction to the DAG without any validation.
+    /// Used ONLY for checkpoint vote verification - allows syncing transactions
+    /// that would otherwise be rejected (stale nonce, missing parents).
+    /// Does NOT execute the transaction or update account balances.
+    pub async fn force_add_transaction_for_vote(&self, tx: SignedTransaction) -> Result<()> {
+        let normalized_parents: Vec<String> = tx
+            .tx
+            .parents
+            .iter()
+            .map(|p| {
+                if p.starts_with("rinku://tx/h/") {
+                    p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+                } else if p.starts_with("rinku://tx/") {
+                    p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+                } else {
+                    p.clone()
+                }
+            })
+            .collect();
+
+        let mut state = self.inner.write().await;
+        
+        // Check if already exists - if so, nothing to do
+        if state.dag.get_node(&tx.hash).is_some() {
+            return Ok(());
+        }
+        
+        // Filter parents to only those that exist in our DAG
+        // Missing parents are OK for vote verification - we just need the hash
+        let existing_parents: Vec<String> = normalized_parents
+            .into_iter()
+            .filter(|p| p == "genesis" || state.dag.get_node(p).is_some())
+            .collect();
+
+        let node = rinku_core::types::DagNode {
+            hash: tx.hash.clone(),
+            tx: tx.clone(),
+            parents: existing_parents, // Use only parents we have
+            children: Vec::new(),
+            weight: 1.0,
+            finalized: false,
+            checkpoint_height: None,
+        };
+
+        state.dag.add_node(node)?;
+        Ok(())
+    }
+
     /// Batch add transactions - optimized for high throughput
     pub async fn add_transactions_batch(&self, txs: Vec<SignedTransaction>) -> Vec<Result<()>> {
         // PHASE 0: Pre-validate all transactions BEFORE any state mutations
@@ -3741,23 +3795,24 @@ impl NodeState {
     async fn apply_sync_snapshot_inner(&self, snapshot: SyncSnapshot, force: bool) -> Result<usize> {
         let mut state = self.inner.write().await;
 
-        // Only apply if peer has more checkpoints (more finalized history)
-        // OR if force=true (recovery mode - delta sync failed, need fresh state)
-        let local_checkpoint_count = state.checkpoints.len();
-        let peer_checkpoint_count = snapshot.checkpoints.len();
+        // CRITICAL: Compare checkpoint HEIGHT, not COUNT!
+        // After pruning, both nodes may have 500 checkpoints but at different height ranges
+        // e.g., local: 996-1496 (500), peer: 997-1497 (500) - same count, different height!
+        let local_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        let peer_height = snapshot.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
 
-        if !force && peer_checkpoint_count <= local_checkpoint_count && local_checkpoint_count > 0 {
+        if !force && peer_height <= local_height && local_height > 0 {
             info!(
-                "Skipping snapshot apply: local has {} checkpoints, peer has {}",
-                local_checkpoint_count, peer_checkpoint_count
+                "Skipping snapshot apply: local at height {}, peer at height {}",
+                local_height, peer_height
             );
             return Ok(0);
         }
         
         if force {
             warn!(
-                "RECOVERY MODE: Force applying snapshot ({} accounts, {} checkpoints) to fix state divergence",
-                snapshot.accounts.len(), peer_checkpoint_count
+                "RECOVERY MODE: Force applying snapshot ({} accounts, height {}) to fix state divergence",
+                snapshot.accounts.len(), peer_height
             );
         }
 

@@ -4,6 +4,7 @@ use futures::future::join_all;
 use rinku_core::{
     merkle::MerkleTree,
     types::{Checkpoint, ValidatorSignature},
+    SignedTransaction,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -208,7 +209,8 @@ impl CheckpointService {
             const PRUNE_EVERY_N_CHECKPOINTS: u32 = 10;
             if prune_count > 0 && prune_count % PRUNE_EVERY_N_CHECKPOINTS == 0 {
                 let state_guard = self.state.inner.read().await;
-                let current_height = state_guard.checkpoints.len() as u64;
+                // CRITICAL: Use actual checkpoint height, NOT len() which breaks after pruning
+                let current_height = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
                 let finalized_hashes: std::collections::HashSet<String> = state_guard.dag
                     .get_all_nodes()
                     .iter()
@@ -339,9 +341,10 @@ impl CheckpointService {
             .build()?;
 
         // Get our current checkpoint height
+        // CRITICAL: Use actual checkpoint height, NOT len() which breaks after pruning
         let from_checkpoint = {
             let state = self.state.inner.read().await;
-            state.checkpoints.len() as u64
+            state.checkpoints.last().map(|cp| cp.height).unwrap_or(0)
         };
 
         for peer in &self.peers {
@@ -840,9 +843,11 @@ impl CheckpointService {
 
     async fn create_checkpoint(&self) -> Result<()> {
         // STEP 1: Get checkpoint height and previous hash first (needed for leader election)
+        // CRITICAL: Use actual checkpoint height, NOT len() which breaks after pruning
         let (height, previous_hash) = {
             let state = self.state.inner.read().await;
-            let height = state.checkpoints.len() as u64 + 1;
+            let current_height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
+            let height = current_height + 1;
             let previous_hash = state.checkpoints.last().map(|c| c.hash.clone());
             (height, previous_hash)
         };
@@ -902,9 +907,37 @@ impl CheckpointService {
                 
                 // Try to fetch and adopt the leader's checkpoint
                 if let Some(peer_checkpoint) = self.fetch_peer_checkpoint(height).await {
-                    // Get unfinalized txs for validation (may be empty if we're behind)
-                    // Apply same propagation grace period as leader
-                    let (unfinalized_hashes, tx_merkle_root) = {
+                    // CRITICAL FIX: Use leader's finalized_tx_hashes if available
+                    // This ensures we finalize the exact same transaction set as the leader
+                    let (unfinalized_hashes, tx_merkle_root) = if !peer_checkpoint.finalized_tx_hashes.is_empty() {
+                        // Leader provided exact tx list - verify we have them and use that
+                        let state = self.state.inner.read().await;
+                        let missing_count = peer_checkpoint.finalized_tx_hashes.iter()
+                            .filter(|hash| state.dag.get_node(hash).is_none())
+                            .count();
+                        
+                        if missing_count > 0 {
+                            warn!(
+                                "Cannot adopt checkpoint {}: missing {}/{} transactions from leader's list",
+                                height, missing_count, peer_checkpoint.finalized_tx_hashes.len()
+                            );
+                            return Ok(()); // Skip this round, will retry later
+                        }
+                        
+                        // Compute merkle root from leader's exact list
+                        let mut sorted_hashes = peer_checkpoint.finalized_tx_hashes.clone();
+                        sorted_hashes.sort();
+                        let merkle_root = MerkleTree::from_hex_leaves(&sorted_hashes)
+                            .map(|t| t.root())
+                            .unwrap_or_else(|_| "0".repeat(64));
+                        
+                        info!(
+                            "Using leader's {} finalized tx hashes for checkpoint {} adoption",
+                            peer_checkpoint.finalized_tx_hashes.len(), height
+                        );
+                        (peer_checkpoint.finalized_tx_hashes.clone(), merkle_root)
+                    } else {
+                        // Legacy checkpoint without tx list - compute from local state
                         let state = self.state.inner.read().await;
                         
                         let now_ms = std::time::SystemTime::now()
@@ -956,7 +989,7 @@ impl CheckpointService {
         // STEP 3: Get unfinalized transactions (only leaders reach this point)
         // Apply propagation grace period: only include transactions that are old enough
         // This reduces merkle root mismatches due to transaction propagation delays
-        let (unfinalized_hashes, tx_merkle_root) = {
+        let (unfinalized_hashes, unfinalized_txs, tx_merkle_root) = {
             let state = self.state.inner.read().await;
             
             let now_ms = std::time::SystemTime::now()
@@ -965,21 +998,44 @@ impl CheckpointService {
                 .as_millis() as u64;
             let cutoff_time = now_ms.saturating_sub(PROPAGATION_GRACE_MS);
 
-            let mut unfinalized: Vec<String> = state
-                .dag
-                .get_unfinalized_nodes()
+            // Collect both hashes and full transactions for vote requests
+            // With custom CBOR codec (16MB limit) and ~500 bytes per tx, we can handle ~30,000 txs
+            // Use 10,000 as a practical limit to balance throughput vs memory usage
+            const MAX_TXS_PER_CHECKPOINT: usize = 10_000;
+            
+            let all_unfinalized = state.dag.get_unfinalized_nodes();
+            let mut unfinalized_nodes: Vec<_> = all_unfinalized
                 .iter()
                 .filter(|n| {
                     // Only include transactions older than the grace period
                     // This gives time for the tx to propagate to all validators
                     n.tx.tx.timestamp <= cutoff_time
                 })
+                .filter(|n| Self::is_valid_hex_hash(&n.hash))
+                .collect();
+            
+            // Limit to MAX_TXS_PER_CHECKPOINT to ensure vote request fits in P2P message
+            if unfinalized_nodes.len() > MAX_TXS_PER_CHECKPOINT {
+                info!(
+                    "Limiting checkpoint {} to {} of {} eligible transactions (remaining will be finalized in next checkpoint)",
+                    height, MAX_TXS_PER_CHECKPOINT, unfinalized_nodes.len()
+                );
+                // Sort by timestamp to finalize oldest first
+                unfinalized_nodes.sort_by_key(|n| n.tx.tx.timestamp);
+                unfinalized_nodes.truncate(MAX_TXS_PER_CHECKPOINT);
+            }
+            
+            let mut unfinalized: Vec<String> = unfinalized_nodes.iter()
                 .map(|n| n.hash.clone())
-                .filter(|h| Self::is_valid_hex_hash(h))
+                .collect();
+            
+            // Collect full transaction data for sending to peers who may be missing txs
+            let unfinalized_txs: Vec<SignedTransaction> = unfinalized_nodes.iter()
+                .map(|n| n.tx.clone())
                 .collect();
             
             // Log how many txs were excluded due to propagation grace
-            let total_unfinalized = state.dag.get_unfinalized_nodes().len();
+            let total_unfinalized = all_unfinalized.len();
             if total_unfinalized > unfinalized.len() {
                 debug!(
                     "Propagation grace: {} of {} unfinalized txs excluded (too new, cutoff={}ms)",
@@ -1056,7 +1112,7 @@ impl CheckpointService {
                 tree.root()
             };
 
-            (unfinalized, tx_merkle_root)
+            (unfinalized, unfinalized_txs, tx_merkle_root)
         };
 
         // Record that we're creating the checkpoint (leader only)
@@ -1074,12 +1130,33 @@ impl CheckpointService {
                     height
                 );
                 
+                // CRITICAL FIX: Use peer's finalized_tx_hashes if available for validation
+                let (adoption_hashes, adoption_merkle_root): (Vec<String>, String) = if !peer_checkpoint.finalized_tx_hashes.is_empty() {
+                    let state = self.state.inner.read().await;
+                    let missing = peer_checkpoint.finalized_tx_hashes.iter()
+                        .filter(|h| state.dag.get_node(h).is_none())
+                        .count();
+                    
+                    if missing == 0 {
+                        let mut sorted = peer_checkpoint.finalized_tx_hashes.clone();
+                        sorted.sort();
+                        let root = MerkleTree::from_hex_leaves(&sorted)
+                            .map(|t| t.root())
+                            .unwrap_or_else(|_| "0".repeat(64));
+                        (peer_checkpoint.finalized_tx_hashes.clone(), root)
+                    } else {
+                        (unfinalized_hashes.clone(), tx_merkle_root.clone())
+                    }
+                } else {
+                    (unfinalized_hashes.clone(), tx_merkle_root.clone())
+                };
+                
                 // Validate and adopt - if validation fails, we'll try to sync first
                 let (adopted, prev_hash_mismatch) = self.validate_and_adopt_peer_checkpoint(
                     peer_checkpoint.clone(),
-                    &tx_merkle_root,
+                    &adoption_merkle_root,
                     previous_hash.as_deref(),
-                    &unfinalized_hashes,
+                    &adoption_hashes,
                 ).await;
                 
                 if adopted {
@@ -1120,7 +1197,36 @@ impl CheckpointService {
                 }
                 
                 // After sync, recompute our state and try adoption again
-                let (new_unfinalized, new_merkle_root) = {
+                // CRITICAL FIX: Use peer's finalized_tx_hashes if available
+                let (new_unfinalized, new_merkle_root) = if !peer_checkpoint.finalized_tx_hashes.is_empty() {
+                    let state = self.state.inner.read().await;
+                    let missing = peer_checkpoint.finalized_tx_hashes.iter()
+                        .filter(|h| state.dag.get_node(h).is_none())
+                        .count();
+                    
+                    if missing == 0 {
+                        let mut sorted = peer_checkpoint.finalized_tx_hashes.clone();
+                        sorted.sort();
+                        let root = MerkleTree::from_hex_leaves(&sorted)
+                            .map(|t| t.root())
+                            .unwrap_or_else(|_| "0".repeat(64));
+                        (peer_checkpoint.finalized_tx_hashes.clone(), root)
+                    } else {
+                        // Still missing after sync - fall back to local
+                        let mut unfinalized: Vec<String> = state
+                            .dag
+                            .get_unfinalized_nodes()
+                            .iter()
+                            .map(|n| n.hash.clone())
+                            .filter(|h| Self::is_valid_hex_hash(h))
+                            .collect();
+                        unfinalized.sort();
+                        let merkle_root = MerkleTree::from_hex_leaves(&unfinalized)
+                            .map(|t| t.root())
+                            .unwrap_or_else(|_| "0".repeat(64));
+                        (unfinalized, merkle_root)
+                    }
+                } else {
                     let state = self.state.inner.read().await;
                     let mut unfinalized: Vec<String> = state
                         .dag
@@ -1207,6 +1313,7 @@ impl CheckpointService {
 
         // Multi-validator quorum collection - attempt to gather votes from peers
         // Falls back to single-validator mode if no peer votes are collected
+        // CRITICAL: Pass the exact tx list so validators can verify before signing
         let (all_signatures, raw_signatures, total_stake) = self.collect_validator_quorum(
             &checkpoint_hash,
             height,
@@ -1214,6 +1321,8 @@ impl CheckpointService {
             validator_sig.clone(),
             &tx_merkle_root,
             &state_root,
+            &unfinalized_hashes,
+            &unfinalized_txs,
         ).await;
         
         // Get total network stake for quorum check
@@ -1409,6 +1518,9 @@ impl CheckpointService {
     /// 
     /// CRITICAL: Requests votes from all peers in PARALLEL to avoid blocking on slow peers.
     /// A slow/unresponsive peer should not prevent quorum from being reached with healthy peers.
+    /// 
+    /// The finalized_tx_hashes are included in vote requests so validators can verify
+    /// they have all the transactions before signing, preventing merkle root mismatches.
     async fn collect_validator_quorum(
         &self,
         checkpoint_hash: &[u8],
@@ -1417,6 +1529,8 @@ impl CheckpointService {
         our_validator_sig: ValidatorSignature,
         tx_merkle_root: &str,
         state_root: &str,
+        finalized_tx_hashes: &[String],
+        finalized_transactions: &[SignedTransaction],
     ) -> (Vec<ValidatorSignature>, Vec<Vec<u8>>, f64) {
         // Reduced from 10s to 3s - we request in parallel, so we don't need long waits
         // If a peer can't respond in 3s, it's too slow to participate in this round
@@ -1460,6 +1574,8 @@ impl CheckpointService {
             
             // PARALLEL VOTE COLLECTION: Request votes from ALL peers simultaneously
             // This prevents a slow peer from blocking the entire quorum collection
+            let finalized_tx_hashes_vec: Vec<String> = finalized_tx_hashes.to_vec();
+            let finalized_txs_vec: Vec<SignedTransaction> = finalized_transactions.to_vec();
             let vote_futures: Vec<_> = peer_ids.iter().map(|peer_id| {
                 let network = Arc::clone(network);
                 let checkpoint_hash_hex = checkpoint_hash_hex.clone();
@@ -1468,6 +1584,8 @@ impl CheckpointService {
                 let checkpoint_hash_bytes = checkpoint_hash.to_vec();
                 let peer_id = peer_id.clone();
                 let validator_identity = self.validator_identity.clone();
+                let tx_hashes = finalized_tx_hashes_vec.clone();
+                let txs = finalized_txs_vec.clone();
                 
                 async move {
                     // Per-request timeout to prevent blocking on slow peers
@@ -1482,6 +1600,8 @@ impl CheckpointService {
                             &state_root,
                             &checkpoint_hash_bytes,
                             validator_identity.as_ref(),
+                            &tx_hashes,
+                            &txs,
                         )
                     ).await;
                     
@@ -1539,12 +1659,29 @@ impl CheckpointService {
         state_root: &str,
         checkpoint_hash_bytes: &[u8],
         validator_identity: Option<&Arc<RwLock<ValidatorIdentityService>>>,
+        finalized_tx_hashes: &[String],
+        finalized_transactions: &[SignedTransaction],
     ) -> Option<(ValidatorSignature, Vec<u8>, f64)> {
+        // With custom 16MB CBOR codec, we can send many more embedded transactions
+        // Average transaction is ~500 bytes, so 10,000 txs ≈ 5MB, well within 16MB limit
+        const MAX_EMBEDDED_TXS: usize = 10_000;
+        let limited_transactions: Vec<SignedTransaction> = if finalized_transactions.len() > MAX_EMBEDDED_TXS {
+            info!(
+                "Limiting embedded transactions in vote request from {} to {} (checkpoint {})",
+                finalized_transactions.len(), MAX_EMBEDDED_TXS, height
+            );
+            finalized_transactions.iter().take(MAX_EMBEDDED_TXS).cloned().collect()
+        } else {
+            finalized_transactions.to_vec()
+        };
+        
         let request = SyncRequest::CheckpointVote(CheckpointVoteRequest {
             checkpoint_hash: checkpoint_hash_hex.to_string(),
             height,
             tx_merkle_root: tx_merkle_root.to_string(),
             state_root: state_root.to_string(),
+            finalized_tx_hashes: finalized_tx_hashes.to_vec(),
+            finalized_transactions: limited_transactions,
         });
         
         let response = {

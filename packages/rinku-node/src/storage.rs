@@ -157,6 +157,45 @@ impl RedbStorage {
         Ok(())
     }
 
+    pub fn batch_delete_dag(&self, keys: &[Vec<u8>]) -> Result<usize> {
+        if keys.is_empty() {
+            return Ok(0);
+        }
+        let db = self.db_read();
+        let write_txn = db.begin_write()?;
+        let mut deleted = 0;
+        {
+            let mut table = write_txn.open_table(TABLE_DAG)?;
+            for key in keys {
+                if table.remove(key.as_slice())?.is_some() {
+                    deleted += 1;
+                }
+            }
+        }
+        write_txn.commit()?;
+        Ok(deleted)
+    }
+
+    pub fn batch_delete_checkpoints(&self, heights: &[u64]) -> Result<usize> {
+        if heights.is_empty() {
+            return Ok(0);
+        }
+        let db = self.db_read();
+        let write_txn = db.begin_write()?;
+        let mut deleted = 0;
+        {
+            let mut table = write_txn.open_table(TABLE_CHECKPOINTS)?;
+            for height in heights {
+                let key = height.to_be_bytes();
+                if table.remove(key.as_slice())?.is_some() {
+                    deleted += 1;
+                }
+            }
+        }
+        write_txn.commit()?;
+        Ok(deleted)
+    }
+
     pub fn put_trie<T: Serialize>(&self, key: &[u8], value: &T) -> Result<()> {
         let data = bincode::serialize(value)?;
         let db = self.db_read();

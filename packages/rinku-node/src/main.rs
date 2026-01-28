@@ -6,6 +6,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod api;
 mod bls;
+#[cfg(feature = "p2p")]
+mod cbor_codec;
 mod checkpoint;
 mod config;
 mod consensus;

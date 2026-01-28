@@ -8,10 +8,12 @@ use libp2p::{
     identify,
     mdns,
     noise,
-    request_response::{self, cbor, OutboundRequestId, ProtocolSupport, ResponseChannel},
+    request_response::{self, OutboundRequestId, ProtocolSupport, ResponseChannel},
     swarm::SwarmEvent,
     tcp, yamux, Multiaddr, PeerId, Swarm, StreamProtocol,
 };
+
+use crate::cbor_codec::CborCodec;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
@@ -58,6 +60,13 @@ pub struct CheckpointVoteRequest {
     pub tx_merkle_root: String,
     /// State root for verification
     pub state_root: String,
+    /// Exact list of transaction hashes to be finalized (ensures all validators agree on the same set)
+    #[serde(default)]
+    pub finalized_tx_hashes: Vec<String>,
+    /// Full transaction data for transactions being finalized (Option A: inline sync)
+    /// Allows validators to apply missing transactions without extra round-trips
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub finalized_transactions: Vec<rinku_core::types::SignedTransaction>,
 }
 
 /// Sync response types
@@ -191,7 +200,7 @@ pub struct ProofData {
 #[derive(libp2p::swarm::NetworkBehaviour)]
 pub struct RinkuBehaviour {
     pub gossipsub: gossipsub::Behaviour,
-    pub request_response: cbor::Behaviour<SyncRequest, SyncResponse>,
+    pub request_response: request_response::Behaviour<CborCodec<SyncRequest, SyncResponse>>,
     pub identify: identify::Behaviour,
     pub mdns: mdns::tokio::Behaviour,
 }
@@ -404,11 +413,18 @@ impl NetworkService {
         )?;
 
         // Request-response protocol for sync operations
+        // Use custom CBOR codec with 16MB limits to support checkpoint votes with many transactions
+        // This allows up to ~30,000 transactions per checkpoint (at ~500 bytes each)
         let sync_protocol = StreamProtocol::new(SYNC_PROTOCOL);
-        let request_response = cbor::Behaviour::new(
+        let cbor_codec: CborCodec<SyncRequest, SyncResponse> = CborCodec::new(
+            16 * 1024 * 1024,  // 16 MB max request size
+            16 * 1024 * 1024,  // 16 MB max response size
+        );
+        let request_response = request_response::Behaviour::with_codec(
+            cbor_codec,
             [(sync_protocol, ProtocolSupport::Full)],
             request_response::Config::default()
-                .with_request_timeout(Duration::from_secs(30)),
+                .with_request_timeout(Duration::from_secs(60)),
         );
 
         // Identify protocol for peer info exchange

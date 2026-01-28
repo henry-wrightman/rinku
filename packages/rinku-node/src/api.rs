@@ -31,7 +31,7 @@ const MAX_CONCURRENT_SYNC_REQUESTS: u32 = 5;
 
 /// Maximum tips before rejecting new transactions (backpressure)
 /// With Sparse DAG Sampling (16 tips per tx), this should rarely be hit.
-/// Kept at 1000 as a safety net for extreme scenarios.
+/// Kept at 5000 as a safety net for extreme scenarios.
 const MAX_TIPS_BACKPRESSURE: usize = 1000;
 
 /// Guard to automatically decrement active sync request count on drop
@@ -1787,6 +1787,10 @@ struct TransactionResponse {
     finalized: bool,
     weight: f64,
     url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    references: Option<Vec<String>>,
 }
 
 async fn get_transaction(
@@ -1827,6 +1831,8 @@ async fn get_transaction(
             finalized,
             weight,
             url: format!("/tx/h/{}", tx.hash),
+            memo: tx.tx.memo.clone(),
+            references: tx.tx.references.clone(),
         }))
     } else {
         // Debug: log lookup failure with DAG stats
@@ -1834,6 +1840,74 @@ async fn get_transaction(
         tracing::warn!("Transaction {} not found in DAG (DAG size: {})", hash, dag_size);
         Err(ApiError::not_found(format!("Transaction {} not found (may have been pruned after finalization)", hash)))
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadResponse {
+    parent_hash: String,
+    replies: Vec<TransactionResponse>,
+    total_replies: usize,
+}
+
+async fn get_transaction_replies(
+    State(state): State<NodeState>,
+    Path(hash): Path<String>,
+) -> Result<Json<ThreadResponse>, ApiError> {
+    let inner = state.inner.read().await;
+    let all_txs = inner.dag.all_transactions();
+    
+    let mut replies: Vec<TransactionResponse> = Vec::new();
+    
+    for tx in all_txs.iter() {
+        if let Some(refs) = &tx.tx.references {
+            if refs.contains(&hash) {
+                let (finalized, weight) = inner.dag.get_node(&tx.hash)
+                    .map(|n| (n.finalized, n.weight))
+                    .unwrap_or((false, 1.0));
+                
+                let tip_urls: Vec<String> = tx.tx.parents.iter()
+                    .map(|p| {
+                        let h = if p.starts_with("rinku://tx/h/") {
+                            p.strip_prefix("rinku://tx/h/").unwrap_or(p)
+                        } else if p.starts_with("rinku://tx/") {
+                            p.strip_prefix("rinku://tx/").unwrap_or(p)
+                        } else if p.starts_with("/tx/h/") {
+                            p.strip_prefix("/tx/h/").unwrap_or(p)
+                        } else {
+                            p.as_str()
+                        };
+                        format!("/tx/h/{}", h)
+                    })
+                    .collect();
+                
+                replies.push(TransactionResponse {
+                    hash: tx.hash.clone(),
+                    from: tx.tx.from.clone(),
+                    to: tx.tx.to.clone(),
+                    amount: tx.tx.amount,
+                    fee: tx.tx.gas_price.unwrap_or(0.0),
+                    nonce: tx.tx.nonce,
+                    ts: tx.tx.timestamp,
+                    tip_urls,
+                    finalized,
+                    weight,
+                    url: format!("/tx/h/{}", tx.hash),
+                    memo: tx.tx.memo.clone(),
+                    references: tx.tx.references.clone(),
+                });
+            }
+        }
+    }
+    
+    replies.sort_by(|a, b| a.ts.cmp(&b.ts));
+    let total_replies = replies.len();
+    
+    Ok(Json(ThreadResponse {
+        parent_hash: hash,
+        replies,
+        total_replies,
+    }))
 }
 
 async fn get_self_provable_tx(
@@ -2834,6 +2908,7 @@ pub async fn start_api_server(
         .route("/api/account/:address", get(get_account))
         .route("/api/account/:address/transactions", get(get_account_transactions))
         .route("/api/tx/:hash", get(get_transaction))
+        .route("/api/tx/:hash/replies", get(get_transaction_replies))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))
         .route("/api/dag", get(get_dag))

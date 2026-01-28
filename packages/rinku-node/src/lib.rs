@@ -12,6 +12,7 @@ pub mod gas;
 pub mod gossip;
 pub mod leader_election;
 #[cfg(feature = "p2p")]
+pub mod cbor_codec;
 pub mod network;
 pub mod persistence;
 pub mod proofs;

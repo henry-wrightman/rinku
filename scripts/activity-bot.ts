@@ -8,8 +8,8 @@ const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "5000"); // Reduced f
 const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "1000");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "6");
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "8");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "10");
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "20");
 const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.3");
 const NONCE_WAIT_TIMEOUT_MS = parseInt(
   process.env.NONCE_WAIT_TIMEOUT_MS || "6000",

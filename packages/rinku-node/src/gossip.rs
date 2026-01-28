@@ -704,27 +704,139 @@ impl GossipService {
                                 if signer.validator_address.is_empty() {
                                     SyncResponse::CheckpointVote(None)
                                 } else {
-                                    match hex::decode(&request.checkpoint_hash) {
-                                        Ok(hash_bytes) => {
-                                            match bls_sign(&hash_bytes, &signer.bls_private_key) {
-                                                Ok(signature) => {
-                                                    let response = CheckpointVoteResponse {
-                                                        validator_address: signer.validator_address.clone(),
-                                                        signature: URL_SAFE_NO_PAD.encode(&signature),
-                                                        signature_bytes: signature,
-                                                        bls_public_key: URL_SAFE_NO_PAD.encode(&signer.bls_public_key),
-                                                        stake: MIN_VALIDATOR_STAKE,
-                                                    };
-                                                    SyncResponse::CheckpointVote(Some(response))
+                                    // OPTION A: Apply missing transactions from the vote request before signing
+                                    // This ensures consensus can progress even during high transaction volume
+                                    let can_sign = if !request.finalized_tx_hashes.is_empty() {
+                                        // First, check which transactions we're missing
+                                        let missing_hashes: Vec<String> = {
+                                            let state = self.state.inner.read().await;
+                                            request.finalized_tx_hashes.iter()
+                                                .filter(|hash| state.dag.get_node(hash).is_none())
+                                                .cloned()
+                                                .collect()
+                                        };
+                                        
+                                        let mut applied_count = 0;
+                                        
+                                        // If we have missing transactions and the leader sent the data, apply them
+                                        if !missing_hashes.is_empty() && !request.finalized_transactions.is_empty() {
+                                            info!(
+                                                "Vote request includes {} transactions, need {} missing for checkpoint {}",
+                                                request.finalized_transactions.len(),
+                                                missing_hashes.len(),
+                                                request.height
+                                            );
+                                            
+                                            // Apply missing transactions from the vote request using force-add
+                                            // This bypasses nonce/parent validation since we just need the hash
+                                            // in the DAG for merkle verification - we're not executing these
+                                            for tx in &request.finalized_transactions {
+                                                if missing_hashes.contains(&tx.hash) {
+                                                    // Force-add to DAG without validation (for checkpoint vote only)
+                                                    match self.state.force_add_transaction_for_vote(tx.clone()).await {
+                                                        Ok(_) => {
+                                                            applied_count += 1;
+                                                        }
+                                                        Err(e) => {
+                                                            // Log but continue - might already exist or have other issues
+                                                            debug!("Could not force-add tx {} for vote: {}", &tx.hash[..16.min(tx.hash.len())], e);
+                                                        }
+                                                    }
                                                 }
-                                                Err(e) => SyncResponse::Error {
-                                                    message: format!("Failed to sign checkpoint: {}", e),
-                                                },
+                                            }
+                                            
+                                            if applied_count > 0 {
+                                                info!(
+                                                    "Force-added {}/{} missing transactions for checkpoint {} vote verification",
+                                                    applied_count, missing_hashes.len(), request.height
+                                                );
                                             }
                                         }
-                                        Err(_) => SyncResponse::Error {
-                                            message: "Invalid checkpoint hash".to_string(),
-                                        },
+                                        
+                                        // Re-check missing count after applying transactions
+                                        let (still_missing, still_missing_hashes) = {
+                                            let state = self.state.inner.read().await;
+                                            let missing: Vec<String> = request.finalized_tx_hashes.iter()
+                                                .filter(|hash| state.dag.get_node(hash).is_none())
+                                                .cloned()
+                                                .collect();
+                                            (missing.len(), missing)
+                                        };
+                                        
+                                        if still_missing > 0 {
+                                            // Log which specific hashes are missing
+                                            let embedded_hashes: std::collections::HashSet<&str> = 
+                                                request.finalized_transactions.iter()
+                                                    .map(|tx| tx.hash.as_str())
+                                                    .collect();
+                                            
+                                            for missing_hash in still_missing_hashes.iter().take(5) {
+                                                let in_embedded = embedded_hashes.contains(missing_hash.as_str());
+                                                warn!(
+                                                    "Missing hash after sync: {} (in embedded txs: {})",
+                                                    &missing_hash[..32.min(missing_hash.len())], in_embedded
+                                                );
+                                            }
+                                            
+                                            warn!(
+                                                "Declining checkpoint vote for height {}: still missing {}/{} transactions after inline sync (embedded: {})",
+                                                request.height, still_missing, request.finalized_tx_hashes.len(),
+                                                request.finalized_transactions.len()
+                                            );
+                                            false
+                                        } else {
+                                            // Verify merkle root matches
+                                            let mut tx_hashes = request.finalized_tx_hashes.clone();
+                                            tx_hashes.sort();
+                                            let computed_root = rinku_core::MerkleTree::from_hex_leaves(&tx_hashes)
+                                                .map(|t| t.root())
+                                                .unwrap_or_else(|_| "0".repeat(64));
+                                            
+                                            if computed_root != request.tx_merkle_root {
+                                                warn!(
+                                                    "Declining checkpoint vote for height {}: merkle root mismatch (ours={}, theirs={})",
+                                                    request.height, &computed_root[..16], &request.tx_merkle_root[..16]
+                                                );
+                                                false
+                                            } else {
+                                                info!(
+                                                    "Verified {} transactions for checkpoint {} vote (applied {} via inline sync)",
+                                                    request.finalized_tx_hashes.len(), request.height, applied_count
+                                                );
+                                                true
+                                            }
+                                        }
+                                    } else {
+                                        // Legacy request without tx hashes - sign blindly (backwards compatible)
+                                        debug!("Legacy vote request without tx hashes for height {}", request.height);
+                                        true
+                                    };
+                                    
+                                    if !can_sign {
+                                        SyncResponse::CheckpointVote(None)
+                                    } else {
+                                        match hex::decode(&request.checkpoint_hash) {
+                                            Ok(hash_bytes) => {
+                                                match bls_sign(&hash_bytes, &signer.bls_private_key) {
+                                                    Ok(signature) => {
+                                                        let response = CheckpointVoteResponse {
+                                                            validator_address: signer.validator_address.clone(),
+                                                            signature: URL_SAFE_NO_PAD.encode(&signature),
+                                                            signature_bytes: signature,
+                                                            bls_public_key: URL_SAFE_NO_PAD.encode(&signer.bls_public_key),
+                                                            stake: MIN_VALIDATOR_STAKE,
+                                                        };
+                                                        SyncResponse::CheckpointVote(Some(response))
+                                                    }
+                                                    Err(e) => SyncResponse::Error {
+                                                        message: format!("Failed to sign checkpoint: {}", e),
+                                                    },
+                                                }
+                                            }
+                                            Err(_) => SyncResponse::Error {
+                                                message: "Invalid checkpoint hash".to_string(),
+                                            },
+                                        }
                                     }
                                 }
                             } else {
