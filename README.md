@@ -36,6 +36,11 @@ The current testnet is hosted on Fly.io nodes. To join it, use any Fly node as a
 curl https://<fly-node>.fly.dev/api/bootstrap
 ```
 
+(current fly nodes as of 1/28/25)
+https://rinku-genesis.fly.dev
+https://rinku-validator-1.fly.dev
+https://rinku-validator-2.fly.dev
+
 3. Start your node with the returned bootstrap values (replace `<PUBLIC_IP>` in the
    `bootstrap_multiaddr` with the Fly node's public IP):
 
