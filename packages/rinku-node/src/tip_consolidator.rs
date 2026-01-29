@@ -18,7 +18,7 @@ const TIPS_PER_CONSOLIDATION: usize = 16;
 const INTERVAL_HIGH_TPS_MS: u64 = 150; // >500 TPS: aggressive
 const INTERVAL_MEDIUM_TPS_MS: u64 = 500; // 50-500 TPS: balanced
 const INTERVAL_LOW_TPS_MS: u64 = 1500; // 10-50 TPS: relaxed
-const INTERVAL_IDLE_MS: u64 = 10000; // <10 TPS: minimal overhead
+const INTERVAL_IDLE_MS: u64 = 4000; // <10 TPS: minimal overhead
 
 /// TPS thresholds for interval selection
 const TPS_HIGH: f64 = 500.0;

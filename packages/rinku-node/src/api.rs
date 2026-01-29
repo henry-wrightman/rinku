@@ -2056,19 +2056,22 @@ struct TokenomicsSupplyResponse {
 async fn get_tokenomics_supply(State(state): State<NodeState>) -> Json<TokenomicsSupplyResponse> {
     let total_supply = state.get_total_supply().await;
     let checkpoint_height = state.get_checkpoint_height().await;
-    let (_, total_burned, total_to_validators, _) = state.get_gas_stats().await;
+    let (_, gas_burned, _, _) = state.get_gas_stats().await;
+    
+    // Get actual emission stats from emission service
+    let (emission_total_emitted, _) = state.get_emission_stats().await;
     
     let max_supply = 30_000_000.0;
     let genesis_allocation = 6_000_000.0;
     
-    // total_emitted = fees paid to validators (reward emissions from gas)
-    // total_burned = fees burned (deflationary pressure)
+    // total_emitted = RKU emitted through checkpoint rewards (from emission service)
+    // total_burned = gas fees burned (deflationary pressure)
     Json(TokenomicsSupplyResponse {
         max_supply,
         genesis_allocation,
         circulating_supply: total_supply,
-        total_emitted: total_to_validators,
-        total_burned,
+        total_emitted: emission_total_emitted,
+        total_burned: gas_burned,
         remaining_to_emit: max_supply - genesis_allocation,
         current_reward: 12.5,
         halving_epoch: 0,

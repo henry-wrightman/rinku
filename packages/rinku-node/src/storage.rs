@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
 use crate::contracts::ContractState;
+use crate::emission::EmissionSnapshot;
 use crate::rewards::RewardsSnapshot;
 
 pub const TABLE_ACCOUNTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("accounts");
@@ -17,6 +18,7 @@ pub const TABLE_TRIE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("trie
 pub const TABLE_METADATA: TableDefinition<&[u8], &[u8]> = TableDefinition::new("metadata");
 pub const TABLE_CONTRACTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("contracts");
 pub const TABLE_REWARDS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("rewards");
+pub const TABLE_EMISSION: TableDefinition<&[u8], &[u8]> = TableDefinition::new("emission");
 
 pub struct RedbStorage {
     db: Arc<RwLock<Database>>,
@@ -41,6 +43,7 @@ impl RedbStorage {
             let _ = write_txn.open_table(TABLE_METADATA);
             let _ = write_txn.open_table(TABLE_CONTRACTS);
             let _ = write_txn.open_table(TABLE_REWARDS);
+            let _ = write_txn.open_table(TABLE_EMISSION);
             write_txn.commit()?;
         }
 
@@ -576,6 +579,41 @@ impl RedbStorage {
             }
             None => {
                 warn!("No rewards snapshot found, starting fresh");
+                Ok(None)
+            }
+        }
+    }
+
+    pub fn save_emission(&self, snapshot: &EmissionSnapshot) -> Result<()> {
+        let data = serde_json::to_vec(snapshot)?;
+        let db = self.db_read();
+        let write_txn = db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(TABLE_EMISSION)?;
+            table.insert(b"emission_snapshot".as_slice(), data.as_slice())?;
+        }
+        write_txn.commit()?;
+        debug!("Saved emission snapshot: emitted={:.2}, burned={:.2}", 
+               snapshot.total_emitted, snapshot.total_burned);
+        Ok(())
+    }
+
+    pub fn load_emission(&self) -> Result<Option<EmissionSnapshot>> {
+        let db = self.db_read();
+        let read_txn = db.begin_read()?;
+        let table = read_txn.open_table(TABLE_EMISSION)?;
+        match table.get(b"emission_snapshot".as_slice())? {
+            Some(data) => {
+                let snapshot: EmissionSnapshot = serde_json::from_slice(data.value())?;
+                info!(
+                    "Loaded emission snapshot: emitted={:.2} RKU, burned={:.2} RKU",
+                    snapshot.total_emitted,
+                    snapshot.total_burned
+                );
+                Ok(Some(snapshot))
+            }
+            None => {
+                warn!("No emission snapshot found, starting fresh");
                 Ok(None)
             }
         }
