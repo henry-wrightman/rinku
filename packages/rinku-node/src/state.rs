@@ -6,7 +6,7 @@ use rinku_core::{
 };
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -642,11 +642,6 @@ pub struct StateInner {
     // Track whether this node has ever successfully synced from the network
     // If false, we're a new node that should adopt peer's genesis hash
     pub has_synced_from_network: bool,
-    // Pending nonce queue: buffers transactions with future nonces until gaps fill
-    // Key: sender address, Value: BTreeMap of nonce -> transaction (ordered by nonce)
-    pub pending_nonce_queue: HashMap<String, BTreeMap<u64, SignedTransaction>>,
-    // Cached total count of pending transactions (O(1) lookup instead of O(n) sum)
-    pub pending_queue_total: usize,
 }
 
 #[derive(Clone)]
@@ -763,8 +758,7 @@ impl NodeState {
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: true, // Restored from storage = already synced
-                    pending_nonce_queue: HashMap::new(),
-                    pending_queue_total: 0,
+
                 }
             } else {
                 // Try to sync from P2P bootstrap peers BEFORE creating genesis
@@ -856,8 +850,6 @@ impl NodeState {
                         node_listen_addr: None,
                         finalized_tx_history: VecDeque::new(),
                         has_synced_from_network: true,
-                        pending_nonce_queue: HashMap::new(),
-                        pending_queue_total: 0,
                     };
                     
                     // Handle emission, slashing, rewards from snapshot
@@ -1037,12 +1029,22 @@ impl NodeState {
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: false, // Fresh node = hasn't synced yet
-                    pending_nonce_queue: HashMap::new(),
-                    pending_queue_total: 0,
+
                 }
             };
 
-        let emission = EmissionService::new();
+        // Load emission from storage or create fresh
+        let emission = if let Some(snapshot) = storage.load_emission()? {
+            info!(
+                "Restored emission: {:.2} RKU emitted, {:.2} RKU burned",
+                snapshot.total_emitted,
+                snapshot.total_burned
+            );
+            EmissionService::from_json(snapshot)
+        } else {
+            EmissionService::new()
+        };
+        
         let slashing = SlashingService::new();
 
         // Load rewards from storage or create fresh
@@ -1172,6 +1174,12 @@ impl NodeState {
         let rewards_snapshot = rewards.to_json();
         drop(rewards);
         self.storage.save_rewards(&rewards_snapshot)?;
+
+        // Save emission state
+        let emission = self.emission.read().await;
+        let emission_snapshot = emission.to_json();
+        drop(emission);
+        self.storage.save_emission(&emission_snapshot)?;
 
         Ok(())
     }
@@ -1703,12 +1711,23 @@ impl NodeState {
             .unwrap_or(0);
         
         // SAFE FINALIZATION: Only finalize if our transaction set matches the leader's
+        // FINALITY-FIRST MODEL: Collect transactions for execution after marking finalized
+        let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
+        
         if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
             // Our unfinalized set matches the checkpoint - safe to finalize
             for hash in &unfinalized_hashes {
                 // Get transaction timestamp for finality time calculation
                 if let Some(node) = state.dag.get_node(hash) {
+                    // DOUBLE-EXECUTION GUARD: Skip already-finalized transactions
+                    if node.finalized {
+                        continue;
+                    }
+                    
                     let tx_timestamp = node.tx.tx.timestamp;
+                    // FINALITY-FIRST: Clone transaction for execution (before mutable borrow)
+                    let tx_clone = node.tx.clone();
+                    
                     // Handle both seconds and milliseconds timestamp formats
                     let tx_time_ms = if tx_timestamp < 4_000_000_000 {
                         tx_timestamp * 1000  // Convert seconds to milliseconds
@@ -1717,16 +1736,21 @@ impl NodeState {
                     };
                     let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
                     
-                    // Update finality stats (same as checkpoint creation)
-                    state.finality_sum_ms += finality_time_ms;
-                    state.finality_count += 1;
-                    if finality_time_ms > state.finality_max_ms {
-                        state.finality_max_ms = finality_time_ms;
+                    // Cap finality time to 5 minutes (300s) to prevent sync/restore txs from polluting stats
+                    const MAX_FINALITY_MS: u64 = 300_000;
+                    if finality_time_ms <= MAX_FINALITY_MS {
+                        state.finality_sum_ms += finality_time_ms;
+                        state.finality_count += 1;
+                        if finality_time_ms > state.finality_max_ms {
+                            state.finality_max_ms = finality_time_ms;
+                        }
+                        if state.finality_times_ms.len() >= 1000 {
+                            state.finality_times_ms.pop_front();
+                        }
+                        state.finality_times_ms.push_back(finality_time_ms);
                     }
-                    if state.finality_times_ms.len() >= 1000 {
-                        state.finality_times_ms.pop_front();
-                    }
-                    state.finality_times_ms.push_back(finality_time_ms);
+                    // FINALITY-FIRST: Collect transaction for execution
+                    txs_to_execute.push(tx_clone);
                 }
                 let _ = state.dag.mark_finalized(hash, height);
             }
@@ -1763,6 +1787,14 @@ impl NodeState {
         state.checkpoints.push(checkpoint.clone());
         state.last_checkpoint_time_ms = now_ms;
         
+        // Release state lock before executing transactions
+        drop(state);
+        
+        // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
+        for tx in txs_to_execute {
+            self.execute_finalized_transaction(&tx).await;
+        }
+        
         Ok(())
     }
 
@@ -1793,6 +1825,9 @@ impl NodeState {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         
+        // FINALITY-FIRST MODEL: Collect transactions for execution after marking finalized
+        let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
+        
         // If leader provided finalized hashes, use them to finalize transactions
         // This solves the "merkle mismatch" problem where transactions stay pending
         let finalized_count = if !finalized_tx_hashes.is_empty() {
@@ -1802,7 +1837,15 @@ impl NodeState {
             for hash in &finalized_tx_hashes {
                 // Only finalize transactions we have in our DAG
                 if let Some(node) = state.dag.get_node(hash) {
+                    // DOUBLE-EXECUTION GUARD: Skip already-finalized transactions
+                    if node.finalized {
+                        continue;
+                    }
+                    
                     let tx_timestamp = node.tx.tx.timestamp;
+                    // FINALITY-FIRST: Clone transaction for execution (before mutable borrow)
+                    let tx_clone = node.tx.clone();
+                    
                     // Handle both seconds and milliseconds timestamp formats
                     let tx_time_ms = if tx_timestamp < 4_000_000_000 {
                         tx_timestamp * 1000  // Convert seconds to milliseconds
@@ -1811,17 +1854,22 @@ impl NodeState {
                     };
                     let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
                     
-                    // Update finality stats
-                    state.finality_sum_ms += finality_time_ms;
-                    state.finality_count += 1;
-                    if finality_time_ms > state.finality_max_ms {
-                        state.finality_max_ms = finality_time_ms;
+                    // Cap finality time to 5 minutes (300s) to prevent sync/restore txs from polluting stats
+                    const MAX_FINALITY_MS: u64 = 300_000;
+                    if finality_time_ms <= MAX_FINALITY_MS {
+                        state.finality_sum_ms += finality_time_ms;
+                        state.finality_count += 1;
+                        if finality_time_ms > state.finality_max_ms {
+                            state.finality_max_ms = finality_time_ms;
+                        }
+                        if state.finality_times_ms.len() >= 1000 {
+                            state.finality_times_ms.pop_front();
+                        }
+                        state.finality_times_ms.push_back(finality_time_ms);
                     }
-                    if state.finality_times_ms.len() >= 1000 {
-                        state.finality_times_ms.pop_front();
-                    }
-                    state.finality_times_ms.push_back(finality_time_ms);
                     
+                    // FINALITY-FIRST: Collect transaction for execution
+                    txs_to_execute.push(tx_clone);
                     let _ = state.dag.mark_finalized(hash, height);
                     count += 1;
                 } else {
@@ -1881,7 +1929,15 @@ impl NodeState {
             if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                 for hash in &unfinalized_hashes {
                     if let Some(node) = state.dag.get_node(hash) {
+                        // DOUBLE-EXECUTION GUARD: Skip already-finalized transactions
+                        if node.finalized {
+                            continue;
+                        }
+                        
                         let tx_timestamp = node.tx.tx.timestamp;
+                        // FINALITY-FIRST: Clone transaction for execution (before mutable borrow)
+                        let tx_clone = node.tx.clone();
+                        
                         // Handle both seconds and milliseconds timestamp formats
                         let tx_time_ms = if tx_timestamp < 4_000_000_000 {
                             tx_timestamp * 1000  // Convert seconds to milliseconds
@@ -1889,15 +1945,22 @@ impl NodeState {
                             tx_timestamp
                         };
                         let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
-                        state.finality_sum_ms += finality_time_ms;
-                        state.finality_count += 1;
-                        if finality_time_ms > state.finality_max_ms {
-                            state.finality_max_ms = finality_time_ms;
+                        
+                        // Cap finality time to 5 minutes (300s) to prevent sync/restore txs from polluting stats
+                        const MAX_FINALITY_MS: u64 = 300_000;
+                        if finality_time_ms <= MAX_FINALITY_MS {
+                            state.finality_sum_ms += finality_time_ms;
+                            state.finality_count += 1;
+                            if finality_time_ms > state.finality_max_ms {
+                                state.finality_max_ms = finality_time_ms;
+                            }
+                            if state.finality_times_ms.len() >= 1000 {
+                                state.finality_times_ms.pop_front();
+                            }
+                            state.finality_times_ms.push_back(finality_time_ms);
                         }
-                        if state.finality_times_ms.len() >= 1000 {
-                            state.finality_times_ms.pop_front();
-                        }
-                        state.finality_times_ms.push_back(finality_time_ms);
+                        // FINALITY-FIRST: Collect transaction for execution
+                        txs_to_execute.push(tx_clone);
                     }
                     let _ = state.dag.mark_finalized(hash, height);
                 }
@@ -1929,6 +1992,14 @@ impl NodeState {
         // Suppress unused variable warning
         let _ = finalized_count;
         
+        // Release state lock before executing transactions
+        drop(state);
+        
+        // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
+        for tx in txs_to_execute {
+            self.execute_finalized_transaction(&tx).await;
+        }
+        
         Ok(())
     }
 
@@ -1950,6 +2021,12 @@ impl NodeState {
             state.total_to_validators,
             state.current_gas_price,
         )
+    }
+
+    /// Get emission stats (total_emitted, total_burned) from the emission service
+    pub async fn get_emission_stats(&self) -> (f64, f64) {
+        let emission = self.emission.read().await;
+        (emission.get_total_emitted(), emission.get_total_burned())
     }
 
     pub async fn get_total_supply(&self) -> f64 {
@@ -2066,6 +2143,48 @@ impl NodeState {
     pub async fn get_all_accounts(&self) -> Vec<Account> {
         let state = self.inner.read().await;
         state.accounts.values().cloned().collect()
+    }
+
+    /// Get pending (unfinalized) transaction stats for a sender
+    /// Returns (pending_outgoing_amount, pending_gas, pending_tx_count)
+    /// Used for finality-first validation: effective_balance = confirmed - pending_outgoing - pending_gas
+    fn get_pending_stats_for_sender(state: &StateInner, sender: &str) -> (f64, f64, u64) {
+        let mut pending_amount = 0.0;
+        let mut pending_gas = 0.0;
+        let mut pending_count = 0u64;
+        
+        for node in state.dag.get_all_nodes() {
+            if !node.finalized && node.tx.tx.from == sender {
+                let gas = node.tx.tx.gas_price.unwrap_or(state.current_gas_price);
+                pending_gas += gas;
+                
+                // Only count amount for transfers and stakes (not unstake/claim)
+                let is_unstake = matches!(node.tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                let is_claim = matches!(node.tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                if !is_unstake && !is_claim {
+                    pending_amount += node.tx.tx.amount;
+                }
+                pending_count += 1;
+            }
+        }
+        
+        (pending_amount, pending_gas, pending_count)
+    }
+    
+    /// Get the expected nonce for a sender, accounting for pending (unfinalized) transactions
+    /// effective_nonce = confirmed_nonce + pending_tx_count
+    fn get_effective_nonce(state: &StateInner, sender: &str) -> u64 {
+        let confirmed_nonce = state.accounts.get(sender).map(|a| a.nonce).unwrap_or(0);
+        let (_, _, pending_count) = Self::get_pending_stats_for_sender(state, sender);
+        confirmed_nonce + pending_count
+    }
+    
+    /// Get effective balance for a sender, accounting for pending (unfinalized) transactions
+    /// effective_balance = confirmed_balance - pending_outgoing - pending_gas
+    fn get_effective_balance(state: &StateInner, sender: &str) -> f64 {
+        let confirmed_balance = state.accounts.get(sender).map(|a| a.balance).unwrap_or(0.0);
+        let (pending_amount, pending_gas, _) = Self::get_pending_stats_for_sender(state, sender);
+        confirmed_balance - pending_amount - pending_gas
     }
 
     /// Compute state root from all account states
@@ -2300,154 +2419,58 @@ impl NodeState {
                 tx.tx.amount + gas_fee // Transfer: need amount + gas
             };
             
-            // Check sender account
+            // FINALITY-FIRST MODEL: Check using effective balance/nonce
+            // Effective = confirmed - pending (unfinalized transactions)
+            // This allows multiple pending txs while ensuring total doesn't exceed balance
             if tx.tx.from != "genesis" {
-                match state.accounts.get(&tx.tx.from) {
-                    Some(account) => {
-                        if account.balance < required_balance {
-                            tracing::warn!(
-                                "Transaction rejected: insufficient balance. Have {:.6}, need {:.6} (amount: {:.6}, gas: {:.6})",
-                                account.balance, required_balance, tx.tx.amount, gas_fee
-                            );
-                            return Err(anyhow::anyhow!(
-                                "Insufficient balance: have {:.6}, need {:.6}",
-                                account.balance, required_balance
-                            ));
-                        }
-                        // Nonce handling with pending queue support:
-                        // - nonce < expected: reject (duplicate/already processed)
-                        // - nonce > expected: buffer in pending queue for later
-                        // - nonce == expected: process normally
-                        if tx.tx.nonce < account.nonce {
-                            tracing::warn!(
-                                "Transaction rejected: stale nonce. Expected {}, got {} (already processed)",
-                                account.nonce, tx.tx.nonce
-                            );
-                            return Err(anyhow::anyhow!(
-                                "Stale nonce: expected {}, got {} (already processed)",
-                                account.nonce, tx.tx.nonce
-                            ));
-                        }
-                        // Future nonce - buffer it for later processing
-                        if tx.tx.nonce > account.nonce {
-                            // === DDoS PROTECTION CONSTANTS ===
-                            // Per-sender queue limit (increased for high-volume dapps like messaging)
-                            const MAX_PENDING_PER_SENDER: usize = 128;
-                            // Maximum nonce gap allowed (reject if nonce is too far ahead)
-                            // Increased to handle validator divergence during high transaction volume
-                            const MAX_NONCE_GAP: u64 = 256;
-                            // Maximum unique senders with pending queues
-                            const MAX_PENDING_SENDERS: usize = 1000;
-                            // Global queue size limit across all senders
-                            const MAX_GLOBAL_PENDING: usize = 20000;
-                            
-                            // PROTECTION 1: Nonce gap limit
-                            // Reject transactions with nonces too far in the future
-                            // This prevents attackers from creating huge gaps
-                            let nonce_gap = tx.tx.nonce - account.nonce;
-                            if nonce_gap > MAX_NONCE_GAP {
-                                tracing::warn!(
-                                    "Nonce gap too large for {}: expected {}, got {} (gap: {})",
-                                    &tx.tx.from[..16.min(tx.tx.from.len())],
-                                    account.nonce, tx.tx.nonce, nonce_gap
-                                );
-                                return Err(anyhow::anyhow!(
-                                    "Nonce too far ahead: expected {}, got {} (max gap: {})",
-                                    account.nonce, tx.tx.nonce, MAX_NONCE_GAP
-                                ));
-                            }
-                            
-                            // Check if we already have this nonce buffered
-                            let already_buffered = state.pending_nonce_queue
-                                .get(&tx.tx.from)
-                                .map(|q| q.contains_key(&tx.tx.nonce))
-                                .unwrap_or(false);
-                            
-                            if already_buffered {
-                                tracing::debug!(
-                                    "Transaction already buffered: nonce {} from {}",
-                                    tx.tx.nonce, &tx.tx.from[..16.min(tx.tx.from.len())]
-                                );
-                                return Ok(TransactionResult::Buffered);
-                            }
-                            
-                            // PROTECTION 2: Per-sender queue limit
-                            let queue_size = state.pending_nonce_queue
-                                .get(&tx.tx.from)
-                                .map(|q| q.len())
-                                .unwrap_or(0);
-                            
-                            if queue_size >= MAX_PENDING_PER_SENDER {
-                                tracing::warn!(
-                                    "Per-sender queue full for {}, rejecting nonce {}",
-                                    &tx.tx.from[..16.min(tx.tx.from.len())], tx.tx.nonce
-                                );
-                                return Err(anyhow::anyhow!(
-                                    "Too many pending transactions from this sender (max: {})",
-                                    MAX_PENDING_PER_SENDER
-                                ));
-                            }
-                            
-                            // PROTECTION 3: Global pending count limit (O(1) cached lookup)
-                            if state.pending_queue_total >= MAX_GLOBAL_PENDING {
-                                tracing::warn!(
-                                    "Global pending queue full ({}/{}), rejecting tx from {}",
-                                    state.pending_queue_total, MAX_GLOBAL_PENDING,
-                                    &tx.tx.from[..16.min(tx.tx.from.len())]
-                                );
-                                return Err(anyhow::anyhow!(
-                                    "Network congested: too many pending transactions globally"
-                                ));
-                            }
-                            
-                            // PROTECTION 4: Limit unique senders with pending queues
-                            let sender_count = state.pending_nonce_queue.len();
-                            let is_new_sender = !state.pending_nonce_queue.contains_key(&tx.tx.from);
-                            
-                            if is_new_sender && sender_count >= MAX_PENDING_SENDERS {
-                                tracing::warn!(
-                                    "Too many senders with pending queues ({}/{}), rejecting new sender {}",
-                                    sender_count, MAX_PENDING_SENDERS,
-                                    &tx.tx.from[..16.min(tx.tx.from.len())]
-                                );
-                                return Err(anyhow::anyhow!(
-                                    "Network congested: too many accounts with pending transactions"
-                                ));
-                            }
-                            
-                            // Drop read lock before acquiring write lock
-                            let sender = tx.tx.from.clone();
-                            let nonce = tx.tx.nonce;
-                            drop(state);
-                            
-                            // Buffer the transaction with future nonce
-                            {
-                                let mut state = self.inner.write().await;
-                                state.pending_nonce_queue
-                                    .entry(sender.clone())
-                                    .or_insert_with(BTreeMap::new)
-                                    .insert(nonce, tx);
-                                state.pending_queue_total += 1; // O(1) increment
-                                
-                                tracing::info!(
-                                    "Buffered future nonce tx: sender={}, nonce={} (queue: {}, global: {})",
-                                    &sender[..16.min(sender.len())], nonce,
-                                    state.pending_nonce_queue.get(&sender).map(|q| q.len()).unwrap_or(0),
-                                    state.pending_queue_total
-                                );
-                            }
-                            
-                            return Ok(TransactionResult::Buffered);
-                        }
-                        // nonce == account.nonce: proceed with normal processing
-                    }
-                    None => {
-                        tracing::warn!(
-                            "Transaction rejected: account {} does not exist",
-                            &tx.tx.from[..16.min(tx.tx.from.len())]
-                        );
-                        return Err(anyhow::anyhow!("Account does not exist"));
-                    }
+                if !state.accounts.contains_key(&tx.tx.from) {
+                    tracing::warn!(
+                        "Transaction rejected: account {} does not exist",
+                        &tx.tx.from[..16.min(tx.tx.from.len())]
+                    );
+                    return Err(anyhow::anyhow!("Account does not exist"));
+                }
+                
+                // Get effective balance (confirmed - pending outgoing)
+                let effective_balance = Self::get_effective_balance(&state, &tx.tx.from);
+                if effective_balance < required_balance {
+                    tracing::warn!(
+                        "Transaction rejected: insufficient effective balance. Have {:.6}, need {:.6} (amount: {:.6}, gas: {:.6})",
+                        effective_balance, required_balance, tx.tx.amount, gas_fee
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Insufficient balance: have {:.6}, need {:.6}",
+                        effective_balance, required_balance
+                    ));
+                }
+                
+                // Get effective nonce (confirmed + pending tx count)
+                let effective_nonce = Self::get_effective_nonce(&state, &tx.tx.from);
+                let confirmed_nonce = state.accounts.get(&tx.tx.from).map(|a| a.nonce).unwrap_or(0);
+                
+                // Nonce must be >= confirmed (not already finalized)
+                if tx.tx.nonce < confirmed_nonce {
+                    tracing::warn!(
+                        "Transaction rejected: stale nonce. Confirmed nonce is {}, got {} (already finalized)",
+                        confirmed_nonce, tx.tx.nonce
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Stale nonce: confirmed nonce is {}, got {} (already finalized)",
+                        confirmed_nonce, tx.tx.nonce
+                    ));
+                }
+                
+                // Nonce must be == effective nonce (next in sequence including pending)
+                if tx.tx.nonce != effective_nonce {
+                    tracing::debug!(
+                        "Nonce mismatch for {}: expected effective {}, got {}",
+                        &tx.tx.from[..16.min(tx.tx.from.len())],
+                        effective_nonce, tx.tx.nonce
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Invalid nonce: expected {}, got {}",
+                        effective_nonce, tx.tx.nonce
+                    ));
                 }
             }
         }
@@ -2530,45 +2553,45 @@ impl NodeState {
             .unwrap_or_default()
             .as_millis() as u64;
 
-        // PHASE 2: Minimal write lock - just state mutation
+        // PHASE 2: Write lock with atomic re-validation
+        // FINALITY-FIRST MODEL: Balance/nonce updates happen at checkpoint finalization
+        // CRITICAL: Must re-check effective balance/nonce under write lock to prevent race conditions
+        // Multiple concurrent transactions could pass read-lock validation before any is added to DAG
         let mut state = self.inner.write().await;
+        
+        // Re-validate under write lock (prevents race condition with concurrent txs from same sender)
+        if !is_system_tx {
+            let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+            let required_balance = if is_stake_tx {
+                tx.tx.amount + gas_fee
+            } else if is_unstake_tx || is_claim_tx {
+                gas_fee
+            } else {
+                tx.tx.amount + gas_fee
+            };
+            
+            // ATOMIC CHECK: Re-check effective balance under write lock
+            let effective_balance = Self::get_effective_balance(&state, &tx.tx.from);
+            if effective_balance < required_balance {
+                return Err(anyhow::anyhow!(
+                    "Insufficient balance: have {:.6}, need {:.6}",
+                    effective_balance, required_balance
+                ));
+            }
+            
+            // ATOMIC CHECK: Re-check effective nonce under write lock
+            let effective_nonce = Self::get_effective_nonce(&state, &tx.tx.from);
+            if tx.tx.nonce != effective_nonce {
+                return Err(anyhow::anyhow!(
+                    "Invalid nonce: expected {}, got {}",
+                    effective_nonce, tx.tx.nonce
+                ));
+            }
+        }
 
         state.dag.add_node(node)?;
-
-        let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
-
-        // Check transaction kind to determine balance handling
-        let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-        let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-        let is_claim_tx_inner = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
         
-        if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-            // For stake: deduct amount (locks it in stake)
-            // For unstake/claim: don't deduct amount (only gas)
-            // For transfer: deduct amount (sends to recipient)
-            if is_stake_tx {
-                from_account.balance -= tx.tx.amount + gas_fee;
-            } else if is_unstake_tx || is_claim_tx_inner {
-                from_account.balance -= gas_fee; // Only gas for unstake/claim
-            } else {
-                from_account.balance -= tx.tx.amount + gas_fee;
-            }
-            from_account.nonce = tx.tx.nonce + 1;
-        }
-
-        // For stake/unstake/claim: don't transfer to recipient (amount is handled by rewards/staking)
-        // For transfer: add to recipient balance
-        if !is_stake_tx && !is_unstake_tx && !is_claim_tx_inner {
-            let to_account = state
-                .accounts
-                .entry(tx.tx.to.clone())
-                .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-            to_account.balance += tx.tx.amount;
-        }
-
-        // EIP-1559 tracking
-        state.total_burned += gas_fee * 0.5;
-        state.total_to_validators += gas_fee * 0.5;
+        // Track transaction count for TPS/stats (but don't execute yet)
         state.txs_this_period += 1;
         state.total_transactions += 1;
 
@@ -2591,31 +2614,162 @@ impl NodeState {
             state.period_start_ms = now_ms;
         }
         
-        // Save transaction kind for stake processing after lock release
-        let tx_kind = tx.tx.kind.clone();
-        let from_addr = tx.tx.from.clone();
-        let stake_amount = tx.tx.amount;
-        let tx_amount = tx.tx.amount;
-        let tx_hash = tx.hash.clone();
-        let tx_url = format!("rinku://tx/h/{}", tx_hash);
-        
-        // Collect parent tx creators for witness rewards (while we have the lock)
-        let parent_creators: Vec<(String, String)> = normalized_parents
-            .iter()
-            .filter_map(|parent_hash| {
-                state.dag.get_node(parent_hash).map(|node| {
-                    let parent_url = format!("rinku://tx/h/{}", parent_hash);
-                    (parent_url, node.tx.tx.from.clone())
-                })
-            })
-            .collect();
-        
-        // Get validator address for tip rewards
-        let validator_addr = state.node_validator_address.clone();
-        
+        // FINALITY-FIRST MODEL: No immediate execution
+        // All balance changes, stake processing, and rewards happen at checkpoint finalization
+        // We only add to DAG here - execution is deferred until tx is finalized
         drop(state);
+
+        Ok(TransactionResult::Accepted)
+    }
+    
+    /// Execute a finalized transaction - apply all state changes
+    /// Called by checkpoint finalization after transactions are confirmed
+    /// FINALITY-FIRST MODEL: This is where actual balance/nonce changes happen
+    pub async fn execute_finalized_transaction(&self, tx: &SignedTransaction) {
+        let gas_fee = {
+            let state = self.inner.read().await;
+            tx.tx.gas_price.unwrap_or(state.current_gas_price)
+        };
         
-        // Process tip and witness rewards (separate lock for rewards service)
+        let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+        let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+        let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+        
+        // PHASE 1: Apply balance and nonce changes
+        {
+            let mut state = self.inner.write().await;
+            
+            if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
+                // Deduct based on transaction type
+                if is_stake_tx {
+                    from_account.balance -= tx.tx.amount + gas_fee;
+                } else if is_unstake_tx || is_claim_tx {
+                    from_account.balance -= gas_fee; // Only gas for unstake/claim
+                } else {
+                    from_account.balance -= tx.tx.amount + gas_fee;
+                }
+                from_account.nonce = tx.tx.nonce + 1;
+            }
+            
+            // Credit recipient for transfers (not stake/unstake/claim)
+            if !is_stake_tx && !is_unstake_tx && !is_claim_tx {
+                let to_account = state
+                    .accounts
+                    .entry(tx.tx.to.clone())
+                    .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
+                to_account.balance += tx.tx.amount;
+            }
+            
+            // EIP-1559 gas tracking
+            state.total_burned += gas_fee * 0.5;
+            state.total_to_validators += gas_fee * 0.5;
+        }
+        
+        // PHASE 2: Process stake/unstake/claim transactions
+        if let Some(ref kind) = tx.tx.kind {
+            use rinku_core::types::TransactionKind;
+            let from_addr = &tx.tx.from;
+            let stake_amount = tx.tx.amount;
+            
+            match kind {
+                TransactionKind::Stake => {
+                    let stake_update: Option<(f64, u64)> = {
+                        let mut rewards = self.rewards.write().await;
+                        if let Err(e) = rewards.stake(from_addr, stake_amount) {
+                            tracing::warn!("Failed to process stake tx: {}", e);
+                            None
+                        } else {
+                            tracing::debug!("Finalized stake: {} staked {} RKU", &from_addr[..16.min(from_addr.len())], stake_amount);
+                            rewards.get_stake(from_addr).map(|p| (p.amount, p.staked_at))
+                        }
+                    };
+                    if let Some((amount, staked_at)) = stake_update {
+                        self.update_account_staked(from_addr, amount, Some(staked_at / 1000)).await;
+                    }
+                }
+                TransactionKind::Unstake => {
+                    let unstake_result: Option<f64> = {
+                        let mut rewards = self.rewards.write().await;
+                        match rewards.unstake(from_addr) {
+                            Ok(amount) => {
+                                tracing::debug!("Finalized unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
+                                Some(amount)
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to process unstake tx: {}", e);
+                                None
+                            }
+                        }
+                    };
+                    if let Some(unstaked_amount) = unstake_result {
+                        let mut state = self.inner.write().await;
+                        if let Some(account) = state.accounts.get_mut(from_addr) {
+                            account.balance += unstaked_amount;
+                            account.staked = 0.0;
+                            tracing::info!(
+                                "Unstake finalized: {} balance restored by {} RKU (new balance: {})",
+                                &from_addr[..16.min(from_addr.len())],
+                                unstaked_amount,
+                                account.balance
+                            );
+                        }
+                    }
+                }
+                TransactionKind::ClaimRewards => {
+                    let claimed: f64 = {
+                        let mut rewards = self.rewards.write().await;
+                        rewards.claim_rewards(from_addr)
+                    };
+                    if claimed > 0.0 {
+                        let mut state = self.inner.write().await;
+                        if let Some(account) = state.accounts.get_mut(from_addr) {
+                            account.balance += claimed;
+                            tracing::info!(
+                                "Rewards claimed (finalized): {} received {} RKU (new balance: {})",
+                                &from_addr[..16.min(from_addr.len())],
+                                claimed,
+                                account.balance
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        // PHASE 3: Process tip and witness rewards
+        let tx_hash = &tx.hash;
+        let tx_url = format!("rinku://tx/h/{}", tx_hash);
+        let tx_amount = tx.tx.amount;
+        let from_addr = &tx.tx.from;
+        
+        // Get parent info for rewards
+        let (parent_creators, validator_addr, normalized_parents) = {
+            let state = self.inner.read().await;
+            let parents: Vec<String> = tx.tx.parents.iter()
+                .map(|p| {
+                    if p.starts_with("rinku://tx/h/") {
+                        p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+                    } else if p.starts_with("rinku://tx/") {
+                        p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+                    } else {
+                        p.clone()
+                    }
+                })
+                .collect();
+            
+            let creators: Vec<(String, String)> = parents.iter()
+                .filter_map(|parent_hash| {
+                    state.dag.get_node(parent_hash).map(|node| {
+                        let parent_url = format!("rinku://tx/h/{}", parent_hash);
+                        (parent_url, node.tx.tx.from.clone())
+                    })
+                })
+                .collect();
+            
+            (creators, state.node_validator_address.clone(), parents)
+        };
+        
         if tx_amount > 0.0 || gas_fee > 0.0 {
             let reward_base = tx_amount + gas_fee;
             let mut rewards = self.rewards.write().await;
@@ -2630,383 +2784,13 @@ impl NodeState {
             
             // Witness rewards: reward creators of referenced parent transactions
             for (parent_url, parent_creator) in &parent_creators {
-                // Don't reward yourself for referencing your own transactions
-                if parent_creator != &from_addr {
+                if parent_creator != from_addr {
                     rewards.process_witness_reward(&tx_url, parent_url, parent_creator, reward_base);
                 }
             }
-            
-            drop(rewards);
-        }
-        
-        // Process stake/unstake transactions (separate lock for rewards)
-        if let Some(kind) = tx_kind {
-            use rinku_core::types::TransactionKind;
-            match kind {
-                TransactionKind::Stake => {
-                    let stake_update: Option<(f64, u64)> = {
-                        let mut rewards = self.rewards.write().await;
-                        if let Err(e) = rewards.stake(&from_addr, stake_amount) {
-                            tracing::warn!("Failed to process stake tx: {}", e);
-                            None
-                        } else {
-                            tracing::debug!("Processed stake: {} staked {} RKU", &from_addr[..16.min(from_addr.len())], stake_amount);
-                            // Get stake position data before releasing lock
-                            rewards.get_stake(&from_addr).map(|p| (p.amount, p.staked_at))
-                        }
-                    };
-                    // Sync staked amount to account state (after releasing rewards lock)
-                    if let Some((amount, staked_at)) = stake_update {
-                        self.update_account_staked(&from_addr, amount, Some(staked_at / 1000)).await;
-                    }
-                }
-                TransactionKind::Unstake => {
-                    let unstake_result: Option<f64> = {
-                        let mut rewards = self.rewards.write().await;
-                        match rewards.unstake(&from_addr) {
-                            Ok(amount) => {
-                                tracing::debug!("Processed unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
-                                Some(amount)
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to process unstake tx: {}", e);
-                                None
-                            }
-                        }
-                    };
-                    // Sync staked amount (now 0) and return unstaked amount to balance
-                    if let Some(unstaked_amount) = unstake_result {
-                        // Return unstaked amount to user's balance
-                        {
-                            let mut state = self.inner.write().await;
-                            if let Some(account) = state.accounts.get_mut(&from_addr) {
-                                account.balance += unstaked_amount;
-                                account.staked = 0.0;
-                                tracing::info!(
-                                    "Unstake completed: {} balance restored by {} RKU (new balance: {})",
-                                    &from_addr[..16.min(from_addr.len())],
-                                    unstaked_amount,
-                                    account.balance
-                                );
-                            }
-                        }
-                    }
-                }
-                TransactionKind::ClaimRewards => {
-                    let claimed: f64 = {
-                        let mut rewards = self.rewards.write().await;
-                        rewards.claim_rewards(&from_addr)
-                    };
-                    if claimed > 0.0 {
-                        let mut state = self.inner.write().await;
-                        if let Some(account) = state.accounts.get_mut(&from_addr) {
-                            account.balance += claimed;
-                            tracing::info!(
-                                "Rewards claimed: {} received {} RKU (new balance: {})",
-                                &from_addr[..16.min(from_addr.len())],
-                                claimed,
-                                account.balance
-                            );
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // After successfully processing a transaction, check pending queue for this sender
-        // and process any transactions that are now ready (nonce matches expected)
-        // Uses iterative processing to avoid stack overflow from deep recursion
-        self.process_pending_nonce_queue_iterative(&from_addr).await;
-
-        Ok(TransactionResult::Accepted)
-    }
-
-    /// Process pending transactions for a sender after their nonce advances
-    /// Uses iterative approach to avoid stack overflow from recursive add_transaction calls
-    /// Re-checks queue after each transaction in case new ones arrived during processing
-    async fn process_pending_nonce_queue_iterative(&self, sender: &str) {
-        loop {
-            // Get the next ready transaction (if any)
-            let next_tx: Option<SignedTransaction> = {
-                let mut state = self.inner.write().await;
-                
-                // Get expected nonce for this sender
-                let expected_nonce = state.accounts
-                    .get(sender)
-                    .map(|a| a.nonce)
-                    .unwrap_or(0);
-                
-                // Check if there's a pending queue for this sender with the expected nonce
-                // Extract tx and check if queue is empty in one scope to avoid borrow conflicts
-                let (tx, queue_empty) = {
-                    let queue = match state.pending_nonce_queue.get_mut(sender) {
-                        Some(q) => q,
-                        None => return, // No pending transactions
-                    };
-                    let tx = queue.remove(&expected_nonce);
-                    let empty = queue.is_empty();
-                    (tx, empty)
-                };
-                
-                // Now we can safely update counter (queue borrow is released)
-                if tx.is_some() {
-                    state.pending_queue_total = state.pending_queue_total.saturating_sub(1);
-                }
-                
-                // Clean up empty queue
-                if queue_empty {
-                    state.pending_nonce_queue.remove(sender);
-                }
-                
-                if let Some(ref _t) = tx {
-                    tracing::info!(
-                        "Processing buffered tx for {} (nonce {}, remaining: {})",
-                        &sender[..16.min(sender.len())],
-                        expected_nonce,
-                        state.pending_queue_total
-                    );
-                }
-                
-                tx
-            };
-            
-            match next_tx {
-                Some(tx) => {
-                    // Process this transaction - call add_transaction_inner to avoid double queue processing
-                    if let Err(e) = self.add_transaction_from_queue(tx.clone()).await {
-                        tracing::warn!(
-                            "Failed to process buffered tx {}: {}",
-                            &tx.hash[..16.min(tx.hash.len())], e
-                        );
-                        // If a buffered tx fails, stop processing this sender's queue
-                        // (subsequent txs would also fail due to nonce mismatch)
-                        break;
-                    }
-                    // Continue loop to check for more ready transactions
-                }
-                None => break, // No more ready transactions
-            }
         }
     }
-    
-    /// Internal version of add_transaction for processing buffered transactions
-    /// Skips the pending queue check at the end to avoid infinite loops
-    async fn add_transaction_from_queue(&self, tx: SignedTransaction) -> Result<()> {
-        // This is a simplified version that processes a transaction known to have correct nonce
-        // Since it came from the pending queue, nonce validation was already done
-        
-        let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-        let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-        let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-        
-        // Normalize parent URLs to just hashes
-        let client_parents: Vec<String> = tx
-            .tx
-            .parents
-            .iter()
-            .map(|p| {
-                if p.starts_with("rinku://tx/h/") {
-                    p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
-                } else if p.starts_with("rinku://tx/") {
-                    p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
-                } else {
-                    p.clone()
-                }
-            })
-            .collect();
 
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        
-        let (tx_weight, normalized_parents) = {
-            let state = self.inner.read().await;
-            
-            let weight = if let Some(account) = state.accounts.get(&tx.tx.from) {
-                calculate_account_weight(account, now_secs)
-            } else {
-                1.0
-            };
-            
-            let valid_parents: Vec<String> = client_parents
-                .iter()
-                .filter(|p| !p.is_empty() && state.dag.get_node(p).is_some())
-                .cloned()
-                .collect();
-            
-            let final_parents = if valid_parents.is_empty() {
-                let current_tips = state.dag.tips();
-                current_tips.into_iter().take(2).collect()
-            } else {
-                valid_parents
-            };
-            
-            (weight, final_parents)
-        };
-
-        let node = rinku_core::types::DagNode {
-            hash: tx.hash.clone(),
-            tx: tx.clone(),
-            parents: normalized_parents.clone(),
-            children: Vec::new(),
-            weight: tx_weight,
-            finalized: false,
-            checkpoint_height: None,
-        };
-
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        let mut state = self.inner.write().await;
-
-        state.dag.add_node(node)?;
-
-        let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
-        
-        if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-            if is_stake_tx {
-                from_account.balance -= tx.tx.amount + gas_fee;
-            } else if is_unstake_tx || is_claim_tx {
-                from_account.balance -= gas_fee;
-            } else {
-                from_account.balance -= tx.tx.amount + gas_fee;
-            }
-            from_account.nonce = tx.tx.nonce + 1;
-        }
-
-        if !is_stake_tx && !is_unstake_tx && !is_claim_tx {
-            let to_account = state
-                .accounts
-                .entry(tx.tx.to.clone())
-                .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-            to_account.balance += tx.tx.amount;
-        }
-
-        state.total_burned += gas_fee * 0.5;
-        state.total_to_validators += gas_fee * 0.5;
-        state.txs_this_period += 1;
-        state.total_transactions += 1;
-
-        // Period-based gas adjustment
-        const PERIOD_MS: u64 = 15000;
-        const TARGET_TPS: f64 = 10.0;
-        const MAX_CHANGE_PERCENT: f64 = 0.125;
-        const ELASTICITY: f64 = 2.0;
-
-        if now_ms - state.period_start_ms >= PERIOD_MS {
-            let target_txs = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
-            let utilization = state.txs_this_period as f64 / target_txs;
-            let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
-            let change_factor = 1.0 + change_ratio * MAX_CHANGE_PERCENT;
-            state.current_gas_price = (state.current_gas_price * change_factor).clamp(
-                state.config.gas.min_gas_price,
-                state.config.gas.max_gas_price,
-            );
-            state.txs_this_period = 0;
-            state.period_start_ms = now_ms;
-        }
-        
-        let tx_kind = tx.tx.kind.clone();
-        let from_addr = tx.tx.from.clone();
-        let stake_amount = tx.tx.amount;
-        let tx_amount = tx.tx.amount;
-        let tx_hash = tx.hash.clone();
-        let tx_url = format!("rinku://tx/h/{}", tx_hash);
-        
-        let parent_creators: Vec<(String, String)> = normalized_parents
-            .iter()
-            .filter_map(|parent_hash| {
-                state.dag.get_node(parent_hash).map(|node| {
-                    let parent_url = format!("rinku://tx/h/{}", parent_hash);
-                    (parent_url, node.tx.tx.from.clone())
-                })
-            })
-            .collect();
-        
-        let validator_addr = state.node_validator_address.clone();
-        
-        drop(state);
-        
-        // Process rewards (simplified - same as add_transaction)
-        if tx_amount > 0.0 || gas_fee > 0.0 {
-            let reward_base = tx_amount + gas_fee;
-            let mut rewards = self.rewards.write().await;
-            
-            if let Some(ref validator) = validator_addr {
-                if let Some(first_parent) = normalized_parents.first() {
-                    let tip_url = format!("rinku://tx/h/{}", first_parent);
-                    rewards.process_tip_reward(&tx_url, &tip_url, validator, reward_base);
-                }
-            }
-            
-            for (parent_url, parent_creator) in &parent_creators {
-                if parent_creator != &from_addr {
-                    rewards.process_witness_reward(&tx_url, parent_url, parent_creator, reward_base);
-                }
-            }
-            
-            drop(rewards);
-        }
-        
-        // Process stake/unstake transactions
-        if let Some(kind) = tx_kind {
-            use rinku_core::types::TransactionKind;
-            match kind {
-                TransactionKind::Stake => {
-                    let stake_update: Option<(f64, u64)> = {
-                        let mut rewards = self.rewards.write().await;
-                        if let Err(e) = rewards.stake(&from_addr, stake_amount) {
-                            tracing::warn!("Failed to process stake tx: {}", e);
-                            None
-                        } else {
-                            rewards.get_stake(&from_addr).map(|p| (p.amount, p.staked_at))
-                        }
-                    };
-                    if let Some((amount, staked_at)) = stake_update {
-                        self.update_account_staked(&from_addr, amount, Some(staked_at / 1000)).await;
-                    }
-                }
-                TransactionKind::Unstake => {
-                    let unstake_result: Option<f64> = {
-                        let mut rewards = self.rewards.write().await;
-                        match rewards.unstake(&from_addr) {
-                            Ok(amount) => Some(amount),
-                            Err(e) => {
-                                tracing::warn!("Failed to process unstake tx: {}", e);
-                                None
-                            }
-                        }
-                    };
-                    if let Some(unstaked_amount) = unstake_result {
-                        let mut state = self.inner.write().await;
-                        if let Some(account) = state.accounts.get_mut(&from_addr) {
-                            account.balance += unstaked_amount;
-                            account.staked = 0.0;
-                        }
-                    }
-                }
-                TransactionKind::ClaimRewards => {
-                    let claimed: f64 = {
-                        let mut rewards = self.rewards.write().await;
-                        rewards.claim_rewards(&from_addr)
-                    };
-                    if claimed > 0.0 {
-                        let mut state = self.inner.write().await;
-                        if let Some(account) = state.accounts.get_mut(&from_addr) {
-                            account.balance += claimed;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        Ok(())
-    }
 
     /// Add transaction to DAG only - for sync operations where state is already correct
     /// This skips nonce/balance validation since the transaction was already validated by the peer

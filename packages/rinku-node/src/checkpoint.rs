@@ -557,6 +557,23 @@ impl CheckpointService {
             .unwrap_or_default()
             .as_millis() as u64;
 
+        // FINALITY-FIRST MODEL: Collect transactions for execution before marking finalized
+        // DOUBLE-EXECUTION GUARD: Only collect transactions that aren't already finalized
+        let txs_to_execute: Vec<SignedTransaction> = {
+            let state = self.state.inner.read().await;
+            unfinalized_hashes.iter()
+                .filter_map(|hash| {
+                    state.dag.get_node(hash).and_then(|node| {
+                        if node.finalized {
+                            None  // Skip already-finalized transactions
+                        } else {
+                            Some(node.tx.clone())
+                        }
+                    })
+                })
+                .collect()
+        };
+
         // Update state with adopted checkpoint
         let mut state = self.state.inner.write().await;
         state.checkpoints.push(peer_checkpoint);
@@ -576,6 +593,11 @@ impl CheckpointService {
             unfinalized_hashes.len(),
             checkpoint_reward
         );
+        
+        // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
+        for tx in txs_to_execute {
+            self.state.execute_finalized_transaction(&tx).await;
+        }
 
         (true, false)
     }
@@ -1421,17 +1443,34 @@ impl CheckpointService {
             .unwrap_or_default()
             .as_millis() as u64;
 
-        // PHASE 1: Quick read to collect timestamps (minimal lock time)
-        let tx_timestamps: Vec<(String, u64)> = {
+        // PHASE 1: Quick read to collect timestamps and transactions (minimal lock time)
+        // FINALITY-FIRST MODEL: Also collect transactions for execution after finalization
+        // DOUBLE-EXECUTION GUARD: Only collect transactions that aren't already finalized
+        let (tx_timestamps, txs_to_execute): (Vec<(String, u64)>, Vec<SignedTransaction>) = {
             let state = self.state.inner.read().await;
-            unfinalized_hashes.iter()
+            let timestamps: Vec<(String, u64)> = unfinalized_hashes.iter()
                 .filter_map(|hash| {
-                    state.dag.get_node(hash).map(|node| {
-                        let ts = node.tx.tx.timestamp;
-                        (hash.clone(), ts)
+                    state.dag.get_node(hash).and_then(|node| {
+                        if node.finalized {
+                            None  // Skip already-finalized for stats
+                        } else {
+                            Some((hash.clone(), node.tx.tx.timestamp))
+                        }
                     })
                 })
-                .collect()
+                .collect();
+            let txs: Vec<SignedTransaction> = unfinalized_hashes.iter()
+                .filter_map(|hash| {
+                    state.dag.get_node(hash).and_then(|node| {
+                        if node.finalized {
+                            None  // Skip already-finalized transactions
+                        } else {
+                            Some(node.tx.clone())
+                        }
+                    })
+                })
+                .collect();
+            (timestamps, txs)
         };
 
         // PHASE 2: Compute finality times OUTSIDE any lock
@@ -1473,7 +1512,7 @@ impl CheckpointService {
         // Batch mark all as finalized (single operation instead of loop)
         let _finalized = state.dag.mark_finalized_batch(&unfinalized_hashes, height);
         
-        // Release write lock before logging
+        // Release write lock before executing transactions
         drop(state);
 
         info!(
@@ -1483,6 +1522,11 @@ impl CheckpointService {
             unfinalized_hashes.len(),
             checkpoint_reward
         );
+        
+        // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
+        for tx in txs_to_execute {
+            self.state.execute_finalized_transaction(&tx).await;
+        }
         
         // Track validator liveness - record which validators participated
         if let Some(ref consensus) = self.consensus_service {

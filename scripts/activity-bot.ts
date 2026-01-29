@@ -4,12 +4,12 @@ const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3002";
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "5000"); // Reduced from 2000 for higher throughput
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "500"); // Reduced from 2000 for higher throughput
 const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "1000");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "10");
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "20");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "6");
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "8");
 const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.3");
 const NONCE_WAIT_TIMEOUT_MS = parseInt(
   process.env.NONCE_WAIT_TIMEOUT_MS || "6000",
@@ -69,41 +69,76 @@ function incrementLocalNonce(fingerprint: string): void {
 }
 
 // Force re-sync nonce from chain (after errors)
+// FINALITY-FIRST: With finality-first execution, we prefer to sync from chain
+// only after checkpoint finalization has happened (chain nonce updated)
 async function invalidateAndResyncNonce(wallet: Wallet, fingerprint: string): Promise<void> {
   lastNonceSync.delete(fingerprint);
-  localNonces.delete(fingerprint);
+  // Don't delete local nonce - keep it as fallback
   try {
     const state = await wallet.refresh();
     const chainNonce = state.nonce ?? 0;
-    localNonces.set(fingerprint, chainNonce);
+    const localNonce = localNonces.get(fingerprint) ?? 0;
+    // Use max of chain and local - chain may have caught up after finalization
+    const newNonce = Math.max(chainNonce, localNonce);
+    localNonces.set(fingerprint, newNonce);
     lastNonceSync.set(fingerprint, Date.now());
   } catch {
     // Ignore - will resync on next transaction
   }
 }
 
+// Parse expected nonce from error message like "expected 1, got 0"
+function parseExpectedNonce(errorMsg: string): number | null {
+  const match = errorMsg.match(/expected\s+(\d+)/i);
+  if (match) {
+    return parseInt(match[1], 10);
+  }
+  return null;
+}
+
+// Update local nonce based on error message (faster than chain sync)
+function updateNonceFromError(fingerprint: string, errorMsg: string): boolean {
+  const expectedNonce = parseExpectedNonce(errorMsg);
+  if (expectedNonce !== null) {
+    localNonces.set(fingerprint, expectedNonce);
+    return true;
+  }
+  return false;
+}
+
 // Initialize nonce tracking for a sender (call once after wallet created or on first use)
 // Always ensures localNonces is set after this call
+// FINALITY-FIRST: With finality-first execution, chain nonce only updates after checkpoint
+// finalization (~15s), so we trust local tracking and only sync from chain occasionally
 async function initializeNonceTracking(wallet: Wallet, fingerprint: string): Promise<number> {
-  // Always refresh from chain to get authoritative nonce - this is the most robust approach
-  // The small overhead is worth avoiding nonce reuse issues
-  try {
-    const state = await wallet.refresh();
-    const chainNonce = state.nonce ?? 0;
-    // Use max of chain and local to handle any in-flight txs we've submitted
-    const localNonce = localNonces.get(fingerprint) ?? 0;
-    const newNonce = Math.max(chainNonce, localNonce);
-    localNonces.set(fingerprint, newNonce);
-    lastNonceSync.set(fingerprint, Date.now());
-    return newNonce;
-  } catch {
-    // If refresh fails, fall back to local tracking or wallet state
-    const walletStateNonce = wallet.getNonce?.() ?? 0;
-    const localNonce = localNonces.get(fingerprint) ?? 0;
-    const fallbackNonce = Math.max(walletStateNonce, localNonce, 0);
-    localNonces.set(fingerprint, fallbackNonce);
-    return fallbackNonce;
+  // If we already have a local nonce, trust it (finality-first means chain lags behind)
+  const existingLocal = localNonces.get(fingerprint);
+  if (existingLocal !== undefined) {
+    return existingLocal;
   }
+  
+  // For new wallets, check if we should sync from chain
+  // Only sync occasionally to catch up after long pauses or restarts
+  const lastSync = lastNonceSync.get(fingerprint) ?? 0;
+  const shouldSyncFromChain = Date.now() - lastSync > 60000; // Only sync every 60s
+  
+  if (shouldSyncFromChain) {
+    try {
+      const state = await wallet.refresh();
+      const chainNonce = state.nonce ?? 0;
+      localNonces.set(fingerprint, chainNonce);
+      lastNonceSync.set(fingerprint, Date.now());
+      return chainNonce;
+    } catch {
+      // If refresh fails, start from 0
+      localNonces.set(fingerprint, 0);
+      return 0;
+    }
+  }
+  
+  // Default: start from 0 for brand new wallets
+  localNonces.set(fingerprint, 0);
+  return 0;
 }
 
 // Cached tips with auto-refresh
@@ -269,6 +304,11 @@ async function createNewWallet(): Promise<void> {
     const success = await faucetRequest(fingerprint);
 
     if (success) {
+      // FINALITY-FIRST: Initialize local nonce to 0 for new wallets
+      // Don't fetch from chain - faucet tx may not be finalized yet
+      localNonces.set(fingerprint, 0);
+      lastNonceSync.set(fingerprint, Date.now());
+      
       wallets.push({
         wallet,
         fingerprint,
@@ -418,12 +458,19 @@ async function doSingleTransaction(
       const errMsg = errData.error || "";
       
       if (errMsg.toLowerCase().includes("nonce")) {
-        log(`Nonce error for ${sender.fingerprint.slice(0, 12)}: ${errMsg.slice(0, 60)}`);
+        // FINALITY-FIRST: Parse expected nonce from error and update local tracking
+        // This is faster than re-syncing from chain which may still be behind
+        if (updateNonceFromError(sender.fingerprint, errMsg)) {
+          // Successfully parsed and updated nonce - don't log as error
+          // This is normal during finality-first operation
+        } else {
+          log(`Nonce error for ${sender.fingerprint.slice(0, 12)}: ${errMsg.slice(0, 60)}`);
+          await invalidateAndResyncNonce(sender.wallet, sender.fingerprint);
+        }
       } else {
         log(`Transaction failed: ${errMsg.slice(0, 60)}`);
+        await invalidateAndResyncNonce(sender.wallet, sender.fingerprint);
       }
-      // Always re-sync nonce on failure
-      await invalidateAndResyncNonce(sender.wallet, sender.fingerprint);
       errors++;
       return false;
     }
