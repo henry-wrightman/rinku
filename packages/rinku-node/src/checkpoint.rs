@@ -379,6 +379,10 @@ impl CheckpointService {
                                     if !state.dag.contains(&tx.hash) {
                                         use rinku_core::types::DagNode;
                                         let parents = tx.tx.parents.clone();
+                                        let now_ms = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_millis() as u64;
                                         let node = DagNode {
                                             hash: tx.hash.clone(),
                                             parents,
@@ -387,6 +391,7 @@ impl CheckpointService {
                                             finalized: false,
                                             checkpoint_height: None,
                                             tx,
+                                            received_at_ms: Some(now_ms),
                                         };
                                         if state.dag.add_node(node).is_ok() {
                                             added += 1;
@@ -784,6 +789,7 @@ impl CheckpointService {
                                 
                                 for tx in snapshot.dag_transactions {
                                     let parents = tx.tx.parents.clone();
+                                    let timestamp_ms = crate::config::normalize_timestamp_to_ms(tx.tx.timestamp);
                                     let node = rinku_core::types::DagNode {
                                         hash: tx.hash.clone(),
                                         parents,
@@ -791,7 +797,8 @@ impl CheckpointService {
                                         weight: 1.0,
                                         finalized: true, // All snapshot txs are finalized
                                         checkpoint_height: Some(latest_height),
-                                        tx,
+                                        tx: tx.clone(),
+                                        received_at_ms: Some(timestamp_ms),
                                     };
                                     let _ = state.dag.add_node(node);
                                 }

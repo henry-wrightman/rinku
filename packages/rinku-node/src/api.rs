@@ -29,10 +29,7 @@ const FAUCET_RATE_LIMIT_MS: u64 = 60_000;
 static ACTIVE_SYNC_REQUESTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 const MAX_CONCURRENT_SYNC_REQUESTS: u32 = 5;
 
-/// Maximum tips before rejecting new transactions (backpressure)
-/// With Sparse DAG Sampling (16 tips per tx), this should rarely be hit.
-/// Kept at 5000 as a safety net for extreme scenarios.
-const MAX_TIPS_BACKPRESSURE: usize = 1000;
+use crate::config::{DEGRADED_MODE_THRESHOLD, MAX_TIPS_BACKPRESSURE};
 
 /// Guard to automatically decrement active sync request count on drop
 struct SyncRequestGuard;
@@ -1444,16 +1441,40 @@ async fn submit_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
-    // Backpressure check: reject new transactions when DAG tips exceed threshold
     let tip_count = api_state.node_state.get_tip_count().await;
+    let inner = &req.tx;
+    
+    // Check if this is a system/validator transaction that bypasses degraded mode
+    let is_system_tx = inner.sig.starts_with("anchor-")
+        || inner.from == "faucet"
+        || inner.from == "genesis"
+        || matches!(inner.kind, Some(rinku_core::types::TransactionKind::Consolidation));
+    
+    // Check if sender is a validator (validators can submit during degraded mode)
+    let is_validator_tx = api_state.node_state.is_validator(&inner.from).await;
+    
+    // Hard backpressure: reject ALL transactions when tips exceed hard limit
     if tip_count > MAX_TIPS_BACKPRESSURE {
-        warn!("Transaction rejected: DAG tips ({}) exceed backpressure threshold ({})", tip_count, MAX_TIPS_BACKPRESSURE);
+        warn!("Transaction rejected: DAG tips ({}) exceed hard backpressure threshold ({})", tip_count, MAX_TIPS_BACKPRESSURE);
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(SubmitTxResponse {
                 success: false,
                 hash: String::new(),
-                error: Some(format!("System under load: {} tips pending finalization. Try again later.", tip_count)),
+                error: Some(format!("System overloaded: {} tips pending. All transactions paused. Try again later.", tip_count)),
+            }),
+        );
+    }
+    
+    // Graceful degradation: when tips > threshold, only allow validator/system transactions
+    if tip_count > DEGRADED_MODE_THRESHOLD && !is_system_tx && !is_validator_tx {
+        warn!("Transaction rejected: degraded mode active ({} tips), only validator txs allowed", tip_count);
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(SubmitTxResponse {
+                success: false,
+                hash: String::new(),
+                error: Some(format!("Network congested: {} tips pending. User transactions paused. Try again in 30s.", tip_count)),
             }),
         );
     }
@@ -1522,14 +1543,23 @@ async fn submit_batch_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<BatchSubmitTxRequest>,
 ) -> Result<Json<BatchSubmitTxResponse>, (StatusCode, String)> {
-    // Backpressure check: reject new transactions when DAG tips exceed threshold
-    // This prevents API lockup when checkpoints can't be created (e.g., quorum failure)
     let tip_count = api_state.node_state.get_tip_count().await;
+    
+    // Hard backpressure: reject ALL batch transactions when tips exceed hard limit
     if tip_count > MAX_TIPS_BACKPRESSURE {
-        warn!("Batch transaction rejected: DAG tips ({}) exceed backpressure threshold ({})", tip_count, MAX_TIPS_BACKPRESSURE);
+        warn!("Batch transaction rejected: DAG tips ({}) exceed hard backpressure threshold ({})", tip_count, MAX_TIPS_BACKPRESSURE);
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            format!("System under load: {} tips pending finalization (max {}). Try again later.", tip_count, MAX_TIPS_BACKPRESSURE)
+            format!("System overloaded: {} tips pending. All transactions paused. Try again later.", tip_count)
+        ));
+    }
+    
+    // Graceful degradation: batch transactions are typically from regular users, reject in degraded mode
+    if tip_count > DEGRADED_MODE_THRESHOLD {
+        warn!("Batch transaction rejected: degraded mode active ({} tips)", tip_count);
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("Network congested: {} tips pending. Batch submissions paused. Try again in 30s.", tip_count)
         ));
     }
     

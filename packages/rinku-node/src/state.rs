@@ -710,6 +710,7 @@ impl NodeState {
                         } else {
                             None
                         },
+                        received_at_ms: Some(tx.tx.timestamp),
                     };
                     let _ = dag.add_node(node);
                 }
@@ -803,6 +804,7 @@ impl NodeState {
                             weight: tx_weight,
                             finalized: is_finalized,
                             checkpoint_height,
+                            received_at_ms: Some(tx.tx.timestamp),
                         };
                         let _ = dag.add_node(node);
                     }
@@ -955,6 +957,7 @@ impl NodeState {
                     weight: 1.0,
                     finalized: true,
                     checkpoint_height: Some(0),
+                    received_at_ms: Some(genesis_time * 1000),
                 };
                 let _ = dag.add_node(genesis_node);
                 info!(
@@ -2538,6 +2541,11 @@ impl NodeState {
             (weight, final_parents)
         };
 
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
         let node = rinku_core::types::DagNode {
             hash: tx.hash.clone(),
             tx: tx.clone(),
@@ -2546,12 +2554,8 @@ impl NodeState {
             weight: tx_weight,
             finalized: false,
             checkpoint_height: None,
+            received_at_ms: Some(now_ms),
         };
-
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
 
         // PHASE 2: Write lock with atomic re-validation
         // FINALITY-FIRST MODEL: Balance/nonce updates happen at checkpoint finalization
@@ -2830,6 +2834,11 @@ impl NodeState {
             }
         }
 
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
         let node = rinku_core::types::DagNode {
             hash: tx.hash.clone(),
             tx: tx.clone(),
@@ -2838,6 +2847,7 @@ impl NodeState {
             weight: 1.0, // Default weight for synced transactions
             finalized: false,
             checkpoint_height: None,
+            received_at_ms: Some(now_ms),
         };
 
         state.dag.add_node(node)?;
@@ -2878,6 +2888,11 @@ impl NodeState {
             .filter(|p| p == "genesis" || state.dag.get_node(p).is_some())
             .collect();
 
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
         let node = rinku_core::types::DagNode {
             hash: tx.hash.clone(),
             tx: tx.clone(),
@@ -2886,6 +2901,7 @@ impl NodeState {
             weight: 1.0,
             finalized: false,
             checkpoint_height: None,
+            received_at_ms: Some(now_ms),
         };
 
         state.dag.add_node(node)?;
@@ -3029,6 +3045,11 @@ impl NodeState {
                 valid_parents
             };
             
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+
             let node = rinku_core::types::DagNode {
                 hash: tx.hash.clone(),
                 tx: tx.clone(),
@@ -3037,6 +3058,7 @@ impl NodeState {
                 weight: tx_weight,
                 finalized: false,
                 checkpoint_height: None,
+                received_at_ms: Some(now_ms),
             };
             
             let result = state
@@ -3291,6 +3313,12 @@ impl NodeState {
     pub async fn get_validators(&self) -> Vec<Validator> {
         let state = self.inner.read().await;
         state.validators.values().cloned().collect()
+    }
+    
+    /// Check if an address is a registered validator
+    pub async fn is_validator(&self, address: &str) -> bool {
+        let state = self.inner.read().await;
+        state.validators.contains_key(address)
     }
     
     /// Get the validators as a HashMap for syncing to the ValidatorIdentityService
@@ -3760,6 +3788,11 @@ impl NodeState {
             signature: "genesis".to_string(),
         };
 
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
         let genesis_node = rinku_core::types::DagNode {
             hash: genesis_hash.clone(),
             tx: genesis_tx,
@@ -3768,6 +3801,7 @@ impl NodeState {
             weight: 1.0,
             finalized: true,
             checkpoint_height: Some(0),
+            received_at_ms: Some(now_ms),
         };
         let _ = state.dag.add_node(genesis_node);
 
@@ -3902,6 +3936,7 @@ impl NodeState {
                 weight: tx_weight,
                 finalized: is_finalized,
                 checkpoint_height,
+                received_at_ms: Some(tx.tx.timestamp),
             };
 
             if state.dag.add_node(node).is_ok() {
@@ -4158,5 +4193,51 @@ impl NodeState {
         }
         
         (reconciled_count, changes)
+    }
+
+    /// Prune expired pending (unfinalized) transactions from the DAG
+    /// Returns the count of transactions that were pruned
+    /// This prevents indefinite mempool growth during checkpoint failures
+    pub async fn prune_expired_pending_transactions(&self, cutoff_ms: u64) -> usize {
+        let mut state = self.inner.write().await;
+        
+        // Collect hashes of expired unfinalized transactions
+        let expired_hashes: Vec<String> = state
+            .dag
+            .get_all_nodes()
+            .into_iter()
+            .filter(|node| {
+                // Only prune unfinalized transactions
+                if node.finalized {
+                    return false;
+                }
+                // Check if transaction has expired based on received_at_ms
+                if let Some(received_at) = node.received_at_ms {
+                    received_at < cutoff_ms
+                } else {
+                    // No timestamp - use transaction timestamp as fallback
+                    // Convert to milliseconds if needed
+                    let tx_ts = node.tx.tx.timestamp;
+                    let ts_ms = if tx_ts < 4_000_000_000 {
+                        tx_ts * 1000 // Seconds -> milliseconds
+                    } else {
+                        tx_ts // Already milliseconds
+                    };
+                    ts_ms < cutoff_ms
+                }
+            })
+            .map(|node| node.hash.clone())
+            .collect();
+
+        let count = expired_hashes.len();
+        
+        // Remove each expired transaction from the DAG
+        for hash in expired_hashes {
+            if state.dag.remove_node(&hash).is_none() {
+                warn!("Failed to remove expired tx {}: not found", &hash[..16.min(hash.len())]);
+            }
+        }
+        
+        count
     }
 }
