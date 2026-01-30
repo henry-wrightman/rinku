@@ -8,6 +8,7 @@ dist/
 coverage/
 .nyc_output/
 *.tsbuildinfo
+.local/*
 
 # Rust
 target/
@@ -26,7 +27,7 @@ packages/zk/build/
 packages/node/.rinku-data/
 .rinku-data/
 
-# Replit specific
+# Unecessary
 .cache/
 .upm/
 .config/
