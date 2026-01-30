@@ -1267,8 +1267,8 @@ fn current_time_secs() -> u64 {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_validate_handshake_enforces_chain_and_network() {
+    #[tokio::test]
+    async fn test_validate_handshake_enforces_chain_and_network() {
         let config = NetworkConfig {
             listen_addr: "/ip4/127.0.0.1/tcp/4001".to_string(),
             bootstrap_peers: Vec::new(),
