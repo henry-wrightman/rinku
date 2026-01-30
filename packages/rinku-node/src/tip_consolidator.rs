@@ -29,7 +29,7 @@ const TPS_LOW: f64 = 10.0;
 /// Set to 1 to ensure anchors are always created, preventing network stalls
 /// when there's no external transaction activity. Without this, the network
 /// can deadlock after a checkpoint finalizes all transactions.
-const MIN_TIPS_FOR_ANCHOR: usize = 1;
+const MIN_TIPS_FOR_ANCHOR: usize = 2;
 
 pub struct TipConsolidator {
     state: NodeState,
