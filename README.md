@@ -1,6 +1,6 @@
-# Rinku
+# rinku
 
-Rinku is a URL-native distributed ledger with DAG-based consensus. This repo includes the Rust node implementation, a core TS library, a web explorer, a faucet, and supporting tooling.
+rinku is a distributed ledger with DAG-based consensus, aiming to provide self-provable transactions. This repo includes the Rust node implementation, a core TS library, a web explorer, a faucet, and supporting tooling.
 
 ## Requirements
 
@@ -132,6 +132,5 @@ RINKU_NODE_URL=http://localhost:3001 npm run activity-bot
 
 ## Docs
 
-- `packages/rinku-node/CONSENSUS.md` — consensus protocol notes
-- `WHITEPAPER.md` — full protocol writeup (and ai slop)
+- `packages/rinku-node/consensus.md` — consensus protocol notes
 - `rinku.pdf` - self-provable units which are kinda sick
