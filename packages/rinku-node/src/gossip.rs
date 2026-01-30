@@ -618,8 +618,8 @@ impl GossipService {
     #[cfg(feature = "p2p")]
     async fn run_sync_request_handler(&self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) {
         use crate::network::{
-            AccountData, CheckpointData, CheckpointVoteResponse, SnapshotData, SyncRequest,
-            SyncResponse, TransactionData, ValidatorData,
+            AccountData, CheckpointData, CheckpointVoteResponse, DeltaData, PeerHandshake,
+            SnapshotData, SyncRequest, SyncResponse, TransactionData, ValidatorData,
         };
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         use base64::Engine;
@@ -698,6 +698,120 @@ impl GossipService {
                                 recent_txs: tx_data,
                                 merkle_root,
                             })
+                        }
+                        SyncRequest::Delta { from_checkpoint } => {
+                            info!("Handling P2P delta sync request from checkpoint {}", from_checkpoint);
+                            
+                            // Get checkpoints and transaction mappings
+                            let (new_checkpoints, tx_checkpoint_heights, to_checkpoint, validators) = {
+                                let state_guard = self.state.inner.read().await;
+                                let mut tx_checkpoint_heights = std::collections::HashMap::new();
+                                let mut tx_count_by_checkpoint: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+                                
+                                for node in state_guard.dag.get_all_nodes() {
+                                    if let Some(height) = node.checkpoint_height {
+                                        tx_checkpoint_heights.insert(node.hash.clone(), height);
+                                        *tx_count_by_checkpoint.entry(height).or_insert(0) += 1;
+                                    }
+                                }
+                                
+                                let new_checkpoints: Vec<CheckpointData> = state_guard
+                                    .checkpoints
+                                    .iter()
+                                    .filter(|cp| cp.height > from_checkpoint)
+                                    .map(|cp| CheckpointData {
+                                        height: cp.height,
+                                        merkle_root: cp.tx_merkle_root.clone(),
+                                        timestamp: cp.timestamp,
+                                        tx_count: *tx_count_by_checkpoint.get(&cp.height).unwrap_or(&0),
+                                        hash: Some(cp.hash.clone()),
+                                        previous_hash: cp.previous_hash.clone(),
+                                        signature: cp.aggregated_signature.clone(),
+                                        genesis_hash: state_guard.genesis_hash.clone(),
+                                    })
+                                    .collect();
+                                
+                                let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+                                
+                                let validators: Vec<ValidatorData> = state_guard.validators.values().map(|v| ValidatorData {
+                                    address: v.address.clone(),
+                                    stake: v.stake,
+                                    bls_public_key: v.bls_public_key.clone().unwrap_or_default(),
+                                    status: "Active".to_string(),
+                                }).collect();
+                                
+                                (new_checkpoints, tx_checkpoint_heights, to_checkpoint, validators)
+                            };
+                            
+                            // Get transactions since checkpoint
+                            let all_txs = self.state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
+                            
+                            // Limit to prevent massive responses (P2P has size limits)
+                            let txs: Vec<TransactionData> = all_txs.into_iter()
+                                .take(5000) // Cap at 5000 txs per request
+                                .map(|stx| TransactionData {
+                                    hash: stx.hash.clone(),
+                                    from: stx.tx.from.clone(),
+                                    to: stx.tx.to.clone(),
+                                    amount: stx.tx.amount,
+                                    nonce: stx.tx.nonce,
+                                    timestamp: stx.tx.timestamp,
+                                    signature: stx.signature.clone(),
+                                    parents: stx.tx.parents.clone(),
+                                    gas_price: stx.tx.gas_price.unwrap_or(0.0),
+                                    memo: stx.tx.memo.clone(),
+                                    references: stx.tx.references.clone(),
+                                })
+                                .collect();
+                            
+                            info!("P2P delta sync response: {} txs, {} checkpoints (from {} to {})",
+                                txs.len(), new_checkpoints.len(), from_checkpoint, to_checkpoint);
+                            
+                            SyncResponse::Delta(DeltaData {
+                                transactions: txs,
+                                new_checkpoints,
+                                from_checkpoint,
+                                to_checkpoint,
+                                tx_checkpoint_heights,
+                                validators,
+                            })
+                        }
+                        SyncRequest::Transaction { hash } => {
+                            let tx = self.state.get_transaction(&hash).await;
+                            SyncResponse::Transaction(tx.map(|stx| TransactionData {
+                                hash: stx.hash.clone(),
+                                from: stx.tx.from.clone(),
+                                to: stx.tx.to.clone(),
+                                amount: stx.tx.amount,
+                                nonce: stx.tx.nonce,
+                                timestamp: stx.tx.timestamp,
+                                signature: stx.signature.clone(),
+                                parents: stx.tx.parents.clone(),
+                                gas_price: stx.tx.gas_price.unwrap_or(0.0),
+                                memo: stx.tx.memo.clone(),
+                                references: stx.tx.references.clone(),
+                            }))
+                        }
+                        SyncRequest::Proof { tx_hash } => {
+                            // TODO: Implement proof generation
+                            SyncResponse::Proof(None)
+                        }
+                        SyncRequest::AccountsState { addresses } => {
+                            let accounts = self.state.get_accounts_by_addresses(&addresses).await;
+                            SyncResponse::AccountsState(accounts)
+                        }
+                        SyncRequest::Handshake(_handshake) => {
+                            // Return our peer info
+                            let our_handshake = PeerHandshake {
+                                protocol_version: "1.0.0".to_string(),
+                                chain_id: "rinku-testnet".to_string(),
+                                network_id: "rinku".to_string(),
+                                node_id: self.state.get_node_id().await,
+                                checkpoint_height: self.state.get_checkpoint_height().await,
+                                validator_address: self.checkpoint_vote_signer.as_ref().map(|s| s.validator_address.clone()),
+                                capabilities: vec!["sync".to_string(), "gossip".to_string()],
+                            };
+                            SyncResponse::Handshake(our_handshake)
                         }
                         SyncRequest::CheckpointVote(request) => {
                             if let Some(ref signer) = self.checkpoint_vote_signer {
@@ -921,6 +1035,8 @@ impl GossipService {
         info!("Initial sync complete");
     }
 
+    /// DEPRECATED: Use fetch_peer_status_p2p for 100% P2P operation
+    #[allow(dead_code)]
     async fn fetch_peer_status(&self, peer: &str) -> Result<PeerSyncStatus> {
         let client = reqwest::Client::new();
         let url = format!("{}/api/sync/status", peer);
@@ -939,6 +1055,8 @@ impl GossipService {
         Ok(status)
     }
 
+    /// DEPRECATED: Use bootstrap_from_peer_p2p for 100% P2P operation
+    #[allow(dead_code)]
     async fn bootstrap_from_peer(&self, peer: &str, _from_checkpoint: u64) -> Result<()> {
         let client = reqwest::Client::new();
         
@@ -1997,8 +2115,267 @@ impl GossipService {
         }
     }
 
+    /// P2P-based delta sync using libp2p request-response protocol
+    /// This replaces the HTTP-based sync for true P2P operation
+    #[cfg(feature = "p2p")]
+    async fn sync_from_peer_p2p(&self, peer_id: &str, local_checkpoint: u64) -> Result<DeltaSyncResult> {
+        use crate::network::SyncResponse;
+        
+        let handle = match &self.network_handle {
+            Some(h) => h.clone(),
+            None => return Err(anyhow::anyhow!("P2P network not available")),
+        };
+        
+        info!("P2P delta sync from peer {} starting at checkpoint {}", peer_id, local_checkpoint);
+        
+        let mut result = DeltaSyncResult::default();
+        let mut failed_count = 0usize;
+        
+        // Make P2P delta request
+        let response = {
+            let locked = handle.lock().await;
+            locked.request_delta(peer_id, local_checkpoint).await?
+        };
+        
+        match response {
+            SyncResponse::Delta(delta) => {
+                info!(
+                    "P2P delta sync received: {} txs, {} checkpoints (from {} to {})",
+                    delta.transactions.len(),
+                    delta.new_checkpoints.len(),
+                    delta.from_checkpoint,
+                    delta.to_checkpoint
+                );
+                
+                // ORDERING: First, apply all transactions before any checkpoints
+                // This ensures checkpoints have their referenced transactions
+                let mut tx_hashes_added = std::collections::HashSet::new();
+                
+                for tx_data in &delta.transactions {
+                    let signed_tx = rinku_core::types::SignedTransaction {
+                        hash: tx_data.hash.clone(),
+                        tx: rinku_core::types::Transaction {
+                            from: tx_data.from.clone(),
+                            to: tx_data.to.clone(),
+                            amount: tx_data.amount,
+                            nonce: tx_data.nonce,
+                            timestamp: tx_data.timestamp,
+                            parents: tx_data.parents.clone(),
+                            gas_price: Some(tx_data.gas_price),
+                            gas_limit: None,
+                            data: None,
+                            signature: None,
+                            kind: None,
+                            memo: tx_data.memo.clone(),
+                            references: tx_data.references.clone(),
+                        },
+                        signature: tx_data.signature.clone(),
+                    };
+                    
+                    // Use sync-add which bypasses nonce validation for synced transactions
+                    if let Err(e) = self.state.add_transaction_from_sync(signed_tx).await {
+                        debug!("Failed to add synced tx {}: {}", tx_data.hash, e);
+                        failed_count += 1;
+                    } else {
+                        tx_hashes_added.insert(tx_data.hash.clone());
+                        result.added += 1;
+                    }
+                }
+                
+                // ORDERING: Set checkpoint heights BEFORE applying checkpoints
+                // This ensures consistent state during finalization
+                for (hash, height) in &delta.tx_checkpoint_heights {
+                    self.state.set_tx_checkpoint_height(hash, *height).await;
+                }
+                
+                // ORDERING: Now apply checkpoints (after all txs are in place)
+                for cp_data in &delta.new_checkpoints {
+                    let checkpoint = rinku_core::types::Checkpoint {
+                        height: cp_data.height,
+                        tx_merkle_root: cp_data.merkle_root.clone(),
+                        state_root: String::new(),
+                        receipt_root: String::new(),
+                        timestamp: cp_data.timestamp,
+                        previous_hash: cp_data.previous_hash.clone(),
+                        tip_count: cp_data.tx_count as u32,
+                        hash: cp_data.hash.clone().unwrap_or_default(),
+                        signer_bitmap: None,
+                        aggregated_signature: cp_data.signature.clone(),
+                        validator_signatures: Vec::new(),
+                        finalized_tx_hashes: Vec::new(),
+                    };
+                    
+                    if let Err(e) = self.state.apply_checkpoint(checkpoint).await {
+                        warn!("Failed to apply synced checkpoint {}: {}", cp_data.height, e);
+                        failed_count += 1;
+                    } else {
+                        result.added += 1;
+                    }
+                }
+                
+                // Merge validators
+                if !delta.validators.is_empty() {
+                    let validators: std::collections::HashMap<String, Validator> = delta.validators.iter().map(|v| {
+                        let validator = Validator {
+                            address: v.address.clone(),
+                            stake: v.stake,
+                            first_stake_time: 0,
+                            bls_public_key: Some(v.bls_public_key.clone()),
+                            missed_checkpoints: 0,
+                        };
+                        (v.address.clone(), validator)
+                    }).collect();
+                    self.state.merge_validators_from_peer(&validators).await;
+                }
+                
+                result.failed = failed_count;
+                
+                // ERROR HANDLING: If too many failures, return error to trigger retry
+                if failed_count > 0 && failed_count > result.added {
+                    warn!("P2P delta sync had more failures ({}) than successes ({})", failed_count, result.added);
+                    return Err(anyhow::anyhow!("P2P sync partial failure: {} added, {} failed", result.added, failed_count));
+                }
+                
+                info!("P2P delta sync complete: {} added, {} failed", result.added, failed_count);
+            }
+            SyncResponse::Error { message } => {
+                return Err(anyhow::anyhow!("P2P sync error from peer: {}", message));
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Unexpected P2P response type"));
+            }
+        }
+        
+        Ok(result)
+    }
+    
+    /// P2P-based snapshot sync using libp2p request-response protocol
+    #[cfg(feature = "p2p")]
+    async fn bootstrap_from_peer_p2p(&self, peer_id: &str) -> Result<()> {
+        use crate::network::SyncResponse;
+        
+        let handle = match &self.network_handle {
+            Some(h) => h.clone(),
+            None => return Err(anyhow::anyhow!("P2P network not available")),
+        };
+        
+        info!("P2P snapshot sync from peer {}", peer_id);
+        
+        let response = {
+            let locked = handle.lock().await;
+            locked.request_snapshot(peer_id).await?
+        };
+        
+        match response {
+            SyncResponse::Snapshot(snapshot) => {
+                info!(
+                    "P2P snapshot received: {} accounts, {} validators, {} checkpoints, {} txs",
+                    snapshot.accounts.len(),
+                    snapshot.validators.len(),
+                    snapshot.checkpoints.len(),
+                    snapshot.recent_txs.len()
+                );
+                
+                // Apply snapshot to state
+                self.state.apply_p2p_snapshot(snapshot).await?;
+                
+                info!("P2P snapshot sync complete");
+                Ok(())
+            }
+            SyncResponse::Error { message } => {
+                Err(anyhow::anyhow!("P2P snapshot error from peer: {}", message))
+            }
+            _ => {
+                Err(anyhow::anyhow!("Unexpected P2P response type for snapshot"))
+            }
+        }
+    }
+    
+    /// P2P-based peer status fetch using handshake
+    #[cfg(feature = "p2p")]
+    async fn fetch_peer_status_p2p(&self, peer_id: &str) -> Result<PeerSyncStatus> {
+        use crate::network::{PeerHandshake, SyncResponse};
+        
+        let handle = match &self.network_handle {
+            Some(h) => h.clone(),
+            None => return Err(anyhow::anyhow!("P2P network not available")),
+        };
+        
+        let local_checkpoint = self.state.get_checkpoint_height().await;
+        let node_id = self.state.get_node_id().await;
+        let validator_address = self.checkpoint_vote_signer.as_ref().map(|s| s.validator_address.clone());
+        
+        let handshake = PeerHandshake {
+            protocol_version: "1.0.0".to_string(),
+            chain_id: "rinku-testnet".to_string(),
+            network_id: "testnet".to_string(),
+            node_id,
+            checkpoint_height: local_checkpoint,
+            validator_address,
+            capabilities: vec!["sync".to_string(), "gossip".to_string()],
+        };
+        
+        let response = {
+            let locked = handle.lock().await;
+            locked.handshake(peer_id, handshake).await?
+        };
+        
+        match response {
+            SyncResponse::Handshake(peer_info) => {
+                Ok(PeerSyncStatus {
+                    checkpoint_height: peer_info.checkpoint_height,
+                    dag_size: 0, // Not available via handshake
+                    tip_count: 0,
+                    tips: Vec::new(),
+                    merkle_root: None,
+                    faucet_balance: 0.0,
+                })
+            }
+            SyncResponse::Error { message } => {
+                Err(anyhow::anyhow!("P2P handshake error: {}", message))
+            }
+            _ => {
+                Err(anyhow::anyhow!("Unexpected P2P response type for handshake"))
+            }
+        }
+    }
+    
+    /// Trigger P2P sync from a connected peer (100% P2P, no HTTP fallback)
+    #[cfg(feature = "p2p")]
+    async fn trigger_sync_from_peer_p2p(&self, peer_id: &str) -> anyhow::Result<()> {
+        let local_checkpoint = self.state.get_checkpoint_height().await;
+        
+        // Get peer status via P2P handshake
+        let status = self.fetch_peer_status_p2p(peer_id).await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch peer status via P2P: {}", e))?;
+        
+        let checkpoint_gap = status.checkpoint_height.saturating_sub(local_checkpoint);
+        
+        if checkpoint_gap >= 2 {
+            // Peer is significantly ahead - use snapshot sync
+            info!("P2P sync: peer {} is {} checkpoint(s) ahead, using snapshot sync", peer_id, checkpoint_gap);
+            self.bootstrap_from_peer_p2p(peer_id).await
+                .map_err(|e| {
+                    warn!("P2P snapshot sync from {} failed: {}", peer_id, e);
+                    e
+                })?;
+        } else {
+            // Same or 1 checkpoint ahead - use delta sync
+            info!("P2P sync: peer {} at checkpoint {}, using delta sync", peer_id, status.checkpoint_height);
+            self.sync_from_peer_p2p(peer_id, local_checkpoint).await
+                .map_err(|e| {
+                    warn!("P2P delta sync from {} failed: {}", peer_id, e);
+                    e
+                })?;
+        }
+        
+        Ok(())
+    }
+
     /// Optimized delta sync that starts from an offset based on local DAG size
     /// This avoids downloading the entire DAG when we only need recent transactions
+    /// DEPRECATED: Use sync_from_peer_p2p instead for true P2P operation
+    #[allow(dead_code)]
     async fn sync_from_peer_optimized(&self, peer: &str, local_checkpoint: u64, local_dag_size: u64) -> Result<DeltaSyncResult> {
         let client = reqwest::Client::new();
         // Start from an offset near our local DAG size, with a buffer for safety
@@ -2896,36 +3273,25 @@ impl GossipService {
     }
 
     /// Trigger sync from a specific peer (used by TipAnnouncement background task)
+    /// DEPRECATED: Use trigger_sync_from_peer_p2p for 100% P2P operation
+    #[allow(dead_code)]
     async fn trigger_sync_from_peer(&self, peer_url: &str) -> anyhow::Result<()> {
-        let local_checkpoint = self.state.get_checkpoint_height().await;
-        let (local_dag_size, _, _) = self.state.get_dag_stats().await;
+        // P2P-only sync: require valid libp2p peer ID
+        // HTTP sync has been deprecated and removed
         
-        let status = self.fetch_peer_status(peer_url).await
-            .map_err(|e| anyhow::anyhow!("Failed to fetch peer status: {}", e))?;
-        
-        let checkpoint_gap = status.checkpoint_height.saturating_sub(local_checkpoint);
-        
-        if checkpoint_gap >= 1 {
-            // Peer is ahead on checkpoints - use snapshot sync
-            info!("Background sync: peer {} is {} checkpoint(s) ahead, using snapshot sync", peer_url, checkpoint_gap);
-            self.bootstrap_from_peer(peer_url, local_checkpoint).await
-                .map_err(|e| {
-                    warn!("Background snapshot sync from {} failed: {}", peer_url, e);
-                    e
-                })?;
-        } else {
-            // Same checkpoint, just missing DAG transactions - use OPTIMIZED delta sync
-            // This starts from near our local DAG size instead of offset 0
-            info!("Background sync: peer {} at same checkpoint, using optimized delta sync (start offset: {})", 
-                  peer_url, local_dag_size.saturating_sub(500));
-            self.sync_from_peer_optimized(peer_url, local_checkpoint, local_dag_size as u64).await
-                .map_err(|e| {
-                    warn!("Background delta sync from {} failed: {}", peer_url, e);
-                    e
-                })?;
+        // Check if peer_url looks like a P2P peer ID (starts with "12D3" for libp2p)
+        if peer_url.starts_with("12D3") {
+            if self.network_handle.is_some() {
+                return self.trigger_sync_from_peer_p2p(peer_url).await;
+            } else {
+                warn!("P2P network not available for sync with {}", peer_url);
+                return Err(anyhow::anyhow!("P2P network not initialized"));
+            }
         }
         
-        Ok(())
+        // Reject HTTP URLs - P2P-only mode enforced
+        warn!("HTTP sync rejected for {} - P2P-only mode enabled. Use libp2p peer IDs (12D3...)", peer_url);
+        Err(anyhow::anyhow!("HTTP sync is deprecated. Only P2P sync (libp2p peer IDs starting with 12D3) is supported"))
     }
 
     pub async fn broadcast_conflict_resolution(

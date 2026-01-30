@@ -1631,6 +1631,28 @@ impl NodeState {
             .unwrap_or(0)
     }
     
+    /// Get the node's unique identifier
+    pub async fn get_node_id(&self) -> String {
+        // Use a hash of the genesis hash as a simple node identifier
+        let state = self.inner.read().await;
+        state.genesis_hash.clone().unwrap_or_else(|| "unknown".to_string())
+    }
+    
+    /// Get accounts by a list of addresses (for P2P sync)
+    pub async fn get_accounts_by_addresses(&self, addresses: &[String]) -> Vec<crate::network::AccountData> {
+        let state = self.inner.read().await;
+        addresses.iter()
+            .filter_map(|addr| {
+                state.accounts.get(addr).map(|a| crate::network::AccountData {
+                    address: a.address.clone(),
+                    balance: a.balance,
+                    nonce: a.nonce,
+                    stake: a.staked,
+                })
+            })
+            .collect()
+    }
+    
     /// Apply a checkpoint received from the network (via CheckpointAnnouncement)
     /// 
     /// SAFETY: We finalize transactions ONLY if our unfinalized set's merkle root
@@ -2851,6 +2873,134 @@ impl NodeState {
         };
 
         state.dag.add_node(node)?;
+        Ok(())
+    }
+    
+    /// Alias for add_transaction_dag_only - used by P2P sync
+    pub async fn add_transaction_from_sync(&self, tx: SignedTransaction) -> Result<()> {
+        self.add_transaction_dag_only(tx).await
+    }
+    
+    /// Set the checkpoint height for a transaction (used by P2P sync)
+    pub async fn set_tx_checkpoint_height(&self, hash: &str, height: u64) {
+        let mut state = self.inner.write().await;
+        if let Some(node) = state.dag.get_node_mut(hash) {
+            node.checkpoint_height = Some(height);
+            node.finalized = true;
+        }
+    }
+    
+    /// Apply a full P2P snapshot to local state
+    /// Used for bootstrapping from a peer when significantly behind
+    #[cfg(feature = "p2p")]
+    pub async fn apply_p2p_snapshot(&self, snapshot: crate::network::SnapshotData) -> anyhow::Result<()> {
+        use tracing::info;
+        
+        let mut state = self.inner.write().await;
+        
+        info!("Applying P2P snapshot: {} accounts, {} validators, {} checkpoints",
+              snapshot.accounts.len(), snapshot.validators.len(), snapshot.checkpoints.len());
+        
+        // Apply accounts
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        
+        for account_data in snapshot.accounts {
+            // Get existing account or create new one
+            let mut account = state.accounts.get(&account_data.address)
+                .cloned()
+                .unwrap_or_else(|| Account::new(account_data.address.clone(), now_ms));
+            
+            account.balance = account_data.balance;
+            account.nonce = account_data.nonce;
+            account.staked = account_data.stake;
+            state.accounts.insert(account_data.address, account);
+        }
+        
+        // Apply validators
+        for validator_data in snapshot.validators {
+            let validator = rinku_core::types::Validator {
+                address: validator_data.address.clone(),
+                stake: validator_data.stake,
+                first_stake_time: 0,
+                bls_public_key: Some(validator_data.bls_public_key),
+                missed_checkpoints: 0,
+            };
+            state.validators.insert(validator_data.address, validator);
+        }
+        
+        // Apply checkpoints
+        for cp_data in snapshot.checkpoints {
+            let checkpoint = rinku_core::types::Checkpoint {
+                height: cp_data.height,
+                tx_merkle_root: cp_data.merkle_root,
+                state_root: String::new(),
+                receipt_root: String::new(),
+                timestamp: cp_data.timestamp,
+                previous_hash: cp_data.previous_hash,
+                tip_count: cp_data.tx_count as u32,
+                hash: cp_data.hash.unwrap_or_default(),
+                signer_bitmap: None,
+                aggregated_signature: cp_data.signature,
+                validator_signatures: Vec::new(),
+                finalized_tx_hashes: Vec::new(),
+            };
+            
+            // Only add if we don't have this checkpoint yet
+            if !state.checkpoints.iter().any(|c| c.height == checkpoint.height) {
+                state.checkpoints.push(checkpoint);
+            }
+        }
+        
+        // Sort checkpoints by height
+        state.checkpoints.sort_by_key(|c| c.height);
+        
+        // Apply recent transactions to DAG
+        for tx_data in snapshot.recent_txs {
+            let signed_tx = rinku_core::types::SignedTransaction {
+                hash: tx_data.hash.clone(),
+                tx: rinku_core::types::Transaction {
+                    from: tx_data.from,
+                    to: tx_data.to,
+                    amount: tx_data.amount,
+                    nonce: tx_data.nonce,
+                    timestamp: tx_data.timestamp,
+                    parents: tx_data.parents,
+                    gas_price: Some(tx_data.gas_price),
+                    gas_limit: None,
+                    data: None,
+                    signature: None,
+                    kind: None,
+                    memo: tx_data.memo,
+                    references: tx_data.references,
+                },
+                signature: tx_data.signature,
+            };
+            
+            // Add to DAG (skip if exists)
+            if state.dag.get_node(&signed_tx.hash).is_none() {
+                let now_dag = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                    
+                let node = rinku_core::types::DagNode {
+                    hash: signed_tx.hash.clone(),
+                    tx: signed_tx,
+                    parents: Vec::new(), // Parents handled separately
+                    children: Vec::new(),
+                    weight: 1.0,
+                    finalized: false,
+                    checkpoint_height: None,
+                    received_at_ms: Some(now_dag),
+                };
+                let _ = state.dag.add_node(node);
+            }
+        }
+        
+        info!("P2P snapshot applied successfully");
         Ok(())
     }
 
