@@ -13,6 +13,7 @@ pub mod fork_remediation;
 pub mod gas;
 pub mod gossip;
 pub mod leader_election;
+pub mod mempool_cleanup;
 #[cfg(feature = "p2p")]
 pub mod network;
 pub mod persistence;

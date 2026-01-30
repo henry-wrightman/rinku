@@ -14,6 +14,25 @@ pub const PROPAGATION_GRACE_MS: u64 = 5000; // 5 seconds
 /// Prevents malicious actors from using far-future timestamps to delay finalization
 pub const MAX_FUTURE_TIMESTAMP_MS: u64 = 30_000; // 30 seconds
 
+/// Transaction TTL in milliseconds (2 minutes)
+/// Unfinalized transactions older than this are expired and removed from the mempool
+/// Prevents indefinite accumulation during checkpoint failures
+pub const TRANSACTION_TTL_MS: u64 = 120_000; // 120 seconds
+
+/// Mempool cleanup interval in milliseconds
+/// How often to scan and prune expired transactions
+pub const MEMPOOL_CLEANUP_INTERVAL_MS: u64 = 30_000; // 30 seconds
+
+/// Graceful degradation threshold (tip count)
+/// When DAG tips exceed this, enter degraded mode: only accept validator/system transactions
+/// User transactions are rejected with 503 until tips drop below threshold
+pub const DEGRADED_MODE_THRESHOLD: usize = 2000;
+
+/// Hard backpressure threshold (tip count)
+/// When DAG tips exceed this, reject ALL transactions including validator txs
+/// This is the last line of defense before node overload
+pub const MAX_TIPS_BACKPRESSURE: usize = 300;
+
 #[derive(Debug, Clone)]
 pub struct GenesisValidator {
     pub address: String,
@@ -292,5 +311,18 @@ impl TrustConfig {
 impl Default for NodeConfig {
     fn default() -> Self {
         Self::from_env()
+    }
+}
+
+/// Normalize a timestamp to milliseconds
+/// Timestamps < 4 billion are assumed to be in seconds (Unix epoch seconds fit in this range until ~2100)
+/// Timestamps >= 4 billion are assumed to already be in milliseconds
+/// This prevents TTL calculation errors when mixing seconds vs milliseconds timestamps
+pub fn normalize_timestamp_to_ms(ts: u64) -> u64 {
+    const SECONDS_MS_THRESHOLD: u64 = 4_000_000_000;
+    if ts < SECONDS_MS_THRESHOLD {
+        ts * 1000
+    } else {
+        ts
     }
 }

@@ -18,6 +18,7 @@ mod fork_remediation;
 mod gas;
 mod gossip;
 mod leader_election;
+mod mempool_cleanup;
 #[cfg(feature = "p2p")]
 mod network;
 mod persistence;
@@ -464,6 +465,13 @@ async fn main() -> Result<()> {
         }
     });
     info!("Tip consolidation service started");
+
+    // Mempool cleanup service - prune expired pending transactions every 30s
+    let mempool_cleanup = mempool_cleanup::MempoolCleanupService::new(state.clone());
+    tokio::spawn(async move {
+        mempool_cleanup.start().await;
+    });
+    info!("Mempool cleanup service started (TTL: 120s, interval: 30s)");
 
     // Periodic snapshot saving (every 60 seconds)
     let snapshot_state = state.clone();
