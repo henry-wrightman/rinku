@@ -56,6 +56,7 @@ fn create_dag_node(tx: SignedTransaction, weight: f64) -> DagNode {
         finalized: false,
         checkpoint_height: None,
         weight,
+        received_at_ms: None
     }
 }
 
