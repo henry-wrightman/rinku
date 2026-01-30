@@ -2945,22 +2945,20 @@ impl NodeState {
                 };
                 
                 if tx.tx.from != "genesis" {
-                    match state.accounts.get(&tx.tx.from) {
-                        Some(account) => {
-                            if account.balance < required_balance {
-                                validation_results.push(Some(anyhow::anyhow!(
-                                    "Insufficient balance: have {:.6}, need {:.6}",
-                                    account.balance, required_balance
-                                )));
-                                continue;
-                            }
-                            // Note: nonce check in batch is complex due to ordering, skip for now
-                        }
-                        None => {
-                            validation_results.push(Some(anyhow::anyhow!("Account does not exist")));
-                            continue;
-                        }
+                    // Use effective_balance which accounts for pending (unfinalized) transactions
+                    let effective_balance = Self::get_effective_balance(&state, &tx.tx.from);
+                    if state.accounts.get(&tx.tx.from).is_none() {
+                        validation_results.push(Some(anyhow::anyhow!("Account does not exist")));
+                        continue;
                     }
+                    if effective_balance < required_balance {
+                        validation_results.push(Some(anyhow::anyhow!(
+                            "Insufficient balance: have {:.6}, need {:.6}",
+                            effective_balance, required_balance
+                        )));
+                        continue;
+                    }
+                    // Note: nonce check in batch is complex due to ordering, skip for now
                 }
                 validation_results.push(None); // Valid
             }
@@ -3011,12 +3009,6 @@ impl NodeState {
         // PHASE 2: Single write lock for entire batch - with tip injection
         let mut state = self.inner.write().await;
         let mut results = Vec::with_capacity(txs.len());
-        let mut stake_txs: Vec<(rinku_core::types::TransactionKind, String, f64)> = Vec::new();
-        
-        // Collect reward info for processing after lock release
-        // (tx_url, from_addr, reward_base, normalized_parents, parent_creators)
-        let mut reward_infos: Vec<(String, String, f64, Vec<String>, Vec<(String, String)>)> = Vec::new();
-        let validator_addr = state.node_validator_address.clone();
 
         for (idx, tx) in txs.iter().enumerate() {
             // Check if this tx failed pre-validation
@@ -3066,62 +3058,14 @@ impl NodeState {
                 .add_node(node)
                 .map_err(|e| anyhow::anyhow!("{}", e));
             if result.is_ok() {
-                let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+                // FINALITY-FIRST MODEL: Do NOT modify balances/nonces here!
+                // All state changes (balance, nonce, gas burn, rewards) happen in
+                // execute_finalized_transaction() when the checkpoint finalizes.
+                // This prevents double-execution bugs.
                 
-                // Check transaction kind to determine balance handling
-                let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-                let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-
-                if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-                    // For stake: deduct amount (locks it in stake)
-                    // For unstake/claim: don't deduct amount (only gas)
-                    // For transfer: deduct amount (sends to recipient)
-                    if is_stake_tx {
-                        from_account.balance -= tx.tx.amount + gas_fee;
-                    } else if is_unstake_tx || is_claim_tx {
-                        from_account.balance -= gas_fee; // Only gas for unstake/claim
-                    } else {
-                        from_account.balance -= tx.tx.amount + gas_fee;
-                    }
-                    from_account.nonce = tx.tx.nonce + 1;
-                }
-
-                // For stake/unstake/claim: don't transfer to recipient (amount is handled by rewards/staking)
-                // For transfer: add to recipient balance
-                if !is_stake_tx && !is_unstake_tx && !is_claim_tx {
-                    let to_account = state
-                        .accounts
-                        .entry(tx.tx.to.clone())
-                        .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-                    to_account.balance += tx.tx.amount;
-                }
-
-                state.total_burned += gas_fee * 0.5;
-                state.total_to_validators += gas_fee * 0.5;
+                // Only track transaction counts for gas price adjustment
                 state.txs_this_period += 1;
                 state.total_transactions += 1;
-                
-                // Track stake/unstake transactions for processing after lock release
-                if let Some(kind) = &tx.tx.kind {
-                    stake_txs.push((kind.clone(), tx.tx.from.clone(), tx.tx.amount));
-                }
-                
-                // Collect reward info for this transaction
-                let reward_base = tx.tx.amount + gas_fee;
-                if reward_base > 0.0 {
-                    let tx_url = format!("rinku://tx/h/{}", tx.hash);
-                    let parent_creators: Vec<(String, String)> = normalized_parents
-                        .iter()
-                        .filter_map(|parent_hash| {
-                            state.dag.get_node(parent_hash).map(|pnode| {
-                                let parent_url = format!("rinku://tx/h/{}", parent_hash);
-                                (parent_url, pnode.tx.tx.from.clone())
-                            })
-                        })
-                        .collect();
-                    reward_infos.push((tx_url, tx.tx.from.clone(), reward_base, normalized_parents.clone(), parent_creators));
-                }
             }
             results.push(result);
         }
@@ -3147,100 +3091,9 @@ impl NodeState {
         
         drop(state);
         
-        // Process tip and witness rewards for all transactions in batch
-        if !reward_infos.is_empty() {
-            let mut rewards = self.rewards.write().await;
-            for (tx_url, from_addr, reward_base, normalized_parents, parent_creators) in &reward_infos {
-                // Tip reward: validator who included this transaction gets rewarded
-                if let Some(ref validator) = validator_addr {
-                    if let Some(first_parent) = normalized_parents.first() {
-                        let tip_url = format!("rinku://tx/h/{}", first_parent);
-                        rewards.process_tip_reward(tx_url, &tip_url, validator, *reward_base);
-                    }
-                }
-                
-                // Witness rewards: reward creators of referenced parent transactions
-                for (parent_url, parent_creator) in parent_creators {
-                    // Don't reward yourself for referencing your own transactions
-                    if parent_creator != from_addr {
-                        rewards.process_witness_reward(tx_url, parent_url, parent_creator, *reward_base);
-                    }
-                }
-            }
-            drop(rewards);
-        }
-        
-        // Process stake/unstake transactions (separate lock for rewards)
-        // Collect account updates to apply after releasing rewards lock
-        // (address, staked_amount, staked_at, unstaked_amount_to_return)
-        let mut account_stake_updates: Vec<(String, f64, Option<u64>, f64)> = Vec::new();
-        
-        if !stake_txs.is_empty() {
-            use rinku_core::types::TransactionKind;
-            let mut rewards = self.rewards.write().await;
-            for (kind, from_addr, amount) in stake_txs {
-                match kind {
-                    TransactionKind::Stake => {
-                        if let Err(e) = rewards.stake(&from_addr, amount) {
-                            tracing::warn!("Failed to process batch stake tx: {}", e);
-                        } else {
-                            tracing::debug!("Batch stake: {} staked {} RKU", &from_addr[..16.min(from_addr.len())], amount);
-                            // Track account update for after lock release
-                            if let Some(position) = rewards.get_stake(&from_addr) {
-                                account_stake_updates.push((from_addr.clone(), position.amount, Some(position.staked_at / 1000), 0.0));
-                            }
-                        }
-                    }
-                    TransactionKind::Unstake => {
-                        match rewards.unstake(&from_addr) {
-                            Ok(unstaked) => {
-                                tracing::debug!("Batch unstake: {} unstaked {} RKU", &from_addr[..16.min(from_addr.len())], unstaked);
-                                // Track account update for after lock release - return unstaked amount to balance
-                                account_stake_updates.push((from_addr.clone(), 0.0, None, unstaked));
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to process batch unstake tx: {}", e);
-                            }
-                        }
-                    }
-                    TransactionKind::ClaimRewards => {
-                        let claimed = rewards.claim_rewards(&from_addr);
-                        if claimed > 0.0 {
-                            tracing::debug!("Batch claim rewards: {} claimed {} RKU", &from_addr[..16.min(from_addr.len())], claimed);
-                            // Track account update to add claimed rewards to balance
-                            account_stake_updates.push((from_addr.clone(), -1.0, None, claimed)); // -1.0 signals "don't update staked"
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        
-        // Sync staked amounts and return unstaked/claimed balance (after releasing rewards lock)
-        for (addr, staked_amount, staked_at, amount_to_add) in account_stake_updates {
-            let mut state = self.inner.write().await;
-            if let Some(account) = state.accounts.get_mut(&addr) {
-                // Only update staked amount if >= 0 (negative signals "don't update staked", used for claim rewards)
-                if staked_amount >= 0.0 {
-                    account.staked = staked_amount;
-                    if let Some(ts) = staked_at {
-                        if account.first_seen == 0 {
-                            account.first_seen = ts;
-                        }
-                    }
-                }
-                // Add claimed rewards or return unstaked amount to balance
-                if amount_to_add > 0.0 {
-                    account.balance += amount_to_add;
-                    tracing::info!(
-                        "Batch balance update: {} received {} RKU (new balance: {})",
-                        &addr[..16.min(addr.len())],
-                        amount_to_add,
-                        account.balance
-                    );
-                }
-            }
-        }
+        // FINALITY-FIRST MODEL: No reward/stake processing here!
+        // All rewards and stake operations are processed in execute_finalized_transaction()
+        // when the checkpoint finalizes. This prevents double-execution bugs.
 
         results
     }
