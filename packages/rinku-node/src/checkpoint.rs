@@ -1562,16 +1562,19 @@ impl CheckpointService {
         // not additional witness rewards from earlier transactions in this checkpoint.
         
         // LEADER NODE PROOF GENERATION: Generate proofs BEFORE execution using simulated state
-        // CRITICAL: Proofs must be computed from the same simulated account set used for state_root
-        // This ensures merkle proof verification will succeed. We use the full checkpoint now that we have the hash.
+        // CRITICAL: Proofs must use the SAME transaction set that was used for state_root computation
+        // We use `unfinalized_txs` (collected early, at line ~1062) NOT `txs_to_execute` (collected later)
+        // This ensures nonces match exactly: simulation starts from the same base state that was used
+        // for state_root computation, avoiding race conditions where concurrent checkpoints could
+        // modify account.nonce between the two simulation runs.
         let proof_tx_hash = unfinalized_hashes.first()
             .cloned()
             .unwrap_or_else(|| checkpoint.hash.clone());
         
-        // Get precomputed proofs from the same simulation used for state_root
-        // We re-run the simulation here but with the checkpoint template so proofs include the correct metadata
+        // Get precomputed proofs using the same transaction set as state_root computation
+        // CRITICAL FIX: Use unfinalized_txs (same set as state_root) NOT txs_to_execute
         let precomputed_proofs = self.state.compute_state_root_and_proofs(
-            &txs_to_execute,
+            &unfinalized_txs,
             &affected_addresses_vec,
             Some(&checkpoint),
             &proof_tx_hash,

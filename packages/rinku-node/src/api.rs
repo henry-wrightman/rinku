@@ -2612,7 +2612,7 @@ struct VerifyProofResponse {
 async fn verify_proof_endpoint(
     Json(req): Json<VerifyProofRequest>,
 ) -> impl IntoResponse {
-    use crate::proofs::{decode_self_contained_proof, verify_self_contained_proof, decode_account_state_proof, verify_account_state_proof};
+    use crate::proofs::{decode_self_contained_proof, verify_self_contained_proof, decode_account_state_proof, verify_account_state_proof_detailed};
     
     let proof_url = req.proof_url.trim();
     
@@ -2620,10 +2620,22 @@ async fn verify_proof_endpoint(
     if proof_url.starts_with("rinku://asp/") {
         match decode_account_state_proof(proof_url) {
             Ok(proof) => {
-                let verified = verify_account_state_proof(&proof);
+                let detail = verify_account_state_proof_detailed(&proof);
+                if !detail.valid {
+                    tracing::warn!(
+                        "Account state proof verification FAILED for {}: leaf_data='{}', leaf_hash={}, computed_root={}, expected_root={}, merkle_index={}, proof_len={}",
+                        &proof.address[..16.min(proof.address.len())],
+                        detail.leaf_data,
+                        &detail.leaf_hash[..16.min(detail.leaf_hash.len())],
+                        &detail.computed_root[..16.min(detail.computed_root.len())],
+                        &detail.expected_root[..16.min(detail.expected_root.len())],
+                        detail.merkle_index,
+                        detail.proof_length
+                    );
+                }
                 return (StatusCode::OK, Json(serde_json::json!({
                     "proofType": "account_state",
-                    "valid": verified,
+                    "valid": detail.valid,
                     "address": proof.address,
                     "balance": proof.balance,
                     "nonce": proof.nonce,
@@ -2632,6 +2644,12 @@ async fn verify_proof_endpoint(
                     "stateRoot": proof.state_root,
                     "merkleIndex": proof.merkle_index,
                     "merkleProof": proof.merkle_proof,
+                    "debug": if !detail.valid { Some(serde_json::json!({
+                        "leafData": detail.leaf_data,
+                        "leafHash": detail.leaf_hash,
+                        "computedRoot": detail.computed_root,
+                        "expectedRoot": detail.expected_root
+                    })) } else { None }
                 }))).into_response();
             }
             Err(e) => {
