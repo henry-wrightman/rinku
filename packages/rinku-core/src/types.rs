@@ -54,6 +54,27 @@ pub struct SignedTransaction {
     pub signature: String,
 }
 
+/// Self-contained proof of account state at a specific checkpoint
+/// This proof can be verified offline without querying any node
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountStateProof {
+    pub version: u32,
+    pub address: String,
+    pub balance: f64,
+    pub nonce: u64,
+    pub staked: f64,
+    pub checkpoint_height: u64,
+    pub checkpoint_hash: String,
+    pub checkpoint_timestamp: u64,
+    pub state_root: String,
+    pub merkle_proof: Vec<String>,
+    pub merkle_index: usize,
+    pub bls_aggregated_sig: Option<String>,
+    pub bls_signer_bitmap: Option<String>,
+    pub tx_hash: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
@@ -67,6 +88,8 @@ pub struct Account {
     pub unbonding: f64,
     #[serde(default)]
     pub unbonding_release: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_balance_proof: Option<AccountStateProof>,
 }
 
 impl Account {
@@ -79,6 +102,7 @@ impl Account {
             staked: 0.0,
             unbonding: 0.0,
             unbonding_release: None,
+            latest_balance_proof: None,
         }
     }
 }
@@ -179,9 +203,9 @@ impl Default for GasConfig {
         Self {
             min_gas_price: 0.001,
             max_gas_price: 10.0,         // Match TypeScript GAS_MAX_FEE
-            target_txs_per_period: 100, // 3000; 1 TPS × 10s period
+            target_txs_per_period: 3000, // 20 TPS × 15s period
             adjustment_factor: 0.125,    // 12.5% max change per period
-            period_duration_ms: 10000,
+            period_duration_ms: 15000,
         }
     }
 }

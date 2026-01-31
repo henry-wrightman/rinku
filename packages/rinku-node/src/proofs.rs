@@ -354,6 +354,52 @@ pub fn verify_tx_merkle_proof(
     hex::encode(&current_bytes) == expected_root
 }
 
+/// Normalize f64 to 8 decimal places for consistent hashing
+fn normalize_f64_for_proof(value: f64) -> String {
+    let rounded = (value * 100_000_000.0).round() / 100_000_000.0;
+    format!("{:.8}", rounded)
+}
+
+/// Hash data using SHA256 and return hex string
+fn sha256_hex_for_proof(data: &str) -> String {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(data.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Verify an account state proof against its embedded state root
+/// Returns true if the proof is valid (the account data matches the merkle root)
+/// Uses the same leaf/node encoding as sync_verification::hash_account_leaf and hash_internal
+pub fn verify_account_state_proof(proof: &rinku_core::types::AccountStateProof) -> bool {
+    // Leaf format must match sync_verification::hash_account_leaf exactly:
+    // "account:{}:{}:{}:{}" with address, normalize_f64(balance), nonce, normalize_f64(stake)
+    let leaf_data = format!(
+        "account:{}:{}:{}:{}",
+        proof.address,
+        normalize_f64_for_proof(proof.balance),
+        proof.nonce,
+        normalize_f64_for_proof(proof.staked)
+    );
+    let mut current_hash = sha256_hex_for_proof(&leaf_data);
+
+    let mut idx = proof.merkle_index;
+
+    for sibling_hex in &proof.merkle_proof {
+        // Internal node format must match sync_verification::hash_internal:
+        // "node:{}:{}" with left_hash and right_hash
+        let (left, right) = if idx % 2 == 0 {
+            (current_hash.clone(), sibling_hex.clone())
+        } else {
+            (sibling_hex.clone(), current_hash.clone())
+        };
+        current_hash = sha256_hex_for_proof(&format!("node:{}:{}", left, right));
+        idx /= 2;
+    }
+
+    current_hash == proof.state_root
+}
+
 pub fn verify_self_contained_proof(proof: &SelfContainedProof) -> ProofVerificationResult {
     let mut result = ProofVerificationResult {
         valid: false,
@@ -481,6 +527,43 @@ pub fn decode_self_contained_proof(encoded: &str) -> Result<SelfContainedProof, 
 pub fn create_self_proof_url(proof: &SelfContainedProof) -> Result<String, String> {
     let encoded = encode_self_contained_proof(proof)?;
     Ok(format!("rinku://sp/{}", encoded))
+}
+
+pub fn encode_account_state_proof(proof: &rinku_core::types::AccountStateProof) -> Result<String, String> {
+    let json = serde_json::to_string(proof).map_err(|e| format!("JSON serialization failed: {}", e))?;
+
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
+    encoder
+        .write_all(json.as_bytes())
+        .map_err(|e| format!("Compression failed: {}", e))?;
+    let compressed = encoder.finish().map_err(|e| format!("Compression finish failed: {}", e))?;
+
+    Ok(URL_SAFE_NO_PAD.encode(&compressed))
+}
+
+pub fn decode_account_state_proof(encoded: &str) -> Result<rinku_core::types::AccountStateProof, String> {
+    let encoded = if encoded.starts_with("rinku://asp/") {
+        &encoded[12..]
+    } else {
+        encoded
+    };
+
+    let compressed = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|e| format!("Base64 decode failed: {}", e))?;
+
+    let mut decoder = DeflateDecoder::new(&compressed[..]);
+    let mut json = String::new();
+    decoder
+        .read_to_string(&mut json)
+        .map_err(|e| format!("Decompression failed: {}", e))?;
+
+    serde_json::from_str(&json).map_err(|e| format!("JSON parse failed: {}", e))
+}
+
+pub fn create_account_state_proof_url(proof: &rinku_core::types::AccountStateProof) -> Result<String, String> {
+    let encoded = encode_account_state_proof(proof)?;
+    Ok(format!("rinku://asp/{}", encoded))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -860,5 +943,188 @@ mod tests {
         assert!(valid, "Proof verification failed: {:?}", errors);
         assert_eq!(weight, 50.0);
         assert!(errors.is_empty());
+    }
+
+    fn test_normalize_f64(value: f64) -> String {
+        let rounded = (value * 100_000_000.0).round() / 100_000_000.0;
+        format!("{:.8}", rounded)
+    }
+
+    fn test_sha256_hex(data: &str) -> String {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(data.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    fn test_hash_account_leaf(addr: &str, balance: f64, nonce: u64, staked: f64) -> String {
+        let data = format!(
+            "account:{}:{}:{}:{}",
+            addr,
+            test_normalize_f64(balance),
+            nonce,
+            test_normalize_f64(staked)
+        );
+        test_sha256_hex(&data)
+    }
+
+    fn test_hash_internal(left: &str, right: &str) -> String {
+        test_sha256_hex(&format!("node:{}:{}", left, right))
+    }
+
+    #[test]
+    fn test_account_state_proof_verification() {
+        use rinku_core::types::AccountStateProof;
+
+        let accounts = vec![
+            ("alice", 100.0, 5u64, 0.0),
+            ("bob", 50.0, 3u64, 10.0),
+            ("charlie", 75.0, 7u64, 25.0),
+        ];
+
+        let leaves: Vec<String> = accounts
+            .iter()
+            .map(|(addr, balance, nonce, staked)| test_hash_account_leaf(addr, *balance, *nonce, *staked))
+            .collect();
+
+        let state_root = compute_test_merkle_root_strings(&leaves);
+        let merkle_proof = compute_test_merkle_proof_strings(&leaves, 1);
+
+        let proof = AccountStateProof {
+            version: 1,
+            address: "bob".to_string(),
+            balance: 50.0,
+            nonce: 3,
+            staked: 10.0,
+            checkpoint_height: 100,
+            checkpoint_hash: "test_checkpoint_hash".to_string(),
+            checkpoint_timestamp: 1234567890,
+            state_root: state_root.clone(),
+            merkle_proof,
+            merkle_index: 1,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "test_tx_hash".to_string(),
+        };
+
+        assert!(verify_account_state_proof(&proof));
+    }
+
+    #[test]
+    fn test_account_state_proof_rejects_tampered_balance() {
+        use rinku_core::types::AccountStateProof;
+
+        let accounts = vec![
+            ("alice", 100.0, 5u64, 0.0),
+            ("bob", 50.0, 3u64, 10.0),
+        ];
+
+        let leaves: Vec<String> = accounts
+            .iter()
+            .map(|(addr, balance, nonce, staked)| test_hash_account_leaf(addr, *balance, *nonce, *staked))
+            .collect();
+
+        let state_root = compute_test_merkle_root_strings(&leaves);
+        let merkle_proof = compute_test_merkle_proof_strings(&leaves, 1);
+
+        let tampered_proof = AccountStateProof {
+            version: 1,
+            address: "bob".to_string(),
+            balance: 999.0,
+            nonce: 3,
+            staked: 10.0,
+            checkpoint_height: 100,
+            checkpoint_hash: "test_checkpoint_hash".to_string(),
+            checkpoint_timestamp: 1234567890,
+            state_root,
+            merkle_proof,
+            merkle_index: 1,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "test_tx_hash".to_string(),
+        };
+
+        assert!(!verify_account_state_proof(&tampered_proof));
+    }
+
+    #[test]
+    fn test_account_state_proof_single_account() {
+        use rinku_core::types::AccountStateProof;
+
+        let state_root = test_hash_account_leaf("alice", 100.0, 5, 0.0);
+
+        let proof = AccountStateProof {
+            version: 1,
+            address: "alice".to_string(),
+            balance: 100.0,
+            nonce: 5,
+            staked: 0.0,
+            checkpoint_height: 1,
+            checkpoint_hash: "genesis".to_string(),
+            checkpoint_timestamp: 0,
+            state_root,
+            merkle_proof: vec![],
+            merkle_index: 0,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "genesis_tx".to_string(),
+        };
+
+        assert!(verify_account_state_proof(&proof));
+    }
+
+    fn compute_test_merkle_root_strings(leaves: &[String]) -> String {
+        if leaves.is_empty() {
+            return "empty".to_string();
+        }
+        if leaves.len() == 1 {
+            return leaves[0].clone();
+        }
+
+        let mut current_level = leaves.to_vec();
+        while current_level.len() > 1 {
+            let mut next_level = Vec::new();
+            for chunk in current_level.chunks(2) {
+                let left = &chunk[0];
+                let right = if chunk.len() > 1 { &chunk[1] } else { left };
+                next_level.push(test_hash_internal(left, right));
+            }
+            current_level = next_level;
+        }
+        current_level[0].clone()
+    }
+
+    fn compute_test_merkle_proof_strings(leaves: &[String], target_index: usize) -> Vec<String> {
+        if leaves.len() <= 1 {
+            return vec![];
+        }
+
+        let mut proof = Vec::new();
+        let mut current_level = leaves.to_vec();
+        let mut current_index = target_index;
+
+        while current_level.len() > 1 {
+            let sibling_index = if current_index % 2 == 0 {
+                current_index + 1
+            } else {
+                current_index - 1
+            };
+
+            if sibling_index < current_level.len() {
+                proof.push(current_level[sibling_index].clone());
+            } else {
+                proof.push(current_level[current_index].clone());
+            }
+
+            let mut next_level = Vec::new();
+            for chunk in current_level.chunks(2) {
+                let left = &chunk[0];
+                let right = if chunk.len() > 1 { &chunk[1] } else { left };
+                next_level.push(test_hash_internal(left, right));
+            }
+            current_index /= 2;
+            current_level = next_level;
+        }
+        proof
     }
 }

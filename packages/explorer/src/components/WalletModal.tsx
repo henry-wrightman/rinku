@@ -94,6 +94,7 @@ export function WalletModal({
   useEffect(() => {
     if (keyPair) {
       fetchAccountInfo();
+      fetchTransactionHistory();
       const interval = setInterval(fetchAccountInfo, 5000);
       return () => clearInterval(interval);
     }
@@ -248,9 +249,12 @@ export function WalletModal({
   };
 
   const getTxLabel = (tx: TransactionItem) => {
-    if (tx.memo) return tx.memo.slice(0, 40) + (tx.memo.length > 40 ? "..." : "");
+    if (tx.memo)
+      return tx.memo.slice(0, 40) + (tx.memo.length > 40 ? "..." : "");
     if (tx.from === "faucet") return "Faucet";
-    return tx.direction === "sent" ? `To ${tx.to.slice(0, 6)}...` : `From ${tx.from.slice(0, 6)}...`;
+    return tx.direction === "sent"
+      ? `To ${tx.to.slice(0, 6)}...`
+      : `From ${tx.from.slice(0, 6)}...`;
   };
 
   const handleSendTransaction = async () => {
@@ -542,12 +546,20 @@ export function WalletModal({
                               {/* {hasMessage && <span className="msg-indicator">💬</span>} */}
                               {getTxLabel(tx)}
                             </span>
-                            <span className={`tx-compact-amount ${tx.direction}`}>
+                            <span
+                              className={`tx-compact-amount ${tx.direction}`}
+                            >
                               {tx.direction === "sent" ? "-" : "+"}
-                              {tx.amount > 0 ? tx.amount.toFixed(tx.amount < 1 ? 4 : 2) : "0"}
+                              {tx.amount > 0
+                                ? tx.amount.toFixed(tx.amount < 1 ? 4 : 2)
+                                : "0"}
                             </span>
-                            <span className="tx-compact-time">{formatShortTime(tx.timestamp)}</span>
-                            <span className={`tx-compact-status ${tx.finalized ? "ok" : "pending"}`}>
+                            <span className="tx-compact-time">
+                              {formatShortTime(tx.timestamp)}
+                            </span>
+                            <span
+                              className={`tx-compact-status ${tx.finalized ? "ok" : "pending"}`}
+                            >
                               {tx.finalized ? "✓" : "○"}
                             </span>
                           </div>
@@ -561,7 +573,9 @@ export function WalletModal({
                                   className="detail-value clickable"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    copyToClipboard(tx.direction === "sent" ? tx.to : tx.from);
+                                    copyToClipboard(
+                                      tx.direction === "sent" ? tx.to : tx.from,
+                                    );
                                   }}
                                 >
                                   {tx.direction === "sent" ? tx.to : tx.from}
@@ -569,11 +583,15 @@ export function WalletModal({
                               </div>
                               <div className="tx-detail-row">
                                 <span className="detail-label">Amount:</span>
-                                <span className="detail-value">{tx.amount.toFixed(4)} RKU</span>
+                                <span className="detail-value">
+                                  {tx.amount.toFixed(4)} RKU
+                                </span>
                               </div>
                               <div className="tx-detail-row">
                                 <span className="detail-label">Time:</span>
-                                <span className="detail-value">{formatTime(tx.timestamp)}</span>
+                                <span className="detail-value">
+                                  {formatTime(tx.timestamp)}
+                                </span>
                               </div>
                               <div className="tx-detail-row">
                                 <span className="detail-label">Hash:</span>
@@ -589,7 +607,9 @@ export function WalletModal({
                               </div>
                               <div className="tx-detail-row">
                                 <span className="detail-label">Status:</span>
-                                <span className={`detail-value ${tx.finalized ? "finalized" : "pending"}`}>
+                                <span
+                                  className={`detail-value ${tx.finalized ? "finalized" : "pending"}`}
+                                >
                                   {tx.finalized ? "Finalized" : "Pending"}
                                 </span>
                               </div>
@@ -601,7 +621,9 @@ export function WalletModal({
                               )}
                               {tx.references && tx.references.length > 0 && (
                                 <div className="tx-detail-refs">
-                                  <span className="detail-label">References:</span>
+                                  <span className="detail-label">
+                                    References:
+                                  </span>
                                   <div className="refs-list">
                                     {tx.references.map((ref, i) => (
                                       <span

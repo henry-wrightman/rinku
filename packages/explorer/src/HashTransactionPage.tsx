@@ -19,11 +19,11 @@ const getApiBaseUrl = () => {
     const host = window.location.hostname;
     console.log(
       "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}/api`,
+      `https://${host.replace(/-5000\./, "-3001.")}`,
     );
-    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+    return `https://${host.replace(/-5000\./, "-3001.")}`;
   }
-  return "/api"; // Dev: use Vite proxy
+  return ""; // Dev: use Vite proxy (fetch calls already include /api prefix)
 };
 const NODE_URL = getApiBaseUrl();
 
@@ -397,7 +397,7 @@ function HashTransactionPage() {
               marginTop: 24,
               padding: 20,
               background: "rgba(136, 192, 208, 0.1)",
-              borderRadius: 8,
+              borderRadius: 0,
               border: "1px solid rgba(136, 192, 208, 0.3)",
               marginBottom: 20,
             }}

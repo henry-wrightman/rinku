@@ -93,7 +93,7 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
       if (res.ok && data.amount && data.txHash) {
         setMessage({
           type: "success",
-          text: `received ${data.amount} RKU`,
+          text: `request for ${data.amount} RKU queued`,
         });
         setRecentDrops((prev) => [
           {

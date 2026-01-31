@@ -10,3 +10,5 @@ export { SearchBar } from "./SearchBar";
 export { ZKTab } from "./ZKTab";
 export { VerifyProofTab } from "./VerifyProofTab";
 export { WalletModal, useWallet } from "./WalletModal";
+export { ThreadTab } from "./ThreadTab";
+export { AnimatedNumber } from "./AnimatedNumber";

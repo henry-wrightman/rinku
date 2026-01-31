@@ -536,7 +536,7 @@ mod tests {
             weight: 1.0,
             finalized: false,
             checkpoint_height: None,
-            received_at_ms: None,
+            received_at_ms: Some(0),
         }
     }
 

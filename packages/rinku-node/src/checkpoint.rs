@@ -1316,8 +1316,9 @@ impl CheckpointService {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
-        // Compute real state_root from account states for consensus verification
-        let state_root = self.state.compute_state_root().await;
+        // Compute state_root with pending transactions applied (post-execution state)
+        // This ensures the state_root matches what proofs will verify against
+        let state_root = self.state.compute_state_root_with_pending_txs(&unfinalized_txs).await;
         let receipt_root = "0".repeat(64);
         let tip_count = unfinalized_hashes.len() as u32;
 
@@ -1531,9 +1532,24 @@ impl CheckpointService {
         );
         
         // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
+        // Collect all affected addresses for proof updates
+        let mut affected_addresses: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for tx in &txs_to_execute {
+            affected_addresses.insert(tx.tx.from.clone());
+            affected_addresses.insert(tx.tx.to.clone());
+        }
+        
         for tx in txs_to_execute {
             self.state.execute_finalized_transaction(&tx).await;
         }
+        
+        // Update balance proofs for all affected accounts after execution
+        // Use the first tx hash as the reference (or checkpoint hash if empty)
+        let proof_tx_hash = unfinalized_hashes.first()
+            .cloned()
+            .unwrap_or_else(|| checkpoint.hash.clone());
+        let addresses_vec: Vec<String> = affected_addresses.into_iter().collect();
+        self.state.update_account_balance_proofs(&addresses_vec, &checkpoint, &proof_tx_hash).await;
         
         // Track validator liveness - record which validators participated
         if let Some(ref consensus) = self.consensus_service {

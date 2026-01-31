@@ -3,7 +3,6 @@ import { useState } from "react";
 const getApiBaseUrl = () => {
   const envApiUrl = import.meta.env.VITE_API_URL;
 
-  // If VITE_API_URL is set and not localhost, use it directly
   if (
     envApiUrl &&
     !envApiUrl.includes("127.0.0.1") &&
@@ -16,7 +15,8 @@ const getApiBaseUrl = () => {
 };
 const API_URL = getApiBaseUrl();
 
-interface VerifyResult {
+interface TransactionVerifyResult {
+  proofType: "transaction";
   valid: boolean;
   errors: string[];
   txHash: string;
@@ -35,20 +35,42 @@ interface VerifyResult {
   signerCount: number;
 }
 
+interface AccountStateVerifyResult {
+  proofType: "account_state";
+  valid: boolean;
+  address: string;
+  balance: number;
+  nonce: number;
+  staked: number;
+  checkpointHeight: number;
+  stateRoot: string;
+  merkleIndex: number;
+  merkleProof: string[];
+}
+
 interface DecodeError {
   valid: false;
   error: string;
+  proofType?: string;
 }
 
-type VerifyResponse = VerifyResult | DecodeError;
+type VerifyResponse = TransactionVerifyResult | AccountStateVerifyResult | DecodeError;
 
 function isDecodeError(resp: VerifyResponse): resp is DecodeError {
   return "error" in resp;
 }
 
+function isTransactionResult(resp: VerifyResponse): resp is TransactionVerifyResult {
+  return "proofType" in resp && resp.proofType === "transaction" && !("error" in resp);
+}
+
+function isAccountStateResult(resp: VerifyResponse): resp is AccountStateVerifyResult {
+  return "proofType" in resp && resp.proofType === "account_state" && !("error" in resp);
+}
+
 export function VerifyProofTab() {
   const [proofUrl, setProofUrl] = useState("");
-  const [result, setResult] = useState<VerifyResult | null>(null);
+  const [result, setResult] = useState<TransactionVerifyResult | AccountStateVerifyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -59,16 +81,15 @@ export function VerifyProofTab() {
       return;
     }
 
-    // Check if user pasted just a hash or reference URL instead of a proof
     if (/^[a-f0-9]{64}$/i.test(trimmed)) {
       setError(
-        "This looks like a transaction hash, not a proof URL. Self-contained proofs start with 'rinku://sp/' and contain compressed cryptographic data.",
+        "This looks like a transaction hash, not a proof URL. Self-contained proofs start with 'rinku://sp/' (transaction) or 'rinku://asp/' (account state).",
       );
       return;
     }
     if (trimmed.startsWith("/tx/") || trimmed.startsWith("rinku://tx")) {
       setError(
-        "This is a transaction reference URL. To verify offline, you need a self-contained proof URL that starts with 'rinku://sp/' and contains all cryptographic data.",
+        "This is a transaction reference URL. To verify offline, you need a self-contained proof URL that starts with 'rinku://sp/' or 'rinku://asp/'.",
       );
       return;
     }
@@ -88,7 +109,9 @@ export function VerifyProofTab() {
 
       if (isDecodeError(data)) {
         setError(data.error);
-      } else {
+      } else if (isTransactionResult(data)) {
+        setResult(data);
+      } else if (isAccountStateResult(data)) {
         setResult(data);
       }
     } catch (e) {
@@ -107,6 +130,254 @@ export function VerifyProofTab() {
     return `${hash.slice(0, 10)}...${hash.slice(-10)}`;
   };
 
+  const renderTransactionResult = (result: TransactionVerifyResult) => (
+    <>
+      <div
+        className="section"
+        style={{
+          borderColor: result.valid ? "#22c55e" : "#ef4444",
+          backgroundColor: result.valid
+            ? "rgba(34, 197, 94, 0.1)"
+            : "rgba(239, 68, 68, 0.1)",
+        }}
+      >
+        <h3 style={{ color: result.valid ? "#22c55e" : "#ef4444" }}>
+          {result.valid ? "✓ transaction proof valid" : "✗ transaction proof invalid"}
+        </h3>
+
+        {result.errors.length > 0 && (
+          <div style={{ marginTop: "0.5rem" }}>
+            {result.errors.map((err, i) => (
+              <p key={i} style={{ color: "#ef4444", margin: "0.25rem 0" }}>
+                • {err}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="section">
+        <h3>transaction details</h3>
+        <div className="staking-overview">
+          <div className="stat-row">
+            <span>tx hash:</span>
+            <span
+              className="value"
+              style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+            >
+              {truncateHash(result.txHash)}
+            </span>
+          </div>
+          <div className="stat-row">
+            <span>from:</span>
+            <span
+              className="value"
+              style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+            >
+              {truncateHash(result.txFrom)}
+            </span>
+          </div>
+          <div className="stat-row">
+            <span>to:</span>
+            <span
+              className="value"
+              style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+            >
+              {truncateHash(result.txTo)}
+            </span>
+          </div>
+          <div className="stat-row">
+            <span>amount:</span>
+            <span className="value">{result.txAmount} RKU</span>
+          </div>
+          <div className="stat-row">
+            <span>nonce:</span>
+            <span className="value">{result.txNonce}</span>
+          </div>
+          <div className="stat-row">
+            <span>timestamp:</span>
+            <span className="value">
+              {formatTimestamp(result.txTimestamp)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="section">
+        <h3>finality proof</h3>
+        <div className="staking-overview">
+          <div className="stat-row">
+            <span>checkpoint height:</span>
+            <span className="value">{result.checkpointHeight}</span>
+          </div>
+          <div className="stat-row">
+            <span>checkpoint id:</span>
+            <span
+              className="value"
+              style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+            >
+              {truncateHash(result.checkpointId)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="section">
+        <h3>cryptographic verification</h3>
+        <div className="staking-overview">
+          <div className="stat-row">
+            <span>merkle proof:</span>
+            <span
+              className="value"
+              style={{
+                color: result.merkleVerified ? "#22c55e" : "#ef4444",
+              }}
+            >
+              {result.merkleVerified ? "✓ valid" : "✗ invalid"}
+            </span>
+          </div>
+          <div className="stat-row">
+            <span>BLS signature:</span>
+            <span
+              className="value"
+              style={{ color: result.blsVerified ? "#22c55e" : "#ef4444" }}
+            >
+              {result.blsVerified ? "✓ valid" : "✗ invalid"}
+            </span>
+          </div>
+          <div className="stat-row">
+            <span>validator set:</span>
+            <span
+              className="value"
+              style={{
+                color: result.validatorSetVerified ? "#22c55e" : "#ef4444",
+              }}
+            >
+              {result.validatorSetVerified ? "✓ valid" : "✗ invalid"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="section">
+        <h3>consensus weight</h3>
+        <div className="staking-overview">
+          <div className="stat-row">
+            <span>signer count:</span>
+            <span className="value">{result.signerCount} validators</span>
+          </div>
+          <div className="stat-row">
+            <span>signer weight:</span>
+            <span className="value">{result.signerWeight.toFixed(2)}</span>
+          </div>
+          <div className="stat-row">
+            <span>total weight:</span>
+            <span className="value">{result.totalWeight.toFixed(2)}</span>
+          </div>
+          <div className="stat-row">
+            <span>weight ratio:</span>
+            <span
+              className="value"
+              style={{
+                color:
+                  result.signerWeight / result.totalWeight >= 0.67
+                    ? "#22c55e"
+                    : "#ef4444",
+              }}
+            >
+              {((result.signerWeight / result.totalWeight) * 100).toFixed(
+                1,
+              )}
+              %
+              {result.signerWeight / result.totalWeight >= 0.67
+                ? " (≥67%)"
+                : " (<67%)"}
+            </span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const renderAccountStateResult = (result: AccountStateVerifyResult) => (
+    <>
+      <div
+        className="section"
+        style={{
+          borderColor: result.valid ? "#22c55e" : "#ef4444",
+          backgroundColor: result.valid
+            ? "rgba(34, 197, 94, 0.1)"
+            : "rgba(239, 68, 68, 0.1)",
+        }}
+      >
+        <h3 style={{ color: result.valid ? "#22c55e" : "#ef4444" }}>
+          {result.valid ? "✓ account state proof valid" : "✗ account state proof invalid"}
+        </h3>
+        <p style={{ opacity: 0.8, marginTop: "0.5rem", fontSize: "0.9rem" }}>
+          This proof cryptographically verifies the account balance at checkpoint {result.checkpointHeight}.
+        </p>
+      </div>
+
+      <div className="section">
+        <h3>account state</h3>
+        <div className="staking-overview">
+          <div className="stat-row">
+            <span>address:</span>
+            <span
+              className="value"
+              style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+            >
+              {truncateHash(result.address)}
+            </span>
+          </div>
+          <div className="stat-row">
+            <span>balance:</span>
+            <span className="value" style={{ color: "#a3be8c" }}>
+              {result.balance.toLocaleString()} RKU
+            </span>
+          </div>
+          <div className="stat-row">
+            <span>nonce:</span>
+            <span className="value">{result.nonce}</span>
+          </div>
+          <div className="stat-row">
+            <span>staked:</span>
+            <span className="value">
+              {result.staked > 0 ? `${result.staked.toLocaleString()} RKU` : "none"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="section">
+        <h3>checkpoint verification</h3>
+        <div className="staking-overview">
+          <div className="stat-row">
+            <span>checkpoint height:</span>
+            <span className="value">{result.checkpointHeight}</span>
+          </div>
+          <div className="stat-row">
+            <span>state root:</span>
+            <span
+              className="value"
+              style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+            >
+              {truncateHash(result.stateRoot)}
+            </span>
+          </div>
+          <div className="stat-row">
+            <span>merkle index:</span>
+            <span className="value">{result.merkleIndex}</span>
+          </div>
+          <div className="stat-row">
+            <span>proof depth:</span>
+            <span className="value">{result.merkleProof.length} levels</span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div
       className="tx-proof"
@@ -114,7 +385,7 @@ export function VerifyProofTab() {
         marginTop: 24,
         padding: 20,
         background: "rgba(136, 192, 208, 0.1)",
-        borderRadius: 8,
+        borderRadius: 0,
         border: "1px solid rgba(136, 192, 208, 0.3)",
         marginBottom: 20,
       }}
@@ -122,15 +393,16 @@ export function VerifyProofTab() {
       <div className="section">
         <h3>verify proof URL</h3>
         <p style={{ opacity: 0.7, marginBottom: "1rem", fontSize: "0.9rem" }}>
-          Paste a self-contained proof URL (<code>rinku://sp/...</code>) to
-          verify a transaction.
+          Paste a self-contained proof URL to verify:
+          <br />
+          <code>rinku://sp/...</code> for transactions, <code>rinku://asp/...</code> for account states.
         </p>
 
         <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
           <textarea
             value={proofUrl}
             onChange={(e) => setProofUrl(e.target.value)}
-            placeholder="rinku://sp/..."
+            placeholder="rinku://sp/... or rinku://asp/..."
             rows={4}
             style={{
               flex: 1,
@@ -168,174 +440,8 @@ export function VerifyProofTab() {
         </div>
       )}
 
-      {result && (
-        <>
-          <div
-            className="section"
-            style={{
-              borderColor: result.valid ? "#22c55e" : "#ef4444",
-              backgroundColor: result.valid
-                ? "rgba(34, 197, 94, 0.1)"
-                : "rgba(239, 68, 68, 0.1)",
-            }}
-          >
-            <h3 style={{ color: result.valid ? "#22c55e" : "#ef4444" }}>
-              {result.valid ? "✓ proof valid" : "✗ proof invalid"}
-            </h3>
-
-            {result.errors.length > 0 && (
-              <div style={{ marginTop: "0.5rem" }}>
-                {result.errors.map((err, i) => (
-                  <p key={i} style={{ color: "#ef4444", margin: "0.25rem 0" }}>
-                    • {err}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="section">
-            <h3>transaction details</h3>
-            <div className="staking-overview">
-              <div className="stat-row">
-                <span>tx hash:</span>
-                <span
-                  className="value"
-                  style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
-                >
-                  {truncateHash(result.txHash)}
-                </span>
-              </div>
-              <div className="stat-row">
-                <span>from:</span>
-                <span
-                  className="value"
-                  style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
-                >
-                  {truncateHash(result.txFrom)}
-                </span>
-              </div>
-              <div className="stat-row">
-                <span>to:</span>
-                <span
-                  className="value"
-                  style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
-                >
-                  {truncateHash(result.txTo)}
-                </span>
-              </div>
-              <div className="stat-row">
-                <span>amount:</span>
-                <span className="value">{result.txAmount} RKU</span>
-              </div>
-              <div className="stat-row">
-                <span>nonce:</span>
-                <span className="value">{result.txNonce}</span>
-              </div>
-              <div className="stat-row">
-                <span>timestamp:</span>
-                <span className="value">
-                  {formatTimestamp(result.txTimestamp)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="section">
-            <h3>finality proof</h3>
-            <div className="staking-overview">
-              <div className="stat-row">
-                <span>checkpoint height:</span>
-                <span className="value">{result.checkpointHeight}</span>
-              </div>
-              <div className="stat-row">
-                <span>checkpoint id:</span>
-                <span
-                  className="value"
-                  style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
-                >
-                  {truncateHash(result.checkpointId)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="section">
-            <h3>cryptographic verification</h3>
-            <div className="staking-overview">
-              <div className="stat-row">
-                <span>merkle proof:</span>
-                <span
-                  className="value"
-                  style={{
-                    color: result.merkleVerified ? "#22c55e" : "#ef4444",
-                  }}
-                >
-                  {result.merkleVerified ? "✓ valid" : "✗ invalid"}
-                </span>
-              </div>
-              <div className="stat-row">
-                <span>BLS signature:</span>
-                <span
-                  className="value"
-                  style={{ color: result.blsVerified ? "#22c55e" : "#ef4444" }}
-                >
-                  {result.blsVerified ? "✓ valid" : "✗ invalid"}
-                </span>
-              </div>
-              <div className="stat-row">
-                <span>validator set:</span>
-                <span
-                  className="value"
-                  style={{
-                    color: result.validatorSetVerified ? "#22c55e" : "#ef4444",
-                  }}
-                >
-                  {result.validatorSetVerified ? "✓ valid" : "✗ invalid"}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="section">
-            <h3>consensus weight</h3>
-            <div className="staking-overview">
-              <div className="stat-row">
-                <span>signer count:</span>
-                <span className="value">{result.signerCount} validators</span>
-              </div>
-              <div className="stat-row">
-                <span>signer weight:</span>
-                <span className="value">{result.signerWeight.toFixed(2)}</span>
-              </div>
-              <div className="stat-row">
-                <span>total weight:</span>
-                <span className="value">{result.totalWeight.toFixed(2)}</span>
-              </div>
-              <div className="stat-row">
-                <span>weight ratio:</span>
-                <span
-                  className="value"
-                  style={{
-                    color:
-                      result.signerWeight / result.totalWeight >= 0.67
-                        ? "#22c55e"
-                        : "#ef4444",
-                  }}
-                >
-                  {((result.signerWeight / result.totalWeight) * 100).toFixed(
-                    1,
-                  )}
-                  %
-                  {result.signerWeight / result.totalWeight >= 0.67
-                    ? " (≥67%)"
-                    : " (<67%)"}
-                </span>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+      {result && isTransactionResult(result) && renderTransactionResult(result)}
+      {result && isAccountStateResult(result) && renderAccountStateResult(result)}
     </div>
   );
 }

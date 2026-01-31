@@ -355,6 +355,55 @@ struct TransactionProofResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TransactionReceipt {
+    pub tx_hash: String,
+    pub from: String,
+    pub to: String,
+    pub amount: f64,
+    pub fee: f64,
+    pub nonce: u64,
+    pub timestamp: u64,
+    pub status: TransactionStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_height: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merkle_proof: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merkle_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub references: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TransactionStatus {
+    Pending,
+    Finalized,
+    Expired,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountProofResponse {
+    success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proof: Option<rinku_core::types::AccountStateProof>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proof_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verified: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CheckpointProofData {
     height: u64,
     hash: String,
@@ -1437,6 +1486,113 @@ async fn get_account_transactions(
     })
 }
 
+async fn get_account_proof(
+    State(state): State<NodeState>,
+    Path(address): Path<String>,
+) -> impl IntoResponse {
+    let account = match state.get_account(&address).await {
+        Some(acc) => acc,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(AccountProofResponse {
+                    success: false,
+                    proof: None,
+                    proof_url: None,
+                    verified: None,
+                    error: Some("Account not found".to_string()),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    if let Some(proof) = account.latest_balance_proof {
+        let verified = crate::proofs::verify_account_state_proof(&proof);
+        let proof_url = crate::proofs::create_account_state_proof_url(&proof).ok();
+        (
+            StatusCode::OK,
+            Json(AccountProofResponse {
+                success: true,
+                proof: Some(proof),
+                proof_url,
+                verified: Some(verified),
+                error: None,
+            }),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::OK,
+            Json(AccountProofResponse {
+                success: false,
+                proof: None,
+                proof_url: None,
+                verified: None,
+                error: Some("No proof available - account may not have finalized transactions".to_string()),
+            }),
+        )
+            .into_response()
+    }
+}
+
+async fn get_transaction_receipt(
+    State(state): State<NodeState>,
+    Path(hash): Path<String>,
+) -> impl IntoResponse {
+    if let Some((tx, _weight)) = state.get_transaction_with_weight(&hash).await {
+        let finalized = state.is_finalized(&hash).await;
+        
+        let (checkpoint_height, checkpoint_hash, state_root) = if finalized {
+            if let Some(cp_height) = state.get_tx_checkpoint_height(&hash).await {
+                if let Some(cp) = state.get_checkpoint_by_height(cp_height).await {
+                    (Some(cp.height), Some(cp.hash.clone()), Some(cp.state_root.clone()))
+                } else {
+                    let latest = state.get_latest_checkpoint().await;
+                    latest.map(|cp| (Some(cp.height), Some(cp.hash.clone()), Some(cp.state_root.clone())))
+                        .unwrap_or((None, None, None))
+                }
+            } else {
+                let latest = state.get_latest_checkpoint().await;
+                latest.map(|cp| (Some(cp.height), Some(cp.hash.clone()), Some(cp.state_root.clone())))
+                    .unwrap_or((None, None, None))
+            }
+        } else {
+            (None, None, None)
+        };
+
+        let status = if finalized {
+            TransactionStatus::Finalized
+        } else {
+            TransactionStatus::Pending
+        };
+
+        (
+            StatusCode::OK,
+            Json(TransactionReceipt {
+                tx_hash: tx.hash.clone(),
+                from: tx.tx.from.clone(),
+                to: tx.tx.to.clone(),
+                amount: tx.tx.amount,
+                fee: tx.tx.gas_price.unwrap_or(0.0),
+                nonce: tx.tx.nonce,
+                timestamp: tx.tx.timestamp,
+                status,
+                checkpoint_height,
+                checkpoint_hash,
+                merkle_proof: None,
+                merkle_index: None,
+                state_root,
+                memo: tx.tx.memo.clone(),
+                references: tx.tx.references.clone(),
+            }),
+        )
+            .into_response()
+    } else {
+        ApiError::not_found("Transaction not found").into_response()
+    }
+}
+
 async fn submit_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<SubmitTxRequest>,
@@ -2456,35 +2612,66 @@ struct VerifyProofResponse {
 async fn verify_proof_endpoint(
     Json(req): Json<VerifyProofRequest>,
 ) -> impl IntoResponse {
-    use crate::proofs::{decode_self_contained_proof, verify_self_contained_proof};
+    use crate::proofs::{decode_self_contained_proof, verify_self_contained_proof, decode_account_state_proof, verify_account_state_proof};
     
     let proof_url = req.proof_url.trim();
     
+    // Handle account state proofs (rinku://asp/...)
+    if proof_url.starts_with("rinku://asp/") {
+        match decode_account_state_proof(proof_url) {
+            Ok(proof) => {
+                let verified = verify_account_state_proof(&proof);
+                return (StatusCode::OK, Json(serde_json::json!({
+                    "proofType": "account_state",
+                    "valid": verified,
+                    "address": proof.address,
+                    "balance": proof.balance,
+                    "nonce": proof.nonce,
+                    "staked": proof.staked,
+                    "checkpointHeight": proof.checkpoint_height,
+                    "stateRoot": proof.state_root,
+                    "merkleIndex": proof.merkle_index,
+                    "merkleProof": proof.merkle_proof,
+                }))).into_response();
+            }
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                    "proofType": "account_state",
+                    "valid": false,
+                    "error": format!("Failed to decode account state proof: {}", e)
+                }))).into_response();
+            }
+        }
+    }
+    
+    // Handle transaction proofs (rinku://sp/...)
     match decode_self_contained_proof(proof_url) {
         Ok(proof) => {
             let result = verify_self_contained_proof(&proof);
             
-            (StatusCode::OK, Json(VerifyProofResponse {
-                valid: result.valid,
-                errors: result.errors,
-                tx_hash: result.tx_hash,
-                tx_from: proof.tx_from,
-                tx_to: proof.tx_to,
-                tx_amount: proof.tx_amount,
-                tx_nonce: proof.tx_nonce,
-                tx_timestamp: proof.tx_timestamp,
-                checkpoint_height: result.checkpoint_height,
-                checkpoint_id: proof.checkpoint_id,
-                merkle_verified: result.merkle_verified,
-                bls_verified: result.bls_verified,
-                validator_set_verified: result.validator_set_verified,
-                signer_weight: result.computed_signer_weight,
-                total_weight: result.total_weight,
-                signer_count: result.signer_count,
-            })).into_response()
+            (StatusCode::OK, Json(serde_json::json!({
+                "proofType": "transaction",
+                "valid": result.valid,
+                "errors": result.errors,
+                "txHash": result.tx_hash,
+                "txFrom": proof.tx_from,
+                "txTo": proof.tx_to,
+                "txAmount": proof.tx_amount,
+                "txNonce": proof.tx_nonce,
+                "txTimestamp": proof.tx_timestamp,
+                "checkpointHeight": result.checkpoint_height,
+                "checkpointId": proof.checkpoint_id,
+                "merkleVerified": result.merkle_verified,
+                "blsVerified": result.bls_verified,
+                "validatorSetVerified": result.validator_set_verified,
+                "signerWeight": result.computed_signer_weight,
+                "totalWeight": result.total_weight,
+                "signerCount": result.signer_count,
+            }))).into_response()
         }
         Err(e) => {
             (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "proofType": "transaction",
                 "valid": false,
                 "error": format!("Failed to decode proof: {}", e)
             }))).into_response()
@@ -2940,8 +3127,10 @@ pub async fn start_api_server(
         .route("/api/tipUrls", get(get_tip_urls))
         .route("/api/account/:address", get(get_account))
         .route("/api/account/:address/transactions", get(get_account_transactions))
+        .route("/api/account/:address/proof", get(get_account_proof))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/tx/:hash/replies", get(get_transaction_replies))
+        .route("/api/tx/:hash/receipt", get(get_transaction_receipt))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))
         .route("/api/dag", get(get_dag))

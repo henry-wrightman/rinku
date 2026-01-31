@@ -311,6 +311,7 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
             staked: a.stake,
             unbonding: 0.0,
             unbonding_release: None,
+            latest_balance_proof: None,
         })
     }).collect();
     
@@ -922,6 +923,7 @@ impl NodeState {
                         staked: 0.0,
                         unbonding: 0.0,
                         unbonding_release: None,
+                        latest_balance_proof: None,
                     },
                 );
                 info!("Faucet account initialized with {} RKU", faucet_balance);
@@ -1631,6 +1633,28 @@ impl NodeState {
             .unwrap_or(0)
     }
     
+    /// Get the checkpoint height at which a transaction was finalized
+    pub async fn get_tx_checkpoint_height(&self, tx_hash: &str) -> Option<u64> {
+        let state = self.inner.read().await;
+        // Check DAG node checkpoint_height
+        if let Some(node) = state.dag.get_node(tx_hash) {
+            return node.checkpoint_height;
+        }
+        None
+    }
+    
+    /// Get a checkpoint by height
+    pub async fn get_checkpoint_by_height(&self, height: u64) -> Option<rinku_core::types::Checkpoint> {
+        let state = self.inner.read().await;
+        state.checkpoints.iter().find(|cp| cp.height == height).cloned()
+    }
+    
+    /// Get the latest checkpoint
+    pub async fn get_latest_checkpoint(&self) -> Option<rinku_core::types::Checkpoint> {
+        let state = self.inner.read().await;
+        state.checkpoints.last().cloned()
+    }
+    
     /// Get the node's unique identifier
     pub async fn get_node_id(&self) -> String {
         // Use a hash of the genesis hash as a simple node identifier
@@ -2214,27 +2238,20 @@ impl NodeState {
 
     /// Compute state root from all account states
     /// This creates a deterministic merkle root from sorted account data
-    /// Format per account: "address:balance:stake:nonce"
+    /// Uses canonical format matching sync_verification: "account:address:balance:nonce:stake"
+    /// Internal nodes: "node:left_hash:right_hash"
     pub async fn compute_state_root(&self) -> String {
-        use sha2::{Sha256, Digest};
-        
         let state = self.inner.read().await;
         
-        // Get sorted accounts for deterministic ordering
+        // Get sorted accounts for deterministic ordering (same as sync_verification)
         let mut account_entries: Vec<_> = state.accounts.iter().collect();
         account_entries.sort_by(|a, b| a.0.cmp(b.0));
         
-        // Create leaf hashes from account data
-        let leaves: Vec<Vec<u8>> = account_entries
+        // Create leaf hashes using canonical format (matches sync_verification::hash_account_leaf)
+        let leaves: Vec<String> = account_entries
             .iter()
             .map(|(address, account)| {
-                let data = format!(
-                    "{}:{:.8}:{:.8}:{}",
-                    address, account.balance, account.staked, account.nonce
-                );
-                let mut hasher = Sha256::new();
-                hasher.update(data.as_bytes());
-                hasher.finalize().to_vec()
+                Self::hash_account_leaf_for_proof(address, account.balance, account.nonce, account.staked)
             })
             .collect();
         
@@ -2242,24 +2259,296 @@ impl NodeState {
             return "0".repeat(64);
         }
         
-        // Build merkle tree
+        if leaves.len() == 1 {
+            return leaves[0].clone();
+        }
+        
+        // Build merkle tree using canonical internal node format (matches sync_verification::hash_internal)
         let mut current_level = leaves;
         while current_level.len() > 1 {
             let mut next_level = Vec::new();
             for chunk in current_level.chunks(2) {
-                let mut hasher = Sha256::new();
-                hasher.update(&chunk[0]);
-                if chunk.len() > 1 {
-                    hasher.update(&chunk[1]);
-                } else {
-                    hasher.update(&chunk[0]);
-                }
-                next_level.push(hasher.finalize().to_vec());
+                let left = &chunk[0];
+                let right = if chunk.len() > 1 { &chunk[1] } else { &chunk[0] };
+                next_level.push(Self::hash_internal_for_proof(left, right));
             }
             current_level = next_level;
         }
         
-        hex::encode(&current_level[0])
+        current_level[0].clone()
+    }
+    
+    /// Compute state root with pending transactions applied (without modifying actual state)
+    /// This is used by checkpoint creation to get the correct post-execution state root
+    /// before actually executing the transactions
+    pub async fn compute_state_root_with_pending_txs(&self, pending_txs: &[rinku_core::SignedTransaction]) -> String {
+        use std::collections::HashMap;
+        
+        let state = self.inner.read().await;
+        
+        // Clone accounts into a mutable HashMap for simulation
+        let mut simulated_accounts: HashMap<String, (f64, u64, f64)> = state.accounts.iter()
+            .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
+            .collect();
+        
+        // Apply pending transactions to simulated state
+        // This must match execute_finalized_transaction exactly!
+        for tx in pending_txs {
+            let from = &tx.tx.from;
+            let to = &tx.tx.to;
+            let amount = tx.tx.amount;
+            let fee = tx.tx.gas_price.unwrap_or(0.001);
+            
+            let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Stake));
+            let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Unstake));
+            let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::ClaimRewards));
+            
+            // Deduct from sender based on transaction type (matches execute_finalized_transaction)
+            if let Some(sender) = simulated_accounts.get_mut(from) {
+                if is_stake_tx {
+                    // Stake: deduct amount + fee (amount goes to stake, not recipient)
+                    sender.0 = (sender.0 - amount - fee).max(0.0);
+                } else if is_unstake_tx || is_claim_tx {
+                    // Unstake/Claim: only deduct gas fee
+                    sender.0 = (sender.0 - fee).max(0.0);
+                } else {
+                    // Regular transfer: deduct amount + fee
+                    sender.0 = (sender.0 - amount - fee).max(0.0);
+                }
+                sender.1 += 1; // Increment nonce
+            }
+            
+            // Credit recipient only for regular transfers (not stake/unstake/claim)
+            if !is_stake_tx && !is_unstake_tx && !is_claim_tx {
+                if let Some(receiver) = simulated_accounts.get_mut(to) {
+                    receiver.0 += amount;
+                } else {
+                    // Create new account for receiver
+                    simulated_accounts.insert(to.clone(), (amount, 0, 0.0));
+                }
+            }
+            
+            // Handle staking state changes
+            if is_stake_tx {
+                if let Some(staker) = simulated_accounts.get_mut(from) {
+                    staker.2 += amount; // Increase stake
+                }
+            } else if is_unstake_tx {
+                if let Some(staker) = simulated_accounts.get_mut(from) {
+                    // Unstake returns the staked amount to balance
+                    let unstaked = staker.2;
+                    staker.0 += unstaked; // Return stake to balance
+                    staker.2 = 0.0; // Clear stake
+                }
+            }
+        }
+        
+        // Get sorted accounts for deterministic ordering
+        let mut account_entries: Vec<_> = simulated_accounts.iter().collect();
+        account_entries.sort_by(|a, b| a.0.cmp(b.0));
+        
+        // Create leaf hashes using canonical format
+        let leaves: Vec<String> = account_entries
+            .iter()
+            .map(|(address, (balance, nonce, staked))| {
+                Self::hash_account_leaf_for_proof(address, *balance, *nonce, *staked)
+            })
+            .collect();
+        
+        if leaves.is_empty() {
+            return "0".repeat(64);
+        }
+        
+        if leaves.len() == 1 {
+            return leaves[0].clone();
+        }
+        
+        // Build merkle tree using canonical internal node format
+        let mut current_level = leaves;
+        while current_level.len() > 1 {
+            let mut next_level = Vec::new();
+            for chunk in current_level.chunks(2) {
+                let left = &chunk[0];
+                let right = if chunk.len() > 1 { &chunk[1] } else { &chunk[0] };
+                next_level.push(Self::hash_internal_for_proof(left, right));
+            }
+            current_level = next_level;
+        }
+        
+        current_level[0].clone()
+    }
+
+    /// Normalize f64 to 8 decimal places for consistent hashing (matches sync_verification)
+    fn normalize_f64_for_proof(value: f64) -> String {
+        let rounded = (value * 100_000_000.0).round() / 100_000_000.0;
+        format!("{:.8}", rounded)
+    }
+    
+    /// Hash data using SHA256 and return hex string (matches sync_verification)
+    fn sha256_hex_for_proof(data: &str) -> String {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(data.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+    
+    /// Hash an account leaf (matches sync_verification::hash_account_leaf format)
+    fn hash_account_leaf_for_proof(addr: &str, balance: f64, nonce: u64, stake: f64) -> String {
+        let data = format!(
+            "account:{}:{}:{}:{}",
+            addr,
+            Self::normalize_f64_for_proof(balance),
+            nonce,
+            Self::normalize_f64_for_proof(stake)
+        );
+        Self::sha256_hex_for_proof(&data)
+    }
+    
+    /// Hash internal merkle node (matches sync_verification::hash_internal format)
+    fn hash_internal_for_proof(left: &str, right: &str) -> String {
+        let data = format!("node:{}:{}", left, right);
+        Self::sha256_hex_for_proof(&data)
+    }
+    
+    /// Generate a self-contained proof for an account's current state
+    /// Returns the proof along with the merkle path for verification
+    /// Uses the same leaf/node format as sync_verification for consistency
+    pub async fn generate_account_state_proof(
+        &self,
+        address: &str,
+        checkpoint: &rinku_core::types::Checkpoint,
+        tx_hash: &str,
+    ) -> Option<rinku_core::types::AccountStateProof> {
+        let state = self.inner.read().await;
+        
+        // Get account data
+        let account = state.accounts.get(address)?;
+        
+        tracing::debug!(
+            "Generating proof for {}: balance={:.4}, nonce={}, staked={:.4} (checkpoint {})",
+            &address[..16.min(address.len())],
+            account.balance,
+            account.nonce,
+            account.staked,
+            checkpoint.height
+        );
+        
+        // Get sorted accounts for deterministic ordering (same as sync_verification)
+        let mut account_entries: Vec<_> = state.accounts.iter().collect();
+        account_entries.sort_by(|a, b| a.0.cmp(b.0));
+        
+        // Find the index of the target account
+        let merkle_index = account_entries
+            .iter()
+            .position(|(addr, _)| *addr == address)?;
+        
+        // Create leaf hashes using canonical format (matches sync_verification::hash_account_leaf)
+        let leaves: Vec<String> = account_entries
+            .iter()
+            .map(|(addr, acc)| {
+                Self::hash_account_leaf_for_proof(addr, acc.balance, acc.nonce, acc.staked)
+            })
+            .collect();
+        
+        if leaves.is_empty() {
+            return None;
+        }
+        
+        // Build merkle tree and collect proof path
+        let merkle_proof = Self::compute_merkle_proof_path_canonical(&leaves, merkle_index);
+        
+        Some(rinku_core::types::AccountStateProof {
+            version: 1,
+            address: address.to_string(),
+            balance: account.balance,
+            nonce: account.nonce,
+            staked: account.staked,
+            checkpoint_height: checkpoint.height,
+            checkpoint_hash: checkpoint.hash.clone(),
+            checkpoint_timestamp: checkpoint.timestamp,
+            state_root: checkpoint.state_root.clone(),
+            merkle_proof,
+            merkle_index,
+            bls_aggregated_sig: checkpoint.aggregated_signature.clone(),
+            bls_signer_bitmap: checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b)),
+            tx_hash: tx_hash.to_string(),
+        })
+    }
+    
+    /// Compute merkle proof path for a leaf at given index
+    /// Uses canonical format matching sync_verification (hash_internal)
+    fn compute_merkle_proof_path_canonical(leaves: &[String], target_index: usize) -> Vec<String> {
+        if leaves.is_empty() || leaves.len() == 1 {
+            return vec![];
+        }
+        
+        let mut proof = Vec::new();
+        let mut current_level: Vec<String> = leaves.to_vec();
+        let mut current_index = target_index;
+        
+        while current_level.len() > 1 {
+            // Get sibling
+            let sibling_index = if current_index % 2 == 0 {
+                current_index + 1
+            } else {
+                current_index - 1
+            };
+            
+            if sibling_index < current_level.len() {
+                proof.push(current_level[sibling_index].clone());
+            } else {
+                // Odd number of nodes, duplicate the last one
+                proof.push(current_level[current_index].clone());
+            }
+            
+            // Build next level using canonical hash_internal format
+            let mut next_level = Vec::new();
+            for chunk in current_level.chunks(2) {
+                let left = &chunk[0];
+                let right = if chunk.len() > 1 { &chunk[1] } else { &chunk[0] };
+                next_level.push(Self::hash_internal_for_proof(left, right));
+            }
+            
+            current_level = next_level;
+            current_index /= 2;
+        }
+        
+        proof
+    }
+    
+    /// Update balance proofs for accounts affected by finalized transactions
+    /// IMPORTANT: This must be called AFTER execute_finalized_transaction has completed
+    /// for all transactions, so that state.accounts contains the post-execution values
+    /// that match what was simulated in compute_state_root_with_pending_txs
+    pub async fn update_account_balance_proofs(
+        &self,
+        addresses: &[String],
+        checkpoint: &rinku_core::types::Checkpoint,
+        tx_hash: &str,
+    ) {
+        for address in addresses {
+            if let Some(proof) = self.generate_account_state_proof(address, checkpoint, tx_hash).await {
+                let mut state = self.inner.write().await;
+                if let Some(account) = state.accounts.get_mut(address) {
+                    // Log before updating to help debug proof issues
+                    tracing::info!(
+                        "Updating balance proof for {} at checkpoint {}: balance={:.4}, nonce={}, staked={:.4}",
+                        &address[..16.min(address.len())],
+                        checkpoint.height,
+                        proof.balance,
+                        proof.nonce,
+                        proof.staked
+                    );
+                    account.latest_balance_proof = Some(proof);
+                }
+            } else {
+                tracing::warn!(
+                    "Failed to generate balance proof for {} at checkpoint {}",
+                    &address[..16.min(address.len())],
+                    checkpoint.height
+                );
+            }
+        }
     }
 
     pub async fn get_all_dag_nodes(&self) -> Vec<DagNodeInfo> {
