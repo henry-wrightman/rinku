@@ -371,7 +371,24 @@ fn sha256_hex_for_proof(data: &str) -> String {
 /// Verify an account state proof against its embedded state root
 /// Returns true if the proof is valid (the account data matches the merkle root)
 /// Uses the same leaf/node encoding as sync_verification::hash_account_leaf and hash_internal
+/// Detailed result of account state proof verification
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountProofVerificationDetail {
+    pub valid: bool,
+    pub leaf_data: String,
+    pub leaf_hash: String,
+    pub computed_root: String,
+    pub expected_root: String,
+    pub proof_length: usize,
+    pub merkle_index: usize,
+}
+
 pub fn verify_account_state_proof(proof: &rinku_core::types::AccountStateProof) -> bool {
+    verify_account_state_proof_detailed(proof).valid
+}
+
+pub fn verify_account_state_proof_detailed(proof: &rinku_core::types::AccountStateProof) -> AccountProofVerificationDetail {
     // Leaf format must match sync_verification::hash_account_leaf exactly:
     // "account:{}:{}:{}:{}" with address, normalize_f64(balance), nonce, normalize_f64(stake)
     let leaf_data = format!(
@@ -381,7 +398,8 @@ pub fn verify_account_state_proof(proof: &rinku_core::types::AccountStateProof) 
         proof.nonce,
         normalize_f64_for_proof(proof.staked)
     );
-    let mut current_hash = sha256_hex_for_proof(&leaf_data);
+    let leaf_hash = sha256_hex_for_proof(&leaf_data);
+    let mut current_hash = leaf_hash.clone();
 
     let mut idx = proof.merkle_index;
 
@@ -397,7 +415,35 @@ pub fn verify_account_state_proof(proof: &rinku_core::types::AccountStateProof) 
         idx /= 2;
     }
 
-    current_hash == proof.state_root
+    let valid = current_hash == proof.state_root;
+    
+    if !valid {
+        tracing::warn!(
+            "Account proof verification FAILED for {}: computed_root={} vs expected={}",
+            &proof.address[..16.min(proof.address.len())],
+            &current_hash[..16],
+            &proof.state_root[..16]
+        );
+        tracing::debug!(
+            "Proof details: leaf_data='{}', balance={}, nonce={}, staked={}, index={}, proof_len={}",
+            leaf_data,
+            proof.balance,
+            proof.nonce,
+            proof.staked,
+            proof.merkle_index,
+            proof.merkle_proof.len()
+        );
+    }
+    
+    AccountProofVerificationDetail {
+        valid,
+        leaf_data,
+        leaf_hash,
+        computed_root: current_hash,
+        expected_root: proof.state_root.clone(),
+        proof_length: proof.merkle_proof.len(),
+        merkle_index: proof.merkle_index,
+    }
 }
 
 pub fn verify_self_contained_proof(proof: &SelfContainedProof) -> ProofVerificationResult {
