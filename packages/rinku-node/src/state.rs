@@ -2030,6 +2030,9 @@ impl NodeState {
             }
         };
         
+        // Save reference tx hash before moving finalized_tx_hashes
+        let proof_tx_hash = finalized_tx_hashes.first().cloned().unwrap_or_else(|| checkpoint.hash.clone());
+        
         // Add the checkpoint with finalized hashes for proof generation
         let mut checkpoint_with_hashes = checkpoint.clone();
         if checkpoint_with_hashes.finalized_tx_hashes.is_empty() && !finalized_tx_hashes.is_empty() {
@@ -2044,9 +2047,25 @@ impl NodeState {
         // Release state lock before executing transactions
         drop(state);
         
+        // Collect affected addresses for proof updates BEFORE execution
+        let mut affected_addresses: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for tx in &txs_to_execute {
+            affected_addresses.insert(tx.tx.from.clone());
+            if !tx.tx.to.is_empty() {
+                affected_addresses.insert(tx.tx.to.clone());
+            }
+        }
+        
         // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
         for tx in txs_to_execute {
             self.execute_finalized_transaction(&tx).await;
+        }
+        
+        // UPDATE PROOFS FOR FOLLOWER NODES: Generate proofs after execution
+        // This ensures nodes that receive checkpoint announcements also have updated proofs
+        if !affected_addresses.is_empty() {
+            let addresses_vec: Vec<String> = affected_addresses.into_iter().collect();
+            self.update_account_balance_proofs(&addresses_vec, &checkpoint, &proof_tx_hash).await;
         }
         
         Ok(())
