@@ -19,11 +19,11 @@ const getApiBaseUrl = () => {
     const host = window.location.hostname;
     console.log(
       "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}/api`,
+      `https://${host.replace(/-5000\./, "-3001.")}`,
     );
-    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+    return `https://${host.replace(/-5000\./, "-3001.")}`;
   }
-  return "/api"; // Dev: use Vite proxy
+  return ""; // Dev: use Vite proxy (fetch calls already include /api prefix)
 };
 const NODE_URL = getApiBaseUrl();
 
@@ -39,6 +39,8 @@ interface TransactionNode {
   sig: string;
   url: string;
   weight: number;
+  memo?: string;
+  references?: string[];
   finalized?: boolean;
   finality?: {
     checkpointId: string;
@@ -372,6 +374,17 @@ function HashTransactionPage() {
               {tx.finalized ? "finalized" : "pending"}
             </span>
           </div>
+          {tx.amount === 0 && (tx.memo || tx.references) && !tx.finalized && (
+            <div className="meta-row">
+              <span className="label">fast-path</span>
+              <span
+                className="value"
+                style={{ color: "#88c0d0" }}
+              >
+                eligible (~200ms finality)
+              </span>
+            </div>
+          )}
           <div className="meta-row">
             <span className="label">signature</span>
             <span className="value mono" style={{ opacity: tx.sig ? 1 : 0.5 }}>
@@ -397,7 +410,7 @@ function HashTransactionPage() {
               marginTop: 24,
               padding: 20,
               background: "rgba(136, 192, 208, 0.1)",
-              borderRadius: 8,
+              borderRadius: 0,
               border: "1px solid rgba(136, 192, 208, 0.3)",
               marginBottom: 20,
             }}

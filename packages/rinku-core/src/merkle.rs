@@ -175,6 +175,7 @@ pub fn verify_proof(proof: &MerkleProof) -> Result<bool, MerkleError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::sha256_hex;
 
     #[test]
     fn test_merkle_tree_single_leaf() {

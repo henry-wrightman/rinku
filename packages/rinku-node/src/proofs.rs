@@ -6,12 +6,32 @@ use std::io::{Read, Write};
 
 use crate::bls::{parse_signer_bitmap, verify_aggregated_signature};
 
+/// Validator weight units: 1 stake = 100,000,000 weight units (8 decimal places)
+/// This ensures deterministic cross-language hashing
+pub const WEIGHT_UNITS: u64 = 100_000_000;
+
+/// Convert f64 weight to u64 weight units
+pub fn to_weight_units(value: f64) -> u64 {
+    (value * WEIGHT_UNITS as f64).round() as u64
+}
+
+/// Convert u64 weight units back to f64 for display
+pub fn from_weight_units(micro: u64) -> f64 {
+    micro as f64 / WEIGHT_UNITS as f64
+}
+
+/// Merkle sum tree leaf for validator weight proofs
+/// Uses u64 weight_units for deterministic cross-language hashing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MerkleSumLeaf {
     pub index: usize,
     pub address: String,
     pub bls_public_key: String,
+    /// Weight in micro-units (u64). Canonical value for hashing.
+    pub weight_units: u64,
+    /// Weight in display units (f64). For backward compatibility.
+    #[serde(default)]
     pub weight: f64,
 }
 
@@ -19,6 +39,10 @@ pub struct MerkleSumLeaf {
 #[serde(rename_all = "camelCase")]
 pub struct MerkleSumRoot {
     pub hash: String,
+    /// Total weight in micro-units (u64).
+    pub total_weight_units: u64,
+    /// Total weight in display units (f64). For backward compatibility.
+    #[serde(default)]
     pub total_weight: f64,
 }
 
@@ -35,6 +59,10 @@ pub struct MerkleSumProof {
 #[serde(rename_all = "camelCase")]
 pub struct MerkleSumProofSibling {
     pub hash: String,
+    /// Weight in micro-units (u64).
+    pub weight_units: u64,
+    /// Weight in display units (f64). For backward compatibility.
+    #[serde(default)]
     pub weight: f64,
     pub is_left: bool,
 }
@@ -42,23 +70,25 @@ pub struct MerkleSumProofSibling {
 #[derive(Debug, Clone)]
 pub struct MerkleSumNode {
     pub hash: String,
-    pub sum_weight: f64,
+    pub sum_weight_units: u64,
 }
 
+/// Hash a validator leaf using u64 weight_units for deterministic cross-language verification
 fn hash_leaf(leaf: &MerkleSumLeaf) -> String {
     let data = format!(
         "leaf:{}:{}:{}:{}",
-        leaf.index, leaf.address, leaf.bls_public_key, leaf.weight
+        leaf.index, leaf.address, leaf.bls_public_key, leaf.weight_units
     );
     let mut hasher = Sha256::new();
     hasher.update(data.as_bytes());
     hex::encode(hasher.finalize())
 }
 
+/// Hash internal node using u64 weight sums for deterministic cross-language verification
 fn hash_internal(left: &MerkleSumNode, right: &MerkleSumNode) -> String {
     let data = format!(
         "node:{}:{}:{}:{}",
-        left.hash, left.sum_weight, right.hash, right.sum_weight
+        left.hash, left.sum_weight_units, right.hash, right.sum_weight_units
     );
     let mut hasher = Sha256::new();
     hasher.update(data.as_bytes());
@@ -70,7 +100,7 @@ fn empty_node() -> MerkleSumNode {
     hasher.update(b"rinku:empty_node:v1");
     MerkleSumNode {
         hash: hex::encode(hasher.finalize()),
-        sum_weight: 0.0,
+        sum_weight_units: 0,
     }
 }
 
@@ -86,6 +116,7 @@ pub fn build_merkle_sum_tree(leaves: &[MerkleSumLeaf]) -> MerkleSumTreeResult {
         return MerkleSumTreeResult {
             root: MerkleSumRoot {
                 hash: hex::encode(hasher.finalize()),
+                total_weight_units: 0,
                 total_weight: 0.0,
             },
             layers: vec![],
@@ -99,7 +130,7 @@ pub fn build_merkle_sum_tree(leaves: &[MerkleSumLeaf]) -> MerkleSumTreeResult {
         .iter()
         .map(|leaf| MerkleSumNode {
             hash: hash_leaf(leaf),
-            sum_weight: leaf.weight,
+            sum_weight_units: leaf.weight_units,
         })
         .collect();
 
@@ -119,7 +150,7 @@ pub fn build_merkle_sum_tree(leaves: &[MerkleSumLeaf]) -> MerkleSumTreeResult {
 
             next_layer.push(MerkleSumNode {
                 hash: hash_internal(left, right),
-                sum_weight: left.sum_weight + right.sum_weight,
+                sum_weight_units: left.sum_weight_units + right.sum_weight_units,
             });
             i += 2;
         }
@@ -132,7 +163,8 @@ pub fn build_merkle_sum_tree(leaves: &[MerkleSumLeaf]) -> MerkleSumTreeResult {
     MerkleSumTreeResult {
         root: MerkleSumRoot {
             hash: root_node.hash.clone(),
-            total_weight: root_node.sum_weight,
+            total_weight_units: root_node.sum_weight_units,
+            total_weight: from_weight_units(root_node.sum_weight_units),
         },
         layers,
     }
@@ -149,7 +181,7 @@ pub fn get_merkle_sum_proof(leaves: &[MerkleSumLeaf], leaf_index: usize) -> Opti
         .iter()
         .map(|leaf| MerkleSumNode {
             hash: hash_leaf(leaf),
-            sum_weight: leaf.weight,
+            sum_weight_units: leaf.weight_units,
         })
         .collect();
 
@@ -168,8 +200,9 @@ pub fn get_merkle_sum_proof(leaves: &[MerkleSumLeaf], leaf_index: usize) -> Opti
         };
 
         siblings.push(MerkleSumProofSibling {
-            hash: sibling.hash,
-            weight: sibling.sum_weight,
+            hash: sibling.hash.clone(),
+            weight_units: sibling.sum_weight_units,
+            weight: from_weight_units(sibling.sum_weight_units),
             is_left: !is_right,
         });
         path_bits.push(is_right);
@@ -185,7 +218,7 @@ pub fn get_merkle_sum_proof(leaves: &[MerkleSumLeaf], leaf_index: usize) -> Opti
             };
             next_layer.push(MerkleSumNode {
                 hash: hash_internal(left, right),
-                sum_weight: left.sum_weight + right.sum_weight,
+                sum_weight_units: left.sum_weight_units + right.sum_weight_units,
             });
             i += 2;
         }
@@ -209,7 +242,7 @@ pub fn verify_merkle_sum_proof(
 
     let mut current = MerkleSumNode {
         hash: hash_leaf(&proof.leaf),
-        sum_weight: proof.leaf.weight,
+        sum_weight_units: proof.leaf.weight_units,
     };
 
     for (i, sibling) in proof.siblings.iter().enumerate() {
@@ -217,7 +250,7 @@ pub fn verify_merkle_sum_proof(
 
         let sibling_node = MerkleSumNode {
             hash: sibling.hash.clone(),
-            sum_weight: sibling.weight,
+            sum_weight_units: sibling.weight_units,
         };
 
         let (left, right) = if is_right {
@@ -228,7 +261,7 @@ pub fn verify_merkle_sum_proof(
 
         current = MerkleSumNode {
             hash: hash_internal(left, right),
-            sum_weight: left.sum_weight + right.sum_weight,
+            sum_weight_units: left.sum_weight_units + right.sum_weight_units,
         };
     }
 
@@ -239,10 +272,10 @@ pub fn verify_merkle_sum_proof(
         ));
     }
 
-    if (current.sum_weight - expected_root.total_weight).abs() > 0.0001 {
+    if current.sum_weight_units != expected_root.total_weight_units {
         errors.push(format!(
             "Total weight mismatch: expected {}, got {}",
-            expected_root.total_weight, current.sum_weight
+            expected_root.total_weight_units, current.sum_weight_units
         ));
     }
 
@@ -352,6 +385,91 @@ pub fn verify_tx_merkle_proof(
     }
 
     hex::encode(&current_bytes) == expected_root
+}
+
+/// Hash data using SHA256 and return hex string
+fn sha256_hex_for_proof(data: &str) -> String {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(data.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Verify an account state proof against its embedded state root
+/// Returns true if the proof is valid (the account data matches the merkle root)
+/// Uses the same leaf/node encoding as sync_verification::hash_account_leaf and hash_internal
+/// Detailed result of account state proof verification
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountProofVerificationDetail {
+    pub valid: bool,
+    pub leaf_data: String,
+    pub leaf_hash: String,
+    pub computed_root: String,
+    pub expected_root: String,
+    pub proof_length: usize,
+    pub merkle_index: usize,
+}
+
+pub fn verify_account_state_proof(proof: &rinku_core::types::AccountStateProof) -> bool {
+    verify_account_state_proof_detailed(proof).valid
+}
+
+pub fn verify_account_state_proof_detailed(proof: &rinku_core::types::AccountStateProof) -> AccountProofVerificationDetail {
+    // Version 2+ uses u64 micro-units for deterministic cross-language verification
+    // Leaf format: "account:{address}:{balance_micro}:{nonce}:{staked_micro}"
+    let leaf_data = format!(
+        "account:{}:{}:{}:{}",
+        proof.address,
+        proof.balance_micro,
+        proof.nonce,
+        proof.staked_micro
+    );
+    let leaf_hash = sha256_hex_for_proof(&leaf_data);
+    let mut current_hash = leaf_hash.clone();
+
+    let mut idx = proof.merkle_index;
+
+    for sibling_hex in &proof.merkle_proof {
+        // Internal node format: "node:{left_hash}:{right_hash}"
+        let (left, right) = if idx % 2 == 0 {
+            (current_hash.clone(), sibling_hex.clone())
+        } else {
+            (sibling_hex.clone(), current_hash.clone())
+        };
+        current_hash = sha256_hex_for_proof(&format!("node:{}:{}", left, right));
+        idx /= 2;
+    }
+
+    let valid = current_hash == proof.state_root;
+    
+    if !valid {
+        tracing::warn!(
+            "Account proof verification FAILED for {}: computed_root={} vs expected={}",
+            &proof.address[..16.min(proof.address.len())],
+            &current_hash[..16],
+            &proof.state_root[..16]
+        );
+        tracing::debug!(
+            "Proof details: leaf_data='{}', balance_micro={}, nonce={}, staked_micro={}, index={}, proof_len={}",
+            leaf_data,
+            proof.balance_micro,
+            proof.nonce,
+            proof.staked_micro,
+            proof.merkle_index,
+            proof.merkle_proof.len()
+        );
+    }
+    
+    AccountProofVerificationDetail {
+        valid,
+        leaf_data,
+        leaf_hash,
+        computed_root: current_hash,
+        expected_root: proof.state_root.clone(),
+        proof_length: proof.merkle_proof.len(),
+        merkle_index: proof.merkle_index,
+    }
 }
 
 pub fn verify_self_contained_proof(proof: &SelfContainedProof) -> ProofVerificationResult {
@@ -481,6 +599,43 @@ pub fn decode_self_contained_proof(encoded: &str) -> Result<SelfContainedProof, 
 pub fn create_self_proof_url(proof: &SelfContainedProof) -> Result<String, String> {
     let encoded = encode_self_contained_proof(proof)?;
     Ok(format!("rinku://sp/{}", encoded))
+}
+
+pub fn encode_account_state_proof(proof: &rinku_core::types::AccountStateProof) -> Result<String, String> {
+    let json = serde_json::to_string(proof).map_err(|e| format!("JSON serialization failed: {}", e))?;
+
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
+    encoder
+        .write_all(json.as_bytes())
+        .map_err(|e| format!("Compression failed: {}", e))?;
+    let compressed = encoder.finish().map_err(|e| format!("Compression finish failed: {}", e))?;
+
+    Ok(URL_SAFE_NO_PAD.encode(&compressed))
+}
+
+pub fn decode_account_state_proof(encoded: &str) -> Result<rinku_core::types::AccountStateProof, String> {
+    let encoded = if encoded.starts_with("rinku://asp/") {
+        &encoded[12..]
+    } else {
+        encoded
+    };
+
+    let compressed = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|e| format!("Base64 decode failed: {}", e))?;
+
+    let mut decoder = DeflateDecoder::new(&compressed[..]);
+    let mut json = String::new();
+    decoder
+        .read_to_string(&mut json)
+        .map_err(|e| format!("Decompression failed: {}", e))?;
+
+    serde_json::from_str(&json).map_err(|e| format!("JSON parse failed: {}", e))
+}
+
+pub fn create_account_state_proof_url(proof: &rinku_core::types::AccountStateProof) -> Result<String, String> {
+    let encoded = encode_account_state_proof(proof)?;
+    Ok(format!("rinku://asp/{}", encoded))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -788,12 +943,14 @@ mod tests {
                 index: 0,
                 address: "alice".to_string(),
                 bls_public_key: "pk_alice".to_string(),
+                weight_units: 10_000_000_000,
                 weight: 100.0,
             },
             MerkleSumLeaf {
                 index: 1,
                 address: "bob".to_string(),
                 bls_public_key: "pk_bob".to_string(),
+                weight_units: 5_000_000_000,
                 weight: 50.0,
             },
         ];
@@ -811,6 +968,7 @@ mod tests {
             index: 0,
             address: "alice".to_string(),
             bls_public_key: "pk_alice".to_string(),
+            weight_units: 10_000_000_000,
             weight: 100.0,
         }];
 
@@ -836,18 +994,21 @@ mod tests {
                 index: 0,
                 address: "alice".to_string(),
                 bls_public_key: "pk_alice".to_string(),
+                weight_units: 10_000_000_000,
                 weight: 100.0,
             },
             MerkleSumLeaf {
                 index: 1,
                 address: "bob".to_string(),
                 bls_public_key: "pk_bob".to_string(),
+                weight_units: 5_000_000_000,
                 weight: 50.0,
             },
             MerkleSumLeaf {
                 index: 2,
                 address: "charlie".to_string(),
                 bls_public_key: "pk_charlie".to_string(),
+                weight_units: 7_500_000_000,
                 weight: 75.0,
             },
         ];
@@ -860,5 +1021,477 @@ mod tests {
         assert!(valid, "Proof verification failed: {:?}", errors);
         assert_eq!(weight, 50.0);
         assert!(errors.is_empty());
+    }
+
+    fn test_sha256_hex(data: &str) -> String {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(data.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    /// Test helper: hash account leaf using u64 micro-units (matches production code)
+    fn test_hash_account_leaf(addr: &str, balance: f64, nonce: u64, staked: f64) -> String {
+        let balance_micro = rinku_core::types::to_micro_units(balance);
+        let staked_micro = rinku_core::types::to_micro_units(staked);
+        let data = format!(
+            "account:{}:{}:{}:{}",
+            addr,
+            balance_micro,
+            nonce,
+            staked_micro
+        );
+        test_sha256_hex(&data)
+    }
+
+    fn test_hash_internal(left: &str, right: &str) -> String {
+        test_sha256_hex(&format!("node:{}:{}", left, right))
+    }
+
+    #[test]
+    fn test_account_state_proof_verification() {
+        use rinku_core::types::AccountStateProof;
+
+        let accounts = vec![
+            ("alice", 100.0, 5u64, 0.0),
+            ("bob", 50.0, 3u64, 10.0),
+            ("charlie", 75.0, 7u64, 25.0),
+        ];
+
+        let leaves: Vec<String> = accounts
+            .iter()
+            .map(|(addr, balance, nonce, staked)| test_hash_account_leaf(addr, *balance, *nonce, *staked))
+            .collect();
+
+        let state_root = compute_test_merkle_root_strings(&leaves);
+        let merkle_proof = compute_test_merkle_proof_strings(&leaves, 1);
+
+        let proof = AccountStateProof {
+            version: 2,
+            address: "bob".to_string(),
+            balance_micro: rinku_core::types::to_micro_units(50.0),
+            balance: 50.0,
+            nonce: 3,
+            staked_micro: rinku_core::types::to_micro_units(10.0),
+            staked: 10.0,
+            pending_rewards_micro: 0,
+            pending_rewards: 0.0,
+            staked_at: 0,
+            last_reward_at: None,
+            claimed_rewards_total_micro: 0,
+            claimed_rewards_total: 0.0,
+            checkpoint_height: 100,
+            checkpoint_hash: "test_checkpoint_hash".to_string(),
+            checkpoint_timestamp: 1234567890,
+            state_root: state_root.clone(),
+            merkle_proof,
+            merkle_index: 1,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "test_tx_hash".to_string(),
+            is_on_demand: false,
+        };
+
+        assert!(verify_account_state_proof(&proof));
+    }
+
+    #[test]
+    fn test_account_state_proof_rejects_tampered_balance() {
+        use rinku_core::types::AccountStateProof;
+
+        let accounts = vec![
+            ("alice", 100.0, 5u64, 0.0),
+            ("bob", 50.0, 3u64, 10.0),
+        ];
+
+        let leaves: Vec<String> = accounts
+            .iter()
+            .map(|(addr, balance, nonce, staked)| test_hash_account_leaf(addr, *balance, *nonce, *staked))
+            .collect();
+
+        let state_root = compute_test_merkle_root_strings(&leaves);
+        let merkle_proof = compute_test_merkle_proof_strings(&leaves, 1);
+
+        let tampered_proof = AccountStateProof {
+            version: 2,
+            address: "bob".to_string(),
+            balance_micro: rinku_core::types::to_micro_units(999.0),
+            balance: 999.0,
+            nonce: 3,
+            staked_micro: rinku_core::types::to_micro_units(10.0),
+            staked: 10.0,
+            pending_rewards_micro: 0,
+            pending_rewards: 0.0,
+            staked_at: 0,
+            last_reward_at: None,
+            claimed_rewards_total_micro: 0,
+            claimed_rewards_total: 0.0,
+            checkpoint_height: 100,
+            checkpoint_hash: "test_checkpoint_hash".to_string(),
+            checkpoint_timestamp: 1234567890,
+            state_root,
+            merkle_proof,
+            merkle_index: 1,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "test_tx_hash".to_string(),
+            is_on_demand: false,
+        };
+
+        assert!(!verify_account_state_proof(&tampered_proof));
+    }
+
+    #[test]
+    fn test_account_state_proof_single_account() {
+        use rinku_core::types::AccountStateProof;
+
+        let state_root = test_hash_account_leaf("alice", 100.0, 5, 0.0);
+
+        let proof = AccountStateProof {
+            version: 2,
+            address: "alice".to_string(),
+            balance_micro: rinku_core::types::to_micro_units(100.0),
+            balance: 100.0,
+            nonce: 5,
+            staked_micro: rinku_core::types::to_micro_units(0.0),
+            staked: 0.0,
+            pending_rewards_micro: 0,
+            pending_rewards: 0.0,
+            staked_at: 0,
+            last_reward_at: None,
+            claimed_rewards_total_micro: 0,
+            claimed_rewards_total: 0.0,
+            checkpoint_height: 1,
+            checkpoint_hash: "genesis".to_string(),
+            checkpoint_timestamp: 0,
+            state_root,
+            merkle_proof: vec![],
+            merkle_index: 0,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "genesis_tx".to_string(),
+            is_on_demand: false,
+        };
+
+        assert!(verify_account_state_proof(&proof));
+    }
+
+    fn compute_test_merkle_root_strings(leaves: &[String]) -> String {
+        if leaves.is_empty() {
+            return "empty".to_string();
+        }
+        if leaves.len() == 1 {
+            return leaves[0].clone();
+        }
+
+        let mut current_level = leaves.to_vec();
+        while current_level.len() > 1 {
+            let mut next_level = Vec::new();
+            for chunk in current_level.chunks(2) {
+                let left = &chunk[0];
+                let right = if chunk.len() > 1 { &chunk[1] } else { left };
+                next_level.push(test_hash_internal(left, right));
+            }
+            current_level = next_level;
+        }
+        current_level[0].clone()
+    }
+
+    fn compute_test_merkle_proof_strings(leaves: &[String], target_index: usize) -> Vec<String> {
+        if leaves.len() <= 1 {
+            return vec![];
+        }
+
+        let mut proof = Vec::new();
+        let mut current_level = leaves.to_vec();
+        let mut current_index = target_index;
+
+        while current_level.len() > 1 {
+            let sibling_index = if current_index % 2 == 0 {
+                current_index + 1
+            } else {
+                current_index - 1
+            };
+
+            if sibling_index < current_level.len() {
+                proof.push(current_level[sibling_index].clone());
+            } else {
+                proof.push(current_level[current_index].clone());
+            }
+
+            let mut next_level = Vec::new();
+            for chunk in current_level.chunks(2) {
+                let left = &chunk[0];
+                let right = if chunk.len() > 1 { &chunk[1] } else { left };
+                next_level.push(test_hash_internal(left, right));
+            }
+            current_index /= 2;
+            current_level = next_level;
+        }
+        proof
+    }
+
+    /// Test micro-unit conversion consistency
+    #[test]
+    fn test_micro_unit_conversion_roundtrip() {
+        // Test that micro-unit conversion is consistent for various values
+        let test_values = vec![
+            0.0,
+            1.0,
+            100.0,
+            0.00000001,  // Smallest representable unit
+            1234567.89012345,
+            30_000_000.0,  // Max supply
+        ];
+        
+        for val in test_values {
+            let micro = rinku_core::types::to_micro_units(val);
+            let back = rinku_core::types::from_micro_units(micro);
+            // Allow for floating point rounding within 8 decimal places
+            let diff = (val - back).abs();
+            assert!(diff < 0.00000001, "Conversion failed for {}: got {} (micro={})", val, back, micro);
+        }
+    }
+
+    /// Test canonical encoding format matches specification
+    #[test]
+    fn test_canonical_leaf_encoding_format() {
+        // Verify the canonical format is correct
+        let addr = "test_address";
+        let balance = 100.5;
+        let nonce = 5u64;
+        let staked = 50.25;
+        
+        let balance_micro = rinku_core::types::to_micro_units(balance);
+        let staked_micro = rinku_core::types::to_micro_units(staked);
+        
+        // Expected format: "account:{address}:{balance_micro}:{nonce}:{staked_micro}"
+        let expected_data = format!("account:{}:{}:{}:{}", addr, balance_micro, nonce, staked_micro);
+        
+        // Verify micro values are integers
+        assert_eq!(balance_micro, 10050000000);  // 100.5 * 100_000_000
+        assert_eq!(staked_micro, 5025000000);    // 50.25 * 100_000_000
+        
+        // Verify the hash is deterministic
+        let hash1 = test_hash_account_leaf(addr, balance, nonce, staked);
+        let hash2 = test_hash_account_leaf(addr, balance, nonce, staked);
+        assert_eq!(hash1, hash2, "Hash should be deterministic");
+        
+        // Verify manually hashing the expected data gives the same result
+        let manual_hash = test_sha256_hex(&expected_data);
+        assert_eq!(hash1, manual_hash, "Leaf hash should match canonical format");
+    }
+
+    /// Test proof verification after simulated transfer transaction
+    #[test]
+    fn test_proof_for_transfer_transaction() {
+        use rinku_core::types::AccountStateProof;
+        
+        // Simulate state AFTER a transfer: alice sent 10 RKU to bob
+        let accounts = vec![
+            ("alice", 90.0, 1u64, 0.0),    // balance decreased, nonce incremented
+            ("bob", 60.0, 0u64, 0.0),      // balance increased
+        ];
+        
+        let leaves: Vec<String> = accounts
+            .iter()
+            .map(|(addr, balance, nonce, staked)| test_hash_account_leaf(addr, *balance, *nonce, *staked))
+            .collect();
+        
+        let state_root = compute_test_merkle_root_strings(&leaves);
+        
+        // Verify alice's proof (sender)
+        let alice_proof = AccountStateProof {
+            version: 2,
+            address: "alice".to_string(),
+            balance_micro: rinku_core::types::to_micro_units(90.0),
+            balance: 90.0,
+            nonce: 1,
+            staked_micro: 0,
+            staked: 0.0,
+            pending_rewards_micro: 0,
+            pending_rewards: 0.0,
+            staked_at: 0,
+            last_reward_at: None,
+            claimed_rewards_total_micro: 0,
+            claimed_rewards_total: 0.0,
+            checkpoint_height: 1,
+            checkpoint_hash: "cp1".to_string(),
+            checkpoint_timestamp: 1000,
+            state_root: state_root.clone(),
+            merkle_proof: compute_test_merkle_proof_strings(&leaves, 0),
+            merkle_index: 0,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "transfer_tx".to_string(),
+            is_on_demand: false,
+        };
+        assert!(verify_account_state_proof(&alice_proof), "Alice's transfer proof should be valid");
+        
+        // Verify bob's proof (receiver)
+        let bob_proof = AccountStateProof {
+            version: 2,
+            address: "bob".to_string(),
+            balance_micro: rinku_core::types::to_micro_units(60.0),
+            balance: 60.0,
+            nonce: 0,
+            staked_micro: 0,
+            staked: 0.0,
+            pending_rewards_micro: 0,
+            pending_rewards: 0.0,
+            staked_at: 0,
+            last_reward_at: None,
+            claimed_rewards_total_micro: 0,
+            claimed_rewards_total: 0.0,
+            checkpoint_height: 1,
+            checkpoint_hash: "cp1".to_string(),
+            checkpoint_timestamp: 1000,
+            state_root: state_root.clone(),
+            merkle_proof: compute_test_merkle_proof_strings(&leaves, 1),
+            merkle_index: 1,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "transfer_tx".to_string(),
+            is_on_demand: false,
+        };
+        assert!(verify_account_state_proof(&bob_proof), "Bob's transfer proof should be valid");
+    }
+
+    /// Test proof verification after simulated stake transaction
+    #[test]
+    fn test_proof_for_stake_transaction() {
+        use rinku_core::types::AccountStateProof;
+        
+        // Simulate state AFTER a stake: alice staked 50 RKU
+        let accounts = vec![
+            ("alice", 50.0, 1u64, 50.0),  // balance decreased, staked increased, nonce incremented
+        ];
+        
+        let leaves: Vec<String> = accounts
+            .iter()
+            .map(|(addr, balance, nonce, staked)| test_hash_account_leaf(addr, *balance, *nonce, *staked))
+            .collect();
+        
+        let state_root = compute_test_merkle_root_strings(&leaves);
+        
+        let proof = AccountStateProof {
+            version: 2,
+            address: "alice".to_string(),
+            balance_micro: rinku_core::types::to_micro_units(50.0),
+            balance: 50.0,
+            nonce: 1,
+            staked_micro: rinku_core::types::to_micro_units(50.0),
+            staked: 50.0,
+            pending_rewards_micro: 0,
+            pending_rewards: 0.0,
+            staked_at: 0,
+            last_reward_at: None,
+            claimed_rewards_total_micro: 0,
+            claimed_rewards_total: 0.0,
+            checkpoint_height: 2,
+            checkpoint_hash: "cp2".to_string(),
+            checkpoint_timestamp: 2000,
+            state_root,
+            merkle_proof: vec![],  // Single account, no proof needed
+            merkle_index: 0,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "stake_tx".to_string(),
+            is_on_demand: false,
+        };
+        
+        assert!(verify_account_state_proof(&proof), "Stake proof should be valid");
+    }
+
+    /// Test proof verification after simulated unstake transaction
+    #[test]
+    fn test_proof_for_unstake_transaction() {
+        use rinku_core::types::AccountStateProof;
+        
+        // Simulate state AFTER an unstake: alice unstaked 25 RKU
+        let accounts = vec![
+            ("alice", 75.0, 2u64, 25.0),  // balance increased, staked decreased, nonce incremented
+        ];
+        
+        let leaves: Vec<String> = accounts
+            .iter()
+            .map(|(addr, balance, nonce, staked)| test_hash_account_leaf(addr, *balance, *nonce, *staked))
+            .collect();
+        
+        let state_root = compute_test_merkle_root_strings(&leaves);
+        
+        let proof = AccountStateProof {
+            version: 2,
+            address: "alice".to_string(),
+            balance_micro: rinku_core::types::to_micro_units(75.0),
+            balance: 75.0,
+            nonce: 2,
+            staked_micro: rinku_core::types::to_micro_units(25.0),
+            staked: 25.0,
+            pending_rewards_micro: 0,
+            pending_rewards: 0.0,
+            staked_at: 0,
+            last_reward_at: None,
+            claimed_rewards_total_micro: 0,
+            claimed_rewards_total: 0.0,
+            checkpoint_height: 3,
+            checkpoint_hash: "cp3".to_string(),
+            checkpoint_timestamp: 3000,
+            state_root,
+            merkle_proof: vec![],
+            merkle_index: 0,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "unstake_tx".to_string(),
+            is_on_demand: false,
+        };
+        
+        assert!(verify_account_state_proof(&proof), "Unstake proof should be valid");
+    }
+
+    /// Test that proof correctly rejects incorrect staked amount
+    #[test]
+    fn test_proof_rejects_incorrect_stake() {
+        use rinku_core::types::AccountStateProof;
+        
+        let accounts = vec![
+            ("alice", 50.0, 1u64, 50.0),
+        ];
+        
+        let leaves: Vec<String> = accounts
+            .iter()
+            .map(|(addr, balance, nonce, staked)| test_hash_account_leaf(addr, *balance, *nonce, *staked))
+            .collect();
+        
+        let state_root = compute_test_merkle_root_strings(&leaves);
+        
+        // Create proof with incorrect staked amount
+        let proof = AccountStateProof {
+            version: 2,
+            address: "alice".to_string(),
+            balance_micro: rinku_core::types::to_micro_units(50.0),
+            balance: 50.0,
+            nonce: 1,
+            staked_micro: rinku_core::types::to_micro_units(999.0),  // Wrong staked amount
+            staked: 999.0,
+            pending_rewards_micro: 0,
+            pending_rewards: 0.0,
+            staked_at: 0,
+            last_reward_at: None,
+            claimed_rewards_total_micro: 0,
+            claimed_rewards_total: 0.0,
+            checkpoint_height: 1,
+            checkpoint_hash: "cp1".to_string(),
+            checkpoint_timestamp: 1000,
+            state_root,
+            merkle_proof: vec![],
+            merkle_index: 0,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+            tx_hash: "test_tx".to_string(),
+            is_on_demand: false,
+        };
+        
+        assert!(!verify_account_state_proof(&proof), "Proof with wrong stake should be rejected");
     }
 }

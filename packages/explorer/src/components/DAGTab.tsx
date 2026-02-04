@@ -57,12 +57,8 @@ interface ProofState {
   error?: string;
 }
 
-interface ExtendedDAGNode extends DAGNode {
-  finalized?: boolean;
-}
-
 interface DAGTabProps {
-  nodes: ExtendedDAGNode[];
+  nodes: DAGNode[];
   merkleRoot: string;
   page: number;
   totalNodes: number;
@@ -112,7 +108,8 @@ export function DAGTab({
     }));
 
     try {
-      const res = await fetch(`${NODE_URL}/api/tx/${hash}/proof`);
+      const apiUrl = NODE_URL.endsWith('/api') ? NODE_URL : `${NODE_URL}/api`;
+      const res = await fetch(`${apiUrl}/tx/${hash}/proof`);
       const data = await res.json();
 
       if (data.proofUrl) {
@@ -185,8 +182,15 @@ export function DAGTab({
               ? "genesis"
               : truncate(node.from, 6)} → {truncate(node.to, 6)} ·{" "}
             {timeAgo(node.ts)} · refs {node.parentCount} parent(s) ·{" "}
-            <span style={{ color: node.finalized ? "#a3be8c" : "#ebcb8b" }}>
-              {node.finalized ? "finalized" : "pending"}
+            <span style={{ 
+              color: node.fast_path_status === 'confirmed' ? "#a3be8c" : 
+                     node.finalized ? "#88c0d0" : "#ebcb8b" 
+            }}>
+              {node.fast_path_status === 'confirmed' 
+                ? `confirmed${node.fast_path_finality_ms ? ` (${node.fast_path_finality_ms}ms)` : ''}`
+                : node.finalized 
+                  ? "checkpoint finalized" 
+                  : "pending"}
             </span>
           </div>
           <div className="actions">

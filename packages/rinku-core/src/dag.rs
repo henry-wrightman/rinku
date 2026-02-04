@@ -57,10 +57,13 @@ impl Dag {
             }
         }
 
+        let is_finalized = node.finalized;
         let node_idx = self.graph.add_node(node);
         self.hash_to_index.insert(hash.clone(), node_idx);
-        // New transactions are unfinalized by default
-        self.unfinalized.insert(hash.clone());
+        // Only track as unfinalized if the node is actually not finalized
+        if !is_finalized {
+            self.unfinalized.insert(hash.clone());
+        }
 
         for parent_hash in &parents {
             if !parent_hash.is_empty() && parent_hash != &hash {
@@ -103,10 +106,13 @@ impl Dag {
 
         let total_parents = parents.iter().filter(|p| !p.is_empty() && *p != &hash).count();
 
+        let is_finalized = node.finalized;
         let node_idx = self.graph.add_node(node);
         self.hash_to_index.insert(hash.clone(), node_idx);
-        // New transactions are unfinalized by default
-        self.unfinalized.insert(hash.clone());
+        // Only track as unfinalized if the node is actually not finalized
+        if !is_finalized {
+            self.unfinalized.insert(hash.clone());
+        }
 
         let mut linked_parents = 0;
         for parent_hash in &parents {
@@ -285,9 +291,84 @@ impl Dag {
         self.graph.node_weights().collect()
     }
     
+    /// Get immutable iterator over all nodes
+    pub fn nodes(&self) -> impl Iterator<Item = &DagNode> {
+        self.graph.node_weights()
+    }
+    
     /// Get mutable iterator over all nodes (used for recalculating weights)
     pub fn nodes_mut(&mut self) -> impl Iterator<Item = &mut DagNode> {
         self.graph.node_weights_mut()
+    }
+
+    /// Rebuild parent-child relationships, graph edges, and tips set after loading from snapshot.
+    /// When transactions are loaded in arbitrary order (not topological), parent-child
+    /// links may be broken because children are added before their parents exist.
+    /// This method iterates all nodes and:
+    /// 1. Clears all graph edges and children vectors
+    /// 2. Rebuilds graph edges based on parent references
+    /// 3. Rebuilds the children vectors for each node
+    /// 4. Rebuilds the tips set (nodes with no children)
+    /// Returns (nodes_processed, tips_count, dangling_parents) for logging.
+    pub fn rebuild_tips(&mut self) -> (usize, usize, usize) {
+        let all_hashes: Vec<String> = self.hash_to_index.keys().cloned().collect();
+        
+        // Clear all existing graph edges
+        self.graph.clear_edges();
+        
+        // Clear existing children vectors
+        for hash in &all_hashes {
+            if let Some(node) = self.get_node_mut(hash) {
+                node.children.clear();
+            }
+        }
+        
+        // Rebuild graph edges and children by iterating all nodes
+        let mut dangling_parents = 0usize;
+        for hash in &all_hashes {
+            let (parents, node_idx) = {
+                let node = match self.get_node(hash) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let idx = match self.hash_to_index.get(hash) {
+                    Some(&i) => i,
+                    None => continue,
+                };
+                (node.parents.clone(), idx)
+            };
+            
+            for parent_hash in parents {
+                if !parent_hash.is_empty() && parent_hash != *hash {
+                    if let Some(&parent_idx) = self.hash_to_index.get(&parent_hash) {
+                        // Rebuild graph edge (parent -> child)
+                        self.graph.add_edge(parent_idx, node_idx, ());
+                        
+                        // Rebuild children vector
+                        if let Some(parent_node) = self.get_node_mut(&parent_hash) {
+                            if !parent_node.children.contains(hash) {
+                                parent_node.children.push(hash.clone());
+                            }
+                        }
+                    } else {
+                        // Parent hash not found in snapshot - dangling reference
+                        dangling_parents += 1;
+                    }
+                }
+            }
+        }
+        
+        // Rebuild tips: nodes with no children are tips
+        self.tips.clear();
+        for hash in &all_hashes {
+            if let Some(node) = self.get_node(hash) {
+                if node.children.is_empty() {
+                    self.tips.insert(hash.clone());
+                }
+            }
+        }
+        
+        (all_hashes.len(), self.tips.len(), dangling_parents)
     }
 
     pub fn all_transactions(&self) -> Vec<crate::types::SignedTransaction> {
@@ -349,7 +430,23 @@ impl Dag {
 
     fn prune_oldest(&mut self) -> Result<(), DagError> {
         let target_size = self.max_nodes * 3 / 4;
+        let current_size = self.graph.node_count();
+        
+        // CRITICAL FIX: If we're severely over limit (2x max_nodes), also prune unfinalized txs
+        // This prevents OOM from accumulated unfinalized transactions during sync issues
+        let severe_overload = current_size > self.max_nodes * 2;
+        
+        // Get current timestamp for age-based pruning of unfinalized txs
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        
+        // Safety threshold: only prune unfinalized txs older than 10 minutes
+        // This ensures they've had ample time to be finalized and makes pruning deterministic
+        const UNFINALIZED_PRUNE_AGE_MS: u64 = 10 * 60 * 1000; // 10 minutes
 
+        // First, try to prune finalized non-tip transactions (preferred)
         let mut finalized_with_time: Vec<(NodeIndex, u64)> = self
             .graph
             .node_indices()
@@ -366,12 +463,47 @@ impl Dag {
 
         finalized_with_time.sort_by_key(|(_, ts)| *ts);
 
-        let to_remove_count = self.graph.node_count().saturating_sub(target_size);
-        let to_remove: Vec<NodeIndex> = finalized_with_time
+        let to_remove_count = current_size.saturating_sub(target_size);
+        let mut to_remove: Vec<NodeIndex> = finalized_with_time
             .into_iter()
             .take(to_remove_count)
             .map(|(idx, _)| idx)
             .collect();
+        
+        // If we're severely overloaded and couldn't prune enough finalized txs,
+        // start pruning OLD unfinalized transactions too (except current tips)
+        // Age threshold ensures deterministic pruning across nodes
+        if severe_overload && to_remove.len() < to_remove_count {
+            let remaining_to_remove = to_remove_count - to_remove.len();
+            
+            // Collect OLD unfinalized transactions sorted by timestamp (oldest first)
+            let mut unfinalized_with_time: Vec<(NodeIndex, u64)> = self
+                .graph
+                .node_indices()
+                .filter_map(|idx| {
+                    self.graph.node_weight(idx).and_then(|node| {
+                        // Only prune unfinalized txs that are old enough (deterministic threshold)
+                        let tx_age_ms = now_ms.saturating_sub(node.tx.tx.timestamp);
+                        if !node.finalized && !self.tips.contains(&node.hash) 
+                           && tx_age_ms > UNFINALIZED_PRUNE_AGE_MS {
+                            Some((idx, node.tx.tx.timestamp))
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
+            
+            unfinalized_with_time.sort_by_key(|(_, ts)| *ts);
+            
+            let additional: Vec<NodeIndex> = unfinalized_with_time
+                .into_iter()
+                .take(remaining_to_remove)
+                .map(|(idx, _)| idx)
+                .collect();
+            
+            to_remove.extend(additional);
+        }
 
         for idx in to_remove.into_iter().rev() {
             if let Some(node) = self.graph.node_weight(idx) {
@@ -536,7 +668,7 @@ mod tests {
             weight: 1.0,
             finalized: false,
             checkpoint_height: None,
-            received_at_ms: None,
+            received_at_ms: Some(0),
         }
     }
 

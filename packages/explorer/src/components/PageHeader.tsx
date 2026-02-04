@@ -12,9 +12,9 @@ export function PageHeader({ showThemeToggle = true }: PageHeaderProps) {
     <div className="headert">
       <header>
         <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-          <h1>rinku explorer</h1>
+          <h1>rinku</h1>
         </Link>
-        <p>url-native distributed ledger</p>
+        <p></p>
       </header>
       <div className="header-actions">
         <button className="theme-toggle" onClick={toggleTheme}>

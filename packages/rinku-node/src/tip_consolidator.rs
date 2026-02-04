@@ -26,9 +26,9 @@ const TPS_MEDIUM: f64 = 50.0;
 const TPS_LOW: f64 = 10.0;
 
 /// Minimum tips to trigger anchor creation
-/// Set to 1 to ensure anchors are always created, preventing network stalls
-/// when there's no external transaction activity. Without this, the network
-/// can deadlock after a checkpoint finalizes all transactions.
+/// Set to 2 to avoid unnecessary consolidation when idle (only consolidate when
+/// there are actually multiple tips to merge). The previous value of 1 caused
+/// spam consolidation txs when the network was idle with just 1 tip.
 const MIN_TIPS_FOR_ANCHOR: usize = 2;
 
 pub struct TipConsolidator {

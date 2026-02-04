@@ -1,7 +1,7 @@
 use anyhow::Result;
 use redb::{Database, ReadableTable, TableDefinition, WriteTransaction};
 use rinku_core::types::{Account, Checkpoint, SignedTransaction, Validator};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
@@ -9,6 +9,18 @@ use tracing::{debug, info, warn};
 use crate::contracts::ContractState;
 use crate::emission::EmissionSnapshot;
 use crate::rewards::RewardsSnapshot;
+
+/// DAG snapshot entry that stores a transaction along with its parent references.
+/// This is necessary because SignedTransaction doesn't include DAG structure info.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DagSnapshotEntry {
+    pub tx: SignedTransaction,
+    pub parents: Vec<String>,
+    #[serde(default)]
+    pub finalized: bool,
+    #[serde(default)]
+    pub checkpoint_height: Option<u64>,
+}
 
 pub const TABLE_ACCOUNTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("accounts");
 pub const TABLE_DAG: TableDefinition<&[u8], &[u8]> = TableDefinition::new("dag");
@@ -368,7 +380,7 @@ impl RedbStorage {
         gas_price: f64,
         total_supply: f64,
         genesis_time: u64,
-        transactions: &[SignedTransaction],
+        dag_entries: &[DagSnapshotEntry],
     ) -> Result<()> {
         let db = self.db_read();
         let write_txn = db.begin_write()?;
@@ -400,9 +412,9 @@ impl RedbStorage {
         
         {
             let mut table = write_txn.open_table(TABLE_DAG)?;
-            for tx in transactions {
-                let data = serde_json::to_vec(tx)?;
-                table.insert(tx.hash.as_bytes(), data.as_slice())?;
+            for entry in dag_entries {
+                let data = serde_json::to_vec(entry)?;
+                table.insert(entry.tx.hash.as_bytes(), data.as_slice())?;
             }
         }
         
@@ -419,7 +431,7 @@ impl RedbStorage {
             accounts.len(),
             validators.len(),
             checkpoints.len(),
-            transactions.len()
+            dag_entries.len()
         );
         Ok(())
     }
@@ -434,7 +446,7 @@ impl RedbStorage {
             f64,
             f64,
             u64,
-            Vec<SignedTransaction>,
+            Vec<DagSnapshotEntry>,
         )>,
     > {
         let db = self.db_read();
@@ -500,13 +512,26 @@ impl RedbStorage {
         }
         checkpoints.sort_by_key(|c| c.height);
         
-        let mut transactions = Vec::new();
+        let mut dag_entries = Vec::new();
         {
             let table = read_txn.open_table(TABLE_DAG)?;
             for entry in table.iter()? {
                 let (_, value) = entry?;
-                let tx: SignedTransaction = serde_json::from_slice(value.value())?;
-                transactions.push(tx);
+                // Try to deserialize as new DagSnapshotEntry format first
+                match serde_json::from_slice::<DagSnapshotEntry>(value.value()) {
+                    Ok(entry) => dag_entries.push(entry),
+                    Err(_) => {
+                        // Fall back to old SignedTransaction format (backward compatibility)
+                        if let Ok(tx) = serde_json::from_slice::<SignedTransaction>(value.value()) {
+                            dag_entries.push(DagSnapshotEntry {
+                                tx,
+                                parents: Vec::new(), // No parent info in old format
+                                finalized: true, // Assume finalized in old snapshots
+                                checkpoint_height: None,
+                            });
+                        }
+                    }
+                }
             }
         }
         
@@ -515,7 +540,7 @@ impl RedbStorage {
             accounts.len(),
             validators.len(),
             checkpoints.len(),
-            transactions.len()
+            dag_entries.len()
         );
         
         Ok(Some((
@@ -525,7 +550,7 @@ impl RedbStorage {
             gas_price,
             total_supply,
             genesis_time,
-            transactions,
+            dag_entries,
         )))
     }
 

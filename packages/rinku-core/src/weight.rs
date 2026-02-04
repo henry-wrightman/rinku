@@ -111,6 +111,7 @@ mod tests {
             staked: 50.0,
             unbonding: 0.0,
             unbonding_release: None,
+            latest_balance_proof: None,
         };
 
         let weight = calculate_age_weight(&account, 86400 * 30);
@@ -127,6 +128,7 @@ mod tests {
             staked: 100.0,
             unbonding: 0.0,
             unbonding_release: None,
+            latest_balance_proof: None,
         };
 
         let weight_30_days = calculate_age_weight(&account, 86400 * 30);

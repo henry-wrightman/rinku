@@ -21,11 +21,11 @@ const getApiBaseUrl = () => {
     const host = window.location.hostname;
     console.log(
       "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}/api`,
+      `https://${host.replace(/-5000\./, "-3001.")}`,
     );
-    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
+    return `https://${host.replace(/-5000\./, "-3001.")}`;
   }
-  return "/api"; // Dev: use Vite proxy
+  return ""; // Dev: use Vite proxy (fetch calls already include /api prefix)
 };
 const NODE_URL = getApiBaseUrl();
 
@@ -65,6 +65,13 @@ interface RewardsSummary {
   pendingRewards: number;
 }
 
+interface StateProofData {
+  success: boolean;
+  proofUrl?: string;
+  verified?: boolean;
+  error?: string;
+}
+
 function AccountPage() {
   const { address } = useParams<{ address: string }>();
   const [account, setAccount] = useState<AccountData | null>(null);
@@ -74,6 +81,9 @@ function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [stateProof, setStateProof] = useState<StateProofData | null>(null);
+  const [proofLoading, setProofLoading] = useState(false);
+  const [proofCopied, setProofCopied] = useState(false);
 
   useEffect(() => {
     if (!address) {
@@ -177,6 +187,29 @@ function AccountPage() {
       navigator.clipboard.writeText(address);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const fetchStateProof = async () => {
+    if (!address) return;
+    setProofLoading(true);
+    try {
+      // Use on-demand endpoint to get fresh proof at current checkpoint
+      const res = await fetch(`${NODE_URL}/api/account/${address}/proof/current`);
+      const data = await res.json();
+      setStateProof(data);
+    } catch (e) {
+      setStateProof({ success: false, error: "Failed to fetch state proof" });
+    } finally {
+      setProofLoading(false);
+    }
+  };
+
+  const copyProofUrl = () => {
+    if (stateProof?.proofUrl) {
+      navigator.clipboard.writeText(stateProof.proofUrl);
+      setProofCopied(true);
+      setTimeout(() => setProofCopied(false), 2000);
     }
   };
 
@@ -310,6 +343,69 @@ function AccountPage() {
             </div>
           </div>
         )}
+
+        <div style={{ marginTop: 24 }}>
+          <h3 style={{ fontSize: 13, color: "#fff", marginBottom: 12 }}>
+            state proof
+          </h3>
+          <p style={{ opacity: 0.6, marginBottom: 12, fontSize: 12 }}>
+            Generate a self-contained proof of this account's balance that can be verified offline.
+          </p>
+          
+          {!stateProof ? (
+            <button
+              className="btn-small"
+              onClick={fetchStateProof}
+              disabled={proofLoading}
+              style={{ marginBottom: 8 }}
+            >
+              {proofLoading ? "generating..." : "get state proof"}
+            </button>
+          ) : stateProof.success && stateProof.proofUrl ? (
+            <div className="tx-meta">
+              <div className="meta-row">
+                <span className="label">status</span>
+                <span className="value" style={{ color: stateProof.verified ? "#22c55e" : "#ef4444" }}>
+                  {stateProof.verified ? "✓ verified" : "✗ unverified"}
+                </span>
+              </div>
+              <div className="meta-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
+                <span className="label">proof url</span>
+                <div style={{ display: "flex", gap: 8, width: "100%" }}>
+                  <textarea
+                    readOnly
+                    value={stateProof.proofUrl}
+                    rows={3}
+                    style={{
+                      flex: 1,
+                      padding: "8px",
+                      border: "1px solid #333",
+                      borderRadius: "4px",
+                      backgroundColor: "#1a1a1a",
+                      color: "#88c0d0",
+                      fontFamily: "monospace",
+                      fontSize: "11px",
+                      resize: "none",
+                      wordBreak: "break-all",
+                    }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button className="btn-small" onClick={copyProofUrl}>
+                    {proofCopied ? "copied!" : "copy url"}
+                  </button>
+                  <span style={{ opacity: 0.6, fontSize: 11 }}>
+                    paste on verify tab to validate
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ color: "#ef4444", fontSize: 12 }}>
+              {stateProof.error || "No proof available - account may not have finalized transactions yet."}
+            </div>
+          )}
+        </div>
 
         <div className="tx-parents" style={{ marginTop: 24 }}>
           <h3>

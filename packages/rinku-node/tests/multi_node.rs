@@ -56,7 +56,7 @@ fn create_dag_node(tx: SignedTransaction, weight: f64) -> DagNode {
         finalized: false,
         checkpoint_height: None,
         weight,
-        received_at_ms: None
+        received_at_ms: None,
     }
 }
 
@@ -101,6 +101,7 @@ fn create_test_account(address: &str, balance: f64, nonce: u64) -> Account {
         staked: 0.0,
         unbonding: 0.0,
         unbonding_release: None,
+        latest_balance_proof: None,
     }
 }
 

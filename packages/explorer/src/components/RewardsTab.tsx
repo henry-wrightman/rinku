@@ -189,9 +189,7 @@ export function RewardsTab() {
 
       const data = await res.json();
       if (res.ok && data.hash) {
-        setResult(
-          `Staked ${stakeAmount} RKU (tx: ${data.hash.slice(0, 12)}...)`,
-        );
+        setResult(`Staking ${stakeAmount} RKU queued (tx: ${data.hash}...)`);
         setTimeout(() => {
           fetchRewards();
           fetchStakingInfo();
@@ -248,7 +246,7 @@ export function RewardsTab() {
       const data = await res.json();
       if (res.ok && data.hash) {
         setResult(
-          `Unstaked ${staking.stakedAmount} RKU (tx: ${data.hash.slice(0, 12)}...)`,
+          `Unstaking ${staking.stakedAmount} RKU queued (tx: ${data.hash}...)`,
         );
         setTimeout(() => {
           fetchRewards();
@@ -301,7 +299,7 @@ export function RewardsTab() {
 
       const data = await res.json();
       if (res.ok && data.hash) {
-        setResult(`Claimed rewards (tx: ${data.hash.slice(0, 12)}...)`);
+        setResult(`Claiming rewards queued (tx: ${data.hash}...)`);
         setTimeout(() => {
           fetchRewards();
         }, 1000);

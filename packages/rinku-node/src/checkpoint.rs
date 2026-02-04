@@ -1316,8 +1316,48 @@ impl CheckpointService {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
-        // Compute real state_root from account states for consensus verification
-        let state_root = self.state.compute_state_root().await;
+        
+        // CRITICAL: Process emissions and distribute checkpoint rewards BEFORE computing state_root
+        // This ensures that if a claim transaction is pending, the simulation sees the same
+        // pending_rewards value that the execution will claim. Otherwise, rewards distributed
+        // after state_root calculation would cause claim proofs to be invalid.
+        let checkpoint_reward = {
+            let mut emission = self.state.emission.write().await;
+            let reward = emission.get_checkpoint_reward(height);
+            emission.record_emission(reward);
+            reward
+        };
+
+        // Distribute checkpoint rewards to staked validators BEFORE state root computation
+        let distributions = {
+            let mut rewards = self.state.rewards.write().await;
+            rewards.distribute_checkpoint_rewards(checkpoint_reward)
+        };
+
+        if !distributions.is_empty() {
+            info!(
+                "Pre-distributed {:.6} RKU to {} validators before state root computation",
+                checkpoint_reward,
+                distributions.len()
+            );
+        }
+        
+        // Collect affected addresses BEFORE computing state_root
+        // This is needed to generate proofs using the same simulated account set
+        let mut affected_addresses_for_proofs: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for tx in &unfinalized_txs {
+            affected_addresses_for_proofs.insert(tx.tx.from.clone());
+            if !tx.tx.to.is_empty() {
+                affected_addresses_for_proofs.insert(tx.tx.to.clone());
+            }
+        }
+        let affected_addresses_vec: Vec<String> = affected_addresses_for_proofs.into_iter().collect();
+        
+        // Compute state_root with pending transactions applied (post-execution state)
+        // This ensures the state_root matches what proofs will verify against
+        // NOTE: Rewards were distributed above, so claim transactions will see the updated pending_rewards
+        // CRITICAL: We don't generate proofs yet because we don't have the checkpoint hash
+        let state_root = self.state.compute_state_root_with_pending_txs(&unfinalized_txs).await;
         let receipt_root = "0".repeat(64);
         let tip_count = unfinalized_hashes.len() as u32;
 
@@ -1424,26 +1464,8 @@ impl CheckpointService {
         };
 
         // Process emissions and rewards for this checkpoint
-        let checkpoint_reward = {
-            let mut emission = self.state.emission.write().await;
-            let reward = emission.get_checkpoint_reward(height);
-            emission.record_emission(reward);
-            reward
-        };
-
-        // Distribute checkpoint rewards to staked validators
-        let distributions = {
-            let mut rewards = self.state.rewards.write().await;
-            rewards.distribute_checkpoint_rewards(checkpoint_reward)
-        };
-
-        if !distributions.is_empty() {
-            info!(
-                "Distributed {:.6} RKU to {} validators",
-                checkpoint_reward,
-                distributions.len()
-            );
-        }
+        // NOTE: Checkpoint rewards were already distributed earlier (before state_root computation)
+        // to ensure claim transaction simulations match execution
 
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1530,10 +1552,47 @@ impl CheckpointService {
             checkpoint_reward
         );
         
-        // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
-        for tx in txs_to_execute {
-            self.state.execute_finalized_transaction(&tx).await;
+        // FINALITY-FIRST MODEL: Execute finalized transactions using TWO-PASS approach
+        // This ensures simulation/execution parity for claim transactions:
+        // - Pass 1: Execute PHASES 1 & 2 (balance changes, stakes, unstakes, claims)
+        // - Pass 2: Execute PHASE 3 (witness/tip rewards)
+        // 
+        // By separating reward distribution from claim execution, we ensure claims
+        // see exactly the pending_rewards that were snapshotted during simulation,
+        // not additional witness rewards from earlier transactions in this checkpoint.
+        
+        // LEADER NODE PROOF GENERATION: Generate proofs BEFORE execution using simulated state
+        // CRITICAL: Proofs must use the SAME transaction set that was used for state_root computation
+        // We use `unfinalized_txs` (collected early, at line ~1062) NOT `txs_to_execute` (collected later)
+        // This ensures nonces match exactly: simulation starts from the same base state that was used
+        // for state_root computation, avoiding race conditions where concurrent checkpoints could
+        // modify account.nonce between the two simulation runs.
+        let proof_tx_hash = unfinalized_hashes.first()
+            .cloned()
+            .unwrap_or_else(|| checkpoint.hash.clone());
+        
+        // Get precomputed proofs using the same transaction set as state_root computation
+        // CRITICAL FIX: Use unfinalized_txs (same set as state_root) NOT txs_to_execute
+        let precomputed_proofs = self.state.compute_state_root_and_proofs(
+            &unfinalized_txs,
+            &affected_addresses_vec,
+            Some(&checkpoint),
+            &proof_tx_hash,
+        ).await;
+        
+        // PASS 1: Execute balance/nonce changes, stakes, unstakes, and claims
+        for tx in &txs_to_execute {
+            self.state.execute_finalized_transaction_core(tx).await;
         }
+        
+        // PASS 2: Distribute witness/tip rewards (after all claims have been processed)
+        for tx in &txs_to_execute {
+            self.state.execute_finalized_transaction_rewards(tx).await;
+        }
+        
+        // Store precomputed proofs (generated from simulated state, not post-execution state)
+        // These proofs are guaranteed to verify against checkpoint.state_root
+        self.state.store_precomputed_proofs(&precomputed_proofs.proofs).await;
         
         // Track validator liveness - record which validators participated
         if let Some(ref consensus) = self.consensus_service {
@@ -1554,8 +1613,18 @@ impl CheckpointService {
         // This ensures other nodes receive the checkpoint without waiting for sync
         // Include the list of finalized transaction hashes so receivers can finalize
         // transactions even if their merkle roots don't match (due to propagation delays)
+        // Also include precomputed proofs so followers can store them without regeneration
+        // CRITICAL: Include actual transactions so followers can execute them even if they
+        // missed the original gossip - this prevents balance divergence between nodes
         if let Some(ref gossip) = self.gossip_service {
-            gossip.broadcast_checkpoint(checkpoint, unfinalized_hashes.clone()).await;
+            let proofs_vec: Vec<rinku_core::types::AccountStateProof> = 
+                precomputed_proofs.proofs.values().cloned().collect();
+            gossip.broadcast_checkpoint(
+                checkpoint, 
+                unfinalized_hashes.clone(), 
+                txs_to_execute.clone(),
+                proofs_vec
+            ).await;
         }
 
         Ok(())

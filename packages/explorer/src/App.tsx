@@ -13,6 +13,8 @@ import {
   ZKTab,
   VerifyProofTab,
   WalletModal,
+  ThreadTab,
+  AnimatedNumber,
 } from "./components";
 import {
   deserializeKeyPair,
@@ -26,13 +28,17 @@ import { useTheme } from "./hooks/useTheme";
 // Otherwise fall back to Vite proxy in dev or Replit port transformation in prod
 const getApiBaseUrl = () => {
   const envApiUrl = import.meta.env.VITE_API_URL;
-  
+
   // If VITE_API_URL is set and not localhost, use it directly
-  if (envApiUrl && !envApiUrl.includes('127.0.0.1') && !envApiUrl.includes('localhost')) {
+  if (
+    envApiUrl &&
+    !envApiUrl.includes("127.0.0.1") &&
+    !envApiUrl.includes("localhost")
+  ) {
     console.log("Using VITE_API_URL:", envApiUrl);
     return `${envApiUrl}/api`;
   }
-  
+
   if (import.meta.env.PROD) {
     // Production on Replit: transform port in hostname
     const host = window.location.hostname;
@@ -46,6 +52,46 @@ const getApiBaseUrl = () => {
 };
 const NODE_URL = getApiBaseUrl();
 const PAGE_SIZE = 20;
+
+export interface P2pStats {
+  httpPeers: HttpPeer[];
+  p2pPeers: P2pPeer[];
+}
+
+export interface HttpPeer {
+  address: string;
+  node_id: string;
+  last_seen: number;
+  dag_size: number;
+  checkpoint_height: number;
+  latency_ms: number;
+  is_healthy: boolean;
+  consecutive_failures: number;
+  backoff_until: number;
+}
+
+export interface P2pPeer {
+  peer_id: string;
+  connected_at: number;
+  messages_received: number;
+  messages_sent: number;
+  last_seen: number;
+  handshake_validated: boolean;
+  handshake_info: HandshakeInfo;
+  rate_limit_tokens: number;
+  last_rate_update: number;
+  score: number;
+}
+
+export interface HandshakeInfo {
+  protocol_version: string;
+  chain_id: string;
+  network_id: string;
+  node_id: string;
+  checkpoint_height: number;
+  validator_address: any;
+  capabilities: string[];
+}
 
 interface NetworkStats {
   tps: number;
@@ -105,7 +151,8 @@ type TabType =
   | "rewards"
   | "tokenomics"
   | "zk"
-  | "verify";
+  | "verify"
+  | "thread";
 
 const validTabs: TabType[] = [
   "dag",
@@ -116,6 +163,7 @@ const validTabs: TabType[] = [
   "tokenomics",
   "zk",
   "verify",
+  "thread",
 ];
 
 function App() {
@@ -166,7 +214,7 @@ function App() {
   const [finalityStats, setFinalityStats] = useState<FinalityStats | null>(
     null,
   );
-  const [peerStats, setPeerStats] = useState<PeerStats | null>(null);
+  const [peerStats, setPeerStats] = useState<P2pStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const { darkMode, toggleTheme } = useTheme();
@@ -201,7 +249,7 @@ function App() {
         gasPriceRes,
         gasStatsRes,
         finalityRes,
-        peerStatsRes
+        peerStatsRes,
       ] = await Promise.all([
         fetch(`${NODE_URL}/dag/summary`),
         fetch(`${NODE_URL}/accounts`),
@@ -209,7 +257,7 @@ function App() {
         fetch(`${NODE_URL}/gas/price`),
         fetch(`${NODE_URL}/gas/stats`),
         fetch(`${NODE_URL}/finality/metrics`),
-        fetch(`${NODE_URL}/gossip/stats`),
+        fetch(`${NODE_URL}/peers`),
       ]);
 
       const summaryData = await summaryRes.json();
@@ -308,7 +356,19 @@ function App() {
         connected={connected}
         protocolVersion={versionInfo?.protocolVersion}
         nodeVersion={versionInfo?.nodeVersion}
-        peersConnected={peerStats?.peersConnected || 0}
+        peersConnected={
+          Array.from(
+            peerStats?.p2pPeers ||
+              []
+                .reduce((map, obj) => {
+                  if (!map.has(obj.peer_id)) {
+                    map.set(obj.peer_id, obj);
+                  }
+                  return map;
+                }, new Map())
+                .values(),
+          ).length || 0
+        }
       />
 
       <div className="header-actions">
@@ -335,7 +395,13 @@ function App() {
       <div className="stats">
         <div className="stat-item">
           <span className="stat-value">
-            {formatNumber(networkStats?.totalTransactionsProcessed || 0)}
+            {/* <AnimatedNumber
+              value={networkStats?.totalTransactionsProcessed || 0}
+              formatShort={formatNumber}
+            /> */}
+            <span className="stat-value">
+              {formatNumber(networkStats?.totalTransactionsProcessed || 0)}
+            </span>
           </span>
           <span className="stat-label">transactions</span>
         </div>
@@ -357,7 +423,13 @@ function App() {
         </div>
         <div className="stat-item">
           <span className="stat-value">
-            {formatNumber(networkStats?.latestCheckpointHeight || 0)}
+            {/* <AnimatedNumber
+              value={networkStats?.latestCheckpointHeight || 0}
+              formatShort={formatNumber}
+            /> */}
+            <span className="stat-value">
+              {formatNumber(networkStats?.latestCheckpointHeight || 0)}
+            </span>
           </span>
           <span className="stat-label">checkpoint height</span>
         </div>
@@ -371,7 +443,7 @@ function App() {
           <span className="stat-value">
             {networkStats?.validatorCount || 0}
           </span>
-          <span className="stat-label">validators</span>
+          <span className="stat-label">stakers</span>
         </div>
         <div className="stat-item">
           <span className="stat-value">
@@ -443,66 +515,101 @@ function App() {
       )}
 
       <div className="nav-container">
-        <button 
-          className="mobile-nav-toggle" 
+        <button
+          className="mobile-nav-toggle"
           onClick={() => setMobileNavOpen(!mobileNavOpen)}
           aria-label="Toggle navigation"
         >
-          <span className="hamburger-icon">{mobileNavOpen ? '✕' : '☰'}</span>
+          <span className="hamburger-icon">{mobileNavOpen ? "✕" : "☰"}</span>
           <span className="current-tab">{tab}</span>
         </button>
-        <div className={`nav ${mobileNavOpen ? 'open' : ''}`}>
+        <div className={`nav ${mobileNavOpen ? "open" : ""}`}>
           <span
             className={tab === "dag" ? "active" : ""}
-            onClick={() => { setTab("dag"); setMobileNavOpen(false); }}
+            onClick={() => {
+              setTab("dag");
+              setMobileNavOpen(false);
+            }}
           >
             dag
           </span>
           <span
             className={tab === "accounts" ? "active" : ""}
-            onClick={() => { setTab("accounts"); setMobileNavOpen(false); }}
+            onClick={() => {
+              setTab("accounts");
+              setMobileNavOpen(false);
+            }}
           >
             accounts
           </span>
           <span
             className={tab === "faucet" ? "active" : ""}
-            onClick={() => { setTab("faucet"); setMobileNavOpen(false); }}
+            onClick={() => {
+              setTab("faucet");
+              setMobileNavOpen(false);
+            }}
           >
             faucet
           </span>
           <span
             className={tab === "contracts" ? "active" : ""}
-            onClick={() => { setTab("contracts"); setMobileNavOpen(false); }}
+            onClick={() => {
+              setTab("contracts");
+              setMobileNavOpen(false);
+            }}
           >
             contracts
           </span>
-          <span
+          {/* <span
             className={tab === "zk" ? "active" : ""}
-            onClick={() => { setTab("zk"); setMobileNavOpen(false); }}
+            onClick={() => {
+              setTab("zk");
+              setMobileNavOpen(false);
+            }}
           >
             zk
-          </span>
+          </span> */}
           <span
             className={tab === "rewards" ? "active" : ""}
-            onClick={() => { setTab("rewards"); setMobileNavOpen(false); }}
+            onClick={() => {
+              setTab("rewards");
+              setMobileNavOpen(false);
+            }}
           >
             rewards
           </span>
           <span
             className={tab === "tokenomics" ? "active" : ""}
-            onClick={() => { setTab("tokenomics"); setMobileNavOpen(false); }}
+            onClick={() => {
+              setTab("tokenomics");
+              setMobileNavOpen(false);
+            }}
           >
             tokenomics
           </span>
           <span
             className={tab === "verify" ? "active" : ""}
-            onClick={() => { setTab("verify"); setMobileNavOpen(false); }}
+            onClick={() => {
+              setTab("verify");
+              setMobileNavOpen(false);
+            }}
           >
             verify
           </span>
+          {/* <span
+            className={tab === "thread" ? "active" : ""}
+            onClick={() => {
+              setTab("thread");
+              setMobileNavOpen(false);
+            }}
+          >
+            thread
+          </span> */}
         </div>
       </div>
-      {mobileNavOpen && <div className="nav-overlay" onClick={() => setMobileNavOpen(false)} />}
+      {mobileNavOpen && (
+        <div className="nav-overlay" onClick={() => setMobileNavOpen(false)} />
+      )}
 
       {tab === "dag" && (
         <DAGTab
@@ -528,6 +635,9 @@ function App() {
       {tab === "tokenomics" && <TokenomicsTab />}
       {tab === "zk" && <ZKTab />}
       {tab === "verify" && <VerifyProofTab />}
+      {tab === "thread" && (
+        <ThreadTab wallet={wallet} onWalletOpen={() => setWalletOpen(true)} />
+      )}
     </div>
   );
 }
