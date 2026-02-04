@@ -1,5 +1,5 @@
-use rinku_core::types::{GasConfig, TokenomicsConfig};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use rinku_core::types::{GasConfig, TokenomicsConfig};
 use std::env;
 use tracing::{info, warn};
 
@@ -85,35 +85,37 @@ impl P2pConfig {
         let enabled = std::env::var("P2P_ENABLED")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(true);
-        
+
         let port = std::env::var("P2P_PORT")
             .ok()
             .and_then(|p| p.parse::<u16>().ok())
             .unwrap_or(4001);
-        
+
         let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", port);
-        
+
         let bootstrap_peers: Vec<String> = std::env::var("P2P_BOOTSTRAP_PEERS")
-            .map(|p| p.split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect())
+            .map(|p| {
+                p.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
             .unwrap_or_default();
-        
+
         let enable_mdns = std::env::var("P2P_MDNS")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(true);
-        
+
         let max_peers = std::env::var("P2P_MAX_PEERS")
             .ok()
             .and_then(|n| n.parse().ok())
             .unwrap_or(50);
-        
+
         let connection_timeout_secs = std::env::var("P2P_CONNECTION_TIMEOUT")
             .ok()
             .and_then(|n| n.parse().ok())
             .unwrap_or(60);
-        
+
         Self {
             enabled,
             listen_addr,
@@ -156,14 +158,16 @@ pub struct NodeConfig {
 
 impl NodeConfig {
     pub fn from_env() -> Self {
-        let node_id = env::var("NODE_ID")
-            .unwrap_or_else(|_| hex::encode(&rand::random::<[u8; 8]>()));
+        let node_id =
+            env::var("NODE_ID").unwrap_or_else(|_| hex::encode(&rand::random::<[u8; 8]>()));
 
         let peers: Vec<String> = env::var("NODE_PEERS")
-            .map(|p| p.split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect())
+            .map(|p| {
+                p.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
             .unwrap_or_default();
 
         let chain_id = env::var("CHAIN_ID").unwrap_or_else(|_| "rinku-mainnet".to_string());
@@ -252,13 +256,14 @@ impl NodeConfig {
 impl TrustConfig {
     pub fn from_env() -> Self {
         let mut genesis_validators = Vec::new();
-        
+
         if let Ok(genesis_data) = env::var("GENESIS_VALIDATORS") {
             for entry in genesis_data.split(';') {
                 let parts: Vec<&str> = entry.split(':').collect();
                 if parts.len() == 2 {
                     let mut decoded_from = None;
-                    let pubkey_bytes = URL_SAFE_NO_PAD.decode(parts[1])
+                    let pubkey_bytes = URL_SAFE_NO_PAD
+                        .decode(parts[1])
                         .ok()
                         .map(|b| {
                             decoded_from = Some("base64url");
@@ -291,15 +296,15 @@ impl TrustConfig {
                 }
             }
         }
-        
+
         // Use 0.6666 (exactly 2/3) to allow 2-of-3 validator quorum
         let checkpoint_quorum_threshold = env::var("CHECKPOINT_QUORUM_THRESHOLD")
             .ok()
             .and_then(|t| t.parse().ok())
             .unwrap_or(0.6666);
-        
+
         let trust_checkpoint_hash = env::var("TRUST_CHECKPOINT_HASH").ok();
-        
+
         Self {
             genesis_validators,
             checkpoint_quorum_threshold,

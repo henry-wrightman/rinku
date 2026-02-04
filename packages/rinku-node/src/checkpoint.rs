@@ -1614,10 +1614,17 @@ impl CheckpointService {
         // Include the list of finalized transaction hashes so receivers can finalize
         // transactions even if their merkle roots don't match (due to propagation delays)
         // Also include precomputed proofs so followers can store them without regeneration
+        // CRITICAL: Include actual transactions so followers can execute them even if they
+        // missed the original gossip - this prevents balance divergence between nodes
         if let Some(ref gossip) = self.gossip_service {
             let proofs_vec: Vec<rinku_core::types::AccountStateProof> = 
                 precomputed_proofs.proofs.values().cloned().collect();
-            gossip.broadcast_checkpoint(checkpoint, unfinalized_hashes.clone(), proofs_vec).await;
+            gossip.broadcast_checkpoint(
+                checkpoint, 
+                unfinalized_hashes.clone(), 
+                txs_to_execute.clone(),
+                proofs_vec
+            ).await;
         }
 
         Ok(())

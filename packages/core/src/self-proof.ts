@@ -275,15 +275,15 @@ function verifyTxMerkleProof(
   expectedRoot: string,
 ): boolean {
   let current = txHash;
-  let idx = index;
+  let idx = BigInt(index);
 
   for (const sibling of proof) {
-    const left = idx % 2 === 0 ? current : sibling;
-    const right = idx % 2 === 0 ? sibling : current;
+    const left = idx % 2n === 0n ? current : sibling;
+    const right = idx % 2n === 0n ? sibling : current;
     const combined = left + right;
     const hash = sha256(new TextEncoder().encode(combined));
     current = bytesToHex(hash);
-    idx = Math.floor(idx / 2);
+    idx = idx / 2n;
   }
 
   return current === expectedRoot;

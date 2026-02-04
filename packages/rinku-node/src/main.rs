@@ -14,6 +14,7 @@ mod consensus;
 mod contracts;
 mod dag_pruning;
 mod emission;
+mod fast_path;
 mod fork_remediation;
 mod gas;
 mod gossip;

@@ -9,6 +9,7 @@ pub mod consensus;
 pub mod contracts;
 pub mod dag_pruning;
 pub mod emission;
+pub mod fast_path;
 pub mod fork_remediation;
 pub mod gas;
 pub mod gossip;

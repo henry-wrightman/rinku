@@ -138,15 +138,15 @@ export class StateTrie {
   private async generateProof(leaves: string[], targetIndex: number): Promise<string[]> {
     const proof: string[] = [];
     let currentLevel = leaves;
-    let idx = targetIndex;
+    let idx = BigInt(targetIndex);
     
     while (currentLevel.length > 1) {
-      const siblingIdx = idx % 2 === 0 ? idx + 1 : idx - 1;
+      const siblingIdx = idx % 2n === 0n ? Number(idx) + 1 : Number(idx) - 1;
       
       if (siblingIdx < currentLevel.length) {
         proof.push(currentLevel[siblingIdx]);
       } else {
-        proof.push(currentLevel[idx]);
+        proof.push(currentLevel[Number(idx)]);
       }
       
       const nextLevel: string[] = [];
@@ -158,7 +158,7 @@ export class StateTrie {
       }
       
       currentLevel = nextLevel;
-      idx = Math.floor(idx / 2);
+      idx = idx / 2n;
     }
     
     return proof;
@@ -173,15 +173,15 @@ export class StateTrie {
   ): Promise<boolean> {
     const leafData = JSON.stringify({ key, value });
     let currentHash = await cryptoHash(leafData);
-    let idx = index;
+    let idx = BigInt(index);
     
     for (const sibling of proof) {
-      if (idx % 2 === 0) {
+      if (idx % 2n === 0n) {
         currentHash = await cryptoHash(currentHash + sibling);
       } else {
         currentHash = await cryptoHash(sibling + currentHash);
       }
-      idx = Math.floor(idx / 2);
+      idx = idx / 2n;
     }
     
     return currentHash === expectedRoot;
@@ -302,15 +302,15 @@ export class ReceiptsTrie {
   private async generateProof(leaves: string[], targetIndex: number): Promise<string[]> {
     const proof: string[] = [];
     let currentLevel = leaves;
-    let idx = targetIndex;
+    let idx = BigInt(targetIndex);
     
     while (currentLevel.length > 1) {
-      const siblingIdx = idx % 2 === 0 ? idx + 1 : idx - 1;
+      const siblingIdx = idx % 2n === 0n ? Number(idx) + 1 : Number(idx) - 1;
       
       if (siblingIdx < currentLevel.length) {
         proof.push(currentLevel[siblingIdx]);
       } else {
-        proof.push(currentLevel[idx]);
+        proof.push(currentLevel[Number(idx)]);
       }
       
       const nextLevel: string[] = [];
@@ -322,7 +322,7 @@ export class ReceiptsTrie {
       }
       
       currentLevel = nextLevel;
-      idx = Math.floor(idx / 2);
+      idx = idx / 2n;
     }
     
     return proof;

@@ -112,6 +112,9 @@ struct AccountTransactionItem {
     finalized: bool,
     memo: Option<String>,
     references: Option<Vec<String>>,
+    fast_path_status: Option<String>,
+    fast_path_confirmed_at_ms: Option<u64>,
+    fast_path_finality_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -174,6 +177,10 @@ struct SubmitTxResponse {
     hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_eligible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_status: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -252,6 +259,12 @@ struct DagNodeResponse {
     url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     kind: Option<rinku_core::types::TransactionKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_confirmed_at_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_finality_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -310,6 +323,7 @@ struct FinalityMetricsResponse {
     checkpoints_per_minute: f64,
     last_checkpoint_age: u64,
     tx_throughput: f64,
+    avg_confirmation_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -799,6 +813,28 @@ async fn post_gossip(
                     );
                 }
                 // If checkpoint.height < expected_height, it's an old checkpoint we already have - ignore
+            }
+            GossipMessage::FastPathBroadcast { tx, sender_validator, sender_stake, timestamp_ms, .. } => {
+                info!(
+                    "Gossip: fast-path broadcast {} from {} (stake: {:.2})",
+                    &tx.hash[..16.min(tx.hash.len())],
+                    &sender_validator[..16.min(sender_validator.len())],
+                    sender_stake
+                );
+                if tx.is_fast_path_eligible() {
+                    match state.add_transaction(tx.clone()).await {
+                        Err(e) => warn!("Failed to add fast-path tx: {}", e),
+                        Ok(_) => {}
+                    }
+                }
+            }
+            GossipMessage::FastPathAck { tx_hash, validator_address, validator_stake, .. } => {
+                info!(
+                    "Gossip: fast-path ack for {} from {} (stake: {:.2})",
+                    &tx_hash[..16.min(tx_hash.len())],
+                    &validator_address[..16.min(validator_address.len())],
+                    validator_stake
+                );
             }
         }
     }
@@ -1324,10 +1360,22 @@ async fn handle_faucet_request(
 
     match state.add_transaction(tx.clone()).await {
         Ok(TransactionResult::Accepted) => {
-            // Broadcast to peers after successful local add
+            // Broadcast via fast-path for sub-second finality
             if let Some(ref gossip) = api_state.gossip_service {
-                gossip.broadcast_transaction(tx).await;
-                info!("Faucet tx {} to {} broadcast to peers", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
+                let (validator_addr, validator_stake) = state.get_validator_info().await;
+                if let (Some(addr), Some(_)) = (validator_addr, validator_stake) {
+                    let stake = state.get_validator_stake(&addr).await.unwrap_or(0.0);
+                    if stake > 0.0 {
+                        gossip.broadcast_fast_path_transaction(tx.clone(), &addr, stake).await;
+                        info!("Faucet tx {} to {} broadcast via FAST-PATH", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
+                    } else {
+                        gossip.broadcast_transaction(tx).await;
+                        info!("Faucet tx {} to {} broadcast to peers", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
+                    }
+                } else {
+                    gossip.broadcast_transaction(tx).await;
+                    info!("Faucet tx {} to {} broadcast to peers", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
+                }
             }
             (
                 StatusCode::OK,
@@ -1448,22 +1496,39 @@ async fn get_account(
     }
 }
 
-async fn get_account_transactions(
-    State(state): State<NodeState>,
+async fn get_account_transactions_with_fast_path(
+    State(api_state): State<ApiState>,
     Path(address): Path<String>,
 ) -> Json<AccountTransactionsResponse> {
-    let txs = state.get_transactions_by_address(&address, 100).await;
+    let txs = api_state.node_state.get_transactions_by_address(&address, 100).await;
     
-    let transactions: Vec<AccountTransactionItem> = txs
-        .into_iter()
-        .map(|(stx, finalized)| {
+    let transactions: Vec<AccountTransactionItem> = {
+        let mut result = Vec::new();
+        for (stx, finalized) in txs {
             let direction = if stx.tx.from == address {
                 "sent".to_string()
             } else {
                 "received".to_string()
             };
             
-            AccountTransactionItem {
+            let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
+                if let Some(gossip) = &api_state.gossip_service {
+                    match gossip.get_fast_path_status(&stx.hash).await {
+                        Some(fp) => {
+                            let status = match fp.status {
+                                rinku_core::types::FastPathStatus::Pending => "pending",
+                                rinku_core::types::FastPathStatus::Confirmed => "confirmed",
+                                rinku_core::types::FastPathStatus::Finalized => "finalized",
+                            };
+                            (Some(status.to_string()), fp.confirmed_at_ms, fp.finality_time_ms())
+                        }
+                        None => (None, None, None),
+                    }
+                } else {
+                    (None, None, None)
+                };
+            
+            result.push(AccountTransactionItem {
                 hash: stx.hash.clone(),
                 from: stx.tx.from.clone(),
                 to: stx.tx.to.clone(),
@@ -1473,9 +1538,13 @@ async fn get_account_transactions(
                 finalized,
                 memo: stx.tx.memo.clone(),
                 references: stx.tx.references.clone(),
-            }
-        })
-        .collect();
+                fast_path_status,
+                fast_path_confirmed_at_ms,
+                fast_path_finality_ms,
+            });
+        }
+        result
+    };
     
     let total = transactions.len();
     
@@ -1530,6 +1599,55 @@ async fn get_account_proof(
                 proof_url: None,
                 verified: None,
                 error: Some("No proof available - account may not have finalized transactions".to_string()),
+            }),
+        )
+            .into_response()
+    }
+}
+
+async fn get_account_proof_current(
+    State(state): State<NodeState>,
+    Path(address): Path<String>,
+) -> impl IntoResponse {
+    // Check if account exists
+    if state.get_account(&address).await.is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(AccountProofResponse {
+                success: false,
+                proof: None,
+                proof_url: None,
+                verified: None,
+                error: Some("Account not found".to_string()),
+            }),
+        )
+            .into_response();
+    }
+
+    // Generate fresh on-demand proof at current checkpoint
+    if let Some(proof) = state.generate_account_state_proof_on_demand(&address).await {
+        let verified = crate::proofs::verify_account_state_proof(&proof);
+        let proof_url = crate::proofs::create_account_state_proof_url(&proof).ok();
+        (
+            StatusCode::OK,
+            Json(AccountProofResponse {
+                success: true,
+                proof: Some(proof),
+                proof_url,
+                verified: Some(verified),
+                error: None,
+            }),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::OK,
+            Json(AccountProofResponse {
+                success: false,
+                proof: None,
+                proof_url: None,
+                verified: None,
+                error: Some("No checkpoint available - wait for network to finalize".to_string()),
             }),
         )
             .into_response()
@@ -1618,6 +1736,8 @@ async fn submit_transaction(
                 success: false,
                 hash: String::new(),
                 error: Some(format!("System overloaded: {} tips pending. All transactions paused. Try again later.", tip_count)),
+                fast_path_eligible: None,
+                fast_path_status: None,
             }),
         );
     }
@@ -1631,6 +1751,8 @@ async fn submit_transaction(
                 success: false,
                 hash: String::new(),
                 error: Some(format!("Network congested: {} tips pending. User transactions paused. Try again in 30s.", tip_count)),
+                fast_path_eligible: None,
+                fast_path_status: None,
             }),
         );
     }
@@ -1656,12 +1778,33 @@ async fn submit_transaction(
         signature: inner.sig.clone(),
     };
 
+    let is_fast_path_eligible = tx.is_fast_path_eligible();
+    
     match api_state.node_state.add_transaction(tx.clone()).await {
         Ok(TransactionResult::Accepted) => {
             // Broadcast to peers after successful local add
             if let Some(ref gossip) = api_state.gossip_service {
-                gossip.broadcast_transaction(tx).await;
-                info!("Transaction {} broadcast to peers", &inner.hash[..16.min(inner.hash.len())]);
+                if is_fast_path_eligible {
+                    // Auto-detect: use fast-path for eligible transactions
+                    let (validator_addr, _) = api_state.node_state.get_validator_info().await;
+                    let validator_stake = if let Some(ref addr) = validator_addr {
+                        api_state.node_state.get_validator_stake(addr).await.unwrap_or(0.0)
+                    } else {
+                        0.0
+                    };
+                    
+                    if let Some(addr) = validator_addr {
+                        gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
+                        info!("Transaction {} broadcast via FAST-PATH", &inner.hash[..16.min(inner.hash.len())]);
+                    } else {
+                        // No validator identity, fall back to regular broadcast
+                        gossip.broadcast_transaction(tx).await;
+                        info!("Transaction {} broadcast to peers (no validator for fast-path)", &inner.hash[..16.min(inner.hash.len())]);
+                    }
+                } else {
+                    gossip.broadcast_transaction(tx).await;
+                    info!("Transaction {} broadcast to peers", &inner.hash[..16.min(inner.hash.len())]);
+                }
             }
             (
                 StatusCode::OK,
@@ -1669,6 +1812,8 @@ async fn submit_transaction(
                     success: true,
                     hash: inner.hash,
                     error: None,
+                    fast_path_eligible: Some(is_fast_path_eligible),
+                    fast_path_status: if is_fast_path_eligible { Some("pending".to_string()) } else { None },
                 }),
             )
         }
@@ -1681,6 +1826,8 @@ async fn submit_transaction(
                     success: true,
                     hash: inner.hash,
                     error: None,
+                    fast_path_eligible: Some(is_fast_path_eligible),
+                    fast_path_status: None,
                 }),
             )
         }
@@ -1690,9 +1837,164 @@ async fn submit_transaction(
                 success: false,
                 hash: inner.hash,
                 error: Some(e.to_string()),
+                fast_path_eligible: None,
+                fast_path_status: None,
             }),
         ),
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FastPathTxResponse {
+    success: bool,
+    hash: String,
+    fast_path_eligible: bool,
+    fast_path_status: Option<String>,
+    estimated_finality_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn submit_fast_path_transaction(
+    State(api_state): State<ApiState>,
+    Json(req): Json<SubmitTxRequest>,
+) -> impl IntoResponse {
+    let inner = req.tx;
+    let tx = rinku_core::types::SignedTransaction {
+        tx: rinku_core::types::Transaction {
+            from: inner.from.clone(),
+            to: inner.to.clone(),
+            amount: inner.amount,
+            nonce: inner.nonce,
+            timestamp: inner.ts,
+            parents: inner.parents.clone(),
+            kind: inner.kind.clone(),
+            gas_limit: None,
+            gas_price: Some(inner.fee),
+            data: None,
+            signature: Some(inner.sig.clone()),
+            memo: inner.memo.clone(),
+            references: inner.references.clone(),
+        },
+        hash: inner.hash.clone(),
+        signature: inner.sig.clone(),
+    };
+
+    let is_fast_path_eligible = tx.is_fast_path_eligible();
+    
+    if !is_fast_path_eligible {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(FastPathTxResponse {
+                success: false,
+                hash: inner.hash,
+                fast_path_eligible: false,
+                fast_path_status: None,
+                estimated_finality_ms: None,
+                error: Some("Transaction not eligible for fast-path (must be data-only with amount=0)".to_string()),
+            }),
+        );
+    }
+
+    match api_state.node_state.add_transaction(tx.clone()).await {
+        Ok(TransactionResult::Accepted) | Ok(TransactionResult::Buffered) => {
+            if let Some(ref gossip) = api_state.gossip_service {
+                let (validator_addr, _) = api_state.node_state.get_validator_info().await;
+                let validator_stake = if let Some(ref addr) = validator_addr {
+                    api_state.node_state.get_validator_stake(addr).await.unwrap_or(0.0)
+                } else {
+                    0.0
+                };
+                
+                if let Some(addr) = validator_addr {
+                    gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
+                } else {
+                    gossip.broadcast_transaction(tx.clone()).await;
+                }
+                
+                info!(
+                    "Fast-path tx {} submitted and broadcast",
+                    &inner.hash[..16.min(inner.hash.len())]
+                );
+            }
+            
+            (
+                StatusCode::OK,
+                Json(FastPathTxResponse {
+                    success: true,
+                    hash: inner.hash,
+                    fast_path_eligible: true,
+                    fast_path_status: Some("pending".to_string()),
+                    estimated_finality_ms: Some(200),
+                    error: None,
+                }),
+            )
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(FastPathTxResponse {
+                success: false,
+                hash: inner.hash,
+                fast_path_eligible: true,
+                fast_path_status: None,
+                estimated_finality_ms: None,
+                error: Some(e.to_string()),
+            }),
+        ),
+    }
+}
+
+#[derive(Serialize)]
+struct FastPathStatusResponse {
+    hash: String,
+    status: String,
+    aggregated_stake: f64,
+    quorum_threshold: f64,
+    quorum_percent: u32,
+    ack_count: usize,
+    finality_time_ms: Option<u64>,
+}
+
+async fn get_fast_path_status(
+    State(api_state): State<ApiState>,
+    Path(hash): Path<String>,
+) -> impl IntoResponse {
+    if let Some(ref gossip) = api_state.gossip_service {
+        if let Some(finality) = gossip.get_fast_path_status(&hash).await {
+            let quorum_percent = if finality.quorum_stake_required > 0.0 {
+                (finality.total_stake_acked / finality.quorum_stake_required * 100.0) as u32
+            } else {
+                0
+            };
+            let finality_time = finality.finality_time_ms();
+            return (
+                StatusCode::OK,
+                Json(FastPathStatusResponse {
+                    hash: finality.tx_hash,
+                    status: format!("{:?}", finality.status).to_lowercase(),
+                    aggregated_stake: finality.total_stake_acked,
+                    quorum_threshold: finality.quorum_stake_required,
+                    quorum_percent,
+                    ack_count: finality.acks.len(),
+                    finality_time_ms: finality_time,
+                }),
+            );
+        }
+    }
+    
+    (
+        StatusCode::NOT_FOUND,
+        Json(FastPathStatusResponse {
+            hash,
+            status: "unknown".to_string(),
+            aggregated_stake: 0.0,
+            quorum_threshold: 0.0,
+            quorum_percent: 0,
+            ack_count: 0,
+            finality_time_ms: None,
+        }),
+    )
 }
 
 async fn submit_batch_transaction(
@@ -1792,14 +2094,32 @@ async fn get_dag_summary(State(state): State<NodeState>) -> Json<DagSummaryRespo
 }
 
 async fn get_dag(
-    State(state): State<NodeState>,
+    State(api_state): State<ApiState>,
     Query(query): Query<DagPageQuery>,
 ) -> Json<DagResponse> {
+    let state = &api_state.node_state;
     let page = query.page.unwrap_or(0);
     let limit = query.limit.unwrap_or(50).min(200); // Default 50, max 200 per page
     
     // Use paginated method - much more efficient for large DAGs
     let (nodes_data, _total, has_more) = state.get_dag_nodes_paginated(page, limit).await;
+    
+    // Collect all hashes for batch fast-path lookup
+    let hashes: Vec<String> = nodes_data.iter().map(|n| n.hash.clone()).collect();
+    
+    // Batch lookup fast-path status for all transactions
+    let fast_path_statuses: std::collections::HashMap<String, rinku_core::types::FastPathFinality> = 
+        if let Some(ref gossip) = api_state.gossip_service {
+            let mut statuses = std::collections::HashMap::new();
+            for hash in &hashes {
+                if let Some(finality) = gossip.get_fast_path_status(hash).await {
+                    statuses.insert(hash.clone(), finality);
+                }
+            }
+            statuses
+        } else {
+            std::collections::HashMap::new()
+        };
     
     let nodes: Vec<DagNodeResponse> = nodes_data
         .into_iter()
@@ -1821,6 +2141,19 @@ async fn get_dag(
                     format!("/tx/h/{}", h)
                 })
                 .collect();
+            
+            // Get fast-path status for this transaction
+            let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
+                if let Some(finality) = fast_path_statuses.get(&n.hash) {
+                    (
+                        Some(format!("{:?}", finality.status).to_lowercase()),
+                        finality.confirmed_at_ms,
+                        finality.finality_time_ms(),
+                    )
+                } else {
+                    (Some("pending".to_string()), None, None)
+                };
+            
             DagNodeResponse {
                 hash: n.hash,
                 from: n.from,
@@ -1835,6 +2168,9 @@ async fn get_dag(
                 weight: n.weight,
                 url,
                 kind: n.kind,
+                fast_path_status,
+                fast_path_confirmed_at_ms,
+                fast_path_finality_ms,
             }
         })
         .collect();
@@ -1928,7 +2264,8 @@ async fn get_gas_stats(State(state): State<NodeState>) -> Json<GasStatsResponse>
     })
 }
 
-async fn get_finality_metrics(State(state): State<NodeState>) -> Json<FinalityMetricsResponse> {
+async fn get_finality_metrics(State(api_state): State<ApiState>) -> Json<FinalityMetricsResponse> {
+    let state = &api_state.node_state;
     let total_transactions = state.get_total_transactions().await as usize;
     let (finalized_count, pending_count) = state.get_finalized_stats().await;
     let (avg_ms, median_ms, p95_ms, last_checkpoint_age_ms, checkpoints_per_min) = 
@@ -1944,6 +2281,13 @@ async fn get_finality_metrics(State(state): State<NodeState>) -> Json<FinalityMe
     };
     let tx_throughput = if total_transactions > 0 { (total_transactions as f64) / 60.0 } else { 0.0 };
     
+    // Get fast-path confirmation stats if available
+    let avg_confirmation_ms = if let Some(ref gossip) = api_state.gossip_service {
+        gossip.get_fast_path_stats().await.avg_confirmation_ms
+    } else {
+        None
+    };
+    
     Json(FinalityMetricsResponse {
         avg_time_to_finality: avg_ms,
         median_time_to_finality: median_ms,
@@ -1955,6 +2299,7 @@ async fn get_finality_metrics(State(state): State<NodeState>) -> Json<FinalityMe
         checkpoints_per_minute: checkpoints_per_min,
         last_checkpoint_age: last_checkpoint_age_ms,
         tx_throughput,
+        avg_confirmation_ms,
     })
 }
 
@@ -1977,12 +2322,19 @@ struct TransactionResponse {
     memo: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     references: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_confirmed_at_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_finality_ms: Option<u64>,
 }
 
 async fn get_transaction(
-    State(state): State<NodeState>,
+    State(api_state): State<ApiState>,
     Path(hash): Path<String>,
 ) -> Result<Json<TransactionResponse>, ApiError> {
+    let state = &api_state.node_state;
     // Debug: log lookup attempt
     tracing::debug!("Looking up transaction hash: {}", hash);
     
@@ -2005,6 +2357,27 @@ async fn get_transaction(
                 format!("/tx/h/{}", h)
             })
             .collect();
+        
+        // Query fast-path status from GossipService
+        let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
+            if let Some(ref gossip) = api_state.gossip_service {
+                if let Some(fp) = gossip.get_fast_path_status(&hash).await {
+                    let is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Finalized);
+                    let status = match fp.status {
+                        rinku_core::types::FastPathStatus::Confirmed => "confirmed",
+                        rinku_core::types::FastPathStatus::Finalized => "finalized",
+                        rinku_core::types::FastPathStatus::Pending => "pending",
+                    };
+                    let confirmed_at = fp.confirmed_at_ms;
+                    let finality_ms = fp.finality_time_ms();
+                    (Some(status.to_string()), confirmed_at, finality_ms)
+                } else {
+                    (None, None, None)
+                }
+            } else {
+                (None, None, None)
+            };
+        
         Ok(Json(TransactionResponse {
             hash: tx.hash.clone(),
             from: tx.tx.from.clone(),
@@ -2019,6 +2392,9 @@ async fn get_transaction(
             url: format!("/tx/h/{}", tx.hash),
             memo: tx.tx.memo.clone(),
             references: tx.tx.references.clone(),
+            fast_path_status,
+            fast_path_confirmed_at_ms,
+            fast_path_finality_ms,
         }))
     } else {
         // Debug: log lookup failure with DAG stats
@@ -2037,17 +2413,19 @@ struct ThreadResponse {
 }
 
 async fn get_transaction_replies(
-    State(state): State<NodeState>,
+    State(api_state): State<ApiState>,
     Path(hash): Path<String>,
 ) -> Result<Json<ThreadResponse>, ApiError> {
-    let inner = state.inner.read().await;
-    let all_txs = inner.dag.all_transactions();
+    let state = &api_state.node_state;
     
-    let mut replies: Vec<TransactionResponse> = Vec::new();
-    
-    for tx in all_txs.iter() {
-        if let Some(refs) = &tx.tx.references {
-            if refs.contains(&hash) {
+    // Collect reply data from DAG first, then release lock before async gossip calls
+    let reply_data: Vec<(String, String, String, f64, f64, u64, u64, Vec<String>, bool, f64, Option<String>, Option<Vec<String>>)> = {
+        let inner = state.inner.read().await;
+        let all_txs = inner.dag.all_transactions();
+        
+        all_txs.iter()
+            .filter(|tx| tx.tx.references.as_ref().map_or(false, |refs| refs.contains(&hash)))
+            .map(|tx| {
                 let (finalized, weight) = inner.dag.get_node(&tx.hash)
                     .map(|n| (n.finalized, n.weight))
                     .unwrap_or((false, 1.0));
@@ -2067,24 +2445,77 @@ async fn get_transaction_replies(
                     })
                     .collect();
                 
-                replies.push(TransactionResponse {
-                    hash: tx.hash.clone(),
-                    from: tx.tx.from.clone(),
-                    to: tx.tx.to.clone(),
-                    amount: tx.tx.amount,
-                    fee: tx.tx.gas_price.unwrap_or(0.0),
-                    nonce: tx.tx.nonce,
-                    ts: tx.tx.timestamp,
+                (
+                    tx.hash.clone(),
+                    tx.tx.from.clone(),
+                    tx.tx.to.clone(),
+                    tx.tx.amount,
+                    tx.tx.gas_price.unwrap_or(0.0),
+                    tx.tx.nonce,
+                    tx.tx.timestamp,
                     tip_urls,
                     finalized,
                     weight,
-                    url: format!("/tx/h/{}", tx.hash),
-                    memo: tx.tx.memo.clone(),
-                    references: tx.tx.references.clone(),
-                });
+                    tx.tx.memo.clone(),
+                    tx.tx.references.clone(),
+                )
+            })
+            .collect()
+    };
+    // Lock released here
+    
+    // Batch lookup fast-path status for all replies (after releasing DAG lock)
+    let reply_hashes: Vec<String> = reply_data.iter().map(|d| d.0.clone()).collect();
+    let fast_path_statuses: std::collections::HashMap<String, rinku_core::types::FastPathFinality> = 
+        if let Some(ref gossip) = api_state.gossip_service {
+            let mut statuses = std::collections::HashMap::new();
+            for h in &reply_hashes {
+                if let Some(finality) = gossip.get_fast_path_status(h).await {
+                    statuses.insert(h.clone(), finality);
+                }
             }
-        }
-    }
+            statuses
+        } else {
+            std::collections::HashMap::new()
+        };
+    
+    let mut replies: Vec<TransactionResponse> = reply_data.into_iter()
+        .map(|(tx_hash, from, to, amount, fee, nonce, ts, tip_urls, finalized, weight, memo, references)| {
+            // Get fast-path status for this reply
+            let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
+                if let Some(fp) = fast_path_statuses.get(&tx_hash) {
+                    let status = match fp.status {
+                        rinku_core::types::FastPathStatus::Confirmed => "confirmed",
+                        rinku_core::types::FastPathStatus::Finalized => "finalized",
+                        rinku_core::types::FastPathStatus::Pending => "pending",
+                    };
+                    let confirmed_at = fp.confirmed_at_ms;
+                    let finality_ms = fp.finality_time_ms();
+                    (Some(status.to_string()), confirmed_at, finality_ms)
+                } else {
+                    (None, None, None)
+                };
+            
+            TransactionResponse {
+                hash: tx_hash.clone(),
+                from,
+                to,
+                amount,
+                fee,
+                nonce,
+                ts,
+                tip_urls,
+                finalized,
+                weight,
+                url: format!("/tx/h/{}", tx_hash),
+                memo,
+                references,
+                fast_path_status,
+                fast_path_confirmed_at_ms,
+                fast_path_finality_ms,
+            }
+        })
+        .collect();
     
     replies.sort_by(|a, b| a.ts.cmp(&b.ts));
     let total_replies = replies.len();
@@ -2759,11 +3190,15 @@ async fn generate_transaction_proof(
         .iter()
         .filter(|sig| sig.bls_public_key.is_some())
         .enumerate()
-        .map(|(i, sig)| MerkleSumLeaf {
-            index: i,
-            address: sig.validator.clone(),
-            bls_public_key: sig.bls_public_key.clone().unwrap_or_default(),
-            weight: sig.weight,
+        .map(|(i, sig)| {
+            let weight_units = crate::proofs::to_weight_units(sig.weight);
+            MerkleSumLeaf {
+                index: i,
+                address: sig.validator.clone(),
+                bls_public_key: sig.bls_public_key.clone().unwrap_or_default(),
+                weight_units,
+                weight: sig.weight,
+            }
         })
         .collect();
 
@@ -3128,10 +3563,17 @@ pub async fn start_api_server(
         .route("/api/peers", get(get_peers))
         .route("/api/slashing/evidence", post(post_slashing_evidence))
         .route("/api/tx", post(submit_transaction))
+        .route("/api/tx/fast", post(submit_fast_path_transaction))
+        .route("/api/tx/fast/:hash", get(get_fast_path_status))
         .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/sync/delta", post(post_sync_delta))
+        .route("/api/dag", get(get_dag))
+        .route("/api/tx/:hash", get(get_transaction))
+        .route("/api/tx/:hash/replies", get(get_transaction_replies))
+        .route("/api/account/:address/transactions", get(get_account_transactions_with_fast_path))
+        .route("/api/finality/metrics", get(get_finality_metrics))
         .layer(cors.clone())
         .with_state(api_state);
 
@@ -3144,20 +3586,16 @@ pub async fn start_api_server(
         .route("/api/tips", get(get_tips))
         .route("/api/tipUrls", get(get_tip_urls))
         .route("/api/account/:address", get(get_account))
-        .route("/api/account/:address/transactions", get(get_account_transactions))
         .route("/api/account/:address/proof", get(get_account_proof))
-        .route("/api/tx/:hash", get(get_transaction))
-        .route("/api/tx/:hash/replies", get(get_transaction_replies))
+        .route("/api/account/:address/proof/current", get(get_account_proof_current))
         .route("/api/tx/:hash/receipt", get(get_transaction_receipt))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))
-        .route("/api/dag", get(get_dag))
         .route("/api/dag/summary", get(get_dag_summary))
         .route("/api/accounts", get(get_accounts))
         .route("/api/network/stats", get(get_network_stats))
         .route("/api/gas/price", get(get_gas_price))
         .route("/api/gas/stats", get(get_gas_stats))
-        .route("/api/finality/metrics", get(get_finality_metrics))
         .route("/api/version", get(get_version))
         .route("/api/staking", get(get_staking))
         .route("/api/staking/:address", get(get_staking_address))

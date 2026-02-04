@@ -434,6 +434,11 @@ impl RewardsService {
     pub fn get_pending_rewards(&self, address: &str) -> f64 {
         self.pending_rewards.get(address).copied().unwrap_or(0.0)
     }
+    
+    /// Get total claimed rewards for an address (lifetime)
+    pub fn get_claimed_total(&self, address: &str) -> f64 {
+        self.claimed_rewards.get(address).copied().unwrap_or(0.0)
+    }
 
     pub fn claim_rewards(&mut self, address: &str) -> f64 {
         let pending = self.pending_rewards.get(address).copied().unwrap_or(0.0);
@@ -444,6 +449,121 @@ impl RewardsService {
             self.claimed_rewards.insert(address.to_string(), prev_claimed + pending);
         }
         pending
+    }
+    
+    /// Sync stake state from leader's authoritative v3 proof values
+    /// Called during state synchronization to ensure RewardsService matches leader's computed state
+    /// 
+    /// DETERMINISTIC SYNC: Uses authoritative values from leader's proof rather than inferring from balance changes
+    /// This ensures absolute consistency across all nodes for reward-related state.
+    /// 
+    /// Parameters:
+    /// - address: The account address
+    /// - pending_rewards: Authoritative pending rewards value from leader
+    /// - staked_at: Timestamp when stake was created
+    /// - last_reward_at: Timestamp of last reward distribution
+    /// - claimed_total: Total claimed rewards (lifetime)
+    /// - staked_amount: Current staked amount
+    pub fn sync_from_leader_v3(
+        &mut self,
+        address: &str,
+        pending_rewards: f64,
+        staked_at: u64,
+        last_reward_at: Option<u64>,
+        claimed_total: f64,
+        staked_amount: f64,
+    ) {
+        let addr = address.to_string();
+        
+        // Sync pending_rewards directly from leader's authoritative value
+        let local_pending = self.pending_rewards.get(&addr).copied().unwrap_or(0.0);
+        if (local_pending - pending_rewards).abs() > 0.000001 {
+            tracing::info!(
+                "REWARD SYNC for {}: pending_rewards {:.4} -> {:.4}",
+                &address[..16.min(address.len())],
+                local_pending, pending_rewards
+            );
+            self.pending_rewards.insert(addr.clone(), pending_rewards);
+        }
+        
+        // Sync claimed_rewards total from leader
+        let local_claimed = self.claimed_rewards.get(&addr).copied().unwrap_or(0.0);
+        if (local_claimed - claimed_total).abs() > 0.000001 {
+            tracing::info!(
+                "REWARD SYNC for {}: claimed_total {:.4} -> {:.4}",
+                &address[..16.min(address.len())],
+                local_claimed, claimed_total
+            );
+            self.claimed_rewards.insert(addr.clone(), claimed_total);
+        }
+        
+        // Sync stake position with authoritative values
+        if let Some(stake) = self.stakes.get_mut(&addr) {
+            if (stake.amount - staked_amount).abs() > 0.000001 
+                || stake.staked_at != staked_at 
+                || stake.last_reward_at != last_reward_at 
+            {
+                tracing::info!(
+                    "REWARD SYNC for {}: stake(amount={:.4}, staked_at={}, last_reward={:?}) -> (amount={:.4}, staked_at={}, last_reward={:?})",
+                    &address[..16.min(address.len())],
+                    stake.amount, stake.staked_at, stake.last_reward_at,
+                    staked_amount, staked_at, last_reward_at
+                );
+                stake.amount = staked_amount;
+                stake.staked_at = staked_at;
+                stake.last_reward_at = last_reward_at;
+            }
+        } else if staked_amount > 0.0 {
+            // Create stake position from leader's authoritative state
+            tracing::info!(
+                "REWARD SYNC: Creating stake for {} from leader: amount={:.4}, staked_at={}",
+                &address[..16.min(address.len())],
+                staked_amount, staked_at
+            );
+            self.stakes.insert(addr.clone(), StakePosition {
+                staker: addr.clone(),
+                amount: staked_amount,
+                staked_at,
+                last_reward_at,
+            });
+        }
+    }
+    
+    /// Legacy sync method for v2 proofs (deprecated, use sync_from_leader_v3)
+    #[allow(dead_code)]
+    pub fn sync_stake_from_leader(&mut self, address: &str, staked_amount: f64, balance_increased: bool) {
+        if let Some(stake) = self.stakes.get_mut(address) {
+            if (stake.amount - staked_amount).abs() > 0.000001 {
+                tracing::info!(
+                    "RewardsService sync for {}: staked {} -> {}",
+                    &address[..16.min(address.len())],
+                    stake.amount,
+                    staked_amount
+                );
+                stake.amount = staked_amount;
+            }
+        } else if staked_amount > 0.0 {
+            let now = current_time_ms();
+            tracing::info!(
+                "RewardsService: Creating stake from leader for {}: {} RKU",
+                &address[..16.min(address.len())],
+                staked_amount
+            );
+            self.stakes.insert(address.to_string(), StakePosition {
+                staker: address.to_string(),
+                amount: staked_amount,
+                staked_at: now,
+                last_reward_at: None,
+            });
+        }
+        
+        if balance_increased && self.pending_rewards.get(address).copied().unwrap_or(0.0) > 0.0 {
+            tracing::info!(
+                "RewardsService: Resetting pending_rewards for {} (claim processed by leader)",
+                &address[..16.min(address.len())]
+            );
+            self.pending_rewards.insert(address.to_string(), 0.0);
+        }
     }
 
     pub fn distribute_checkpoint_rewards(&mut self, reward_amount: f64) -> Vec<(String, f64)> {

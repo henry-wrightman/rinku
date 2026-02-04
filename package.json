@@ -16,6 +16,7 @@
     "mega-stress": "npx tsx scripts/mega-stress.ts",
     "stress-test": "npx tsx scripts/stress-test.ts",
     "activity-bot": "npx tsx scripts/activity-bot.ts",
+    "fast-path-bot": "npx tsx scripts/fast-path-bot.ts",
     "p2p-test": "npx tsx scripts/p2p-sync-test.ts"
   },
   "devDependencies": {

@@ -39,6 +39,8 @@ interface TransactionNode {
   sig: string;
   url: string;
   weight: number;
+  memo?: string;
+  references?: string[];
   finalized?: boolean;
   finality?: {
     checkpointId: string;
@@ -372,6 +374,17 @@ function HashTransactionPage() {
               {tx.finalized ? "finalized" : "pending"}
             </span>
           </div>
+          {tx.amount === 0 && (tx.memo || tx.references) && !tx.finalized && (
+            <div className="meta-row">
+              <span className="label">fast-path</span>
+              <span
+                className="value"
+                style={{ color: "#88c0d0" }}
+              >
+                eligible (~200ms finality)
+              </span>
+            </div>
+          )}
           <div className="meta-row">
             <span className="label">signature</span>
             <span className="value mono" style={{ opacity: tx.sig ? 1 : 0.5 }}>

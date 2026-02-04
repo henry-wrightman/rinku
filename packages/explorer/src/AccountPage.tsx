@@ -194,7 +194,8 @@ function AccountPage() {
     if (!address) return;
     setProofLoading(true);
     try {
-      const res = await fetch(`${NODE_URL}/api/account/${address}/proof`);
+      // Use on-demand endpoint to get fresh proof at current checkpoint
+      const res = await fetch(`${NODE_URL}/api/account/${address}/proof/current`);
       const data = await res.json();
       setStateProof(data);
     } catch (e) {

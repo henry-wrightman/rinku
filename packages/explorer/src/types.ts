@@ -7,6 +7,8 @@ export interface Account {
 
 export type TransactionKind = 'transfer' | 'stake' | 'unstake' | 'claim_rewards' | 'contract' | 'consolidation' | 'reward';
 
+export type FastPathStatus = 'pending' | 'confirmed' | 'timeout' | 'not_eligible';
+
 export interface DAGNode {
   hash: string;
   from: string;
@@ -18,9 +20,13 @@ export interface DAGNode {
   url: string;
   weight: number;
   confirmed: boolean;
+  finalized: boolean;
   kind?: TransactionKind;
   memo?: string;
   references?: string[];
+  fast_path_status?: FastPathStatus;
+  fast_path_confirmed_at_ms?: number;
+  fast_path_finality_ms?: number;
 }
 
 export interface ThreadTransaction {
@@ -37,6 +43,9 @@ export interface ThreadTransaction {
   url: string;
   memo?: string;
   references?: string[];
+  fast_path_status?: FastPathStatus;
+  fast_path_confirmed_at_ms?: number;
+  fast_path_finality_ms?: number;
 }
 
 export interface ThreadResponse {

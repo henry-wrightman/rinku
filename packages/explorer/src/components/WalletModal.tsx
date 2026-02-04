@@ -42,6 +42,9 @@ interface TransactionItem {
   finalized: boolean;
   memo?: string;
   references?: string[];
+  fast_path_status?: 'pending' | 'confirmed' | 'timeout' | 'not_eligible';
+  fast_path_confirmed_at_ms?: number;
+  fast_path_finality_ms?: number;
 }
 
 interface WalletModalProps {
@@ -558,9 +561,12 @@ export function WalletModal({
                               {formatShortTime(tx.timestamp)}
                             </span>
                             <span
-                              className={`tx-compact-status ${tx.finalized ? "ok" : "pending"}`}
+                              className={`tx-compact-status ${tx.fast_path_status === 'confirmed' || tx.finalized ? "ok" : "pending"}`}
+                              title={tx.fast_path_status === 'confirmed' && tx.fast_path_finality_ms 
+                                ? `Fast-path confirmed in ${tx.fast_path_finality_ms}ms` 
+                                : tx.finalized ? 'Checkpoint finalized' : 'Pending confirmation'}
                             >
-                              {tx.finalized ? "✓" : "○"}
+                              {tx.fast_path_status === 'confirmed' || tx.finalized ? "✓" : "○"}
                             </span>
                           </div>
                           {isExpanded && (

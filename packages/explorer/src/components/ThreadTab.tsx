@@ -455,12 +455,14 @@ export function ThreadTab({ wallet, onWalletOpen }: Props) {
               <span className="hash">{formatHash(currentThread.hash)}</span>
               <span
                 className={
-                  currentThread.finalized
+                  currentThread.fast_path_status === 'confirmed' || currentThread.finalized
                     ? "status-finalized"
                     : "status-pending"
                 }
               >
-                {currentThread.finalized ? "finalized" : "pending"}
+                {currentThread.fast_path_status === 'confirmed' 
+                  ? `confirmed${currentThread.fast_path_finality_ms ? ` (${currentThread.fast_path_finality_ms}ms)` : ''}`
+                  : currentThread.finalized ? "finalized" : "pending"}
               </span>
             </div>
             {currentThread.references &&
@@ -558,12 +560,14 @@ export function ThreadTab({ wallet, onWalletOpen }: Props) {
                       </button>
                       <span
                         className={
-                          reply.finalized
+                          reply.fast_path_status === 'confirmed' || reply.finalized
                             ? "status-finalized"
                             : "status-pending"
                         }
                       >
-                        {reply.finalized ? "finalized" : "pending"}
+                        {reply.fast_path_status === 'confirmed' 
+                          ? `confirmed${reply.fast_path_finality_ms ? ` (${reply.fast_path_finality_ms}ms)` : ''}`
+                          : reply.finalized ? "finalized" : "pending"}
                       </span>
                     </div>
                   </div>

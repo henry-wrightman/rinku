@@ -679,10 +679,10 @@ impl NodeState {
         let storage = Arc::new(storage);
 
         let inner =
-            if let Some((accounts, validators, checkpoints, gas_price, supply, genesis, txs)) =
+            if let Some((accounts, validators, checkpoints, gas_price, supply, genesis, dag_entries)) =
                 storage.load_snapshot()?
             {
-                let tx_count = txs.len() as u64;
+                let tx_count = dag_entries.len() as u64;
                 let checkpoint_count = checkpoints.len() as u64;
                 info!(
                     "Restored from snapshot: {} accounts, {} txs, {} checkpoints",
@@ -695,34 +695,75 @@ impl NodeState {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                for tx in txs {
+                    
+                // Build a set of all hashes we're loading for parent validation
+                let loaded_hashes: std::collections::HashSet<String> = dag_entries
+                    .iter()
+                    .map(|e| e.tx.hash.clone())
+                    .collect();
+                    
+                for entry in dag_entries {
                     // Genesis transaction and txs from before checkpoints should be considered finalized
-                    let is_genesis = tx.tx.from == "genesis";
-                    let is_finalized = is_genesis || checkpoint_count > 0;
+                    let is_genesis = entry.tx.tx.from == "genesis";
+                    let is_finalized = entry.finalized || is_genesis || checkpoint_count > 0;
                     // Calculate weight from sender account
-                    let tx_weight = if let Some(account) = accounts.get(&tx.tx.from) {
+                    let tx_weight = if let Some(account) = accounts.get(&entry.tx.tx.from) {
                         calculate_account_weight(account, now_secs)
                     } else {
                         1.0
                     };
+                    
+                    // Use parents from DagSnapshotEntry (preferred) or fall back to tx.parents
+                    // Filter out parents that aren't in the loaded snapshot (they were pruned)
+                    let parents = if !entry.parents.is_empty() {
+                        entry.parents.iter()
+                            .filter(|p| loaded_hashes.contains(*p))
+                            .cloned()
+                            .collect()
+                    } else {
+                        entry.tx.tx.parents.iter()
+                            .filter(|p| loaded_hashes.contains(*p))
+                            .cloned()
+                            .collect()
+                    };
+                    
                     let node = rinku_core::types::DagNode {
-                        hash: tx.hash.clone(),
-                        tx: tx.clone(),
-                        parents: tx.tx.parents.clone(),
+                        hash: entry.tx.hash.clone(),
+                        tx: entry.tx.clone(),
+                        parents,
                         children: Vec::new(),
                         weight: tx_weight,
                         finalized: is_finalized,
-                        checkpoint_height: if is_genesis {
-                            Some(0)
-                        } else if is_finalized {
-                            Some(checkpoint_count)
-                        } else {
-                            None
-                        },
-                        received_at_ms: Some(tx.tx.timestamp),
+                        checkpoint_height: entry.checkpoint_height.or_else(|| {
+                            if is_genesis {
+                                Some(0)
+                            } else if is_finalized {
+                                Some(checkpoint_count)
+                            } else {
+                                None
+                            }
+                        }),
+                        received_at_ms: Some(entry.tx.tx.timestamp),
                     };
                     let _ = dag.add_node(node);
                 }
+                
+                // CRITICAL: Rebuild parent-child relationships after loading from snapshot.
+                // Transactions may be loaded in arbitrary order (not topological), causing
+                // children to be added before their parents. This breaks tip tracking.
+                let tips_before = dag.tip_count();
+                let (nodes_processed, tips_after, dangling_parents) = dag.rebuild_tips();
+                info!(
+                    "DAG tips rebuilt after snapshot load: {} nodes, {} tips -> {} tips",
+                    nodes_processed, tips_before, tips_after
+                );
+                if dangling_parents > 0 {
+                    warn!(
+                        "DAG rebuild found {} dangling parent references (pruned parents not in snapshot)",
+                        dangling_parents
+                    );
+                }
+                
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -1171,7 +1212,25 @@ impl NodeState {
         self.cleanup_old_data().await;
         
         let state = self.inner.read().await;
-        let transactions: Vec<SignedTransaction> = state.dag.all_transactions();
+        
+        // Log memory metrics for monitoring
+        info!(
+            "Memory metrics: DAG nodes={}, accounts={}, validators={}, checkpoints={}, contracts={}",
+            state.dag.node_count(),
+            state.accounts.len(),
+            state.validators.len(),
+            state.checkpoints.len(),
+            state.contracts.len()
+        );
+        // Create DagSnapshotEntry for each node, preserving parent references
+        let dag_entries: Vec<crate::storage::DagSnapshotEntry> = state.dag.nodes()
+            .map(|node| crate::storage::DagSnapshotEntry {
+                tx: node.tx.clone(),
+                parents: node.parents.clone(),
+                finalized: node.finalized,
+                checkpoint_height: node.checkpoint_height,
+            })
+            .collect();
         self.storage.save_snapshot(
             &state.accounts,
             &state.validators,
@@ -1179,7 +1238,7 @@ impl NodeState {
             state.current_gas_price,
             state.total_supply,
             state.genesis_time,
-            &transactions,
+            &dag_entries,
         )?;
 
         // Also save rewards/staking state
@@ -1858,11 +1917,15 @@ impl NodeState {
     /// Apply a checkpoint received with its finalized transaction hashes
     /// This is the preferred method when receiving CheckpointAnnouncement from the leader
     /// because it allows finalizing transactions even if merkle roots don't match
+    /// 
+    /// Returns the number of missing transactions that the leader finalized but we don't have.
+    /// This is CRITICAL for proof storage decisions - proofs should ONLY be stored when
+    /// missing_tx_count == 0, otherwise the proof values won't match local account state.
     pub async fn apply_checkpoint_with_finalized_hashes(
         &self, 
         checkpoint: Checkpoint,
         finalized_tx_hashes: Vec<String>,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         let mut state = self.inner.write().await;
         
         // Validate checkpoint height
@@ -1931,7 +1994,7 @@ impl NodeState {
                     // FINALITY-FIRST: Collect transaction for execution
                     txs_to_execute.push(tx_clone);
                     let _ = state.dag.mark_finalized(hash, height);
-                    // Increment total_transactions only upon finalization
+                    // Increment total_transactions at checkpoint finalization
                     state.total_transactions += 1;
                     count += 1;
                 } else {
@@ -2090,7 +2153,10 @@ impl NodeState {
             );
         }
         
-        Ok(())
+        // Return missing_tx_count so caller can decide whether to store precomputed proofs
+        // Proofs should ONLY be stored if missing_tx_count == 0, otherwise the proof values
+        // (computed from leader's tx set) won't match local account state
+        Ok(missing_tx_count)
     }
 
     pub async fn get_latest_checkpoint_id(&self) -> Option<String> {
@@ -2365,6 +2431,24 @@ impl NodeState {
                 rewards.get_stake(&tx.tx.from).map(|p| (tx.tx.from.clone(), p.amount))
             })
             .collect();
+        
+        // Build simulated_reward_state for v3 proofs
+        // Structure: (pending_rewards, staked_at, last_reward_at, claimed_rewards_total)
+        let mut simulated_reward_state: HashMap<String, (f64, u64, Option<u64>, f64)> = HashMap::new();
+        
+        // Collect reward state for all affected addresses
+        for address in affected_addresses {
+            let pending = rewards.get_pending_rewards(address);
+            let stake_info = rewards.get_stake(address);
+            let (staked_at, last_reward_at) = stake_info
+                .map(|p| (p.staked_at, p.last_reward_at))
+                .unwrap_or((0, None));
+            let claimed_total = rewards.get_claimed_total(address);
+            simulated_reward_state.insert(
+                address.clone(),
+                (pending, staked_at, last_reward_at, claimed_total)
+            );
+        }
         drop(rewards);
         
         // Apply pending transactions to simulated state
@@ -2410,6 +2494,15 @@ impl NodeState {
                 if let Some(staker) = simulated_accounts.get_mut(from) {
                     staker.2 += amount; // Increase stake
                 }
+                // Update simulated_reward_state with staked_at timestamp
+                if let Some(reward_state) = simulated_reward_state.get_mut(from) {
+                    if reward_state.1 == 0 { // staked_at was 0, set it now
+                        reward_state.1 = tx.tx.timestamp;
+                    }
+                } else {
+                    // Create new reward state entry for new stakers
+                    simulated_reward_state.insert(from.clone(), (0.0, tx.tx.timestamp, None, 0.0));
+                }
             } else if is_unstake_tx {
                 // CRITICAL: Use rewards service stake amount (not account.staked) to match execution
                 // execute_finalized_transaction uses rewards.unstake() which returns the rewards service value
@@ -2440,6 +2533,12 @@ impl NodeState {
                                 old_balance,
                                 claimer.0
                             );
+                            
+                            // Update simulated_reward_state after claim
+                            if let Some(reward_state) = simulated_reward_state.get_mut(from) {
+                                reward_state.0 = 0.0; // pending_rewards = 0 after claim
+                                reward_state.3 += claimed; // claimed_total += claimed amount
+                            }
                         }
                     } else {
                         tracing::warn!(
@@ -2526,18 +2625,33 @@ impl NodeState {
                         &state_root[..16.min(state_root.len())]
                     );
                     
+                    // Get reward state from simulated_reward_state if available
+                    let (pending_rewards, staked_at, last_reward_at, claimed_total) = 
+                        simulated_reward_state.get(address)
+                            .cloned()
+                            .unwrap_or((0.0, 0, None, 0.0));
+                    
                     let proof = rinku_core::types::AccountStateProof {
-                        version: 1,
+                        version: 3, // v3 includes reward state
                         address: address.clone(),
+                        balance_micro: Self::to_micro_units(*balance),
                         balance: *balance,
                         nonce: *nonce,
+                        staked_micro: Self::to_micro_units(*staked),
                         staked: *staked,
+                        pending_rewards_micro: Self::to_micro_units(pending_rewards),
+                        pending_rewards,
+                        staked_at,
+                        last_reward_at,
+                        claimed_rewards_total_micro: Self::to_micro_units(claimed_total),
+                        claimed_rewards_total: claimed_total,
                         checkpoint_height: checkpoint.height,
                         checkpoint_hash: checkpoint.hash.clone(),
                         checkpoint_timestamp: checkpoint.timestamp,
                         state_root: state_root.clone(),
                         merkle_proof,
                         merkle_index: idx,
+                        is_on_demand: false,
                         bls_aggregated_sig: checkpoint.aggregated_signature.clone(),
                         bls_signer_bitmap: checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b)),
                         tx_hash: tx_hash.to_string(),
@@ -2552,9 +2666,9 @@ impl NodeState {
     }
 
     /// Normalize f64 to 8 decimal places for consistent hashing (matches sync_verification)
-    fn normalize_f64_for_proof(value: f64) -> String {
-        let rounded = (value * 100_000_000.0).round() / 100_000_000.0;
-        format!("{:.8}", rounded)
+    /// Convert f64 balance to u64 micro-units (1 RKU = 100,000,000 micro-RKU)
+    fn to_micro_units(value: f64) -> u64 {
+        rinku_core::types::to_micro_units(value)
     }
     
     /// Hash data using SHA256 and return hex string (matches sync_verification)
@@ -2565,14 +2679,19 @@ impl NodeState {
         hex::encode(hasher.finalize())
     }
     
-    /// Hash an account leaf (matches sync_verification::hash_account_leaf format)
+    /// Hash an account leaf using u64 micro-units for deterministic cross-language verification
+    /// 
+    /// Canonical format: "account:{address}:{balance_micro}:{nonce}:{staked_micro}"
+    /// Where balance_micro and staked_micro are u64 values (1 RKU = 100,000,000 micro-RKU)
     fn hash_account_leaf_for_proof(addr: &str, balance: f64, nonce: u64, stake: f64) -> String {
+        let balance_micro = Self::to_micro_units(balance);
+        let staked_micro = Self::to_micro_units(stake);
         let data = format!(
             "account:{}:{}:{}:{}",
             addr,
-            Self::normalize_f64_for_proof(balance),
+            balance_micro,
             nonce,
-            Self::normalize_f64_for_proof(stake)
+            staked_micro
         );
         Self::sha256_hex_for_proof(&data)
     }
@@ -2631,12 +2750,26 @@ impl NodeState {
         // Build merkle tree and collect proof path
         let merkle_proof = Self::compute_merkle_proof_path_canonical(&leaves, merkle_index);
         
+        // Get reward state from existing proof if available
+        let (pending_rewards, staked_at, last_reward_at, claimed_total) = 
+            account.latest_balance_proof.as_ref()
+                .map(|p| (p.pending_rewards, p.staked_at, p.last_reward_at, p.claimed_rewards_total))
+                .unwrap_or((0.0, 0, None, 0.0));
+        
         Some(rinku_core::types::AccountStateProof {
-            version: 1,
+            version: 3, // v3 includes reward state
             address: address.to_string(),
+            balance_micro: Self::to_micro_units(account.balance),
             balance: account.balance,
             nonce: account.nonce,
+            staked_micro: Self::to_micro_units(account.staked),
             staked: account.staked,
+            pending_rewards_micro: Self::to_micro_units(pending_rewards),
+            pending_rewards,
+            staked_at,
+            last_reward_at,
+            claimed_rewards_total_micro: Self::to_micro_units(claimed_total),
+            claimed_rewards_total: claimed_total,
             checkpoint_height: checkpoint.height,
             checkpoint_hash: checkpoint.hash.clone(),
             checkpoint_timestamp: checkpoint.timestamp,
@@ -2646,6 +2779,91 @@ impl NodeState {
             bls_aggregated_sig: checkpoint.aggregated_signature.clone(),
             bls_signer_bitmap: checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b)),
             tx_hash: tx_hash.to_string(),
+            is_on_demand: false,
+        })
+    }
+    
+    /// Generate a fresh proof for an account at the latest checkpoint
+    /// This is used when users request a proof via the explorer, regardless of recent activity
+    /// The proof uses the checkpoint's actual BLS-signed state_root
+    pub async fn generate_account_state_proof_on_demand(
+        &self,
+        address: &str,
+    ) -> Option<rinku_core::types::AccountStateProof> {
+        // Single read lock to ensure atomicity of checkpoint and account data
+        let state = self.inner.read().await;
+        
+        // Get the latest checkpoint - this contains the BLS-signed state_root
+        let checkpoint = state.checkpoints.last()?.clone();
+        
+        // Get account data (unchanged since last checkpoint finalization)
+        let account = state.accounts.get(address)?.clone();
+        
+        // Get sorted accounts for deterministic ordering (same order used during checkpoint)
+        let mut account_entries: Vec<_> = state.accounts.iter().collect();
+        account_entries.sort_by(|a, b| a.0.cmp(b.0));
+        
+        // Find the index of the target account
+        let merkle_index = account_entries
+            .iter()
+            .position(|(addr, _)| *addr == address)?;
+        
+        // Create leaf hashes using canonical format
+        let leaves: Vec<String> = account_entries
+            .iter()
+            .map(|(addr, acc)| {
+                Self::hash_account_leaf_for_proof(addr, acc.balance, acc.nonce, acc.staked)
+            })
+            .collect();
+        
+        if leaves.is_empty() {
+            return None;
+        }
+        
+        // Build merkle proof path against the current account set
+        // Since account state only changes at checkpoint finalization,
+        // this proof should verify against the checkpoint's state_root
+        let merkle_proof = Self::compute_merkle_proof_path_canonical(&leaves, merkle_index);
+        
+        tracing::info!(
+            "Generated proof for {} at checkpoint {}: balance={:.8}, nonce={}, staked={:.8}",
+            &address[..16.min(address.len())],
+            checkpoint.height,
+            account.balance,
+            account.nonce,
+            account.staked
+        );
+        
+        // Get reward state from existing proof if available
+        let (pending_rewards, staked_at, last_reward_at, claimed_total) = 
+            account.latest_balance_proof.as_ref()
+                .map(|p| (p.pending_rewards, p.staked_at, p.last_reward_at, p.claimed_rewards_total))
+                .unwrap_or((0.0, 0, None, 0.0));
+        
+        Some(rinku_core::types::AccountStateProof {
+            version: 3, // v3 includes reward state
+            address: address.to_string(),
+            balance_micro: Self::to_micro_units(account.balance),
+            balance: account.balance,
+            nonce: account.nonce,
+            staked_micro: Self::to_micro_units(account.staked),
+            staked: account.staked,
+            pending_rewards_micro: Self::to_micro_units(pending_rewards),
+            pending_rewards,
+            staked_at,
+            last_reward_at,
+            claimed_rewards_total_micro: Self::to_micro_units(claimed_total),
+            claimed_rewards_total: claimed_total,
+            checkpoint_height: checkpoint.height,
+            checkpoint_hash: checkpoint.hash.clone(),
+            checkpoint_timestamp: checkpoint.timestamp,
+            state_root: checkpoint.state_root.clone(), // Use checkpoint's BLS-signed state_root
+            merkle_proof,
+            merkle_index,
+            bls_aggregated_sig: checkpoint.aggregated_signature.clone(),
+            bls_signer_bitmap: checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b)),
+            tx_hash: "on-demand".to_string(), // No specific tx, generated on-demand
+            is_on_demand: false, // Uses checkpoint's actual BLS-signed state_root
         })
     }
     
@@ -2729,27 +2947,100 @@ impl NodeState {
     /// CRITICAL: These proofs were computed from the same simulated account set used for state_root,
     /// guaranteeing that merkle proof verification will succeed against the checkpoint's state_root.
     /// This is used by the checkpoint LEADER to store proofs computed before transaction execution.
+    /// 
+    /// CONSENSUS FIX: For followers, this also SYNCHRONIZES local account state to match the leader's
+    /// authoritative values. This is essential because non-deterministic operations (like ClaimRewards
+    /// where pending_rewards can vary based on timing) could cause balance divergence if followers
+    /// only execute locally without syncing to leader's computed state.
     pub async fn store_precomputed_proofs(
         &self,
         proofs: &std::collections::HashMap<String, rinku_core::types::AccountStateProof>,
     ) {
-        let mut state = self.inner.write().await;
-        for (address, proof) in proofs {
-            if let Some(account) = state.accounts.get_mut(address) {
-                tracing::info!(
-                    "Storing precomputed proof for {} at checkpoint {}: balance={:.4}, nonce={}, staked={:.4}",
-                    &address[..16.min(address.len())],
-                    proof.checkpoint_height,
-                    proof.balance,
-                    proof.nonce,
-                    proof.staked
-                );
-                account.latest_balance_proof = Some(proof.clone());
-            } else {
-                tracing::debug!(
-                    "Account {} not found when storing precomputed proof (may be new account)",
-                    &address[..16.min(address.len())]
-                );
+        // First pass: sync account state and collect addresses needing RewardsService sync
+        // For v3 proofs, we now have authoritative reward state: (address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount)
+        let mut rewards_to_sync: Vec<(String, f64, u64, Option<u64>, f64, f64)> = Vec::new();
+        
+        {
+            let mut state = self.inner.write().await;
+            for (address, proof) in proofs {
+                let is_v3_proof = proof.version >= 3;
+                
+                if let Some(account) = state.accounts.get_mut(address) {
+                    // CONSENSUS FIX: Detect and fix balance divergence from leader's authoritative state
+                    // This can happen when reward calculations differ between leader and follower
+                    let balance_diff = (account.balance - proof.balance).abs();
+                    let staked_diff = (account.staked - proof.staked).abs();
+                    
+                    if balance_diff > 0.000001 || staked_diff > 0.000001 || account.nonce != proof.nonce {
+                        tracing::warn!(
+                            "STATE SYNC for {} at checkpoint {}: local(bal={:.4}, nonce={}, stk={:.4}) -> leader(bal={:.4}, nonce={}, stk={:.4})",
+                            &address[..16.min(address.len())],
+                            proof.checkpoint_height,
+                            account.balance, account.nonce, account.staked,
+                            proof.balance, proof.nonce, proof.staked
+                        );
+                        // Synchronize to leader's authoritative state
+                        account.balance = proof.balance;
+                        account.nonce = proof.nonce;
+                        account.staked = proof.staked;
+                        // Mark for RewardsService sync with authoritative v3 values
+                        if is_v3_proof {
+                            rewards_to_sync.push((
+                                address.clone(),
+                                proof.pending_rewards,
+                                proof.staked_at,
+                                proof.last_reward_at,
+                                proof.claimed_rewards_total,
+                                proof.staked
+                            ));
+                        }
+                    } else {
+                        tracing::info!(
+                            "Storing precomputed proof for {} at checkpoint {}: balance={:.4}, nonce={}, staked={:.4}",
+                            &address[..16.min(address.len())],
+                            proof.checkpoint_height,
+                            proof.balance,
+                            proof.nonce,
+                            proof.staked
+                        );
+                    }
+                    account.latest_balance_proof = Some(proof.clone());
+                } else {
+                    // Account doesn't exist locally - create it from leader's proof
+                    tracing::info!(
+                        "Creating account {} from leader proof at checkpoint {}: balance={:.4}, nonce={}, staked={:.4}",
+                        &address[..16.min(address.len())],
+                        proof.checkpoint_height,
+                        proof.balance,
+                        proof.nonce,
+                        proof.staked
+                    );
+                    let mut new_account = Account::new(address.clone(), proof.checkpoint_height as u64);
+                    new_account.balance = proof.balance;
+                    new_account.nonce = proof.nonce;
+                    new_account.staked = proof.staked;
+                    new_account.latest_balance_proof = Some(proof.clone());
+                    state.accounts.insert(address.clone(), new_account);
+                    // Also mark for RewardsService sync with v3 values (new account)
+                    if proof.version >= 3 && proof.staked > 0.0 {
+                        rewards_to_sync.push((
+                            address.clone(),
+                            proof.pending_rewards,
+                            proof.staked_at,
+                            proof.last_reward_at,
+                            proof.claimed_rewards_total,
+                            proof.staked
+                        ));
+                    }
+                }
+            }
+        } // Release state lock
+        
+        // Second pass: sync RewardsService for accounts with divergence using authoritative v3 values
+        if !rewards_to_sync.is_empty() {
+            let mut rewards = self.rewards.write().await;
+            for (address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount) in rewards_to_sync {
+                rewards.sync_from_leader_v3(&address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount);
             }
         }
     }
@@ -3109,9 +3400,10 @@ impl NodeState {
 
         state.dag.add_node(node)?;
         
-        // Track transaction count for gas price adjustment (but don't increment total yet)
-        // total_transactions is only incremented upon finalization
+        // Track transaction count for gas price adjustment
         state.txs_this_period += 1;
+        // Note: total_transactions is incremented at checkpoint finalization (not here)
+        // This ensures count reflects executed transactions with updated balances
 
         // Period-based gas adjustment
         const PERIOD_MS: u64 = 15000;
@@ -3843,6 +4135,18 @@ impl NodeState {
     pub async fn is_validator(&self, address: &str) -> bool {
         let state = self.inner.read().await;
         state.validators.contains_key(address)
+    }
+    
+    /// Get the stake amount for a validator
+    pub async fn get_validator_stake(&self, address: &str) -> Option<f64> {
+        let state = self.inner.read().await;
+        state.validators.get(address).map(|v| v.stake)
+    }
+    
+    /// Get total validator stake for fast-path quorum calculation
+    pub async fn get_total_validator_stake(&self) -> f64 {
+        let state = self.inner.read().await;
+        state.validators.values().map(|v| v.stake).sum()
     }
     
     /// Get the validators as a HashMap for syncing to the ValidatorIdentityService
