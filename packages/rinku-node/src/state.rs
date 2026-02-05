@@ -1,8 +1,8 @@
 use anyhow::Result;
 use rinku_core::{
     dag::Dag,
-    types::{Account, Checkpoint, SignedTransaction, Validator},
-    weight::calculate_account_weight,
+    types::{Account, Checkpoint, SignedTransaction, Validator, AggregatedWeight},
+    weight::{calculate_account_weight, WeightTrie},
 };
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -346,6 +346,7 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
             aggregated_signature: c.signature.clone(),
             signer_bitmap: None,
             finalized_tx_hashes: Vec::new(),
+            weight_trie_root: String::new(),
         }
     }).collect();
     
@@ -643,6 +644,8 @@ pub struct StateInner {
     // Track whether this node has ever successfully synced from the network
     // If false, we're a new node that should adopt peer's genesis hash
     pub has_synced_from_network: bool,
+    /// Weight attestation trie for protocol-level trust scoring
+    pub weight_trie: Option<WeightTrie>,
 }
 
 #[derive(Clone)]
@@ -809,7 +812,7 @@ impl NodeState {
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: true, // Restored from storage = already synced
-
+                    weight_trie: Some(WeightTrie::new()),
                 }
             } else {
                 // Try to sync from P2P bootstrap peers BEFORE creating genesis
@@ -902,6 +905,7 @@ impl NodeState {
                         node_listen_addr: None,
                         finalized_tx_history: VecDeque::new(),
                         has_synced_from_network: true,
+                        weight_trie: Some(WeightTrie::new()),
                     };
                     
                     // Handle emission, slashing, rewards from snapshot
@@ -1050,6 +1054,7 @@ impl NodeState {
                     aggregated_signature: None,
                     signer_bitmap: None,
                     finalized_tx_hashes: vec![genesis_hash.clone()],
+                    weight_trie_root: String::new(),
                 };
                 
                 info!("Genesis hash created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
@@ -1083,7 +1088,7 @@ impl NodeState {
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: false, // Fresh node = hasn't synced yet
-
+                    weight_trie: Some(WeightTrie::new()),
                 }
             };
 
@@ -3759,6 +3764,7 @@ impl NodeState {
                 aggregated_signature: cp_data.signature,
                 validator_signatures: Vec::new(),
                 finalized_tx_hashes: Vec::new(),
+                weight_trie_root: String::new(),
             };
             
             // Only add if we don't have this checkpoint yet

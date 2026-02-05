@@ -258,6 +258,7 @@ mod tests {
             aggregated_signature: None,
             signer_bitmap: None,
             finalized_tx_hashes: vec![],
+            weight_trie_root: String::new(),
         }
     }
 

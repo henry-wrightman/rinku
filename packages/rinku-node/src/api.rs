@@ -265,6 +265,10 @@ struct DagNodeResponse {
     fast_path_confirmed_at_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fast_path_finality_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trust_score: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attestation_count: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -784,6 +788,33 @@ async fn post_gossip(
                     );
                 } else {
                     warn!("Gossip: invalid slashing evidence rejected");
+                }
+            }
+            GossipMessage::WeightVote { tx_hash, validator_pubkey, vote, timestamp_ms, bls_signature, .. } => {
+                use rinku_core::types::{WeightVote as WV, PendingWeightVote};
+                
+                info!("Gossip: weight vote for tx {} from {}", 
+                    &tx_hash[..16.min(tx_hash.len())],
+                    &validator_pubkey[..16.min(validator_pubkey.len())]);
+                
+                if let Ok(vote_type) = match vote.to_lowercase().as_str() {
+                    "boost" => Ok(WV::Boost),
+                    "suppress" => Ok(WV::Suppress),
+                    "neutral" => Ok(WV::Neutral),
+                    _ => Err(()),
+                } {
+                    let pending_vote = PendingWeightVote {
+                        tx_hash: tx_hash.clone(),
+                        validator_pubkey: validator_pubkey.clone(),
+                        vote: vote_type,
+                        timestamp_ms: *timestamp_ms,
+                        bls_signature: bls_signature.clone(),
+                    };
+                    
+                    let mut inner = state.inner.write().await;
+                    if let Some(ref mut wt) = inner.weight_trie {
+                        wt.add_vote(pending_vote);
+                    }
                 }
             }
             GossipMessage::CheckpointAnnouncement { checkpoint, .. } => {
@@ -2121,6 +2152,20 @@ async fn get_dag(
             std::collections::HashMap::new()
         };
     
+    // Batch lookup trust scores from weight_trie
+    let trust_scores: std::collections::HashMap<String, (u8, u32)> = {
+        let inner = state.inner.read().await;
+        let mut scores = std::collections::HashMap::new();
+        if let Some(ref weight_trie) = inner.weight_trie {
+            for hash in &hashes {
+                if let Some(weight) = weight_trie.get_weight(hash) {
+                    scores.insert(hash.clone(), (weight.trust_score(), weight.attestation_count));
+                }
+            }
+        }
+        scores
+    };
+    
     let nodes: Vec<DagNodeResponse> = nodes_data
         .into_iter()
         .map(|n| {
@@ -2154,6 +2199,11 @@ async fn get_dag(
                     (Some("pending".to_string()), None, None)
                 };
             
+            // Get trust score and attestation count
+            let (trust_score, attestation_count) = trust_scores.get(&n.hash)
+                .map(|(score, count)| (Some(*score), Some(*count)))
+                .unwrap_or((None, None));
+            
             DagNodeResponse {
                 hash: n.hash,
                 from: n.from,
@@ -2171,6 +2221,8 @@ async fn get_dag(
                 fast_path_status,
                 fast_path_confirmed_at_ms,
                 fast_path_finality_ms,
+                trust_score,
+                attestation_count,
             }
         })
         .collect();
@@ -3539,6 +3591,203 @@ rinku_uptime_seconds {}
     )
 }
 
+// ============================================================================
+// WEIGHT ATTESTATION ENDPOINTS
+// Protocol-level trust scoring for transactions via stake-weighted validator votes
+// ============================================================================
+
+#[derive(Deserialize)]
+struct WeightVoteRequest {
+    vote: String, // "boost", "suppress", or "neutral"
+    validator_pubkey: Option<String>,
+    bls_signature: Option<String>,
+}
+
+#[derive(Serialize)]
+struct WeightVoteResponse {
+    success: bool,
+    tx_hash: String,
+    vote: String,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct WeightProofResponse {
+    tx_hash: String,
+    aggregated_weight: rinku_core::types::AggregatedWeight,
+    trust_score: u8,
+    boost_ratio: f64,
+    suppress_ratio: f64,
+    checkpoint_height: Option<u64>,
+    weight_trie_root: String,
+    merkle_proof: Vec<String>,
+    merkle_index: usize,
+}
+
+async fn post_weight_vote(
+    State(api_state): State<ApiState>,
+    Path(hash): Path<String>,
+    Json(payload): Json<WeightVoteRequest>,
+) -> impl IntoResponse {
+    use rinku_core::types::{WeightVote, PendingWeightVote};
+    
+    let state = &api_state.node_state;
+    
+    info!("Received vote request for tx {}: vote={}, validator={:?}", 
+        hash, payload.vote, payload.validator_pubkey);
+    
+    let vote = match payload.vote.to_lowercase().as_str() {
+        "boost" => WeightVote::Boost,
+        "suppress" => WeightVote::Suppress,
+        "neutral" => WeightVote::Neutral,
+        _ => {
+            return (StatusCode::BAD_REQUEST, Json(WeightVoteResponse {
+                success: false,
+                tx_hash: hash,
+                vote: payload.vote,
+                message: "Invalid vote type. Use 'boost', 'suppress', or 'neutral'".to_string(),
+            }));
+        }
+    };
+    
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    
+    let validator_pubkey = match payload.validator_pubkey.clone() {
+        Some(pk) => pk,
+        None => {
+            let inner = state.inner.read().await;
+            inner.node_validator_address.clone().unwrap_or_default()
+        }
+    };
+    
+    let vote_str = payload.vote.to_lowercase();
+    let bls_sig = payload.bls_signature.clone();
+    
+    let pending_vote = PendingWeightVote {
+        tx_hash: hash.clone(),
+        validator_pubkey: validator_pubkey.clone(),
+        vote: vote.clone(),
+        timestamp_ms: now_ms,
+        bls_signature: bls_sig.clone(),
+    };
+    
+    {
+        let mut inner = state.inner.write().await;
+        if let Some(ref mut wt) = inner.weight_trie {
+            wt.add_vote(pending_vote.clone());
+            info!("Vote registered for tx {}: vote={:?}, validator={}", 
+                hash, pending_vote.vote, pending_vote.validator_pubkey);
+        } else {
+            warn!("Weight trie not available - vote not registered for tx {}", hash);
+            return (StatusCode::SERVICE_UNAVAILABLE, Json(WeightVoteResponse {
+                success: false,
+                tx_hash: hash,
+                vote: payload.vote,
+                message: "Weight attestation system not enabled on this node".to_string(),
+            }));
+        }
+    }
+    
+    // Broadcast vote to peers so all nodes have it for checkpoint aggregation
+    if let Some(ref gossip_service) = api_state.gossip_service {
+        gossip_service.broadcast_weight_vote(
+            hash.clone(),
+            validator_pubkey,
+            vote_str,
+            now_ms,
+            bls_sig,
+        ).await;
+    }
+    
+    (StatusCode::OK, Json(WeightVoteResponse {
+        success: true,
+        tx_hash: hash,
+        vote: payload.vote,
+        message: "Vote registered and broadcast to network. Will be aggregated at next checkpoint.".to_string(),
+    }))
+}
+
+async fn get_weight_proof(
+    State(state): State<NodeState>,
+    Path(hash): Path<String>,
+) -> impl IntoResponse {
+    let inner = state.inner.read().await;
+    
+    let weight_trie = match &inner.weight_trie {
+        Some(wt) => wt.clone(),
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": "Weight attestation system not enabled"
+            }))).into_response();
+        }
+    };
+    
+    let weight = match weight_trie.get_weight(&hash) {
+        Some(w) => w.clone(),
+        None => {
+            return (StatusCode::OK, Json(WeightProofResponse {
+                tx_hash: hash,
+                aggregated_weight: rinku_core::types::AggregatedWeight::default(),
+                trust_score: 50,
+                boost_ratio: 0.0,
+                suppress_ratio: 0.0,
+                checkpoint_height: inner.checkpoints.last().map(|c| c.height),
+                weight_trie_root: String::new(),
+                merkle_proof: vec![],
+                merkle_index: 0,
+            })).into_response();
+        }
+    };
+    
+    let mut wt = weight_trie.clone();
+    let (proof, index, _leaf) = wt.generate_proof(&hash).unwrap_or((vec![], 0, rinku_core::types::WeightTrieLeaf {
+        tx_hash: hash.clone(),
+        boost_stake_micro: 0,
+        suppress_stake_micro: 0,
+        neutral_stake_micro: 0,
+        total_network_stake_micro: 0,
+        attestation_count: 0,
+    }));
+    let root = wt.compute_root();
+    
+    (StatusCode::OK, Json(WeightProofResponse {
+        tx_hash: hash,
+        trust_score: weight.trust_score(),
+        boost_ratio: weight.boost_ratio(),
+        suppress_ratio: weight.suppress_ratio(),
+        aggregated_weight: weight,
+        checkpoint_height: inner.checkpoints.last().map(|c| c.height),
+        weight_trie_root: root,
+        merkle_proof: proof,
+        merkle_index: index,
+    })).into_response()
+}
+
+async fn get_tx_weight(
+    State(state): State<NodeState>,
+    Path(hash): Path<String>,
+) -> impl IntoResponse {
+    let inner = state.inner.read().await;
+    
+    let weight = inner.weight_trie.as_ref()
+        .and_then(|wt| wt.get_weight(&hash).cloned())
+        .unwrap_or_default();
+    
+    Json(serde_json::json!({
+        "tx_hash": hash,
+        "trust_score": weight.trust_score(),
+        "boost_ratio": weight.boost_ratio(),
+        "suppress_ratio": weight.suppress_ratio(),
+        "boost_stake": weight.boost_stake_micro as f64 / 100_000_000.0,
+        "suppress_stake": weight.suppress_stake_micro as f64 / 100_000_000.0,
+        "net_weight": weight.net_weight,
+        "attestation_count": weight.attestation_count,
+    }))
+}
+
 pub async fn start_api_server(
     state: NodeState,
     gossip_service: Option<Arc<GossipService>>,
@@ -3574,6 +3823,7 @@ pub async fn start_api_server(
         .route("/api/tx/:hash/replies", get(get_transaction_replies))
         .route("/api/account/:address/transactions", get(get_account_transactions_with_fast_path))
         .route("/api/finality/metrics", get(get_finality_metrics))
+        .route("/api/tx/:hash/vote", post(post_weight_vote))
         .layer(cors.clone())
         .with_state(api_state);
 
@@ -3591,6 +3841,8 @@ pub async fn start_api_server(
         .route("/api/tx/:hash/receipt", get(get_transaction_receipt))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))
+        .route("/api/tx/:hash/weight", get(get_tx_weight))
+        .route("/api/tx/:hash/weight-proof", get(get_weight_proof))
         .route("/api/dag/summary", get(get_dag_summary))
         .route("/api/accounts", get(get_accounts))
         .route("/api/network/stats", get(get_network_stats))

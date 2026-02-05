@@ -1448,6 +1448,77 @@ impl CheckpointService {
             .map_err(|e| anyhow::anyhow!("BLS aggregation failed: {}", e))?;
         let signer_bitmap = create_signer_bitmap(&signer_indices, final_signatures.len());
 
+        // Finalize pending weight votes and compute weight trie root for this checkpoint
+        let weight_trie_root = {
+            // Get ALL stakes: both validators AND regular accounts with stake (convert to micro-RKU as u64)
+            let (all_stakes, total_network_stake): (std::collections::HashMap<String, u64>, u64) = {
+                let state = self.state.inner.read().await;
+                let mut stakes: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+                
+                // 1. Add validator stakes
+                for (addr, v) in state.validators.iter() {
+                    if v.stake > 0.0 {
+                        stakes.insert(addr.clone(), (v.stake * 1_000_000.0) as u64);
+                    }
+                }
+                
+                // 2. Add account stakes (regular users who staked but aren't validators)
+                for (addr, account) in state.accounts.iter() {
+                    if account.staked > 0.0 {
+                        let stake_micro = (account.staked * 1_000_000.0) as u64;
+                        // Use entry API to combine or add stake
+                        stakes.entry(addr.clone())
+                            .and_modify(|s| *s = (*s).max(stake_micro)) // Take max if both exist
+                            .or_insert(stake_micro);
+                    }
+                }
+                
+                let total: u64 = stakes.values().sum();
+                (stakes, total)
+            };
+            let validator_stakes = all_stakes; // Rename for compatibility
+            
+            let mut state = self.state.inner.write().await;
+            if let Some(ref mut weight_trie) = state.weight_trie {
+                // Finalize pending votes (aggregate by stake weight)
+                let pending_count = weight_trie.pending_vote_count();
+                if pending_count > 0 {
+                    // Log stakes map for debugging - includes both validators and stakers
+                    tracing::info!(
+                        "Weight vote finalization: {} stakers (validators + accounts), total_stake={}",
+                        validator_stakes.len(), total_network_stake
+                    );
+                    for (addr, stake) in &validator_stakes {
+                        tracing::info!("  Stakes map: {} (len={}) = {} micro ({:.2} RKU)", 
+                            addr, addr.len(), stake, *stake as f64 / 1_000_000.0);
+                    }
+                    
+                    let updated = weight_trie.finalize_votes(&validator_stakes, total_network_stake);
+                    tracing::info!(
+                        "Checkpoint {}: finalized {} pending weight votes into {} tx aggregations",
+                        height, pending_count, updated.len()
+                    );
+                    
+                    // Log aggregation results for debugging
+                    for (tx_hash, weight) in &updated {
+                        tracing::info!(
+                            "  Weight aggregation for {}: boost={}, suppress={}, neutral={}, count={}",
+                            &tx_hash[..16.min(tx_hash.len())],
+                            weight.boost_stake_micro,
+                            weight.suppress_stake_micro, 
+                            weight.neutral_stake_micro,
+                            weight.attestation_count
+                        );
+                    }
+                }
+                
+                // Compute root after finalizing votes
+                weight_trie.compute_root()
+            } else {
+                String::new()
+            }
+        };
+        
         let checkpoint = Checkpoint {
             height,
             hash: hex::encode(&checkpoint_hash),
@@ -1461,6 +1532,7 @@ impl CheckpointService {
             aggregated_signature: Some(URL_SAFE_NO_PAD.encode(&aggregated_sig)),
             signer_bitmap: Some(signer_bitmap),
             finalized_tx_hashes: unfinalized_hashes.clone(),
+            weight_trie_root,
         };
 
         // Process emissions and rewards for this checkpoint
