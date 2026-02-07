@@ -1,6 +1,6 @@
 use anyhow::Result;
 use redb::{Database, ReadableTable, TableDefinition, WriteTransaction};
-use rinku_core::types::{Account, Checkpoint, SignedTransaction, Validator};
+use rinku_core::types::{Account, AggregatedWeight, Checkpoint, SignedTransaction, Validator};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -31,6 +31,7 @@ pub const TABLE_METADATA: TableDefinition<&[u8], &[u8]> = TableDefinition::new("
 pub const TABLE_CONTRACTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("contracts");
 pub const TABLE_REWARDS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("rewards");
 pub const TABLE_EMISSION: TableDefinition<&[u8], &[u8]> = TableDefinition::new("emission");
+pub const TABLE_WEIGHTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("weights");
 
 pub struct RedbStorage {
     db: Arc<RwLock<Database>>,
@@ -56,6 +57,7 @@ impl RedbStorage {
             let _ = write_txn.open_table(TABLE_CONTRACTS);
             let _ = write_txn.open_table(TABLE_REWARDS);
             let _ = write_txn.open_table(TABLE_EMISSION);
+            let _ = write_txn.open_table(TABLE_WEIGHTS);
             write_txn.commit()?;
         }
 
@@ -639,6 +641,36 @@ impl RedbStorage {
             }
             None => {
                 warn!("No emission snapshot found, starting fresh");
+                Ok(None)
+            }
+        }
+    }
+
+    pub fn save_weights(&self, weights: &HashMap<String, AggregatedWeight>) -> Result<()> {
+        let data = serde_json::to_vec(weights)?;
+        let db = self.db_read();
+        let write_txn = db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(TABLE_WEIGHTS)?;
+            table.insert(b"weights_snapshot".as_slice(), data.as_slice())?;
+        }
+        write_txn.commit()?;
+        debug!("Saved weights snapshot: {} transaction weights", weights.len());
+        Ok(())
+    }
+
+    pub fn load_weights(&self) -> Result<Option<HashMap<String, AggregatedWeight>>> {
+        let db = self.db_read();
+        let read_txn = db.begin_read()?;
+        let table = read_txn.open_table(TABLE_WEIGHTS)?;
+        match table.get(b"weights_snapshot".as_slice())? {
+            Some(data) => {
+                let weights: HashMap<String, AggregatedWeight> = serde_json::from_slice(data.value())?;
+                info!("Loaded weights snapshot: {} transaction weights", weights.len());
+                Ok(Some(weights))
+            }
+            None => {
+                debug!("No weights snapshot found, starting with empty weights");
                 Ok(None)
             }
         }

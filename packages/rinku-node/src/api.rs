@@ -579,6 +579,8 @@ struct SnapshotSyncResponse {
     finalized_tx_hashes: Vec<String>,
     #[serde(default)]
     tx_checkpoint_heights: std::collections::HashMap<String, u64>,
+    #[serde(default)]
+    weight_scores: std::collections::HashMap<String, rinku_core::types::AggregatedWeight>,
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -1007,6 +1009,7 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Result<Json<Snapsh
         genesis_hash: snapshot.genesis_hash,
         finalized_tx_hashes: snapshot.finalized_tx_hashes,
         tx_checkpoint_heights: snapshot.tx_checkpoint_heights,
+        weight_scores: snapshot.weight_scores,
     }))
 }
 
