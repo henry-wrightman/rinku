@@ -1,8 +1,8 @@
 use anyhow::Result;
 use rinku_core::{
     dag::Dag,
-    types::{Account, Checkpoint, SignedTransaction, Validator},
-    weight::calculate_account_weight,
+    types::{Account, Checkpoint, SignedTransaction, Validator, AggregatedWeight},
+    weight::{calculate_account_weight, WeightTrie},
 };
 use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -346,6 +346,7 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
             aggregated_signature: c.signature.clone(),
             signer_bitmap: None,
             finalized_tx_hashes: Vec::new(),
+            weight_trie_root: String::new(),
         }
     }).collect();
     
@@ -393,6 +394,7 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
         genesis_hash,
         finalized_tx_hashes: Vec::new(),
         tx_checkpoint_heights: HashMap::new(),
+        weight_scores: HashMap::new(),
     }
 }
 
@@ -428,6 +430,8 @@ struct HttpSnapshotResponse {
     finalized_tx_hashes: Vec<String>,
     #[serde(default)]
     tx_checkpoint_heights: HashMap<String, u64>,
+    #[serde(default)]
+    weight_scores: HashMap<String, AggregatedWeight>,
 }
 
 /// Try HTTP-based sync from NODE_PEERS when P2P isn't available
@@ -488,6 +492,7 @@ async fn try_http_presync(http_peers: &[String], is_genesis_node: bool) -> Optio
                                 genesis_hash: snapshot_resp.genesis_hash,
                                 finalized_tx_hashes: snapshot_resp.finalized_tx_hashes,
                                 tx_checkpoint_heights: snapshot_resp.tx_checkpoint_heights,
+                                weight_scores: snapshot_resp.weight_scores,
                             });
                         }
                         Err(e) => {
@@ -570,6 +575,9 @@ pub struct SyncSnapshot {
     /// Maps transaction hash to checkpoint height for proper finality tracking
     #[serde(default)]
     pub tx_checkpoint_heights: HashMap<String, u64>,
+    /// Aggregated weight scores for trust attestations
+    #[serde(default)]
+    pub weight_scores: HashMap<String, AggregatedWeight>,
 }
 
 /// Result of applying a sync snapshot, includes local-only accounts for push-back
@@ -643,6 +651,8 @@ pub struct StateInner {
     // Track whether this node has ever successfully synced from the network
     // If false, we're a new node that should adopt peer's genesis hash
     pub has_synced_from_network: bool,
+    /// Weight attestation trie for protocol-level trust scoring
+    pub weight_trie: Option<WeightTrie>,
 }
 
 #[derive(Clone)]
@@ -809,7 +819,14 @@ impl NodeState {
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: true, // Restored from storage = already synced
-
+                    weight_trie: {
+                        let mut wt = WeightTrie::new();
+                        if let Ok(Some(saved_weights)) = storage.load_weights() {
+                            info!("Restoring {} transaction weight scores from storage", saved_weights.len());
+                            wt.load_weights(saved_weights);
+                        }
+                        Some(wt)
+                    },
                 }
             } else {
                 // Try to sync from P2P bootstrap peers BEFORE creating genesis
@@ -902,6 +919,7 @@ impl NodeState {
                         node_listen_addr: None,
                         finalized_tx_history: VecDeque::new(),
                         has_synced_from_network: true,
+                        weight_trie: Some(WeightTrie::new()),
                     };
                     
                     // Handle emission, slashing, rewards from snapshot
@@ -1050,6 +1068,7 @@ impl NodeState {
                     aggregated_signature: None,
                     signer_bitmap: None,
                     finalized_tx_hashes: vec![genesis_hash.clone()],
+                    weight_trie_root: String::new(),
                 };
                 
                 info!("Genesis hash created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
@@ -1083,7 +1102,7 @@ impl NodeState {
                     node_listen_addr: None,
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: false, // Fresh node = hasn't synced yet
-
+                    weight_trie: Some(WeightTrie::new()),
                 }
             };
 
@@ -1240,6 +1259,16 @@ impl NodeState {
             state.genesis_time,
             &dag_entries,
         )?;
+
+        // Save weight trie (trust scores)
+        if let Some(ref weight_trie) = state.weight_trie {
+            let weights = weight_trie.all_weights().clone();
+            if !weights.is_empty() {
+                self.storage.save_weights(&weights)?;
+                info!("Saved {} transaction weight scores to storage", weights.len());
+            }
+        }
+        drop(state);
 
         // Also save rewards/staking state
         let rewards = self.rewards.read().await;
@@ -3759,6 +3788,7 @@ impl NodeState {
                 aggregated_signature: cp_data.signature,
                 validator_signatures: Vec::new(),
                 finalized_tx_hashes: Vec::new(),
+                weight_trie_root: String::new(),
             };
             
             // Only add if we don't have this checkpoint yet
@@ -4415,6 +4445,13 @@ impl NodeState {
             genesis_hash,
             finalized_tx_hashes,
             tx_checkpoint_heights,
+            weight_scores: {
+                if let Some(ref wt) = state.weight_trie {
+                    wt.all_weights().clone()
+                } else {
+                    HashMap::new()
+                }
+            },
         }
     }
 
@@ -4578,6 +4615,19 @@ impl NodeState {
         state.contracts = snapshot.contracts;
         state.total_burned = snapshot.total_burned;
         state.total_to_validators = snapshot.total_to_validators;
+        
+        // Apply weight scores (trust attestations)
+        if !snapshot.weight_scores.is_empty() {
+            let weight_count = snapshot.weight_scores.len();
+            if let Some(ref mut wt) = state.weight_trie {
+                wt.load_weights(snapshot.weight_scores);
+            } else {
+                let mut wt = WeightTrie::new();
+                wt.load_weights(snapshot.weight_scores);
+                state.weight_trie = Some(wt);
+            }
+            info!("Applied {} transaction weight scores from sync snapshot", weight_count);
+        }
         
         // Store service snapshots for application after releasing state lock
         let rewards_to_apply = snapshot.rewards_snapshot;

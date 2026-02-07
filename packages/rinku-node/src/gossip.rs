@@ -259,6 +259,8 @@ struct SnapshotSyncResponse {
     finalized_tx_hashes: Vec<String>,
     #[serde(default)]
     tx_checkpoint_heights: std::collections::HashMap<String, u64>,
+    #[serde(default)]
+    weight_scores: HashMap<String, rinku_core::types::AggregatedWeight>,
 }
 
 #[derive(Debug, Default)]
@@ -331,6 +333,17 @@ pub enum GossipMessage {
     },
     SlashingEvidence {
         evidence: DoubleSignEvidence,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
+    },
+    /// Weight attestation vote for transaction trust scoring
+    WeightVote {
+        tx_hash: String,
+        validator_pubkey: String,
+        vote: String,
+        timestamp_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bls_signature: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
     },
@@ -1249,6 +1262,7 @@ impl GossipService {
             genesis_hash: peer_genesis_hash.clone(),
             finalized_tx_hashes: snapshot_response.finalized_tx_hashes,
             tx_checkpoint_heights: snapshot_response.tx_checkpoint_heights,
+            weight_scores: snapshot_response.weight_scores,
         };
 
         let added = self.state.apply_sync_snapshot(snapshot).await?;
@@ -1442,6 +1456,7 @@ impl GossipService {
             genesis_hash: peer_genesis_hash.clone(),
             finalized_tx_hashes: snapshot_response.finalized_tx_hashes,
             tx_checkpoint_heights: snapshot_response.tx_checkpoint_heights,
+            weight_scores: snapshot_response.weight_scores,
         };
 
         // Get our local accounts before applying snapshot (to push back local-only accounts)
@@ -1748,6 +1763,42 @@ impl GossipService {
         if self.network_handle.is_some() {
             self.broadcast_via_p2p(&message).await;
         }
+    }
+    
+    /// Broadcast a weight attestation vote to all peers
+    pub async fn broadcast_weight_vote(
+        &self,
+        tx_hash: String,
+        validator_pubkey: String,
+        vote: String,
+        timestamp_ms: u64,
+        bls_signature: Option<String>,
+    ) {
+        let public_url = std::env::var("PUBLIC_URL").ok();
+        let peers: Vec<String> = {
+            let inner = self.inner.read().await;
+            inner.peers.keys().cloned().collect()
+        };
+
+        let message = GossipMessage::WeightVote {
+            tx_hash: tx_hash.clone(),
+            validator_pubkey,
+            vote,
+            timestamp_ms,
+            bls_signature,
+            sender_url: public_url,
+        };
+
+        for peer in &peers {
+            let _ = self.send_to_peer(peer, &message).await;
+        }
+
+        #[cfg(feature = "p2p")]
+        if self.network_handle.is_some() {
+            self.broadcast_via_p2p(&message).await;
+        }
+        
+        debug!("Broadcast weight vote for tx {} to {} peers", &tx_hash[..16.min(tx_hash.len())], peers.len());
     }
     
     /// Immediately broadcast a newly created checkpoint to all peers
@@ -2310,6 +2361,7 @@ impl GossipService {
                         aggregated_signature: cp_data.signature.clone(),
                         validator_signatures: Vec::new(),
                         finalized_tx_hashes: Vec::new(),
+                        weight_trie_root: String::new(),
                     };
                     
                     if let Err(e) = self.state.apply_checkpoint(checkpoint).await {
@@ -3257,6 +3309,38 @@ impl GossipService {
                 Ok(None)
             }
             
+            GossipMessage::WeightVote { tx_hash, validator_pubkey, vote, timestamp_ms, bls_signature, .. } => {
+                use rinku_core::types::{WeightVote as WV, PendingWeightVote};
+                
+                let vote_type = match vote.to_lowercase().as_str() {
+                    "boost" => WV::Boost,
+                    "suppress" => WV::Suppress,
+                    "neutral" => WV::Neutral,
+                    _ => {
+                        debug!("Received invalid vote type via gossip: {}", vote);
+                        return Ok(None);
+                    }
+                };
+                
+                let pending_vote = PendingWeightVote {
+                    tx_hash: tx_hash.clone(),
+                    validator_pubkey: validator_pubkey.clone(),
+                    vote: vote_type,
+                    timestamp_ms,
+                    bls_signature,
+                };
+                
+                let mut state = self.state.inner.write().await;
+                if let Some(ref mut wt) = state.weight_trie {
+                    wt.add_vote(pending_vote);
+                    debug!("Applied gossiped weight vote for tx {} from {}", 
+                        &tx_hash[..16.min(tx_hash.len())], 
+                        &validator_pubkey[..16.min(validator_pubkey.len())]);
+                }
+                
+                Ok(None)
+            }
+            
             GossipMessage::CheckpointAnnouncement { checkpoint, finalized_tx_hashes, precomputed_proofs, finalized_transactions, .. } => {
                 // Immediately apply checkpoint from network leader
                 let local_height = self.state.get_checkpoint_height().await;
@@ -4040,6 +4124,7 @@ impl GossipService {
             GossipMessage::SyncResponse { sender_url, .. } => sender_url.clone(),
             GossipMessage::BloomAnnouncement { sender_url, .. } => sender_url.clone(),
             GossipMessage::SlashingEvidence { sender_url, .. } => sender_url.clone(),
+            GossipMessage::WeightVote { sender_url, .. } => sender_url.clone(),
             GossipMessage::CheckpointAnnouncement { sender_url, .. } => sender_url.clone(),
             GossipMessage::FastPathBroadcast { sender_url, .. } => sender_url.clone(),
             GossipMessage::FastPathAck { sender_url, .. } => sender_url.clone(),

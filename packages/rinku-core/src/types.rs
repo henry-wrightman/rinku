@@ -279,6 +279,10 @@ pub struct Checkpoint {
     pub signer_bitmap: Option<Vec<u8>>,
     #[serde(default)]
     pub finalized_tx_hashes: Vec<String>,
+    /// Merkle root of the transaction weight trie (for offline weight proof verification)
+    /// Empty string if no weight attestations exist for this checkpoint
+    #[serde(default)]
+    pub weight_trie_root: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -390,3 +394,188 @@ impl Default for TokenomicsConfig {
 
 pub type AccountMap = HashMap<String, Account>;
 pub type TransactionMap = HashMap<String, SignedTransaction>;
+
+// ============================================================================
+// TRANSACTION WEIGHT ATTESTATION SYSTEM
+// Protocol-level trust scoring for transactions via stake-weighted validator votes
+// ============================================================================
+
+/// Vote direction for transaction weight attestations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WeightVote {
+    /// Boost transaction visibility/trust (+1)
+    Boost,
+    /// Suppress transaction visibility/trust (-1)
+    Suppress,
+    /// Neutral / abstain (0)
+    Neutral,
+}
+
+impl WeightVote {
+    pub fn value(&self) -> i64 {
+        match self {
+            WeightVote::Boost => 1,
+            WeightVote::Suppress => -1,
+            WeightVote::Neutral => 0,
+        }
+    }
+}
+
+impl Default for WeightVote {
+    fn default() -> Self {
+        WeightVote::Neutral
+    }
+}
+
+/// A single validator's attestation for a transaction's weight
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeightAttestation {
+    /// Validator's public key (hex-encoded)
+    pub validator_pubkey: String,
+    /// Validator's stake at the time of attestation (in micro-units)
+    pub stake_micro: u64,
+    /// The vote: boost, suppress, or neutral
+    pub vote: WeightVote,
+    /// BLS signature over (tx_hash || vote || checkpoint_height)
+    pub bls_signature: String,
+    /// Checkpoint height when this attestation was recorded
+    pub checkpoint_height: u64,
+}
+
+/// Aggregated weight score for a transaction
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregatedWeight {
+    /// Sum of stakes from validators who voted Boost
+    pub boost_stake_micro: u64,
+    /// Sum of stakes from validators who voted Suppress
+    pub suppress_stake_micro: u64,
+    /// Sum of stakes from validators who voted Neutral or didn't vote
+    pub neutral_stake_micro: u64,
+    /// Net weight score: boost_stake - suppress_stake (can be negative)
+    pub net_weight: i64,
+    /// Number of unique validators who attested
+    pub attestation_count: u32,
+    /// Total network stake at checkpoint (denominator for ratios)
+    pub total_network_stake_micro: u64,
+}
+
+impl AggregatedWeight {
+    /// Calculate boost ratio (0.0 to 1.0)
+    pub fn boost_ratio(&self) -> f64 {
+        if self.total_network_stake_micro == 0 {
+            return 0.0;
+        }
+        self.boost_stake_micro as f64 / self.total_network_stake_micro as f64
+    }
+    
+    /// Calculate suppress ratio (0.0 to 1.0)
+    pub fn suppress_ratio(&self) -> f64 {
+        if self.total_network_stake_micro == 0 {
+            return 0.0;
+        }
+        self.suppress_stake_micro as f64 / self.total_network_stake_micro as f64
+    }
+    
+    /// Calculate net weight ratio (-1.0 to 1.0)
+    pub fn net_weight_ratio(&self) -> f64 {
+        if self.total_network_stake_micro == 0 {
+            return 0.0;
+        }
+        self.net_weight as f64 / self.total_network_stake_micro as f64
+    }
+    
+    /// Trust score normalized to 0-100 scale (50 = neutral)
+    pub fn trust_score(&self) -> u8 {
+        let ratio = self.net_weight_ratio();
+        // Map -1.0..1.0 to 0..100, with 50 as neutral
+        ((ratio + 1.0) * 50.0).clamp(0.0, 100.0) as u8
+    }
+}
+
+/// Self-contained proof of a transaction's weight/trust score at a specific checkpoint.
+/// This proof can be verified offline without querying any node.
+/// 
+/// ## Verification Steps:
+/// 1. Verify each attestation's BLS signature against known validator set
+/// 2. Verify stake amounts match validator registry at checkpoint
+/// 3. Walk merkle_proof to verify weight is included in checkpoint's weight_trie_root
+/// 4. Compare computed root against checkpoint's signed weight_trie_root
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionWeightProof {
+    /// Proof format version (for future upgrades)
+    pub version: u32,
+    /// Transaction hash this weight proof is for
+    pub tx_hash: String,
+    /// Individual validator attestations (may be empty if using aggregated sig)
+    pub attestations: Vec<WeightAttestation>,
+    /// Aggregated weight score
+    pub aggregated_weight: AggregatedWeight,
+    /// Checkpoint height when this proof was generated
+    pub checkpoint_height: u64,
+    /// Checkpoint hash for verification context
+    pub checkpoint_hash: String,
+    /// Timestamp of the checkpoint
+    pub checkpoint_timestamp: u64,
+    /// Root of the weight trie (included in checkpoint for offline verification)
+    pub weight_trie_root: String,
+    /// Merkle proof from tx weight leaf to weight_trie_root
+    pub merkle_proof: Vec<String>,
+    /// Index position in the weight trie
+    pub merkle_index: usize,
+    /// Aggregated BLS signature from all attesting validators (optional, for compactness)
+    pub bls_aggregated_sig: Option<String>,
+    /// Bitmap indicating which validators signed (for BLS aggregation)
+    pub bls_signer_bitmap: Option<String>,
+}
+
+impl TransactionWeightProof {
+    /// Create an empty/default weight proof for a transaction with no attestations
+    pub fn empty(tx_hash: String, checkpoint_height: u64, checkpoint_hash: String, checkpoint_timestamp: u64) -> Self {
+        Self {
+            version: 1,
+            tx_hash,
+            attestations: vec![],
+            aggregated_weight: AggregatedWeight::default(),
+            checkpoint_height,
+            checkpoint_hash,
+            checkpoint_timestamp,
+            weight_trie_root: String::new(),
+            merkle_proof: vec![],
+            merkle_index: 0,
+            bls_aggregated_sig: None,
+            bls_signer_bitmap: None,
+        }
+    }
+}
+
+/// Pending weight vote from a validator (before checkpoint aggregation)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingWeightVote {
+    /// Transaction hash being voted on
+    pub tx_hash: String,
+    /// Validator's address/pubkey
+    pub validator_pubkey: String,
+    /// The vote
+    pub vote: WeightVote,
+    /// Timestamp when vote was cast
+    pub timestamp_ms: u64,
+    /// BLS signature over the vote
+    pub bls_signature: Option<String>,
+}
+
+/// Weight trie leaf data (what gets hashed for Merkle inclusion)
+/// Includes all fields needed for deterministic AggregatedWeight reconstruction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeightTrieLeaf {
+    pub tx_hash: String,
+    pub boost_stake_micro: u64,
+    pub suppress_stake_micro: u64,
+    pub neutral_stake_micro: u64,
+    pub total_network_stake_micro: u64,
+    pub attestation_count: u32,
+}
