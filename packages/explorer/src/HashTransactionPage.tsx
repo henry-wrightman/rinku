@@ -1,6 +1,291 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { PageHeader } from "./components/PageHeader";
+import type { WeightProofResponse } from "./types";
+
+interface TrustScoreData {
+  loading: boolean;
+  data?: WeightProofResponse;
+  error?: string;
+}
+
+const getTrustScoreColor = (score: number): string => {
+  if (score < 30) return "#bf616a";
+  if (score < 70) return "#ebcb8b";
+  return "#a3be8c";
+};
+
+const formatMicroRKU = (micro: number): string => {
+  const rku = micro / 1_000_000;
+  return rku.toLocaleString(undefined, { maximumFractionDigits: 0 });
+};
+
+interface TrustAndVoteSectionProps {
+  trustData: TrustScoreData;
+  hash: string;
+  finalized: boolean;
+  onVoteSubmitted: () => void;
+}
+
+const TrustAndVoteSection = ({
+  trustData,
+  hash,
+  finalized,
+  onVoteSubmitted,
+}: TrustAndVoteSectionProps) => {
+  const [voting, setVoting] = useState(false);
+  const [voteResult, setVoteResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+  const [validatorKey, setValidatorKey] = useState("");
+
+  const submitVote = async (voteType: "boost" | "suppress" | "neutral") => {
+    if (!validatorKey.trim()) {
+      setVoteResult({
+        success: false,
+        message: "Enter validator key",
+      });
+      return;
+    }
+    setVoting(true);
+    setVoteResult(null);
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL;
+      const res = await fetch(`${apiUrl}/api/tx/${hash}/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          validator_pubkey: validatorKey.trim(),
+          vote: voteType,
+        }),
+      });
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        setVoteResult({ success: false, message: "Invalid server response" });
+        return;
+      }
+      if (res.ok && data.success) {
+        setVoteResult({ success: true, message: `${voteType} vote submitted` });
+        onVoteSubmitted();
+      } else {
+        setVoteResult({
+          success: false,
+          message: data.message || data.error || "Failed",
+        });
+      }
+    } catch (err) {
+      setVoteResult({
+        success: false,
+        message: err instanceof Error ? err.message : "Network error",
+      });
+    } finally {
+      setVoting(false);
+    }
+  };
+
+  const { data, loading, error } = trustData;
+  const aw = data?.aggregated_weight as any;
+  const attestationCount = aw?.attestation_count ?? aw?.attestationCount ?? 0;
+  const hasAttestations = aw && attestationCount > 0;
+  const boostStake = aw?.boost_stake_micro ?? aw?.boostStakeMicro ?? 0;
+  const suppressStake = aw?.suppress_stake_micro ?? aw?.suppressStakeMicro ?? 0;
+  const neutralStake = aw?.neutral_stake_micro ?? aw?.neutralStakeMicro ?? 0;
+  const trust_score = data?.trust_score ?? 50;
+  const boost_ratio = data?.boost_ratio ?? 0;
+  const suppress_ratio = data?.suppress_ratio ?? 0;
+  const neutralRatio = 100 - boost_ratio - suppress_ratio;
+  const color = getTrustScoreColor(trust_score);
+
+  return (
+    <div
+      className="trust-vote-section"
+      style={{
+        padding: "12px 16px",
+        borderRadius: 0,
+        marginTop: 16,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            className="trust-label"
+            style={{ fontSize: 12, fontWeight: 500 }}
+          >
+            trust
+          </span>
+          {loading ? (
+            <span className="trust-muted" style={{ fontSize: 12 }}>
+              ...
+            </span>
+          ) : error || !hasAttestations ? (
+            <span className="trust-muted" style={{ fontSize: 12 }}>
+              pending
+            </span>
+          ) : (
+            <>
+              <span style={{ fontSize: 20, fontWeight: 700, color }}>
+                {trust_score}
+              </span>
+              <div
+                style={{
+                  width: 80,
+                  height: 6,
+                  borderRadius: 3,
+                  overflow: "hidden",
+                  display: "flex",
+                }}
+                className="trust-bar-bg"
+              >
+                {suppress_ratio > 0 && (
+                  <div
+                    style={{
+                      width: `${suppress_ratio}%`,
+                      background: "#bf616a",
+                    }}
+                  />
+                )}
+                {neutralRatio > 0 && (
+                  <div
+                    style={{ width: `${neutralRatio}%`, background: "#4c566a" }}
+                  />
+                )}
+                {boost_ratio > 0 && (
+                  <div
+                    style={{ width: `${boost_ratio}%`, background: "#a3be8c" }}
+                  />
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {hasAttestations && (
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              fontSize: 11,
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ color: "#a3be8c" }}>
+              +{formatMicroRKU(boostStake)}
+            </span>
+            <span className="trust-muted">~{formatMicroRKU(neutralStake)}</span>
+            <span style={{ color: "#bf616a" }}>
+              -{formatMicroRKU(suppressStake)}
+            </span>
+            {data?.checkpoint_height && (
+              <span className="trust-muted">cp#{data.checkpoint_height}</span>
+            )}
+          </div>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        {finalized ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 6,
+            }}
+          >
+            <input
+              type="text"
+              value={validatorKey}
+              onChange={(e) => setValidatorKey(e.target.value)}
+              placeholder="validator key"
+              className="trust-input"
+              style={{
+                width: 120,
+                padding: "8px 8px",
+                borderRadius: 0,
+                fontSize: 11,
+                fontFamily: "monospace",
+              }}
+            />
+            <button
+              onClick={() => submitVote("boost")}
+              disabled={voting}
+              className="trust-btn trust-btn-boost"
+              style={{
+                padding: "4px 10px",
+                borderRadius: 0,
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: voting ? "not-allowed" : "pointer",
+              }}
+            >
+              +
+            </button>
+            <button
+              onClick={() => submitVote("neutral")}
+              disabled={voting}
+              className="trust-btn trust-btn-neutral"
+              style={{
+                padding: "4px 10px",
+                borderRadius: 0,
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: voting ? "not-allowed" : "pointer",
+              }}
+            >
+              ~
+            </button>
+            <button
+              onClick={() => submitVote("suppress")}
+              disabled={voting}
+              className="trust-btn trust-btn-suppress"
+              style={{
+                padding: "4px 10px",
+                borderRadius: 0,
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: voting ? "not-allowed" : "pointer",
+              }}
+            >
+              -
+            </button>
+          </div>
+        ) : (
+          <span className="trust-muted" style={{ fontSize: 11 }}>
+            vote after finalization
+          </span>
+        )}
+      </div>
+
+      {voteResult && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: "4px 8px",
+            borderRadius: 4,
+            fontSize: 11,
+            background: voteResult.success
+              ? "rgba(163, 190, 140, 0.15)"
+              : "rgba(191, 97, 106, 0.15)",
+            color: voteResult.success ? "#a3be8c" : "#bf616a",
+          }}
+        >
+          {voteResult.message}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const getApiBaseUrl = () => {
   const envApiUrl = import.meta.env.VITE_API_URL;
 
@@ -75,6 +360,9 @@ function HashTransactionPage() {
   const [proofLoading, setProofLoading] = useState(false);
   const [proofData, setProofData] = useState<ProofResponse | null>(null);
   const [proofCopied, setProofCopied] = useState(false);
+  const [trustScore, setTrustScore] = useState<TrustScoreData>({
+    loading: false,
+  });
 
   useEffect(() => {
     if (!hash) {
@@ -132,6 +420,21 @@ function HashTransactionPage() {
       )
       .finally(() => setProofLoading(false));
   }, [hash, tx?.finalized, tx?.finality]);
+
+  // Fetch trust score / weight proof
+  useEffect(() => {
+    if (!hash) return;
+
+    setTrustScore({ loading: true });
+    fetch(`${NODE_URL}/api/tx/${hash}/weight-proof`)
+      .then((res) => res.json())
+      .then((data: WeightProofResponse) => {
+        setTrustScore({ loading: false, data });
+      })
+      .catch(() => {
+        setTrustScore({ loading: false, error: "Failed to fetch trust score" });
+      });
+  }, [hash]);
 
   const fetchProof = async () => {
     if (!hash) return;
@@ -377,10 +680,7 @@ function HashTransactionPage() {
           {tx.amount === 0 && (tx.memo || tx.references) && !tx.finalized && (
             <div className="meta-row">
               <span className="label">fast-path</span>
-              <span
-                className="value"
-                style={{ color: "#88c0d0" }}
-              >
+              <span className="value" style={{ color: "#88c0d0" }}>
                 eligible (~200ms finality)
               </span>
             </div>
@@ -402,6 +702,23 @@ function HashTransactionPage() {
             </>
           )}
         </div>
+
+        {/* Trust Score & Vote Section */}
+        <TrustAndVoteSection
+          trustData={trustScore}
+          hash={hash || ""}
+          finalized={tx.finalized || !!tx.finality}
+          onVoteSubmitted={() => {
+            setTimeout(() => {
+              fetch(`${NODE_URL}/api/tx/${hash}/weight-proof`)
+                .then((res) => res.json())
+                .then((data: WeightProofResponse) =>
+                  setTrustScore({ loading: false, data }),
+                )
+                .catch(() => {});
+            }, 1000);
+          }}
+        />
 
         {(tx.finalized || tx.finality) && (
           <div

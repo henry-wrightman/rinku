@@ -1,36 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import {
-  generateKeyPair,
-  serializeKeyPair,
-  deserializeKeyPair,
-  validateSerializedKey,
-  createSignedTransaction,
-  type SerializedKeyPair,
-} from "../crypto";
-
-const WALLET_STORAGE_KEY = "rinku_wallet";
-const getApiBaseUrl = () => {
-  const envApiUrl = import.meta.env.VITE_API_URL;
-
-  // If VITE_API_URL is set and not localhost, use it directly
-  if (
-    envApiUrl &&
-    !envApiUrl.includes("127.0.0.1") &&
-    !envApiUrl.includes("localhost")
-  ) {
-    console.log("Using VITE_API_URL:", envApiUrl);
-    return `${envApiUrl}/api`;
-  }
-  return "/api";
-};
-const NODE_URL = getApiBaseUrl();
-
-interface AccountInfo {
-  fingerprint: string;
-  balance: number;
-  nonce: number;
-  staked: number;
-}
+import { serializeKeyPair, type SerializedKeyPair } from "../crypto";
+import { useRinku } from "../context/WalletContext";
+import { API_URL } from "../config";
 
 interface TransactionItem {
   hash: string;
@@ -42,7 +13,13 @@ interface TransactionItem {
   finalized: boolean;
   memo?: string;
   references?: string[];
-  fast_path_status?: 'pending' | 'confirmed' | 'timeout' | 'not_eligible';
+  fast_path_status?:
+    | "pending"
+    | "confirmed"
+    | "executed"
+    | "finalized"
+    | "timeout"
+    | "not_eligible";
   fast_path_confirmed_at_ms?: number;
   fast_path_finality_ms?: number;
 }
@@ -50,16 +27,19 @@ interface TransactionItem {
 interface WalletModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onWalletChange?: (keyPair: SerializedKeyPair | null) => void;
 }
 
-export function WalletModal({
-  isOpen,
-  onClose,
-  onWalletChange,
-}: WalletModalProps) {
-  const [keyPair, setKeyPair] = useState<SerializedKeyPair | null>(null);
-  const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
+export function WalletModal({ isOpen, onClose }: WalletModalProps) {
+  const {
+    wallet: keyPair,
+    accountInfo,
+    refreshAccount,
+    generateNewWallet,
+    importWallet,
+    logout,
+    submitTransaction,
+  } = useRinku();
+
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [showSendForm, setShowSendForm] = useState(false);
   const [importKey, setImportKey] = useState("");
@@ -69,39 +49,15 @@ export function WalletModal({
   const [sending, setSending] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Send form state
   const [sendTo, setSendTo] = useState("");
   const [sendAmount, setSendAmount] = useState("");
   const [sendMemo, setSendMemo] = useState("");
   const [sendReferences, setSendReferences] = useState("");
 
-  // Transaction history state
   const [showHistory, setShowHistory] = useState(false);
   const [txHistory, setTxHistory] = useState<TransactionItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedTxs, setExpandedTxs] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    const stored = localStorage.getItem(WALLET_STORAGE_KEY);
-    if (stored && validateSerializedKey(stored)) {
-      try {
-        const kp = deserializeKeyPair(stored);
-        setKeyPair(kp);
-        onWalletChange?.(kp);
-      } catch (e) {
-        console.error("Failed to load stored wallet:", e);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (keyPair) {
-      fetchAccountInfo();
-      fetchTransactionHistory();
-      const interval = setInterval(fetchAccountInfo, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [keyPair]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -119,25 +75,12 @@ export function WalletModal({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen, onClose]);
 
-  const fetchAccountInfo = async () => {
-    if (!keyPair) return;
-    try {
-      const res = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
-      if (res.ok) {
-        const data = await res.json();
-        setAccountInfo(data);
-      }
-    } catch (e) {
-      console.error("Failed to fetch account:", e);
-    }
-  };
-
   const fetchTransactionHistory = async () => {
     if (!keyPair) return;
     setLoadingHistory(true);
     try {
       const res = await fetch(
-        `${NODE_URL}/account/${keyPair.fingerprint}/transactions`,
+        `${API_URL}/account/${keyPair.fingerprint}/transactions`,
       );
       if (res.ok) {
         const data = await res.json();
@@ -172,13 +115,9 @@ export function WalletModal({
     setResult(null);
     setLoading(true);
     try {
-      const kp = await generateKeyPair();
-      const serialized = serializeKeyPair(kp);
-      localStorage.setItem(WALLET_STORAGE_KEY, serialized);
-      setKeyPair(kp);
+      await generateNewWallet();
       setShowPrivateKey(true);
       setResult("Wallet created! SAVE YOUR KEY!");
-      onWalletChange?.(kp);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -194,29 +133,18 @@ export function WalletModal({
       return;
     }
 
-    if (!validateSerializedKey(importKey)) {
-      setError("Invalid key format");
-      return;
-    }
-
     try {
-      const kp = deserializeKeyPair(importKey);
-      localStorage.setItem(WALLET_STORAGE_KEY, importKey);
-      setKeyPair(kp);
+      importWallet(importKey.trim());
       setImportKey("");
       setResult("Wallet imported!");
-      onWalletChange?.(kp);
     } catch (e: any) {
       setError("Failed to import: " + e.message);
     }
   };
 
   const handleDisconnect = () => {
-    localStorage.removeItem(WALLET_STORAGE_KEY);
-    setKeyPair(null);
-    setAccountInfo(null);
+    logout();
     setShowPrivateKey(false);
-    onWalletChange?.(null);
   };
 
   const copyToClipboard = (text: string) => {
@@ -266,7 +194,6 @@ export function WalletModal({
     setError(null);
     setResult(null);
 
-    // Validate recipient
     if (!sendTo.trim()) {
       setError("Recipient address required");
       return;
@@ -277,14 +204,12 @@ export function WalletModal({
       return;
     }
 
-    // Parse amount (optional, default to 0)
     const amount = sendAmount.trim() ? parseFloat(sendAmount) : 0;
     if (isNaN(amount) || amount < 0) {
       setError("Invalid amount");
       return;
     }
 
-    // Check balance (need amount + gas fee)
     const gasFee = 0.001;
     if (accountInfo.balance < amount + gasFee) {
       setError(
@@ -293,7 +218,6 @@ export function WalletModal({
       return;
     }
 
-    // Parse references (comma-separated tx hashes)
     const references = sendReferences.trim()
       ? sendReferences
           .split(",")
@@ -305,46 +229,23 @@ export function WalletModal({
     setSending(true);
 
     try {
-      // Get current tips for parents
-      const tipsRes = await fetch(`${NODE_URL}/tips`);
-      const tipsData = await tipsRes.json();
-      const parents = (tipsData.tips || []).slice(0, 8);
-
-      // Create and sign transaction
-      const signedTx = await createSignedTransaction(keyPair, {
+      const txResult = await submitTransaction({
         to: sendTo.trim(),
         amount,
-        nonce: accountInfo.nonce,
-        parents,
         kind: "transfer",
         memo: sendMemo.trim() || undefined,
         references: references.length > 0 ? references : undefined,
       });
 
-      // Submit transaction
-      const submitRes = await fetch(`${NODE_URL}/tx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signedTx),
-      });
-
-      if (!submitRes.ok) {
-        const errData = await submitRes.json();
-        throw new Error(errData.error || "Transaction failed");
-      }
-
-      const txResult = await submitRes.json();
       setResult(`Transaction sent! Hash: ${txResult.hash?.slice(0, 12)}...`);
 
-      // Clear form
       setSendTo("");
       setSendAmount("");
       setSendMemo("");
       setSendReferences("");
       setShowSendForm(false);
 
-      // Refresh account info
-      setTimeout(fetchAccountInfo, 1000);
+      setTimeout(refreshAccount, 2000);
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : "Unknown error";
       setError("Send failed: " + errMsg);
@@ -380,6 +281,22 @@ export function WalletModal({
                 <button
                   className="copy-btn"
                   onClick={() => copyToClipboard(keyPair.fingerprint)}
+                >
+                  copy
+                </button>
+              </div>
+            </div>
+
+            <div className="wallet-info-row">
+              <span className="label">pubkey</span>
+              <div className="value-with-copy">
+                <span className="value mono">
+                  {keyPair.publicKey.slice(0, 8)}...
+                  {keyPair.publicKey.slice(-6)}
+                </span>
+                <button
+                  className="copy-btn"
+                  onClick={() => copyToClipboard(keyPair.publicKey)}
                 >
                   copy
                 </button>
@@ -546,7 +463,6 @@ export function WalletModal({
                               {tx.direction === "sent" ? "↑" : "↓"}
                             </span>
                             <span className="tx-compact-label">
-                              {/* {hasMessage && <span className="msg-indicator">💬</span>} */}
                               {getTxLabel(tx)}
                             </span>
                             <span
@@ -561,12 +477,24 @@ export function WalletModal({
                               {formatShortTime(tx.timestamp)}
                             </span>
                             <span
-                              className={`tx-compact-status ${tx.fast_path_status === 'confirmed' || tx.finalized ? "ok" : "pending"}`}
-                              title={tx.fast_path_status === 'confirmed' && tx.fast_path_finality_ms 
-                                ? `Fast-path confirmed in ${tx.fast_path_finality_ms}ms` 
-                                : tx.finalized ? 'Checkpoint finalized' : 'Pending confirmation'}
+                              className={`tx-compact-status ${tx.fast_path_status === "confirmed" || tx.fast_path_status === "executed" || tx.fast_path_status === "finalized" || tx.finalized ? "ok" : "pending"}`}
+                              title={
+                                (tx.fast_path_status === "confirmed" ||
+                                  tx.fast_path_status === "executed" ||
+                                  tx.fast_path_status === "finalized") &&
+                                tx.fast_path_finality_ms
+                                  ? `Fast-path in ${tx.fast_path_finality_ms}ms${tx.finalized ? " + checkpoint finalized" : ""}`
+                                  : tx.finalized
+                                    ? "Checkpoint finalized"
+                                    : "Pending confirmation"
+                              }
                             >
-                              {tx.fast_path_status === 'confirmed' || tx.finalized ? "✓" : "○"}
+                              {tx.fast_path_status === "confirmed" ||
+                              tx.fast_path_status === "executed" ||
+                              tx.fast_path_status === "finalized" ||
+                              tx.finalized
+                                ? "✓"
+                                : "○"}
                             </span>
                           </div>
                           {isExpanded && (
@@ -684,34 +612,4 @@ export function WalletModal({
       </div>
     </div>
   );
-}
-
-export function useWallet() {
-  const [keyPair, setKeyPair] = useState<SerializedKeyPair | null>(null);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(WALLET_STORAGE_KEY);
-    if (stored && validateSerializedKey(stored)) {
-      try {
-        const kp = deserializeKeyPair(stored);
-        setKeyPair(kp);
-      } catch (e) {
-        console.error("Failed to load wallet:", e);
-      }
-    }
-
-    const handleStorageChange = () => {
-      const stored = localStorage.getItem(WALLET_STORAGE_KEY);
-      if (stored && validateSerializedKey(stored)) {
-        setKeyPair(deserializeKeyPair(stored));
-      } else {
-        setKeyPair(null);
-      }
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
-
-  return keyPair;
 }

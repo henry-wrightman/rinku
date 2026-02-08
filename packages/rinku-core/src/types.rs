@@ -21,6 +21,7 @@ pub enum TransactionKind {
 pub enum FastPathStatus {
     Pending,
     Confirmed,
+    Executed,
     Finalized,
 }
 

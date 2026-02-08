@@ -1,4 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+
+const ZK_ARTIFACTS_URL = import.meta.env.VITE_ZK_ARTIFACTS_URL || "";
+const VKEY_FILE = "verification_key.json";
+
+function getNodeUrl(): string {
+  const envApiUrl = import.meta.env.VITE_API_URL;
+  if (
+    envApiUrl &&
+    typeof envApiUrl === "string" &&
+    !envApiUrl.includes("localhost") &&
+    !envApiUrl.includes("127.0.0.1")
+  ) {
+    return envApiUrl.replace(/\/+$/, "");
+  }
+  return "/api";
+}
 
 interface ZKStatus {
   enabled: boolean;
@@ -37,28 +53,55 @@ interface ProofResult {
   error?: string;
 }
 
-const NODE_URL = "/api";
+interface CdnStatus {
+  available: boolean;
+  wasmUrl?: string;
+  zkeyUrl?: string;
+  vkeyLoaded: boolean;
+  checking: boolean;
+}
 
 export function ZKTab() {
+  const NODE_URL = getNodeUrl();
   const [status, setStatus] = useState<ZKStatus | null>(null);
   const [txHash, setTxHash] = useState("");
   const [privateKeySeed, setPrivateKeySeed] = useState("");
   const [witness, setWitness] = useState<MerkleWitness | null>(null);
   const [zkUrl, setZkUrl] = useState("");
-  const [generatedProof, setGeneratedProof] = useState<ProofResult | null>(
-    null,
-  );
+  const [generatedProof, setGeneratedProof] = useState<ProofResult | null>(null);
   const [verifyResult, setVerifyResult] = useState<{
     valid?: boolean;
     error?: string;
     message?: string;
+    verifiedLocally?: boolean;
+    verifyTimeMs?: number;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [cdnStatus, setCdnStatus] = useState<CdnStatus>({
+    available: false,
+    vkeyLoaded: false,
+    checking: true,
+  });
+  const vkeyRef = useRef<object | null>(null);
+  const snarkjsRef = useRef<typeof import("snarkjs") | null>(null);
+
+  const loadSnarkjs = useCallback(async () => {
+    if (snarkjsRef.current) return snarkjsRef.current;
+    const sjs = await import("snarkjs");
+    snarkjsRef.current = sjs;
+    return sjs;
+  }, []);
+
   useEffect(() => {
     fetchStatus();
+    if (ZK_ARTIFACTS_URL) {
+      checkCdnArtifacts();
+    } else {
+      setCdnStatus({ available: false, vkeyLoaded: false, checking: false });
+    }
   }, []);
 
   const fetchStatus = async () => {
@@ -68,6 +111,47 @@ export function ZKTab() {
       setStatus(data);
     } catch (e) {
       console.error("Failed to fetch ZK status:", e);
+    }
+  };
+
+  const checkCdnArtifacts = async () => {
+    setCdnStatus((prev) => ({ ...prev, checking: true }));
+    try {
+      const wasmUrl = `${ZK_ARTIFACTS_URL}/rinku_private_proof.wasm`;
+      const zkeyUrl = `${ZK_ARTIFACTS_URL}/rinku_private_proof.zkey`;
+      const vkeyUrl = `${ZK_ARTIFACTS_URL}/${VKEY_FILE}`;
+
+      const [wasmRes, zkeyRes, vkeyRes] = await Promise.all([
+        fetch(wasmUrl, { method: "GET", headers: { Range: "bytes=0-0" } }).catch(() => null),
+        fetch(zkeyUrl, { method: "GET", headers: { Range: "bytes=0-0" } }).catch(() => null),
+        fetch(vkeyUrl).catch(() => null),
+      ]);
+
+      let vkeyLoaded = false;
+      if (vkeyRes && vkeyRes.ok) {
+        try {
+          const vkey = await vkeyRes.json();
+          vkeyRef.current = vkey;
+          vkeyLoaded = true;
+          await loadSnarkjs();
+        } catch {
+          console.error("Failed to parse verification key");
+        }
+      }
+
+      const wasmAvailable = wasmRes !== null && (wasmRes.ok || wasmRes.status === 206);
+      const zkeyAvailable = zkeyRes !== null && (zkeyRes.ok || zkeyRes.status === 206);
+
+      setCdnStatus({
+        available: wasmAvailable && zkeyAvailable && vkeyLoaded,
+        wasmUrl: wasmAvailable ? wasmUrl : undefined,
+        zkeyUrl: zkeyAvailable ? zkeyUrl : undefined,
+        vkeyLoaded,
+        checking: false,
+      });
+    } catch (e) {
+      console.error("CDN artifact check failed:", e);
+      setCdnStatus({ available: false, vkeyLoaded: false, checking: false });
     }
   };
 
@@ -145,19 +229,75 @@ export function ZKTab() {
     setLoading(true);
     setVerifyResult(null);
 
-    try {
-      const res = await fetch(`${NODE_URL}/zk/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ zkUrl }),
-      });
-      const data = await res.json();
-      setVerifyResult(data);
-    } catch (e) {
-      setVerifyResult({ error: "Failed to connect to node" });
-    } finally {
-      setLoading(false);
+    if (cdnStatus.vkeyLoaded && vkeyRef.current) {
+      try {
+        const snarkjs = await loadSnarkjs();
+
+        let proof, publicSignals;
+
+        if (zkUrl.startsWith("rinku://zk/")) {
+          const qIdx = zkUrl.indexOf("?");
+          if (qIdx === -1) throw new Error("Invalid ZK URL: no query params");
+          const params = new URLSearchParams(zkUrl.substring(qIdx + 1));
+          const proofStr = params.get("proof");
+          const signalsStr = params.get("signals");
+
+          if (proofStr && signalsStr) {
+            proof = JSON.parse(atob(proofStr));
+            publicSignals = JSON.parse(atob(signalsStr));
+          } else {
+            throw new Error("Invalid ZK URL: missing proof or signals");
+          }
+        } else {
+          throw new Error("URL must start with rinku://zk/");
+        }
+
+        const startTime = performance.now();
+        const isValid = await snarkjs.groth16.verify(
+          vkeyRef.current,
+          publicSignals,
+          proof
+        );
+        const verifyTime = Math.round(performance.now() - startTime);
+
+        setVerifyResult({
+          valid: isValid,
+          message: isValid
+            ? `Proof cryptographically verified in ${verifyTime}ms`
+            : "Proof verification failed — invalid or tampered",
+          verifiedLocally: true,
+          verifyTimeMs: verifyTime,
+        });
+      } catch (e) {
+        try {
+          const res = await fetch(`${NODE_URL}/zk/verify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ zkUrl }),
+          });
+          const data = await res.json();
+          setVerifyResult(data);
+        } catch {
+          setVerifyResult({
+            error: e instanceof Error ? e.message : "Verification failed",
+          });
+        }
+      }
+    } else {
+      try {
+        const res = await fetch(`${NODE_URL}/zk/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ zkUrl }),
+        });
+        const data = await res.json();
+        setVerifyResult(data);
+      } catch (e) {
+        setVerifyResult({ error: "Failed to connect to node" });
+      }
     }
+
+    setLoading(false);
   };
 
   return (
@@ -171,46 +311,92 @@ export function ZKTab() {
           rinku://zk/ URLs.
         </p>
 
-        {status && (
-          <div className="staking-overview">
+        <div className="staking-overview">
+          {cdnStatus.checking ? (
             <div className="stat-row">
-              <span>status:</span>
-              <span className={`value`}>
-                {status.enabled ? "enabled" : "disabled"}
-              </span>
+              <span>cdn artifacts:</span>
+              <span className="value">checking...</span>
             </div>
-            <div className="stat-row">
-              <span>chain id:</span>
-              <span className="value">{status.chainId}</span>
-            </div>
-            <div className="stat-row">
-              <span>protocol:</span>
-              <span className="value">
-                {status.circuitInfo.protocol} ({status.circuitInfo.curve})
-              </span>
-            </div>
-            <div className="stat-row">
-              <span>merkle depth:</span>
-              <span className="value">
-                {status.circuitInfo.merkleDepth} levels
-              </span>
-            </div>
-            <div className="stat-row">
-              <span>witness generation:</span>
-              <span className={`value`}>
-                {status.features.witnessGeneration ? "ready" : "unavailable"}
-              </span>
-            </div>
-            <div className="stat-row">
-              <span>proof verification:</span>
-              <span className={`value`}>
-                {status.features.proofVerification
-                  ? "ready"
-                  : "pending artifacts"}
-              </span>
-            </div>
-          </div>
-        )}
+          ) : ZK_ARTIFACTS_URL ? (
+            <>
+              <div className="stat-row">
+                <span>cdn artifacts:</span>
+                <span className="value" style={{ color: cdnStatus.available ? "#4ade80" : "#f87171" }}>
+                  {cdnStatus.available ? "available" : "unavailable"}
+                </span>
+              </div>
+              {cdnStatus.available && (
+                <>
+                  <div className="stat-row">
+                    <span>circuit WASM:</span>
+                    <span className="value" style={{ color: "#4ade80" }}>hosted on CDN</span>
+                  </div>
+                  <div className="stat-row">
+                    <span>proving key:</span>
+                    <span className="value" style={{ color: "#4ade80" }}>hosted on CDN</span>
+                  </div>
+                </>
+              )}
+              <div className="stat-row">
+                <span>local verification:</span>
+                <span className="value" style={{ color: cdnStatus.vkeyLoaded ? "#4ade80" : "#f87171" }}>
+                  {cdnStatus.vkeyLoaded ? "ready (vkey loaded)" : "unavailable"}
+                </span>
+              </div>
+            </>
+          ) : null}
+
+          {status && (
+            <>
+              <div className="stat-row">
+                <span>status:</span>
+                <span className="value">
+                  {status.enabled ? "enabled" : "disabled"}
+                </span>
+              </div>
+              <div className="stat-row">
+                <span>chain id:</span>
+                <span className="value">{status.chainId}</span>
+              </div>
+              <div className="stat-row">
+                <span>protocol:</span>
+                <span className="value">
+                  {status.circuitInfo.protocol} ({status.circuitInfo.curve})
+                </span>
+              </div>
+              <div className="stat-row">
+                <span>merkle depth:</span>
+                <span className="value">
+                  {status.circuitInfo.merkleDepth} levels
+                </span>
+              </div>
+              <div className="stat-row">
+                <span>witness generation:</span>
+                <span className="value">
+                  {status.features.witnessGeneration ? "ready" : "unavailable"}
+                </span>
+              </div>
+              <div className="stat-row">
+                <span>proof generation:</span>
+                <span className="value">
+                  {status.features.proofGeneration
+                    ? "ready"
+                    : "pending artifacts"}
+                </span>
+              </div>
+              <div className="stat-row">
+                <span>proof verification:</span>
+                <span className="value">
+                  {cdnStatus.vkeyLoaded
+                    ? "client-side (instant)"
+                    : status.features.proofVerification
+                      ? "server-side"
+                      : "pending artifacts"}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="section">
@@ -381,8 +567,10 @@ export function ZKTab() {
       <div className="section">
         <h3>verify zk proof</h3>
         <p className="section-description">
-          Verify a <code>rinku://zk/...</code> URL. Verification works offline
-          and proves transaction validity without revealing details.
+          Verify a <code>rinku://zk/...</code> URL.{" "}
+          {cdnStatus.vkeyLoaded
+            ? "Verification runs entirely in your browser using the CDN-loaded verification key — no network requests needed."
+            : "Verification works offline and proves transaction validity without revealing details."}
         </p>
 
         <div className="form-group">
@@ -398,7 +586,11 @@ export function ZKTab() {
             disabled={loading || !zkUrl}
             className="btn"
           >
-            {loading ? "verifying..." : "verify"}
+            {loading
+              ? "verifying..."
+              : cdnStatus.vkeyLoaded
+                ? "verify (local)"
+                : "verify"}
           </button>
         </div>
 
@@ -409,6 +601,17 @@ export function ZKTab() {
             {verifyResult.valid !== undefined && (
               <div className="result-status">
                 {verifyResult.valid ? "Valid proof" : "Invalid proof"}
+                {verifyResult.verifiedLocally && (
+                  <span
+                    style={{
+                      fontSize: "0.75rem",
+                      marginLeft: "0.5rem",
+                      color: "#4ade80",
+                    }}
+                  >
+                    (verified locally in {verifyResult.verifyTimeMs}ms)
+                  </span>
+                )}
               </div>
             )}
             {verifyResult.error && (
@@ -439,8 +642,8 @@ export function ZKTab() {
             <div className="step-content">
               <strong>Generate Proof</strong>
               <p>
-                Run the ZK prover locally with your private key. The proof takes
-                ~500ms.
+                Run the ZK prover with your private key seed. The proof takes
+                ~500ms on the server.
               </p>
             </div>
           </div>
@@ -459,8 +662,9 @@ export function ZKTab() {
             <div className="step-content">
               <strong>Verify Anywhere</strong>
               <p>
-                Verification takes &lt;10ms and proves the transaction without
-                revealing details.
+                {cdnStatus.vkeyLoaded
+                  ? "Verification runs in-browser using the CDN verification key — no server contact needed. Takes <10ms."
+                  : "Verification takes <10ms and proves the transaction without revealing details."}
               </p>
             </div>
           </div>

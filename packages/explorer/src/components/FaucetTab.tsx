@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { API_URL } from "../config";
+import { useRinku } from "../context/WalletContext";
 
 interface FaucetStats {
   rateLimitEntries: number;
@@ -14,33 +16,10 @@ interface FaucetTabProps {
   onSuccess: () => void;
 }
 
-const getApiBaseUrl = () => {
-  const envApiUrl = import.meta.env.VITE_API_URL;
-
-  // If VITE_API_URL is set and not localhost, use it directly
-  if (
-    envApiUrl &&
-    !envApiUrl.includes("127.0.0.1") &&
-    !envApiUrl.includes("localhost")
-  ) {
-    console.log("Using VITE_API_URL:", envApiUrl);
-    return `${envApiUrl}/api/faucet`;
-  }
-
-  if (import.meta.env.PROD) {
-    // Production on Replit: transform port in hostname
-    const host = window.location.hostname;
-    console.log(
-      "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}/api`,
-    );
-    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
-  }
-  return "/api"; // Dev: use Vite proxy
-};
-const FAUCET_URL = getApiBaseUrl();
+const FAUCET_URL = `${API_URL}/faucet`;
 
 export function FaucetTab({ onSuccess }: FaucetTabProps) {
+  const { refreshAccount } = useRinku();
   const [address, setAddress] = useState("");
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -105,6 +84,7 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
         ]);
         onSuccess();
         fetchStats();
+        setTimeout(() => refreshAccount(), 1500);
       } else {
         setMessage({ type: "error", text: data.error || "request failed" });
       }

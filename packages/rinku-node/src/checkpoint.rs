@@ -599,9 +599,22 @@ impl CheckpointService {
             checkpoint_reward
         );
         
-        // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
+        // Execute finalized transactions - skip those already executed on fast-path
+        let fp_executed = if let Some(ref gossip) = self.gossip_service {
+            gossip.get_all_fast_path_executed().await
+        } else {
+            std::collections::HashSet::new()
+        };
         for tx in txs_to_execute {
-            self.state.execute_finalized_transaction(&tx).await;
+            if fp_executed.contains(&tx.hash) {
+                tracing::debug!(
+                    "Skipping fast-path-executed tx {} at checkpoint (already applied)",
+                    &tx.hash[..16.min(tx.hash.len())]
+                );
+                self.state.execute_finalized_transaction_rewards(&tx).await;
+            } else {
+                self.state.execute_finalized_transaction(&tx).await;
+            }
         }
 
         (true, false)
@@ -1115,7 +1128,7 @@ impl CheckpointService {
                         );
                         
                         // Apply the checkpoint (apply_checkpoint does additional validation)
-                        if let Err(e) = self.state.apply_checkpoint(peer_checkpoint).await {
+                        if let Err(e) = self.state.apply_checkpoint(peer_checkpoint, None).await {
                             warn!("Failed to apply peer checkpoint as leader fallback: {}", e);
                         } else {
                             // Record that we adopted a checkpoint (even though we didn't create it)
@@ -1353,11 +1366,21 @@ impl CheckpointService {
         }
         let affected_addresses_vec: Vec<String> = affected_addresses_for_proofs.into_iter().collect();
         
+        // Get fast-path executed set BEFORE state root computation
+        // Transactions already executed on fast-path have their effects in current state,
+        // so the simulation must skip them to avoid double-counting
+        let fp_executed = if let Some(ref gossip) = self.gossip_service {
+            gossip.get_all_fast_path_executed().await
+        } else {
+            std::collections::HashSet::new()
+        };
+        
         // Compute state_root with pending transactions applied (post-execution state)
         // This ensures the state_root matches what proofs will verify against
         // NOTE: Rewards were distributed above, so claim transactions will see the updated pending_rewards
         // CRITICAL: We don't generate proofs yet because we don't have the checkpoint hash
-        let state_root = self.state.compute_state_root_with_pending_txs(&unfinalized_txs).await;
+        // CRITICAL: Skip fast-path-executed txs in simulation (already in current state)
+        let state_root = self.state.compute_state_root_with_pending_txs(&unfinalized_txs, &fp_executed).await;
         let receipt_root = "0".repeat(64);
         let tip_count = unfinalized_hashes.len() as u32;
 
@@ -1645,19 +1668,29 @@ impl CheckpointService {
         
         // Get precomputed proofs using the same transaction set as state_root computation
         // CRITICAL FIX: Use unfinalized_txs (same set as state_root) NOT txs_to_execute
+        // CRITICAL: Pass fp_executed to skip fast-path-executed txs (same as state_root computation)
         let precomputed_proofs = self.state.compute_state_root_and_proofs(
             &unfinalized_txs,
             &affected_addresses_vec,
             Some(&checkpoint),
             &proof_tx_hash,
+            &fp_executed,
         ).await;
-        
+
         // PASS 1: Execute balance/nonce changes, stakes, unstakes, and claims
+        // Skip core execution for fast-path-executed txs (already applied)
         for tx in &txs_to_execute {
-            self.state.execute_finalized_transaction_core(tx).await;
+            if !fp_executed.contains(&tx.hash) {
+                self.state.execute_finalized_transaction_core(tx).await;
+            } else {
+                tracing::debug!(
+                    "Checkpoint: skipping core execution for fast-path-executed tx {}",
+                    &tx.hash[..16.min(tx.hash.len())]
+                );
+            }
         }
         
-        // PASS 2: Distribute witness/tip rewards (after all claims have been processed)
+        // PASS 2: Distribute witness/tip rewards (always runs - rewards deferred from fast-path)
         for tx in &txs_to_execute {
             self.state.execute_finalized_transaction_rewards(tx).await;
         }

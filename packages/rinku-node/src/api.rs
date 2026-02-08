@@ -832,7 +832,7 @@ async fn post_gossip(
                 
                 if checkpoint.height == expected_height {
                     // Apply the checkpoint if it's the next expected one
-                    if let Err(e) = state.apply_checkpoint(checkpoint.clone()).await {
+                    if let Err(e) = state.apply_checkpoint(checkpoint.clone(), None).await {
                         warn!("Failed to apply announced checkpoint: {}", e);
                     }
                 } else if checkpoint.height > expected_height {
@@ -1552,14 +1552,27 @@ async fn get_account_transactions_with_fast_path(
                             let status = match fp.status {
                                 rinku_core::types::FastPathStatus::Pending => "pending",
                                 rinku_core::types::FastPathStatus::Confirmed => "confirmed",
+                                rinku_core::types::FastPathStatus::Executed => "executed",
                                 rinku_core::types::FastPathStatus::Finalized => "finalized",
                             };
                             (Some(status.to_string()), fp.confirmed_at_ms, fp.finality_time_ms())
                         }
-                        None => (None, None, None),
+                        None => {
+                            if finalized {
+                                (Some("finalized".to_string()), None, None)
+                            } else if gossip.get_all_fast_path_executed().await.contains(&stx.hash) {
+                                (Some("confirmed".to_string()), None, None)
+                            } else {
+                                (None, None, None)
+                            }
+                        }
                     }
                 } else {
-                    (None, None, None)
+                    if finalized {
+                        (Some("finalized".to_string()), None, None)
+                    } else {
+                        (None, None, None)
+                    }
                 };
             
             result.push(AccountTransactionItem {
@@ -2015,13 +2028,44 @@ async fn get_fast_path_status(
                 }),
             );
         }
+        
+        // Fallback: check fast-path executed set and DAG finalization
+        let fp_executed = gossip.get_all_fast_path_executed().await.contains(&hash);
+        let is_finalized = {
+            let state = api_state.node_state.inner.read().await;
+            state.dag.get_node(&hash).map(|n| n.finalized).unwrap_or(false)
+        };
+        let derived_status = if is_finalized {
+            "finalized"
+        } else if fp_executed {
+            "confirmed"
+        } else {
+            "pending"
+        };
+        return (
+            StatusCode::OK,
+            Json(FastPathStatusResponse {
+                hash,
+                status: derived_status.to_string(),
+                aggregated_stake: 0.0,
+                quorum_threshold: 0.0,
+                quorum_percent: 0,
+                ack_count: 0,
+                finality_time_ms: None,
+            }),
+        );
     }
     
+    // No gossip service - derive from DAG state only
+    let is_finalized = {
+        let state = api_state.node_state.inner.read().await;
+        state.dag.get_node(&hash).map(|n| n.finalized).unwrap_or(false)
+    };
     (
-        StatusCode::NOT_FOUND,
+        StatusCode::OK,
         Json(FastPathStatusResponse {
             hash,
-            status: "unknown".to_string(),
+            status: if is_finalized { "finalized".to_string() } else { "pending".to_string() },
             aggregated_stake: 0.0,
             quorum_threshold: 0.0,
             quorum_percent: 0,
@@ -2155,6 +2199,14 @@ async fn get_dag(
             std::collections::HashMap::new()
         };
     
+    // Get fast-path executed set for fallback status derivation
+    let fp_executed: std::collections::HashSet<String> = 
+        if let Some(ref gossip) = api_state.gossip_service {
+            gossip.get_all_fast_path_executed().await
+        } else {
+            std::collections::HashSet::new()
+        };
+    
     // Batch lookup trust scores from weight_trie
     let trust_scores: std::collections::HashMap<String, (u8, u32)> = {
         let inner = state.inner.read().await;
@@ -2191,6 +2243,7 @@ async fn get_dag(
                 .collect();
             
             // Get fast-path status for this transaction
+            // Priority: gossip tracking > finalized flag > fast-path executed set > pending
             let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
                 if let Some(finality) = fast_path_statuses.get(&n.hash) {
                     (
@@ -2198,6 +2251,10 @@ async fn get_dag(
                         finality.confirmed_at_ms,
                         finality.finality_time_ms(),
                     )
+                } else if n.finalized {
+                    (Some("finalized".to_string()), None, None)
+                } else if fp_executed.contains(&n.hash) {
+                    (Some("confirmed".to_string()), None, None)
                 } else {
                     (Some("pending".to_string()), None, None)
                 };
@@ -2417,9 +2474,10 @@ async fn get_transaction(
         let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
             if let Some(ref gossip) = api_state.gossip_service {
                 if let Some(fp) = gossip.get_fast_path_status(&hash).await {
-                    let is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Finalized);
+                    let is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Executed | rinku_core::types::FastPathStatus::Finalized);
                     let status = match fp.status {
                         rinku_core::types::FastPathStatus::Confirmed => "confirmed",
+                        rinku_core::types::FastPathStatus::Executed => "executed",
                         rinku_core::types::FastPathStatus::Finalized => "finalized",
                         rinku_core::types::FastPathStatus::Pending => "pending",
                     };
@@ -2541,6 +2599,7 @@ async fn get_transaction_replies(
                 if let Some(fp) = fast_path_statuses.get(&tx_hash) {
                     let status = match fp.status {
                         rinku_core::types::FastPathStatus::Confirmed => "confirmed",
+                        rinku_core::types::FastPathStatus::Executed => "executed",
                         rinku_core::types::FastPathStatus::Finalized => "finalized",
                         rinku_core::types::FastPathStatus::Pending => "pending",
                     };

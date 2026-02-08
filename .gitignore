@@ -34,3 +34,4 @@ packages/node/.rinku-data/
 rinku-node-bin
 .replit
 replit.md
+*wallet.json

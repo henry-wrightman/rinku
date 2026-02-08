@@ -1783,7 +1783,7 @@ impl NodeState {
     /// 1. Validator signatures meet quorum threshold
     /// 2. The checkpoint merkle roots match expected state
     /// For now in testnet mode, we trust the checkpoint if prev_hash links correctly.
-    pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint) -> anyhow::Result<()> {
+    pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint, fast_path_executed: Option<&std::collections::HashSet<String>>) -> anyhow::Result<()> {
         use rinku_core::merkle::MerkleTree;
         
         let mut state = self.inner.write().await;
@@ -1936,8 +1936,19 @@ impl NodeState {
         drop(state);
         
         // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
-        for tx in txs_to_execute {
-            self.execute_finalized_transaction(&tx).await;
+        // Skip core execution for transactions already executed on fast-path
+        let empty_set = std::collections::HashSet::new();
+        let fp_set = fast_path_executed.unwrap_or(&empty_set);
+        for tx in &txs_to_execute {
+            if fp_set.contains(&tx.hash) {
+                tracing::debug!(
+                    "apply_checkpoint: skipping core execution for fast-path-executed tx {}",
+                    &tx.hash[..16.min(tx.hash.len())]
+                );
+                self.execute_finalized_transaction_rewards(tx).await;
+            } else {
+                self.execute_finalized_transaction(tx).await;
+            }
         }
         
         Ok(())
@@ -1954,6 +1965,7 @@ impl NodeState {
         &self, 
         checkpoint: Checkpoint,
         finalized_tx_hashes: Vec<String>,
+        fast_path_executed: &std::collections::HashSet<String>,
     ) -> Result<usize> {
         let mut state = self.inner.write().await;
         
@@ -2155,8 +2167,17 @@ impl NodeState {
         drop(state);
         
         // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
-        for tx in txs_to_execute {
-            self.execute_finalized_transaction(&tx).await;
+        // Skip core execution for transactions already executed on fast-path
+        for tx in &txs_to_execute {
+            if fast_path_executed.contains(&tx.hash) {
+                tracing::debug!(
+                    "Follower checkpoint: skipping core execution for fast-path-executed tx {}",
+                    &tx.hash[..16.min(tx.hash.len())]
+                );
+                self.execute_finalized_transaction_rewards(tx).await;
+            } else {
+                self.execute_finalized_transaction(tx).await;
+            }
         }
         
         // FOLLOWER NODES DO NOT GENERATE PROOFS
@@ -2417,8 +2438,8 @@ impl NodeState {
     /// Compute state root with pending transactions applied (without modifying actual state)
     /// This is used by checkpoint creation to get the correct post-execution state root
     /// before actually executing the transactions
-    pub async fn compute_state_root_with_pending_txs(&self, pending_txs: &[rinku_core::SignedTransaction]) -> String {
-        self.compute_state_root_and_proofs(pending_txs, &[], None, "").await.state_root
+    pub async fn compute_state_root_with_pending_txs(&self, pending_txs: &[rinku_core::SignedTransaction], skip_hashes: &std::collections::HashSet<String>) -> String {
+        self.compute_state_root_and_proofs(pending_txs, &[], None, "", skip_hashes).await.state_root
     }
     
     /// Compute state root AND precomputed proofs for affected addresses
@@ -2430,6 +2451,7 @@ impl NodeState {
         affected_addresses: &[String],
         checkpoint_template: Option<&rinku_core::types::Checkpoint>,
         tx_hash: &str,
+        skip_hashes: &std::collections::HashSet<String>,
     ) -> StateRootWithProofs {
         use std::collections::HashMap;
         
@@ -2482,7 +2504,12 @@ impl NodeState {
         
         // Apply pending transactions to simulated state
         // This must match execute_finalized_transaction exactly!
+        // CRITICAL: Skip transactions already executed on fast-path, since their
+        // effects are already reflected in the current state we cloned above
         for tx in pending_txs {
+            if skip_hashes.contains(&tx.hash) {
+                continue;
+            }
             let from = &tx.tx.from;
             let to = &tx.tx.to;
             let amount = tx.tx.amount;
@@ -3199,8 +3226,8 @@ impl NodeState {
                 }
             }
             
-            // Validate memo size (max 256 bytes for messaging apps)
-            const MAX_MEMO_SIZE: usize = 256;
+            // Validate memo size (max 1024 bytes for encrypted chat messages)
+            const MAX_MEMO_SIZE: usize = 1024;
             if let Some(ref memo) = tx.tx.memo {
                 if memo.len() > MAX_MEMO_SIZE {
                     tracing::warn!(
@@ -3462,6 +3489,69 @@ impl NodeState {
     }
     
     /// Execute a finalized transaction - apply all state changes
+    /// Execute a transaction immediately upon fast-path confirmation (2/3 stake quorum).
+    /// This applies balance/nonce/stake changes in real-time for sub-500ms finality.
+    /// Rewards (tip/witness) are deferred to checkpoint time to maintain deterministic ordering.
+    /// Returns true if execution succeeded, false if validation failed.
+    pub async fn execute_fast_path_transaction(&self, tx: &SignedTransaction) -> bool {
+        let gas_fee = {
+            let state = self.inner.read().await;
+            tx.tx.gas_price.unwrap_or(state.current_gas_price)
+        };
+
+        let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+        let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+        let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+
+        {
+            let state = self.inner.read().await;
+            if let Some(from_account) = state.accounts.get(&tx.tx.from) {
+                let required = if is_stake_tx || (!is_unstake_tx && !is_claim_tx) {
+                    tx.tx.amount + gas_fee
+                } else {
+                    gas_fee
+                };
+                if from_account.balance < required {
+                    tracing::warn!(
+                        "FastPath execution rejected: {} insufficient balance ({:.8} < {:.8})",
+                        &tx.tx.from[..16.min(tx.tx.from.len())],
+                        from_account.balance,
+                        required
+                    );
+                    return false;
+                }
+                if tx.tx.nonce != from_account.nonce {
+                    tracing::warn!(
+                        "FastPath execution rejected: {} nonce mismatch (tx={} vs account={})",
+                        &tx.tx.from[..16.min(tx.tx.from.len())],
+                        tx.tx.nonce,
+                        from_account.nonce
+                    );
+                    return false;
+                }
+            } else {
+                tracing::warn!(
+                    "FastPath execution rejected: account {} not found",
+                    &tx.tx.from[..16.min(tx.tx.from.len())]
+                );
+                return false;
+            }
+        }
+
+        self.execute_finalized_transaction_core(tx).await;
+
+        tracing::info!(
+            "FastPath EXECUTED tx {} ({} -> {}, amount={:.8}, gas={:.8})",
+            &tx.hash[..16.min(tx.hash.len())],
+            &tx.tx.from[..16.min(tx.tx.from.len())],
+            &tx.tx.to[..16.min(tx.tx.to.len())],
+            tx.tx.amount,
+            gas_fee
+        );
+
+        true
+    }
+
     /// Called by checkpoint finalization after transactions are confirmed
     /// FINALITY-FIRST MODEL: This is where actual balance/nonce changes happen
     /// 

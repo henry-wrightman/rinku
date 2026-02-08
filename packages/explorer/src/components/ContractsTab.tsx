@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
-import {
-  deserializeKeyPair,
-  createSignedTransaction,
-  type SerializedKeyPair,
-} from "../crypto";
+import { useRinku } from "../context/WalletContext";
+import { API_URL } from "../config";
+
+const NODE_URL = API_URL;
 
 interface ContractSummary {
   contractId: string;
@@ -25,42 +24,9 @@ interface ContractState {
   createdAt: number;
 }
 
-interface AccountInfo {
-  fingerprint: string;
-  balance: number;
-  nonce: number;
-  staked: number;
-}
-
-const getApiBaseUrl = () => {
-  const envApiUrl = import.meta.env.VITE_API_URL;
-
-  // If VITE_API_URL is set and not localhost, use it directly
-  if (
-    envApiUrl &&
-    !envApiUrl.includes("127.0.0.1") &&
-    !envApiUrl.includes("localhost")
-  ) {
-    console.log("Using VITE_API_URL:", envApiUrl);
-    return `${envApiUrl}`;
-  }
-
-  if (import.meta.env.PROD) {
-    // Production on Replit: transform port in hostname
-    const host = window.location.hostname;
-    console.log(
-      "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}/api`,
-    );
-    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
-  }
-  return "/api"; // Dev: use Vite proxy
-};
-const NODE_URL = getApiBaseUrl();
-
-const WALLET_STORAGE_KEY = "rinku_wallet";
-
 export function ContractsTab() {
+  const { wallet: keyPair, accountInfo, submitTransaction, refreshAccount } = useRinku();
+  const walletReady = !!keyPair;
   const [contracts, setContracts] = useState<ContractSummary[]>([]);
   const [selectedContract, setSelectedContract] =
     useState<ContractState | null>(null);
@@ -72,55 +38,14 @@ export function ContractsTab() {
   });
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const [keyPair, setKeyPair] = useState<SerializedKeyPair | null>(null);
-  const [walletReady, setWalletReady] = useState(false);
-  const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(WALLET_STORAGE_KEY);
-    if (stored) {
-      try {
-        const kp = deserializeKeyPair(stored);
-        setKeyPair(kp);
-        setWalletReady(true);
-      } catch (e) {
-        console.error("Failed to load stored wallet:", e);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (walletReady && keyPair) {
-      fetchAccountInfo();
-      const interval = setInterval(fetchAccountInfo, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [walletReady, keyPair]);
 
   const fetchAccountInfo = async () => {
     if (!keyPair) return;
     try {
-      const res = await fetch(`${NODE_URL}/account/${keyPair.fingerprint}`);
-      if (res.ok) {
-        const data = await res.json();
-        setAccountInfo(data);
-      } else {
-        setAccountInfo({
-          fingerprint: keyPair.fingerprint,
-          balance: 0,
-          nonce: 0,
-          staked: 0,
-        });
-      }
-    } catch {
-      setAccountInfo({
-        fingerprint: keyPair.fingerprint,
-        balance: 0,
-        nonce: 0,
-        staked: 0,
-      });
+      await refreshAccount();
+    } catch (e) {
+      console.error("Failed to fetch account:", e);
     }
   };
 
@@ -152,16 +77,6 @@ export function ContractsTab() {
     return () => clearInterval(interval);
   }, []);
 
-  const getTips = async (): Promise<string[]> => {
-    try {
-      const res = await fetch(`${NODE_URL}/tipUrls`);
-      const data = await res.json();
-      return (data.tipUrls || []).slice(0, 5);
-    } catch {
-      return [];
-    }
-  };
-
   const getGasPrice = async (): Promise<number> => {
     try {
       const res = await fetch(`${NODE_URL}/gas/price`);
@@ -183,33 +98,17 @@ export function ContractsTab() {
     setSubmitting(true);
 
     try {
-      const tips = await getTips();
       const fee = await getGasPrice();
 
-      const accountRes = await fetch(
-        `${NODE_URL}/account/${keyPair.fingerprint}`,
-      );
-      const account = await accountRes.json();
-      const nonce = account.nonce || 0;
-
-      const signedTx = await createSignedTransaction(keyPair, {
+      const data = await submitTransaction({
         to: "contract:deploy",
         amount: 0,
-        nonce,
-        parents: tips,
         kind: "contract",
         gasPrice: fee,
+        parentCount: 5,
       });
 
-      const res = await fetch(`${NODE_URL}/tx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signedTx),
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data.hash) {
+      if (data.hash) {
         setResult(
           `Contract deploy submitted (tx: ${data.hash.slice(0, 12)}...)`,
         );
@@ -219,7 +118,7 @@ export function ContractsTab() {
           fetchAccountInfo();
         }, 1000);
       } else {
-        setError(data.error || "Deploy failed");
+        setError("Deploy failed");
       }
     } catch (e: any) {
       setError(e.message);
@@ -240,33 +139,17 @@ export function ContractsTab() {
     setSubmitting(true);
 
     try {
-      const tips = await getTips();
       const fee = await getGasPrice();
 
-      const accountRes = await fetch(
-        `${NODE_URL}/account/${keyPair.fingerprint}`,
-      );
-      const account = await accountRes.json();
-      const nonce = account.nonce || 0;
-
-      const signedTx = await createSignedTransaction(keyPair, {
+      const data = await submitTransaction({
         to: `contract:${selectedContract.contractId}`,
         amount: 0,
-        nonce,
-        parents: tips,
         kind: "contract",
         gasPrice: fee,
+        parentCount: 5,
       });
 
-      const res = await fetch(`${NODE_URL}/tx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signedTx),
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data.hash) {
+      if (data.hash) {
         setResult(`Contract call submitted (tx: ${data.hash.slice(0, 12)}...)`);
         setTimeout(() => {
           fetchContractDetails(selectedContract.contractId);
@@ -274,7 +157,7 @@ export function ContractsTab() {
           fetchAccountInfo();
         }, 1000);
       } else {
-        setError(data.error || "Call failed");
+        setError("Call failed");
       }
     } catch (e: any) {
       setError(e.message);

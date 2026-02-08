@@ -1,10 +1,8 @@
 import { useState, useEffect } from "react";
-import {
-  createSignedTransaction,
-  deserializeKeyPair,
-  validateSerializedKey,
-  type SerializedKeyPair,
-} from "../crypto";
+import { useRinku } from "../context/WalletContext";
+import { API_URL } from "../config";
+
+const NODE_URL = API_URL;
 
 interface RewardsSummary {
   address: string;
@@ -45,38 +43,11 @@ interface StakingInfo {
   };
 }
 
-const getApiBaseUrl = () => {
-  const envApiUrl = import.meta.env.VITE_API_URL;
-
-  // If VITE_API_URL is set and not localhost, use it directly
-  if (
-    envApiUrl &&
-    !envApiUrl.includes("127.0.0.1") &&
-    !envApiUrl.includes("localhost")
-  ) {
-    console.log("Using VITE_API_URL:", envApiUrl);
-    return `${envApiUrl}/api`;
-  }
-
-  if (import.meta.env.PROD) {
-    // Production on Replit: transform port in hostname
-    const host = window.location.hostname;
-    console.log(
-      "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}/api`,
-    );
-    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
-  }
-  return "/api"; // Dev: use Vite proxy
-};
-const NODE_URL = getApiBaseUrl();
-
-const WALLET_STORAGE_KEY = "rinku_wallet";
-
 export function RewardsTab() {
-  const [address, setAddress] = useState("");
-  const [keyPair, setKeyPair] = useState<SerializedKeyPair | null>(null);
-  const [walletReady, setWalletReady] = useState(false);
+  const { wallet: keyPair, submitTransaction, refreshAccount } = useRinku();
+  const walletReady = !!keyPair;
+  const [lookupAddress, setLookupAddress] = useState("");
+  const address = keyPair?.fingerprint || lookupAddress;
   const [rewards, setRewards] = useState<RewardsSummary | null>(null);
   const [staking, setStaking] = useState<StakingStatus | null>(null);
   const [stakingInfo, setStakingInfo] = useState<StakingInfo | null>(null);
@@ -84,20 +55,6 @@ export function RewardsTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(WALLET_STORAGE_KEY);
-    if (stored && validateSerializedKey(stored)) {
-      try {
-        const kp = deserializeKeyPair(stored);
-        setKeyPair(kp);
-        setWalletReady(true);
-        setAddress(kp.fingerprint);
-      } catch (e) {
-        console.error("Failed to load stored wallet:", e);
-      }
-    }
-  }, []);
 
   const fetchStakingInfo = async () => {
     try {
@@ -159,43 +116,21 @@ export function RewardsTab() {
     setResult(null);
 
     try {
-      const tipsRes = await fetch(`${NODE_URL}/tips`);
-      const tipsData = await tipsRes.json();
-      const tips = tipsData.tips || tipsData || [];
-      const parents = (tips as string[])
-        .slice(0, 2)
-        .map((h: string) => `rinku://tx/h/${h}`);
-
-      const accountRes = await fetch(
-        `${NODE_URL}/account/${keyPair.fingerprint}`,
-      );
-      const account = await accountRes.json();
-      const nonce = account.nonce || 0;
-
-      const signedTx = await createSignedTransaction(keyPair, {
+      const data = await submitTransaction({
         to: keyPair.fingerprint,
         amount: stakeAmount,
-        nonce,
-        parents,
         kind: "stake",
         gasPrice: 0.001,
+        parentCount: 2,
       });
-
-      const res = await fetch(`${NODE_URL}/tx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signedTx),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.hash) {
+      if (data.hash) {
         setResult(`Staking ${stakeAmount} RKU queued (tx: ${data.hash}...)`);
         setTimeout(() => {
           fetchRewards();
           fetchStakingInfo();
         }, 1000);
       } else {
-        setError(data.error || "Staking failed");
+        setError("Staking failed");
       }
     } catch (e: any) {
       setError(e.message);
@@ -215,36 +150,14 @@ export function RewardsTab() {
     setResult(null);
 
     try {
-      const tipsRes = await fetch(`${NODE_URL}/tips`);
-      const tipsData = await tipsRes.json();
-      const tips = tipsData.tips || tipsData || [];
-      const parents = (tips as string[])
-        .slice(0, 2)
-        .map((h: string) => `rinku://tx/h/${h}`);
-
-      const accountRes = await fetch(
-        `${NODE_URL}/account/${keyPair.fingerprint}`,
-      );
-      const account = await accountRes.json();
-      const nonce = account.nonce || 0;
-
-      const signedTx = await createSignedTransaction(keyPair, {
+      const data = await submitTransaction({
         to: keyPair.fingerprint,
         amount: staking.stakedAmount,
-        nonce,
-        parents,
         kind: "unstake",
         gasPrice: 0.001,
+        parentCount: 2,
       });
-
-      const res = await fetch(`${NODE_URL}/tx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signedTx),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.hash) {
+      if (data.hash) {
         setResult(
           `Unstaking ${staking.stakedAmount} RKU queued (tx: ${data.hash}...)`,
         );
@@ -253,7 +166,7 @@ export function RewardsTab() {
           fetchStakingInfo();
         }, 1000);
       } else {
-        setError(data.error || "Unstaking failed");
+        setError("Unstaking failed");
       }
     } catch (e: any) {
       setError(e.message);
@@ -269,42 +182,20 @@ export function RewardsTab() {
     setResult(null);
 
     try {
-      const tipsRes = await fetch(`${NODE_URL}/tips`);
-      const tipsData = await tipsRes.json();
-      const tips = tipsData.tips || tipsData || [];
-      const parents = (tips as string[])
-        .slice(0, 2)
-        .map((h: string) => `rinku://tx/h/${h}`);
-
-      const accountRes = await fetch(
-        `${NODE_URL}/account/${keyPair.fingerprint}`,
-      );
-      const account = await accountRes.json();
-      const nonce = account.nonce || 0;
-
-      const signedTx = await createSignedTransaction(keyPair, {
+      const data = await submitTransaction({
         to: keyPair.fingerprint,
         amount: 0,
-        nonce,
-        parents,
         kind: "claim_rewards",
         gasPrice: 0.001,
+        parentCount: 2,
       });
-
-      const res = await fetch(`${NODE_URL}/tx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(signedTx),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.hash) {
+      if (data.hash) {
         setResult(`Claiming rewards queued (tx: ${data.hash}...)`);
         setTimeout(() => {
           fetchRewards();
         }, 1000);
       } else {
-        setError(data.error || "Claim failed");
+        setError("Claim failed");
       }
     } catch (e: any) {
       setError(e.message);
@@ -382,8 +273,8 @@ export function RewardsTab() {
             <input
               type="text"
               placeholder="wallet address (fingerprint)"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
+              value={lookupAddress}
+              onChange={(e) => setLookupAddress(e.target.value)}
             />
             <button onClick={fetchRewards} disabled={!address || loading}>
               {loading ? "loading..." : "lookup"}

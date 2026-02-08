@@ -142,9 +142,8 @@ export async function createSignedTransaction(
     fee: payload.gasPrice ?? 0.001,
   };
   
-  // Only include memo if provided (max 256 bytes)
   if (payload.memo && payload.memo.trim()) {
-    txData.memo = payload.memo.slice(0, 256);
+    txData.memo = payload.memo.slice(0, 1024);
   }
   
   // Only include references if provided (max 4)
