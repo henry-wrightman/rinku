@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { PageHeader } from "./components/PageHeader";
+import { useRinku } from "./context/WalletContext";
 import type { WeightProofResponse } from "./types";
 
 interface TrustScoreData {
@@ -33,18 +34,18 @@ const TrustAndVoteSection = ({
   finalized,
   onVoteSubmitted,
 }: TrustAndVoteSectionProps) => {
+  const { wallet } = useRinku();
   const [voting, setVoting] = useState(false);
   const [voteResult, setVoteResult] = useState<{
     success: boolean;
     message: string;
   } | null>(null);
-  const [validatorKey, setValidatorKey] = useState("");
 
   const submitVote = async (voteType: "boost" | "suppress" | "neutral") => {
-    if (!validatorKey.trim()) {
+    if (!wallet) {
       setVoteResult({
         success: false,
-        message: "Enter validator key",
+        message: "Connect wallet to vote",
       });
       return;
     }
@@ -56,7 +57,7 @@ const TrustAndVoteSection = ({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          validator_pubkey: validatorKey.trim(),
+          validator_pubkey: wallet.publicKey,
           vote: voteType,
         }),
       });
@@ -195,70 +196,62 @@ const TrustAndVoteSection = ({
         <div style={{ flex: 1 }} />
 
         {finalized ? (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "baseline",
-              gap: 6,
-            }}
-          >
-            <input
-              type="text"
-              value={validatorKey}
-              onChange={(e) => setValidatorKey(e.target.value)}
-              placeholder="validator key"
-              className="trust-input"
+          wallet ? (
+            <div
               style={{
-                width: 120,
-                padding: "8px 8px",
-                borderRadius: 0,
-                fontSize: 11,
-                fontFamily: "monospace",
-              }}
-            />
-            <button
-              onClick={() => submitVote("boost")}
-              disabled={voting}
-              className="trust-btn trust-btn-boost"
-              style={{
-                padding: "4px 10px",
-                borderRadius: 0,
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: voting ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "baseline",
+                gap: 6,
               }}
             >
-              +
-            </button>
-            <button
-              onClick={() => submitVote("neutral")}
-              disabled={voting}
-              className="trust-btn trust-btn-neutral"
-              style={{
-                padding: "4px 10px",
-                borderRadius: 0,
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: voting ? "not-allowed" : "pointer",
-              }}
-            >
-              ~
-            </button>
-            <button
-              onClick={() => submitVote("suppress")}
-              disabled={voting}
-              className="trust-btn trust-btn-suppress"
-              style={{
-                padding: "4px 10px",
-                borderRadius: 0,
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: voting ? "not-allowed" : "pointer",
-              }}
-            >
-              -
-            </button>
-          </div>
+              <button
+                onClick={() => submitVote("boost")}
+                disabled={voting}
+                className="trust-btn trust-btn-boost"
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 0,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  cursor: voting ? "not-allowed" : "pointer",
+                }}
+              >
+                +
+              </button>
+              <button
+                onClick={() => submitVote("neutral")}
+                disabled={voting}
+                className="trust-btn trust-btn-neutral"
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 0,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  cursor: voting ? "not-allowed" : "pointer",
+                }}
+              >
+                ~
+              </button>
+              <button
+                onClick={() => submitVote("suppress")}
+                disabled={voting}
+                className="trust-btn trust-btn-suppress"
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 0,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  cursor: voting ? "not-allowed" : "pointer",
+                }}
+              >
+                -
+              </button>
+            </div>
+          ) : (
+            <span className="trust-muted" style={{ fontSize: 11 }}>
+              connect wallet to vote
+            </span>
+          )
         ) : (
           <span className="trust-muted" style={{ fontSize: 11 }}>
             vote after finalization
@@ -687,8 +680,8 @@ function HashTransactionPage() {
           )}
           <div className="meta-row">
             <span className="label">signature</span>
-            <span className="value mono" style={{ opacity: tx.sig ? 1 : 0.5 }}>
-              {tx.sig ? truncate(tx.sig, 24) : "(system tx)"}
+            <span className="value mono" style={{ opacity: tx.sig && tx.sig !== "sig" ? 1 : 0.5 }}>
+              {tx.sig && tx.sig !== "sig" ? truncate(tx.sig, 24) : "(system tx)"}
             </span>
           </div>
           {tx.finality && (

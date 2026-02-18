@@ -458,8 +458,8 @@ function TransactionPage() {
           )}
           <div className="meta-row">
             <span className="label">signature</span>
-            <span className="value mono" style={{ opacity: tx.sig ? 1 : 0.5 }}>
-              {tx.sig ? truncate(tx.sig, 24) : "(system tx)"}
+            <span className="value mono" style={{ opacity: tx.sig && tx.sig !== "sig" ? 1 : 0.5 }}>
+              {tx.sig && tx.sig !== "sig" ? truncate(tx.sig, 24) : "(system tx)"}
             </span>
           </div>
         </div>

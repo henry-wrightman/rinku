@@ -4871,7 +4871,7 @@ body.light .trust-btn-suppress:hover:not(:disabled) {
   color: #011627;
   border: none;
   padding: 0.7rem 1.5rem;
-  border-radius: 6px;
+  border-radius: 0px;
   cursor: pointer;
   font-family: inherit;
   font-size: 0.95rem;
