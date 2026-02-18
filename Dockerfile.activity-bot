@@ -1,0 +1,32 @@
+FROM node:20-slim AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json tsconfig.base.json ./
+COPY packages/core/package.json packages/core/package.json
+COPY packages/wallet/package.json packages/wallet/package.json
+
+RUN npm ci
+
+COPY packages/core ./packages/core
+COPY packages/wallet ./packages/wallet
+
+RUN npm run build -w @rinku/core -w @rinku/wallet
+
+FROM node:20-slim
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json tsconfig.base.json ./
+COPY packages/core/package.json packages/core/package.json
+COPY packages/wallet/package.json packages/wallet/package.json
+
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/packages/wallet/dist ./packages/wallet/dist
+COPY scripts ./scripts
+
+CMD ["npm", "run", "activity-bot"]

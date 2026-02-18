@@ -599,6 +599,7 @@ pub struct DagNodeInfo {
     pub finalized: bool,
     pub weight: f64,
     pub kind: Option<rinku_core::types::TransactionKind>,
+    pub sig: String,
 }
 
 /// Combined stats for dashboard - fetched with a single lock acquisition
@@ -3119,6 +3120,7 @@ impl NodeState {
                 finalized: n.finalized,
                 weight: n.weight,
                 kind: n.tx.tx.kind,
+                sig: n.tx.signature.clone(),
             })
             .collect()
     }
@@ -3153,6 +3155,7 @@ impl NodeState {
                 finalized: n.finalized,
                 weight: n.weight,
                 kind: n.tx.tx.kind,
+                sig: n.tx.signature.clone(),
             })
             .collect();
         

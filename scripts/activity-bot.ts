@@ -4,12 +4,12 @@ const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3001";
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "2000"); // Reduced from 2000 for higher throughput
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "1000");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "60000"); // Reduced from 2000 for higher throughput
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "10000");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
 const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "5");
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "10");
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "50");
 const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.6");
 const NONCE_WAIT_TIMEOUT_MS = parseInt(
   process.env.NONCE_WAIT_TIMEOUT_MS || "6000",
@@ -23,7 +23,7 @@ const CONSOLIDATION_INTERVAL_MS = parseInt(
   process.env.CONSOLIDATION_INTERVAL || "10000",
 );
 const TIP_CONSOLIDATION_THRESHOLD = parseInt(
-  process.env.TIP_CONSOLIDATION_THRESHOLD || "10",
+  process.env.TIP_CONSOLIDATION_THRESHOLD || "100",
 );
 const CONSOLIDATION_TIP_COUNT = parseInt(
   process.env.CONSOLIDATION_TIP_COUNT || "12",

@@ -257,6 +257,7 @@ struct DagNodeResponse {
     finalized: bool,
     weight: f64,
     url: String,
+    sig: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     kind: Option<rinku_core::types::TransactionKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2277,6 +2278,7 @@ async fn get_dag(
                 finalized: n.finalized,
                 weight: n.weight,
                 url,
+                sig: n.sig,
                 kind: n.kind,
                 fast_path_status,
                 fast_path_confirmed_at_ms,
@@ -2430,6 +2432,7 @@ struct TransactionResponse {
     finalized: bool,
     weight: f64,
     url: String,
+    sig: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     memo: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2503,6 +2506,7 @@ async fn get_transaction(
             finalized,
             weight,
             url: format!("/tx/h/{}", tx.hash),
+            sig: tx.signature.clone(),
             memo: tx.tx.memo.clone(),
             references: tx.tx.references.clone(),
             fast_path_status,
@@ -2532,7 +2536,7 @@ async fn get_transaction_replies(
     let state = &api_state.node_state;
     
     // Collect reply data from DAG first, then release lock before async gossip calls
-    let reply_data: Vec<(String, String, String, f64, f64, u64, u64, Vec<String>, bool, f64, Option<String>, Option<Vec<String>>)> = {
+    let reply_data: Vec<(String, String, String, f64, f64, u64, u64, Vec<String>, bool, f64, Option<String>, Option<Vec<String>>, String)> = {
         let inner = state.inner.read().await;
         let all_txs = inner.dag.all_transactions();
         
@@ -2571,6 +2575,7 @@ async fn get_transaction_replies(
                     weight,
                     tx.tx.memo.clone(),
                     tx.tx.references.clone(),
+                    tx.signature.clone(),
                 )
             })
             .collect()
@@ -2593,8 +2598,7 @@ async fn get_transaction_replies(
         };
     
     let mut replies: Vec<TransactionResponse> = reply_data.into_iter()
-        .map(|(tx_hash, from, to, amount, fee, nonce, ts, tip_urls, finalized, weight, memo, references)| {
-            // Get fast-path status for this reply
+        .map(|(tx_hash, from, to, amount, fee, nonce, ts, tip_urls, finalized, weight, memo, references, sig)| {
             let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
                 if let Some(fp) = fast_path_statuses.get(&tx_hash) {
                     let status = match fp.status {
@@ -2622,6 +2626,7 @@ async fn get_transaction_replies(
                 finalized,
                 weight,
                 url: format!("/tx/h/{}", tx_hash),
+                sig,
                 memo,
                 references,
                 fast_path_status,
