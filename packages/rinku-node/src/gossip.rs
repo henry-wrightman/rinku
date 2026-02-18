@@ -446,6 +446,9 @@ pub struct GossipServiceInner {
     /// Fast-path finality tracking for data-only transactions
     pub fast_path_pending: HashMap<String, rinku_core::types::FastPathFinality>,
     pub fast_path_confirmed: HashMap<String, rinku_core::types::FastPathFinality>,
+    /// Tracks tx hashes that have been executed on fast-path (balances applied)
+    /// to prevent double-execution at checkpoint time
+    pub fast_path_executed: std::collections::HashSet<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -544,6 +547,7 @@ impl GossipService {
                 propagation_in_flight: false,
                 fast_path_pending: HashMap::new(),
                 fast_path_confirmed: HashMap::new(),
+                fast_path_executed: std::collections::HashSet::new(),
             })),
             node_id,
             interval_ms,
@@ -1561,12 +1565,19 @@ impl GossipService {
                     .as_millis() as u64;
                 const FAST_PATH_TTL_MS: u64 = 300_000; // 5 minutes
                 let old_confirmed_count = inner.fast_path_confirmed.len();
-                inner.fast_path_confirmed.retain(|_, finality| {
-                    // Keep if confirmed less than 5 minutes ago
+                // Snapshot executed set to avoid borrow conflict with retain
+                let executed_snapshot: std::collections::HashSet<String> = inner.fast_path_executed.clone();
+                inner.fast_path_confirmed.retain(|tx_hash, finality| {
+                    // Never prune entries that have been executed but not yet finalized
+                    // These must survive until checkpoint anchors them so the API can report status
+                    if executed_snapshot.contains(tx_hash) 
+                        && !matches!(finality.status, rinku_core::types::FastPathStatus::Finalized) {
+                        return true;
+                    }
+                    // TTL-based cleanup for other entries
                     if let Some(confirmed_at) = finality.confirmed_at_ms {
                         now_ms.saturating_sub(confirmed_at) < FAST_PATH_TTL_MS
                     } else {
-                        // Keep if registered less than 5 minutes ago (shouldn't happen but safe fallback)
                         now_ms.saturating_sub(finality.registered_at_ms) < FAST_PATH_TTL_MS
                     }
                 });
@@ -1580,11 +1591,26 @@ impl GossipService {
                 });
                 let pending_pruned = old_pending_count - inner.fast_path_pending.len();
                 
-                if confirmed_pruned > 0 || pending_pruned > 0 {
+                let old_executed_count = inner.fast_path_executed.len();
+                let executed_to_remove: Vec<String> = inner.fast_path_executed.iter()
+                    .filter(|tx_hash| {
+                        match inner.fast_path_confirmed.get(*tx_hash) {
+                            Some(finality) => matches!(finality.status, rinku_core::types::FastPathStatus::Finalized),
+                            None => false,
+                        }
+                    })
+                    .cloned()
+                    .collect();
+                for tx_hash in &executed_to_remove {
+                    inner.fast_path_executed.remove(tx_hash);
+                }
+                let executed_pruned = old_executed_count - inner.fast_path_executed.len();
+                
+                if confirmed_pruned > 0 || pending_pruned > 0 || executed_pruned > 0 {
                     info!(
-                        "Fast-path cleanup: {} confirmed, {} pending pruned (remaining: {} confirmed, {} pending)",
-                        confirmed_pruned, pending_pruned,
-                        inner.fast_path_confirmed.len(), inner.fast_path_pending.len()
+                        "Fast-path cleanup: {} confirmed, {} pending, {} executed pruned (remaining: {} confirmed, {} pending, {} executed)",
+                        confirmed_pruned, pending_pruned, executed_pruned,
+                        inner.fast_path_confirmed.len(), inner.fast_path_pending.len(), inner.fast_path_executed.len()
                     );
                 }
                 
@@ -1835,7 +1861,7 @@ impl GossipService {
             let mut inner = self.inner.write().await;
             for tx_hash in &finalized_tx_hashes {
                 if let Some(finality) = inner.fast_path_confirmed.get_mut(tx_hash) {
-                    if finality.status == rinku_core::types::FastPathStatus::Confirmed {
+                    if matches!(finality.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Executed) {
                         finality.status = rinku_core::types::FastPathStatus::Finalized;
                         finality.checkpoint_height = Some(checkpoint.height);
                     }
@@ -2364,7 +2390,7 @@ impl GossipService {
                         weight_trie_root: String::new(),
                     };
                     
-                    if let Err(e) = self.state.apply_checkpoint(checkpoint).await {
+                    if let Err(e) = self.state.apply_checkpoint(checkpoint, None).await {
                         warn!("Failed to apply synced checkpoint {}: {}", cp_data.height, e);
                         failed_count += 1;
                     } else {
@@ -3435,9 +3461,15 @@ impl GossipService {
                     // Now we should have ALL transactions that the leader finalized
                     // Clone hashes before move so we can use them for fast-path status upgrade later
                     let finalized_hashes_for_fastpath = finalized_tx_hashes.clone();
+                    // Get fast-path executed set to skip double-execution at checkpoint
+                    let fp_executed_set = {
+                        let inner = self.inner.read().await;
+                        inner.fast_path_executed.clone()
+                    };
                     match self.state.apply_checkpoint_with_finalized_hashes(
                         checkpoint.clone(), 
-                        finalized_tx_hashes
+                        finalized_tx_hashes,
+                        &fp_executed_set,
                     ).await {
                         Err(e) => {
                             warn!(
@@ -3488,7 +3520,7 @@ impl GossipService {
                                 let mut inner = self.inner.write().await;
                                 for tx_hash in &finalized_hashes_for_fastpath {
                                     if let Some(finality) = inner.fast_path_confirmed.get_mut(tx_hash) {
-                                        if finality.status == rinku_core::types::FastPathStatus::Confirmed {
+                                        if matches!(finality.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Executed) {
                                             finality.status = rinku_core::types::FastPathStatus::Finalized;
                                             finality.checkpoint_height = Some(checkpoint.height);
                                         }
@@ -3604,6 +3636,8 @@ impl GossipService {
                                     stake_acked,
                                     quorum_threshold
                                 );
+                                drop(inner);
+                                self.execute_on_fast_path(&tx).await;
                             }
                             
                             let (our_validator, our_stake) = self.state.get_validator_info().await;
@@ -3612,6 +3646,7 @@ impl GossipService {
                                 let our_stake = self.state.get_validator_stake(&validator_addr).await.unwrap_or(0.0);
                                 
                                 if our_stake > 0.0 {
+                                    let mut just_confirmed = false;
                                     {
                                         let mut inner = self.inner.write().await;
                                         if let Some(finality) = inner.fast_path_pending.get_mut(&tx.hash) {
@@ -3632,6 +3667,7 @@ impl GossipService {
                                                     let confirmed = finality.clone();
                                                     let stake = finality.total_stake_acked;
                                                     inner.fast_path_confirmed.insert(tx.hash.clone(), confirmed);
+                                                    just_confirmed = true;
                                                     
                                                     info!(
                                                         "FastPath CONFIRMED for {} with {:.2} stake (threshold: {:.2})",
@@ -3642,6 +3678,10 @@ impl GossipService {
                                                 }
                                             }
                                         }
+                                    }
+                                    
+                                    if just_confirmed {
+                                        self.execute_on_fast_path(&tx).await;
                                     }
                                     
                                     let ack = GossipMessage::FastPathAck {
@@ -3770,6 +3810,8 @@ impl GossipService {
                             stake_acked,
                             quorum_threshold
                         );
+                        drop(inner);
+                        self.execute_on_fast_path_by_hash(&tx_hash).await;
                     }
                 }
                 
@@ -3818,6 +3860,53 @@ impl GossipService {
             return Some(finality.clone());
         }
         None
+    }
+
+    pub async fn is_fast_path_executed(&self, tx_hash: &str) -> bool {
+        let inner = self.inner.read().await;
+        inner.fast_path_executed.contains(tx_hash)
+    }
+
+    pub async fn get_all_fast_path_executed(&self) -> std::collections::HashSet<String> {
+        let inner = self.inner.read().await;
+        inner.fast_path_executed.clone()
+    }
+
+    async fn execute_on_fast_path(&self, tx: &rinku_core::types::SignedTransaction) {
+        {
+            let inner = self.inner.read().await;
+            if inner.fast_path_executed.contains(&tx.hash) {
+                return;
+            }
+        }
+
+        let executed = self.state.execute_fast_path_transaction(tx).await;
+
+        if executed {
+            let mut inner = self.inner.write().await;
+            inner.fast_path_executed.insert(tx.hash.clone());
+            if let Some(finality) = inner.fast_path_confirmed.get_mut(&tx.hash) {
+                finality.status = rinku_core::types::FastPathStatus::Executed;
+            }
+        }
+    }
+
+    async fn execute_on_fast_path_by_hash(&self, tx_hash: &str) {
+        {
+            let inner = self.inner.read().await;
+            if inner.fast_path_executed.contains(tx_hash) {
+                return;
+            }
+        }
+
+        if let Some(tx) = self.state.get_transaction(tx_hash).await {
+            self.execute_on_fast_path(&tx).await;
+        } else {
+            tracing::warn!(
+                "FastPath execution skipped: tx {} not found in DAG",
+                &tx_hash[..16.min(tx_hash.len())]
+            );
+        }
     }
 
     pub async fn broadcast_fast_path_transaction(&self, tx: SignedTransaction, validator_address: &str, validator_stake: f64) -> bool {

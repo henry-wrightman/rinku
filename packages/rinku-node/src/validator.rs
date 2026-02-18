@@ -1,5 +1,7 @@
 use anyhow::Result;
 use rinku_core::crypto::{KeyPair, encrypt_private_key_hex, decrypt_private_key_hex, parse_encrypted_private_key};
+#[allow(unused_imports)]
+use rinku_core::crypto::CryptoError;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::info;
@@ -134,6 +136,23 @@ impl ValidatorKeyManager {
 
     pub fn address(&self) -> Option<String> {
         self.keypair.as_ref().map(|k| k.address())
+    }
+
+    pub fn private_key_hex(&self) -> Option<String> {
+        self.keypair.as_ref().map(|k| k.private_key_hex())
+    }
+
+    pub fn wallet_json(&self) -> Option<String> {
+        self.keypair.as_ref().map(|k| k.wallet_json())
+    }
+
+    pub fn load_from_any_format(&mut self, input: &str) -> Result<String, ValidatorError> {
+        let keypair = KeyPair::from_any_key_format(input)
+            .map_err(|e| ValidatorError::EncryptionFailed(e.to_string()))?;
+        let address = keypair.address();
+        self.keypair = Some(keypair);
+        info!("Loaded validator key from input: {}...", &address[..16]);
+        Ok(address)
     }
 
     pub fn sign(&self, message: &[u8]) -> Result<String, ValidatorError> {

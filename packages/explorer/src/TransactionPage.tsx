@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { parseTransactionURL, TransactionKind } from "@rinku/core";
 import { PageHeader } from "./components/PageHeader";
+import type { WeightProofResponse } from "./types";
 
 const getApiBaseUrl = () => {
   const envApiUrl = import.meta.env.VITE_API_URL;
@@ -57,6 +58,158 @@ interface ProofData {
   qrViable?: boolean;
 }
 
+interface TrustScoreData {
+  loading: boolean;
+  data?: WeightProofResponse;
+  error?: string;
+}
+
+interface FastPathStatusData {
+  hash: string;
+  status: string;
+  aggregated_stake: number;
+  quorum_threshold: number;
+  quorum_percent: number;
+  ack_count: number;
+  finality_time_ms?: number;
+}
+
+const getTrustScoreColor = (score: number): string => {
+  if (score < 30) return "#bf616a";
+  if (score < 70) return "#ebcb8b";
+  return "#a3be8c";
+};
+
+const formatMicroRKU = (micro: number): string => {
+  const rku = micro / 1_000_000;
+  return rku.toLocaleString(undefined, { maximumFractionDigits: 2 });
+};
+
+const TrustScoreSection = ({ data, loading, error }: TrustScoreData) => {
+  if (loading) {
+    return (
+      <div className="trust-section" style={{
+        marginTop: 24,
+        padding: 16,
+        background: "rgba(136, 192, 208, 0.05)",
+        borderRadius: 0,
+        border: "1px solid rgba(136, 192, 208, 0.2)",
+      }}>
+        <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>trust score</h3>
+        <div style={{ color: "#d8dee9", opacity: 0.7 }}>loading attestations...</div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="trust-section" style={{
+        marginTop: 24,
+        padding: 16,
+        background: "rgba(136, 192, 208, 0.05)",
+        borderRadius: 0,
+        border: "1px solid rgba(136, 192, 208, 0.2)",
+      }}>
+        <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>trust score</h3>
+        <div style={{ color: "#ebcb8b", opacity: 0.8 }}>
+          {data?.aggregated_weight.attestation_count === 0 
+            ? "no attestations yet" 
+            : error || "failed to load"}
+        </div>
+      </div>
+    );
+  }
+
+  const { aggregated_weight, trust_score, boost_ratio, suppress_ratio, merkle_proof, checkpoint_height } = data;
+  const color = getTrustScoreColor(trust_score);
+  const neutralRatio = 100 - boost_ratio - suppress_ratio;
+
+  if (aggregated_weight.attestation_count === 0) {
+    return (
+      <div className="trust-section" style={{
+        marginTop: 24,
+        padding: 16,
+        background: "rgba(136, 192, 208, 0.05)",
+        borderRadius: 0,
+        border: "1px solid rgba(136, 192, 208, 0.2)",
+      }}>
+        <h3 style={{ margin: "0 0 12px 0", color: "#88c0d0" }}>trust score</h3>
+        <div style={{ color: "#ebcb8b", opacity: 0.8 }}>no attestations yet</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="trust-section" style={{
+      marginTop: 24,
+      padding: 16,
+      background: "rgba(136, 192, 208, 0.05)",
+      borderRadius: 0,
+      border: "1px solid rgba(136, 192, 208, 0.2)",
+    }}>
+      <h3 style={{ margin: "0 0 16px 0", color: "#88c0d0" }}>trust score</h3>
+      
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+        <div style={{
+          fontSize: 36,
+          fontWeight: "bold",
+          color,
+        }}>
+          {trust_score}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{
+            height: 8,
+            background: "#2e3440",
+            borderRadius: 4,
+            overflow: "hidden",
+            display: "flex",
+          }}>
+            {suppress_ratio > 0 && (
+              <div style={{ width: `${suppress_ratio}%`, background: "#bf616a", height: "100%" }} />
+            )}
+            {neutralRatio > 0 && (
+              <div style={{ width: `${neutralRatio}%`, background: "#4c566a", height: "100%" }} />
+            )}
+            {boost_ratio > 0 && (
+              <div style={{ width: `${boost_ratio}%`, background: "#a3be8c", height: "100%" }} />
+            )}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 11, color: "#d8dee9", opacity: 0.7 }}>
+            <span>suppressed</span>
+            <span>neutral</span>
+            <span>boosted</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+        <div style={{ padding: 12, background: "rgba(163, 190, 140, 0.1)", borderRadius: 4 }}>
+          <div style={{ fontSize: 11, color: "#a3be8c", marginBottom: 4 }}>boost stake</div>
+          <div style={{ fontSize: 14, color: "#d8dee9" }}>{formatMicroRKU(aggregated_weight.boost_stake_micro)} RKU</div>
+          <div style={{ fontSize: 11, color: "#d8dee9", opacity: 0.6 }}>{boost_ratio.toFixed(1)}%</div>
+        </div>
+        <div style={{ padding: 12, background: "rgba(76, 86, 106, 0.3)", borderRadius: 4 }}>
+          <div style={{ fontSize: 11, color: "#81a1c1", marginBottom: 4 }}>neutral stake</div>
+          <div style={{ fontSize: 14, color: "#d8dee9" }}>{formatMicroRKU(aggregated_weight.neutral_stake_micro)} RKU</div>
+          <div style={{ fontSize: 11, color: "#d8dee9", opacity: 0.6 }}>{neutralRatio.toFixed(1)}%</div>
+        </div>
+        <div style={{ padding: 12, background: "rgba(191, 97, 106, 0.1)", borderRadius: 4 }}>
+          <div style={{ fontSize: 11, color: "#bf616a", marginBottom: 4 }}>suppress stake</div>
+          <div style={{ fontSize: 14, color: "#d8dee9" }}>{formatMicroRKU(aggregated_weight.suppress_stake_micro)} RKU</div>
+          <div style={{ fontSize: 11, color: "#d8dee9", opacity: 0.6 }}>{suppress_ratio.toFixed(1)}%</div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#d8dee9", opacity: 0.7 }}>
+        <span>{aggregated_weight.attestation_count} attestation{aggregated_weight.attestation_count !== 1 ? "s" : ""}</span>
+        {checkpoint_height && <span>checkpoint #{checkpoint_height}</span>}
+        {merkle_proof.length > 0 && <span style={{ color: "#a3be8c" }}>proof available ({merkle_proof.length} hashes)</span>}
+      </div>
+    </div>
+  );
+};
+
 function TransactionPage() {
   const { payload } = useParams<{ payload: string }>();
   const [tx, setTx] = useState<TransactionData | null>(null);
@@ -65,6 +218,8 @@ function TransactionPage() {
   const [copied, setCopied] = useState(false);
   const [proofCopied, setProofCopied] = useState(false);
   const [proof, setProof] = useState<ProofData>({ loading: false });
+  const [trustScore, setTrustScore] = useState<TrustScoreData>({ loading: false });
+  const [fpStatus, setFpStatus] = useState<FastPathStatusData | null>(null);
 
   useEffect(() => {
     if (!payload) {
@@ -116,6 +271,25 @@ function TransactionPage() {
       .catch(() => {
         setProof({ loading: false, error: "Failed to fetch proof" });
       });
+    
+    // Fetch trust score / weight proof
+    setTrustScore({ loading: true });
+    fetch(`${NODE_URL}/api/tx/${tx.hash}/weight-proof`)
+      .then((res) => res.json())
+      .then((data: WeightProofResponse) => {
+        setTrustScore({ loading: false, data });
+      })
+      .catch(() => {
+        setTrustScore({ loading: false, error: "Failed to fetch trust score" });
+      });
+    
+    // Fetch fast-path finality status
+    fetch(`${NODE_URL}/api/tx/fast/${tx.hash}`)
+      .then((res) => res.json())
+      .then((data: FastPathStatusData) => {
+        setFpStatus(data);
+      })
+      .catch(() => {});
   }, [tx?.hash]);
 
   const formatTime = (ts: number) => {
@@ -240,6 +414,25 @@ function TransactionPage() {
               {formatTxKind(tx.kind).label}
             </span>
           </div>
+          {fpStatus && (
+            <div className="meta-row">
+              <span className="label">status</span>
+              <span
+                className="value"
+                style={{
+                  color:
+                    fpStatus.status === "confirmed" || fpStatus.status === "executed" || fpStatus.status === "finalized"
+                      ? "#a3be8c"
+                      : "#ebcb8b",
+                  fontWeight: "bold",
+                }}
+              >
+                {fpStatus.status}
+                {fpStatus.finality_time_ms != null && ` (${fpStatus.finality_time_ms}ms)`}
+                {fpStatus.quorum_percent > 0 && fpStatus.status !== "finalized" && ` · ${fpStatus.quorum_percent}% quorum`}
+              </span>
+            </div>
+          )}
           <div className="meta-row">
             <span className="label">timestamp</span>
             <span className="value">{formatTime(tx.ts)}</span>
@@ -265,8 +458,8 @@ function TransactionPage() {
           )}
           <div className="meta-row">
             <span className="label">signature</span>
-            <span className="value mono" style={{ opacity: tx.sig ? 1 : 0.5 }}>
-              {tx.sig ? truncate(tx.sig, 24) : "(system tx)"}
+            <span className="value mono" style={{ opacity: tx.sig && tx.sig !== "sig" ? 1 : 0.5 }}>
+              {tx.sig && tx.sig !== "sig" ? truncate(tx.sig, 24) : "(system tx)"}
             </span>
           </div>
         </div>
@@ -305,6 +498,14 @@ function TransactionPage() {
           )}
         </div>
 
+        {tx.hash && (
+          <TrustScoreSection 
+            loading={trustScore.loading} 
+            data={trustScore.data} 
+            error={trustScore.error} 
+          />
+        )}
+
         {tx.hash ? (
           <div
             className="tx-proof"
@@ -326,11 +527,11 @@ function TransactionPage() {
               </div>
             ) : proof.proofUrl ? (
               <>
-                <div className="proof-url-box">{proofData.proofUrl}</div>
+                <div className="proof-url-box">{proof.proofUrl}</div>
                 <div className="proof-actions">
                   <button
                     className={`btn-proof ${proofCopied ? "btn-proof-success" : ""}`}
-                    onClick={copyProof}
+                    onClick={copyProofUrl}
                   >
                     {proofCopied ? "copied!" : "copy proof url"}
                   </button>

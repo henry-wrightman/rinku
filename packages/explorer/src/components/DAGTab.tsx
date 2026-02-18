@@ -14,19 +14,9 @@ const getApiBaseUrl = () => {
     !envApiUrl.includes("localhost")
   ) {
     console.log("Using VITE_API_URL:", envApiUrl);
-    return `${envApiUrl}`;
+    return `${envApiUrl}/api`;
   }
-
-  if (import.meta.env.PROD) {
-    // Production on Replit: transform port in hostname
-    const host = window.location.hostname;
-    console.log(
-      "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}/api`,
-    );
-    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
-  }
-  return "/"; // Dev: use Vite proxy
+  return "/api";
 };
 const NODE_URL = getApiBaseUrl();
 
@@ -49,6 +39,53 @@ const formatTxKind = (
     default:
       return { label: "transfer", color: "#d8dee9" };
   }
+};
+
+const getTrustScoreColor = (score: number): string => {
+  if (score < 30) return "#bf616a";
+  if (score < 70) return "#ebcb8b";
+  return "#a3be8c";
+};
+
+const TrustScoreBadge = ({
+  score,
+  count,
+}: {
+  score?: number;
+  count?: number;
+}) => {
+  if (score === undefined || count === undefined || count === 0) {
+    return null;
+  }
+
+  const color = getTrustScoreColor(score);
+
+  return (
+    <span
+      className="trust-badge"
+      style={{
+        position: "absolute",
+        top: 8,
+        right: 8,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "3px 8px",
+        borderRadius: 4,
+        backgroundColor: `${color}22`,
+        border: `1px solid ${color}44`,
+        fontSize: 12,
+        fontWeight: 500,
+        color,
+      }}
+      title={`Trust score: ${score}/100 (${count} attestation${count !== 1 ? "s" : ""})`}
+    >
+      <span style={{ fontSize: 11 }}>
+        {score >= 70 ? "+" : score < 30 ? "-" : "~"}
+      </span>
+      {score}
+    </span>
+  );
 };
 
 interface ProofState {
@@ -108,7 +145,7 @@ export function DAGTab({
     }));
 
     try {
-      const apiUrl = NODE_URL.endsWith('/api') ? NODE_URL : `${NODE_URL}/api`;
+      const apiUrl = NODE_URL.endsWith("/api") ? NODE_URL : `${NODE_URL}/api`;
       const res = await fetch(`${apiUrl}/tx/${hash}/proof`);
       const data = await res.json();
 
@@ -158,7 +195,12 @@ export function DAGTab({
         <div
           key={node.hash}
           className={`dag-node ${newHashes.has(node.hash) ? "new-tx" : ""}`}
+          style={{ position: "relative" }}
         >
+          <TrustScoreBadge
+            score={node.trust_score}
+            count={node.attestation_count}
+          />
           <div className="hash">
             <span className={newHashes.has(node.hash) ? "typewriter" : ""}>
               {truncate(node.hash, 12)}
@@ -182,19 +224,29 @@ export function DAGTab({
               ? "genesis"
               : truncate(node.from, 6)} → {truncate(node.to, 6)} ·{" "}
             {timeAgo(node.ts)} · refs {node.parentCount} parent(s) ·{" "}
-            <span style={{ 
-              color: node.fast_path_status === 'confirmed' ? "#a3be8c" : 
-                     node.finalized ? "#88c0d0" : "#ebcb8b" 
-            }}>
-              {node.fast_path_status === 'confirmed' 
-                ? `confirmed${node.fast_path_finality_ms ? ` (${node.fast_path_finality_ms}ms)` : ''}`
-                : node.finalized 
-                  ? "checkpoint finalized" 
+            <span
+              style={{
+                color:
+                  node.fast_path_status === "confirmed" ||
+                  node.fast_path_status === "executed" ||
+                  node.fast_path_status === "finalized"
+                    ? "#a3be8c"
+                    : node.finalized
+                      ? "#a3be8c"
+                      : "#ebcb8b",
+              }}
+            >
+              {node.fast_path_status === "confirmed" ||
+              node.fast_path_status === "executed" ||
+              node.fast_path_status === "finalized"
+                ? `confirmed${node.fast_path_finality_ms ? ` (${node.fast_path_finality_ms}ms)` : ""}${node.finalized ? " + finalized" : ""}`
+                : node.finalized
+                  ? "finalized"
                   : "pending"}
             </span>
           </div>
           <div className="actions">
-            <span
+            {/* <span
               className="link"
               onClick={() => {
                 const fullUrl = window.location.origin + node.url;
@@ -202,31 +254,52 @@ export function DAGTab({
               }}
             >
               copy url
-            </span>
-            {node.finalized && (
-              <span
-                className="link"
-                style={{
-                  color: proofStates[node.hash]?.copied
-                    ? "#a3be8c"
-                    : proofStates[node.hash]?.error
-                      ? "#bf616a"
-                      : "#88c0d0",
-                }}
-                onClick={() => copyProofUrl(node.hash)}
-              >
-                {proofStates[node.hash]?.loading
-                  ? "..."
-                  : proofStates[node.hash]?.copied
-                    ? "proof copied!"
-                    : proofStates[node.hash]?.error
-                      ? proofStates[node.hash].error
-                      : "copy proof"}
-              </span>
-            )}
+            </span> */}
             <Link to={node.url} className="link">
               view
-            </Link>
+            </Link>{" "}
+            {(node.fast_path_status === "confirmed" ||
+              node.fast_path_status === "executed" ||
+              node.fast_path_status === "finalized") && (
+              <Link to={`?tab=thread&hash=${node.hash}`} className="rlink">
+                reply
+              </Link>
+            )}
+            {(node.fast_path_status === "confirmed" ||
+              node.fast_path_status === "executed" ||
+              node.fast_path_status === "finalized") && (
+              <Link
+                to={`/tx/h/${node.hash}#vote`}
+                className="link"
+                style={{ marginLeft: 8 }}
+              >
+                vote
+              </Link>
+            )}
+            {node.finalized && (
+              <>
+                {" · "}
+                <span
+                  className="link"
+                  style={{
+                    color: proofStates[node.hash]?.copied
+                      ? "#a3be8c"
+                      : proofStates[node.hash]?.error
+                        ? "#bf616a"
+                        : "#88c0d0",
+                  }}
+                  onClick={() => copyProofUrl(node.hash)}
+                >
+                  {proofStates[node.hash]?.loading
+                    ? "..."
+                    : proofStates[node.hash]?.copied
+                      ? "proof copied!"
+                      : proofStates[node.hash]?.error
+                        ? proofStates[node.hash].error
+                        : "copy proof"}
+                </span>
+              </>
+            )}
           </div>
         </div>
       ))}

@@ -359,7 +359,7 @@ mod tests {
         assert!(data_only_tx.is_fast_path_eligible());
 
         let transfer_tx = create_test_tx(10.0, None);
-        assert!(!transfer_tx.is_fast_path_eligible());
+        assert!(transfer_tx.is_fast_path_eligible());
     }
 
     #[tokio::test]

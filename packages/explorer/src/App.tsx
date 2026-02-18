@@ -15,42 +15,14 @@ import {
   WalletModal,
   ThreadTab,
   AnimatedNumber,
+  ChatTab,
 } from "./components";
-import {
-  deserializeKeyPair,
-  validateSerializedKey,
-  type SerializedKeyPair,
-} from "./crypto";
 import { formatNumber, formatTps } from "./utils";
 import { useTheme } from "./hooks/useTheme";
+import { useRinku } from "./context/WalletContext";
+import { API_URL } from "./config";
 
-// Use VITE_API_URL if set (for production deployments to external APIs like Fly.io)
-// Otherwise fall back to Vite proxy in dev or Replit port transformation in prod
-const getApiBaseUrl = () => {
-  const envApiUrl = import.meta.env.VITE_API_URL;
-
-  // If VITE_API_URL is set and not localhost, use it directly
-  if (
-    envApiUrl &&
-    !envApiUrl.includes("127.0.0.1") &&
-    !envApiUrl.includes("localhost")
-  ) {
-    console.log("Using VITE_API_URL:", envApiUrl);
-    return `${envApiUrl}/api`;
-  }
-
-  if (import.meta.env.PROD) {
-    // Production on Replit: transform port in hostname
-    const host = window.location.hostname;
-    console.log(
-      "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}/api`,
-    );
-    return `https://${host.replace(/-5000\./, "-3001.")}/api`;
-  }
-  return "/api"; // Dev: use Vite proxy
-};
-const NODE_URL = getApiBaseUrl();
+const NODE_URL = API_URL;
 const PAGE_SIZE = 20;
 
 export interface P2pStats {
@@ -133,6 +105,7 @@ interface FinalityStats {
   checkpointsPerMinute: number;
   lastCheckpointAge: number;
   txThroughput: number;
+  avgConfirmationMs: number | null;
 }
 
 interface VersionInfo {
@@ -152,7 +125,8 @@ type TabType =
   | "tokenomics"
   | "zk"
   | "verify"
-  | "thread";
+  | "thread"
+  | "chat";
 
 const validTabs: TabType[] = [
   "dag",
@@ -164,6 +138,7 @@ const validTabs: TabType[] = [
   "zk",
   "verify",
   "thread",
+  "chat",
 ];
 
 function App() {
@@ -219,18 +194,8 @@ function App() {
   const [connected, setConnected] = useState(false);
   const { darkMode, toggleTheme } = useTheme();
   const [walletOpen, setWalletOpen] = useState(false);
-  const [wallet, setWallet] = useState<SerializedKeyPair | null>(null);
+  const { wallet } = useRinku();
 
-  useEffect(() => {
-    const stored = localStorage.getItem("rinku_wallet");
-    if (stored && validateSerializedKey(stored)) {
-      try {
-        setWallet(deserializeKeyPair(stored));
-      } catch (e) {
-        console.error("Failed to load stored wallet:", e);
-      }
-    }
-  }, []);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [searchResult, setSearchResult] = useState<{
@@ -358,15 +323,14 @@ function App() {
         nodeVersion={versionInfo?.nodeVersion}
         peersConnected={
           Array.from(
-            peerStats?.p2pPeers ||
-              []
-                .reduce((map, obj) => {
-                  if (!map.has(obj.peer_id)) {
-                    map.set(obj.peer_id, obj);
-                  }
-                  return map;
-                }, new Map())
-                .values(),
+            (peerStats?.p2pPeers || [])
+              .reduce((map: Map<string, any>, obj: any) => {
+                if (!map.has(obj.peer_id)) {
+                  map.set(obj.peer_id, obj);
+                }
+                return map;
+              }, new Map())
+              .values(),
           ).length || 0
         }
       />
@@ -389,7 +353,6 @@ function App() {
       <WalletModal
         isOpen={walletOpen}
         onClose={() => setWalletOpen(false)}
-        onWalletChange={setWallet}
       />
 
       <div className="stats">
@@ -461,19 +424,24 @@ function App() {
 
       {finalityStats &&
         (finalityStats.avgTimeToFinality > 0 ||
-          finalityStats.pendingCount > 0) && (
+          finalityStats.pendingCount > 0 ||
+          finalityStats.avgConfirmationMs != null) && (
           <div className="stats finality-stats">
+            <div className="stat-item">
+              <span className="stat-value">
+                {finalityStats.avgConfirmationMs != null
+                  ? `${finalityStats.avgConfirmationMs}ms`
+                  : "-"}
+              </span>
+              <span title="yup, that fast" className="stat-label">
+                avg fast-path finality
+              </span>
+            </div>
             <div className="stat-item">
               <span className="stat-value">
                 {(finalityStats.avgTimeToFinality / 1000).toFixed(1)}s
               </span>
-              <span className="stat-label">avg finality</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-value">
-                {(finalityStats.p95TimeToFinality / 1000).toFixed(1)}s
-              </span>
-              <span className="stat-label">p95 finality</span>
+              <span className="stat-label">avg checkpoint</span>
             </div>
             <div className="stat-item">
               <span className="stat-value">{finalityStats.pendingCount}</span>
@@ -551,7 +519,7 @@ function App() {
           >
             faucet
           </span>
-          <span
+          {/* <span
             className={tab === "contracts" ? "active" : ""}
             onClick={() => {
               setTab("contracts");
@@ -559,7 +527,7 @@ function App() {
             }}
           >
             contracts
-          </span>
+          </span> */}
           {/* <span
             className={tab === "zk" ? "active" : ""}
             onClick={() => {
@@ -578,7 +546,7 @@ function App() {
           >
             rewards
           </span>
-          <span
+          {/* <span
             className={tab === "tokenomics" ? "active" : ""}
             onClick={() => {
               setTab("tokenomics");
@@ -586,7 +554,7 @@ function App() {
             }}
           >
             tokenomics
-          </span>
+          </span> */}
           <span
             className={tab === "verify" ? "active" : ""}
             onClick={() => {
@@ -596,7 +564,7 @@ function App() {
           >
             verify
           </span>
-          {/* <span
+          <span
             className={tab === "thread" ? "active" : ""}
             onClick={() => {
               setTab("thread");
@@ -604,7 +572,16 @@ function App() {
             }}
           >
             thread
-          </span> */}
+          </span>
+          <span
+            className={tab === "chat" ? "active" : ""}
+            onClick={() => {
+              setTab("chat");
+              setMobileNavOpen(false);
+            }}
+          >
+            chat
+          </span>
         </div>
       </div>
       {mobileNavOpen && (
@@ -636,7 +613,10 @@ function App() {
       {tab === "zk" && <ZKTab />}
       {tab === "verify" && <VerifyProofTab />}
       {tab === "thread" && (
-        <ThreadTab wallet={wallet} onWalletOpen={() => setWalletOpen(true)} />
+        <ThreadTab onWalletOpen={() => setWalletOpen(true)} />
+      )}
+      {tab === "chat" && (
+        <ChatTab onWalletOpen={() => setWalletOpen(true)} />
       )}
     </div>
   );

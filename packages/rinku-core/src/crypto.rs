@@ -73,15 +73,88 @@ impl KeyPair {
         hex::encode(self.signing_key.to_bytes())
     }
 
+    pub fn private_key_pkcs8_der_hex(&self) -> String {
+        let priv_bytes = self.signing_key.to_bytes();
+        let pub_point = self.verifying_key.to_encoded_point(false);
+        let pub_bytes = pub_point.as_bytes();
+
+        let mut der = Vec::with_capacity(138);
+        der.extend_from_slice(&[0x30, 0x81, 0x87]);
+        der.extend_from_slice(&[0x02, 0x01, 0x00]);
+        der.extend_from_slice(&[0x30, 0x13]);
+        der.extend_from_slice(&[0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]);
+        der.extend_from_slice(&[0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]);
+        der.extend_from_slice(&[0x04, 0x6d]);
+        der.extend_from_slice(&[0x30, 0x6b]);
+        der.extend_from_slice(&[0x02, 0x01, 0x01]);
+        der.extend_from_slice(&[0x04, 0x20]);
+        der.extend_from_slice(&priv_bytes);
+        der.extend_from_slice(&[0xa1, 0x44, 0x03, 0x42, 0x00]);
+        der.extend_from_slice(pub_bytes);
+
+        hex::encode(der)
+    }
+
+    pub fn fingerprint(&self) -> String {
+        let pub_point = self.verifying_key.to_encoded_point(false);
+        let pub_bytes = pub_point.as_bytes();
+        let hash = sha256(pub_bytes);
+        hex::encode(hash)[..40].to_string()
+    }
+
+    pub fn wallet_json(&self) -> String {
+        serde_json::json!({
+            "publicKey": self.public_key_hex(),
+            "privateKey": self.private_key_pkcs8_der_hex(),
+            "fingerprint": self.fingerprint()
+        }).to_string()
+    }
+
+    pub fn from_pkcs8_der_hex(hex_key: &str) -> Result<Self, CryptoError> {
+        let bytes = hex::decode(hex_key).map_err(|_| CryptoError::InvalidPrivateKey)?;
+        if bytes.len() < 73 || bytes[0] != 0x30 {
+            return Err(CryptoError::InvalidPrivateKey);
+        }
+        let priv_offset = 36;
+        if bytes.len() < priv_offset + 34 || bytes[priv_offset] != 0x04 || bytes[priv_offset + 1] != 0x20 {
+            return Err(CryptoError::InvalidPrivateKey);
+        }
+        let raw_key = &bytes[priv_offset + 2..priv_offset + 34];
+        let secret_key = SecretKey::from_slice(raw_key).map_err(|_| CryptoError::InvalidPrivateKey)?;
+        let signing_key = SigningKey::from(secret_key);
+        let verifying_key = *signing_key.verifying_key();
+        Ok(Self { signing_key, verifying_key })
+    }
+
+    pub fn from_wallet_json(json: &str) -> Result<Self, CryptoError> {
+        let parsed: serde_json::Value = serde_json::from_str(json).map_err(|_| CryptoError::InvalidPrivateKey)?;
+        if let Some(pk) = parsed.get("privateKey").and_then(|v| v.as_str()) {
+            return Self::from_pkcs8_der_hex(pk);
+        }
+        Err(CryptoError::InvalidPrivateKey)
+    }
+
+    pub fn from_any_key_format(input: &str) -> Result<Self, CryptoError> {
+        let trimmed = input.trim();
+        if trimmed.starts_with('{') {
+            return Self::from_wallet_json(trimmed);
+        }
+        if trimmed.len() == 64 {
+            return Self::from_private_key_hex(trimmed);
+        }
+        if trimmed.len() > 64 {
+            return Self::from_pkcs8_der_hex(trimmed);
+        }
+        Self::from_private_key_hex(trimmed)
+    }
+
     pub fn public_key_hex(&self) -> String {
         let point = self.verifying_key.to_encoded_point(false);
         hex::encode(point.as_bytes())
     }
 
     pub fn address(&self) -> String {
-        let pubkey_hex = self.public_key_hex();
-        let hash = sha256_hex(&pubkey_hex);
-        hash[..40].to_string()
+        self.fingerprint()
     }
 
     pub fn sign(&self, message: &[u8]) -> Result<String, CryptoError> {

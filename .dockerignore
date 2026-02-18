@@ -9,13 +9,23 @@
 !packages/rinku-core
 !packages/rinku-node
 
+# Include activity bot build inputs
+!package.json
+!package-lock.json
+!tsconfig.base.json
+!scripts
+!scripts/**
+!packages/core
+!packages/core/**
+!packages/wallet
+!packages/wallet/**
+
 # Exclude build artifacts
 packages/rinku-core/target
 packages/rinku-node/target
 target
 
 # Exclude node_modules and TS packages
-packages/core
 packages/explorer
 packages/faucet
 packages/node
@@ -24,7 +34,6 @@ packages/node
 .git
 .gitignore
 *.md
-scripts
 docs
 attached_assets
 node_modules

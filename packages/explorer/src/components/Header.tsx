@@ -108,7 +108,7 @@ export function Header({
         )}
         {peersConnected !== undefined && (
           <span className="status-text" title="Connected peers">
-            ({peersConnected} peers)
+            ({peersConnected + 1} peers)
           </span>
         )}
       </div>

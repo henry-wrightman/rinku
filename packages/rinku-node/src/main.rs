@@ -59,8 +59,103 @@ use validator_identity::ValidatorIdentityService;
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    let export_key = args.iter().any(|a| a == "--export-key");
+    let import_key_flag = args.iter().any(|a| a == "--import-key");
+    let import_key_value = args.iter().position(|a| a == "--import-key")
+        .and_then(|i| args.get(i + 1).cloned());
+    let show_address = args.iter().any(|a| a == "--show-address");
+
+    if import_key_flag && import_key_value.is_none() {
+        eprintln!("Error: --import-key requires a private key hex argument.");
+        eprintln!("Usage: cargo run -p rinku-node -- --import-key <PRIVATE_KEY_HEX>");
+        std::process::exit(1);
+    }
     let tui_mode = args.iter().any(|a| a == "--tui" || a == "-t");
-    
+
+    if export_key || import_key_value.is_some() || show_address {
+        let config = NodeConfig::from_env();
+        let key_password = std::env::var("VALIDATOR_KEY_PASSWORD")
+            .unwrap_or_else(|_| "dev-password".to_string());
+        if config.mainnet_mode && (key_password.is_empty() || key_password == "dev-password") {
+            eprintln!("Error: MAINNET_MODE requires VALIDATOR_KEY_PASSWORD to be set (non-default).");
+            std::process::exit(1);
+        }
+        let mut manager = ValidatorKeyManager::new(&config.data_dir);
+
+        if export_key {
+            let key_path = std::path::Path::new(&config.data_dir).join("validator.key");
+            if !key_path.exists() {
+                eprintln!("No wallet key found at {}/validator.key", config.data_dir);
+                eprintln!();
+                eprintln!("To create one, either:");
+                eprintln!("  1. Start the node normally (a key will be generated automatically)");
+                eprintln!("  2. Import an existing key: cargo run -p rinku-node -- --import-key <JSON>");
+                std::process::exit(1);
+            }
+            match manager.load_key(&key_password) {
+                Ok(_address) => {
+                    let wallet_json = manager.wallet_json()
+                        .expect("Key loaded but wallet JSON unavailable");
+                    eprintln!("Wallet JSON (KEEP SECRET):");
+                    println!("{}", wallet_json);
+                    eprintln!();
+                    eprintln!("Import this into the Explorer: Settings > Import Private Key > paste the JSON above");
+                }
+                Err(e) => {
+                    eprintln!("Failed to load validator key: {}", e);
+                    eprintln!("Check that VALIDATOR_KEY_PASSWORD is correct.");
+                    std::process::exit(1);
+                }
+            }
+            return Ok(());
+        }
+
+        if let Some(ref key_input) = import_key_value {
+            match manager.load_from_any_format(key_input) {
+                Ok(address) => {
+                    if let Err(e) = manager.save_key(&key_password) {
+                        eprintln!("Failed to save imported key: {}", e);
+                        std::process::exit(1);
+                    }
+                    eprintln!("Successfully imported wallet key.");
+                    eprintln!("Validator wallet address: {}", address);
+                    eprintln!("Key saved to: {}/validator.key (encrypted)", config.data_dir);
+                    eprintln!();
+                    eprintln!("Start the node normally to use this wallet.");
+                }
+                Err(e) => {
+                    eprintln!("Failed to import key: {}", e);
+                    eprintln!("Accepted formats: wallet JSON, PKCS8 DER hex, or raw 32-byte private key hex.");
+                    std::process::exit(1);
+                }
+            }
+            return Ok(());
+        }
+
+        if show_address {
+            let key_path = std::path::Path::new(&config.data_dir).join("validator.key");
+            if !key_path.exists() {
+                eprintln!("No wallet key found at {}/validator.key", config.data_dir);
+                eprintln!();
+                eprintln!("To create one, either:");
+                eprintln!("  1. Start the node normally (a key will be generated automatically)");
+                eprintln!("  2. Import an existing key: cargo run -p rinku-node -- --import-key <HEX>");
+                std::process::exit(1);
+            }
+            match manager.load_key(&key_password) {
+                Ok(address) => {
+                    println!("{}", address);
+                }
+                Err(e) => {
+                    eprintln!("Failed to load validator key: {}", e);
+                    eprintln!("Check that VALIDATOR_KEY_PASSWORD is correct.");
+                    std::process::exit(1);
+                }
+            }
+            return Ok(());
+        }
+    }
+
     if tui_mode {
         #[cfg(feature = "tui")]
         {
