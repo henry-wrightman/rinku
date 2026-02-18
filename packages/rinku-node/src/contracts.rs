@@ -1,11 +1,21 @@
+#[cfg(feature = "wasm")]
+use crate::wasm_runtime;
 use anyhow::{anyhow, Result};
-use rinku_core::crypto::sha256_hex;
+use rinku_core::encoding::{encode_to_url, create_receipt_url, create_verifiable_object_url};
+use rinku_core::stateful_receipt::{
+    CheckpointFinality, ContractEventCompact, ContractSchema, MultiProof,
+    ProofInput, ReceiptStatus, StatefulContractCall,
+    StatefulContractDeploy, StatefulReceipt, ValidatedProofContext, VerifiableObject,
+    ViewKeyProof, ViewKeyValue,
+    compute_view_key_leaf_hash,
+};
+use rinku_core::merkle::MerkleTree;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GasSchedule {
@@ -117,6 +127,8 @@ pub struct ContractState {
     pub state_hash: String,
     pub height: u64,
     pub created_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<ContractSchema>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +203,25 @@ pub struct ContractReceipt {
     pub status: String,
     pub gas_used: u64,
     pub events: Vec<ContractEvent>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transfer_effects: Vec<TransferEffect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub view_key_values: Vec<ViewKeyEffect>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferEffect {
+    pub from: String,
+    pub to: String,
+    pub amount: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewKeyEffect {
+    pub key: String,
+    pub value: Value,
 }
 
 pub fn compute_state_hash(state: &HashMap<String, Value>) -> String {
@@ -260,6 +291,8 @@ pub fn compute_state_diff(
 pub struct ContractRuntime {
     schedule: GasSchedule,
     default_gas_limit: u64,
+    #[cfg(feature = "wasm")]
+    wasm_engine: wasm_runtime::WasmEngine,
 }
 
 impl ContractRuntime {
@@ -267,13 +300,133 @@ impl ContractRuntime {
         Self {
             schedule: GasSchedule::default_schedule(),
             default_gas_limit: 1_000_000,
+            #[cfg(feature = "wasm")]
+            wasm_engine: wasm_runtime::WasmEngine::new(),
         }
     }
 
     pub fn execute(
         &self,
         contract_id: &str,
-        _wasm_base64: &str,
+        wasm_base64: &str,
+        entrypoint: &str,
+        input: &HashMap<String, Value>,
+        state: &HashMap<String, Value>,
+        height: u64,
+        gas_limit: Option<u64>,
+    ) -> ExecutionResult {
+        #[cfg(feature = "wasm")]
+        {
+            if let Some(wasm_bytes) = self.try_decode_wasm(wasm_base64) {
+                if wasm_runtime::is_valid_wasm(&wasm_bytes) {
+                    info!("Executing contract {} via WASM runtime (entrypoint: {})", contract_id, entrypoint);
+                    let output = self.wasm_engine.execute(
+                        contract_id,
+                        &wasm_bytes,
+                        entrypoint,
+                        input,
+                        state,
+                        height,
+                        gas_limit,
+                        "",
+                        0,
+                    );
+                    return output.result;
+                }
+            }
+        }
+        self.execute_mock(contract_id, entrypoint, input, state, height, gas_limit)
+    }
+
+    #[cfg(feature = "wasm")]
+    fn try_decode_wasm(&self, wasm_base64: &str) -> Option<Vec<u8>> {
+        if wasm_base64.is_empty() {
+            return None;
+        }
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD
+            .decode(wasm_base64)
+            .ok()
+    }
+
+    pub fn execute_with_caller(
+        &self,
+        contract_id: &str,
+        wasm_base64: &str,
+        entrypoint: &str,
+        input: &HashMap<String, Value>,
+        state: &HashMap<String, Value>,
+        height: u64,
+        gas_limit: Option<u64>,
+        caller: &str,
+        timestamp: u64,
+    ) -> ExecutionResult {
+        #[cfg(feature = "wasm")]
+        {
+            if let Some(wasm_bytes) = self.try_decode_wasm(wasm_base64) {
+                if wasm_runtime::is_valid_wasm(&wasm_bytes) {
+                    info!("Executing contract {} via WASM runtime (entrypoint: {}, caller: {})", contract_id, entrypoint, caller);
+                    let output = self.wasm_engine.execute(
+                        contract_id,
+                        &wasm_bytes,
+                        entrypoint,
+                        input,
+                        state,
+                        height,
+                        gas_limit,
+                        caller,
+                        timestamp,
+                    );
+                    return output.result;
+                }
+            }
+        }
+        self.execute_mock(contract_id, entrypoint, input, state, height, gas_limit)
+    }
+
+    #[cfg(feature = "wasm")]
+    pub fn execute_full(
+        &self,
+        contract_id: &str,
+        wasm_base64: &str,
+        entrypoint: &str,
+        input: &HashMap<String, Value>,
+        state: &HashMap<String, Value>,
+        height: u64,
+        gas_limit: Option<u64>,
+        caller: &str,
+        timestamp: u64,
+        ctx: wasm_runtime::ExecutionContext,
+    ) -> wasm_runtime::WasmExecutionOutput {
+        if let Some(wasm_bytes) = self.try_decode_wasm(wasm_base64) {
+            if wasm_runtime::is_valid_wasm(&wasm_bytes) {
+                info!("Executing contract {} via WASM runtime with full context (entrypoint: {}, caller: {})", contract_id, entrypoint, caller);
+                return self.wasm_engine.execute_with_context(
+                    contract_id,
+                    &wasm_bytes,
+                    entrypoint,
+                    input,
+                    state,
+                    height,
+                    gas_limit,
+                    caller,
+                    timestamp,
+                    ctx,
+                );
+            }
+        }
+        let result = self.execute_mock(contract_id, entrypoint, input, state, height, gas_limit);
+        wasm_runtime::WasmExecutionOutput {
+            result,
+            transfer_ops: Vec::new(),
+            view_key_emissions: Vec::new(),
+            return_data: Vec::new(),
+        }
+    }
+
+    fn execute_mock(
+        &self,
+        contract_id: &str,
         entrypoint: &str,
         input: &HashMap<String, Value>,
         state: &HashMap<String, Value>,
@@ -624,6 +777,7 @@ impl ContractService {
             state_hash,
             height: 0,
             created_at: deploy.ts,
+            schema: None,
         };
 
         contracts.insert(deploy.contract_id.clone(), contract_state);
@@ -716,6 +870,8 @@ impl ContractService {
                 status: "success".to_string(),
                 gas_used: result.gas_used,
                 events: result.events.clone(),
+                transfer_effects: Vec::new(),
+                view_key_values: Vec::new(),
             };
 
             let mut receipts = self.receipts.write().await;
@@ -735,6 +891,133 @@ impl ContractService {
         }
     }
 
+    #[cfg(feature = "wasm")]
+    pub async fn execute_call_with_effects(
+        &self,
+        tx_hash: &str,
+        caller: &str,
+        call: &ContractCall,
+        gas_limit: Option<u64>,
+        account_snapshots: HashMap<String, wasm_runtime::AccountSnapshot>,
+        timestamp: u64,
+    ) -> Result<(ExecutionResult, Option<ContractReceipt>, Vec<TransferEffect>, Vec<ViewKeyEffect>)> {
+        let mut contracts = self.contracts.write().await;
+
+        let contract = contracts
+            .get_mut(&call.contract_id)
+            .ok_or_else(|| anyhow!("Contract not found: {}", call.contract_id))?;
+
+        if call.pre_state_hash != contract.state_hash {
+            return Err(anyhow!(
+                "Pre-state hash mismatch: expected {}, got {}",
+                contract.state_hash,
+                call.pre_state_hash
+            ));
+        }
+
+        let pre_state_root = contract.state_hash.clone();
+
+        let mut ctx = wasm_runtime::ExecutionContext::default();
+        ctx.accounts = account_snapshots;
+
+        let output = self.runtime.execute_full(
+            &call.contract_id,
+            &contract.wasm_base64,
+            &call.entrypoint,
+            &call.input,
+            &contract.state,
+            contract.height + 1,
+            gas_limit,
+            caller,
+            timestamp,
+            ctx,
+        );
+
+        let transfer_effects: Vec<TransferEffect> = output.transfer_ops.iter().map(|op| {
+            TransferEffect {
+                from: op.from.clone(),
+                to: op.to.clone(),
+                amount: op.amount,
+            }
+        }).collect();
+
+        let view_key_effects: Vec<ViewKeyEffect> = output.view_key_emissions.iter().map(|vk| {
+            ViewKeyEffect {
+                key: vk.key.clone(),
+                value: vk.value.clone(),
+            }
+        }).collect();
+
+        let result = output.result;
+
+        if result.success {
+            if let Some(ref diff) = result.state_diff {
+                if diff.post_hash != call.post_state_hash {
+                    return Err(anyhow!(
+                        "Post-state hash mismatch: expected {}, got {}",
+                        call.post_state_hash,
+                        diff.post_hash
+                    ));
+                }
+
+                for change in &diff.changes {
+                    if let Some(ref new_value) = change.new_value {
+                        contract.state.insert(change.key.clone(), new_value.clone());
+                    } else {
+                        contract.state.remove(&change.key);
+                    }
+                }
+
+                contract.state_hash = diff.post_hash.clone();
+                contract.height += 1;
+
+                let mut history = self.execution_history.write().await;
+                let contract_history = history
+                    .entry(call.contract_id.clone())
+                    .or_default();
+                contract_history.push(diff.clone());
+
+                const MAX_HISTORY_PER_CONTRACT: usize = 1000;
+                if contract_history.len() > MAX_HISTORY_PER_CONTRACT {
+                    contract_history.drain(0..contract_history.len() - MAX_HISTORY_PER_CONTRACT);
+                }
+            }
+
+            let checkpoint_height = *self.checkpoint_height.read().await;
+            let post_state_root = contract.state_hash.clone();
+
+            let receipt = ContractReceipt {
+                tx_hash: tx_hash.to_string(),
+                checkpoint_height,
+                contract_id: call.contract_id.clone(),
+                entrypoint: call.entrypoint.clone(),
+                caller: caller.to_string(),
+                pre_state_root,
+                post_state_root,
+                status: "success".to_string(),
+                gas_used: result.gas_used,
+                events: result.events.clone(),
+                transfer_effects: transfer_effects.clone(),
+                view_key_values: view_key_effects.clone(),
+            };
+
+            let mut receipts = self.receipts.write().await;
+            receipts.insert(tx_hash.to_string(), receipt.clone());
+
+            const MAX_RECEIPTS: usize = 10000;
+            if receipts.len() > MAX_RECEIPTS {
+                let keys_to_remove: Vec<_> = receipts.keys().take(MAX_RECEIPTS / 2).cloned().collect();
+                for key in keys_to_remove {
+                    receipts.remove(&key);
+                }
+            }
+
+            Ok((result, Some(receipt), transfer_effects, view_key_effects))
+        } else {
+            Ok((result, None, Vec::new(), Vec::new()))
+        }
+    }
+
     pub async fn get_contract(&self, contract_id: &str) -> Option<ContractState> {
         self.contracts.read().await.get(contract_id).cloned()
     }
@@ -750,6 +1033,307 @@ impl ContractService {
     pub async fn list_contracts(&self) -> Vec<String> {
         self.contracts.read().await.keys().cloned().collect()
     }
+
+    pub async fn deploy_stateful_contract(&self, deploy: StatefulContractDeploy) -> Result<(String, String)> {
+        let mut contracts = self.contracts.write().await;
+
+        if contracts.contains_key(&deploy.contract_id) {
+            return Err(anyhow!("Contract ID already exists"));
+        }
+
+        let deploy_url = format!("rinku://contract/{}", deploy.contract_id);
+        let state_hash = compute_state_hash(&deploy.init_state);
+
+        let contract_state = ContractState {
+            contract_id: deploy.contract_id.clone(),
+            creator: deploy.creator,
+            wasm_base64: deploy.wasm_base64,
+            deploy_url: deploy_url.clone(),
+            state: deploy.init_state,
+            state_hash,
+            height: 0,
+            created_at: deploy.ts,
+            schema: Some(deploy.schema),
+        };
+
+        contracts.insert(deploy.contract_id.clone(), contract_state);
+
+        let mut history = self.execution_history.write().await;
+        history.insert(deploy.contract_id.clone(), Vec::new());
+
+        info!("Stateful contract deployed: {} with view key schema", deploy.contract_id);
+
+        Ok((deploy.contract_id, deploy_url))
+    }
+
+    pub async fn execute_stateful_call(
+        &self,
+        tx_hash: &str,
+        caller: &str,
+        call: &StatefulContractCall,
+        gas_limit: Option<u64>,
+        chain_id: &str,
+        finality: CheckpointFinality,
+    ) -> Result<(ExecutionResult, Option<StatefulReceipt>)> {
+        let validated_proofs = self.validate_proof_inputs(&call.proof_inputs)?;
+
+        let mut merged_input = call.input.clone();
+        for ctx in &validated_proofs {
+            for (k, v) in &ctx.extracted_values {
+                merged_input.insert(format!("proof.{}.{}", ctx.label, k), v.clone());
+            }
+        }
+        merged_input.insert("_proof_context".to_string(), serde_json::to_value(&validated_proofs).unwrap_or(Value::Null));
+
+        let mut contracts = self.contracts.write().await;
+
+        let contract = contracts
+            .get_mut(&call.contract_id)
+            .ok_or_else(|| anyhow!("Contract not found: {}", call.contract_id))?;
+
+        if call.pre_state_hash != contract.state_hash {
+            return Err(anyhow!(
+                "Pre-state hash mismatch: expected {}, got {}",
+                contract.state_hash,
+                call.pre_state_hash
+            ));
+        }
+
+        let pre_state_root = contract.state_hash.clone();
+
+        let result = self.runtime.execute(
+            &call.contract_id,
+            &contract.wasm_base64,
+            &call.entrypoint,
+            &merged_input,
+            &contract.state,
+            contract.height + 1,
+            gas_limit,
+        );
+
+        if result.success {
+            if let Some(ref diff) = result.state_diff {
+                for change in &diff.changes {
+                    if let Some(ref new_value) = change.new_value {
+                        contract.state.insert(change.key.clone(), new_value.clone());
+                    } else {
+                        contract.state.remove(&change.key);
+                    }
+                }
+
+                contract.state_hash = diff.post_hash.clone();
+                contract.height += 1;
+
+                let mut history = self.execution_history.write().await;
+                let contract_history = history.entry(call.contract_id.clone()).or_default();
+                contract_history.push(diff.clone());
+
+                const MAX_HISTORY_PER_CONTRACT: usize = 1000;
+                if contract_history.len() > MAX_HISTORY_PER_CONTRACT {
+                    contract_history.drain(0..contract_history.len() - MAX_HISTORY_PER_CONTRACT);
+                }
+            }
+
+            let post_state_root = contract.state_hash.clone();
+
+            let (view_keys, multi_proof) = self.extract_view_keys_with_proofs(
+                &call.contract_id,
+                &contract.state,
+                contract.schema.as_ref(),
+            );
+
+            let compact_events: Vec<ContractEventCompact> = result.events.iter().map(|e| {
+                ContractEventCompact {
+                    name: e.event_name.clone(),
+                    data: e.data.clone(),
+                    index: e.index,
+                }
+            }).collect();
+
+            let mut stateful_receipt = StatefulReceipt {
+                version: 1,
+                tx_hash: tx_hash.to_string(),
+                chain_id: chain_id.to_string(),
+                contract_id: call.contract_id.clone(),
+                entrypoint: call.entrypoint.clone(),
+                caller: caller.to_string(),
+                pre_state_root,
+                post_state_root,
+                view_keys,
+                multi_proof,
+                finality,
+                events: compact_events,
+                gas_used: result.gas_used,
+                status: ReceiptStatus::Success,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+                self_proof_url: None,
+            };
+
+            if let Ok(encoded) = encode_to_url(&stateful_receipt) {
+                stateful_receipt.self_proof_url = Some(create_receipt_url(&encoded));
+            }
+
+            let legacy_receipt = ContractReceipt {
+                tx_hash: tx_hash.to_string(),
+                checkpoint_height: stateful_receipt.finality.checkpoint_height,
+                contract_id: call.contract_id.clone(),
+                entrypoint: call.entrypoint.clone(),
+                caller: caller.to_string(),
+                pre_state_root: stateful_receipt.pre_state_root.clone(),
+                post_state_root: stateful_receipt.post_state_root.clone(),
+                status: "success".to_string(),
+                gas_used: result.gas_used,
+                events: result.events.clone(),
+                transfer_effects: Vec::new(),
+                view_key_values: Vec::new(),
+            };
+
+            let mut receipts = self.receipts.write().await;
+            receipts.insert(tx_hash.to_string(), legacy_receipt);
+
+            const MAX_RECEIPTS: usize = 10000;
+            if receipts.len() > MAX_RECEIPTS {
+                let keys_to_remove: Vec<_> = receipts.keys().take(MAX_RECEIPTS / 2).cloned().collect();
+                for key in keys_to_remove {
+                    receipts.remove(&key);
+                }
+            }
+
+            Ok((result, Some(stateful_receipt)))
+        } else {
+            Ok((result, None))
+        }
+    }
+
+    fn validate_proof_inputs(&self, proof_inputs: &[ProofInput]) -> Result<Vec<ValidatedProofContext>> {
+        let mut contexts = Vec::with_capacity(proof_inputs.len());
+
+        for input in proof_inputs {
+            input.validate().map_err(|e| anyhow!("Proof validation failed for '{}': {}", input.label, e))?;
+            contexts.push(ValidatedProofContext::from_proof_input(input));
+        }
+
+        Ok(contexts)
+    }
+
+    fn extract_view_keys_with_proofs(
+        &self,
+        contract_id: &str,
+        state: &HashMap<String, Value>,
+        schema: Option<&ContractSchema>,
+    ) -> (Vec<ViewKeyValue>, Option<MultiProof>) {
+        let specs = match schema {
+            Some(s) => &s.view_keys,
+            None => return (vec![], None),
+        };
+
+        let raw_keys: Vec<(String, Value, String)> = specs.iter().filter_map(|spec| {
+            let value = resolve_path(state, &spec.path)?;
+            let leaf_hash = compute_view_key_leaf_hash(contract_id, &spec.key, &value);
+            Some((spec.key.clone(), value, leaf_hash))
+        }).collect();
+
+        if raw_keys.is_empty() {
+            return (vec![], None);
+        }
+
+        let leaf_hashes: Vec<[u8; 32]> = raw_keys.iter().filter_map(|(_, _, hash)| {
+            let bytes = hex::decode(hash).ok()?;
+            if bytes.len() != 32 { return None; }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            Some(arr)
+        }).collect();
+
+        if leaf_hashes.is_empty() {
+            let view_keys = raw_keys.into_iter().map(|(key, value, leaf_hash)| {
+                ViewKeyValue {
+                    key, value, leaf_hash,
+                    proof: ViewKeyProof { siblings: vec![], path_bits: vec![], root: String::new() },
+                }
+            }).collect();
+            return (view_keys, None);
+        }
+
+        match MerkleTree::new(leaf_hashes) {
+            Ok(tree) => {
+                let root = tree.root();
+                let mut all_siblings = Vec::new();
+                let mut path_bitmap = Vec::new();
+
+                let view_keys: Vec<ViewKeyValue> = raw_keys.into_iter().enumerate().map(|(i, (key, value, leaf_hash))| {
+                    let proof = tree.get_proof(i).ok();
+                    if let Some(ref p) = proof {
+                        all_siblings.extend(p.siblings.clone());
+                        for bit in &p.path_bits {
+                            path_bitmap.push(if *bit { 1u8 } else { 0u8 });
+                        }
+                    }
+
+                    ViewKeyValue {
+                        key, value, leaf_hash,
+                        proof: ViewKeyProof {
+                            siblings: proof.as_ref().map(|p| p.siblings.clone()).unwrap_or_default(),
+                            path_bits: proof.as_ref().map(|p| p.path_bits.clone()).unwrap_or_default(),
+                            root: root.clone(),
+                        },
+                    }
+                }).collect();
+
+                let multi_proof = MultiProof {
+                    keys: view_keys.iter().map(|vk| vk.key.clone()).collect(),
+                    leaf_hashes: view_keys.iter().map(|vk| vk.leaf_hash.clone()).collect(),
+                    shared_siblings: all_siblings,
+                    path_bitmap,
+                    root,
+                };
+
+                (view_keys, Some(multi_proof))
+            }
+            Err(_) => {
+                let view_keys = raw_keys.into_iter().map(|(key, value, leaf_hash)| {
+                    ViewKeyValue {
+                        key, value, leaf_hash,
+                        proof: ViewKeyProof { siblings: vec![], path_bits: vec![], root: String::new() },
+                    }
+                }).collect();
+                (view_keys, None)
+            }
+        }
+    }
+
+    pub fn create_verifiable_object_from_receipt(receipt: &StatefulReceipt) -> Result<String> {
+        let vo = VerifiableObject::ContractOutput {
+            receipt: receipt.clone(),
+        };
+        let encoded = encode_to_url(&vo).map_err(|e| anyhow!("Encoding failed: {}", e))?;
+        Ok(create_verifiable_object_url(&encoded))
+    }
+}
+
+fn resolve_path(state: &HashMap<String, Value>, path: &str) -> Option<Value> {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let mut current: Value = state.get(parts[0])?.clone();
+
+    for &part in &parts[1..] {
+        current = match current {
+            Value::Object(map) => map.get(part)?.clone(),
+            Value::Array(arr) => {
+                let idx: usize = part.parse().ok()?;
+                arr.get(idx)?.clone()
+            }
+            _ => return None,
+        };
+    }
+
+    Some(current)
 }
 
 impl Default for ContractService {

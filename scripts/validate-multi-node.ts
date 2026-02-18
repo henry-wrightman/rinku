@@ -535,7 +535,7 @@ async function validateAccountBalances(nodeStatuses: NodeStatus[]) {
       
       const balances = new Map<string, number>();
       for (const acc of accounts) {
-        balances.set(acc.fingerprint, acc.balance);
+        balances.set(acc.address, acc.balance);
       }
       balanceMaps.set(node.name, balances);
       

@@ -129,6 +129,44 @@ impl SignedTransaction {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action")]
+pub enum ContractTransactionData {
+    #[serde(rename = "deploy")]
+    Deploy {
+        #[serde(alias = "wasmBase64", alias = "wasm_base64")]
+        wasm_base64: String,
+        #[serde(default, alias = "initState", alias = "init_state")]
+        init_state: HashMap<String, serde_json::Value>,
+    },
+    #[serde(rename = "call")]
+    Call {
+        #[serde(alias = "contractId", alias = "contract_id")]
+        contract_id: String,
+        entrypoint: String,
+        #[serde(default)]
+        input: HashMap<String, serde_json::Value>,
+    },
+}
+
+impl ContractTransactionData {
+    pub fn from_data_field(data: &str) -> Result<Self, String> {
+        serde_json::from_str(data).map_err(|e| format!("Invalid contract data: {}", e))
+    }
+
+    pub fn to_data_field(&self) -> Result<String, String> {
+        serde_json::to_string(self).map_err(|e| format!("Failed to serialize contract data: {}", e))
+    }
+
+    pub fn is_deploy(&self) -> bool {
+        matches!(self, ContractTransactionData::Deploy { .. })
+    }
+
+    pub fn is_call(&self) -> bool {
+        matches!(self, ContractTransactionData::Call { .. })
+    }
+}
+
 /// Micro-units multiplier: 1 RKU = 100,000,000 micro-RKU (8 decimal places)
 /// This matches the precision used in hash_account_leaf_for_proof
 pub const MICRO_UNITS: u64 = 100_000_000;

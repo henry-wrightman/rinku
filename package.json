@@ -11,10 +11,9 @@
     "test": "npm run test -w @rinku/core",
     "test:core": "npm run test -w @rinku/core",
     "dev:explorer": "npm run dev -w @rinku/explorer",
-    "dev:faucet": "npm run dev -w @rinku/faucet",
     "validate": "npx tsx scripts/validate-testnet.ts",
-    "mega-stress": "npx tsx scripts/mega-stress.ts",
     "stress-test": "npx tsx scripts/stress-test.ts",
+    "mega-stress": "npx tsx scripts/mega-stress.ts",
     "activity-bot": "npx tsx scripts/activity-bot.ts",
     "fast-path-bot": "npx tsx scripts/fast-path-bot.ts",
     "p2p-test": "npx tsx scripts/p2p-sync-test.ts"
@@ -30,6 +29,7 @@
     "express-rate-limit": "^8.2.1",
     "prom-client": "^15.1.3",
     "serve": "^14.2.5",
+    "snarkjs": "^0.7.6",
     "tsx": "^4.21.0",
     "vitest": "^4.0.16"
   }

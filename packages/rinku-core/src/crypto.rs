@@ -112,14 +112,13 @@ impl KeyPair {
 
     pub fn from_pkcs8_der_hex(hex_key: &str) -> Result<Self, CryptoError> {
         let bytes = hex::decode(hex_key).map_err(|_| CryptoError::InvalidPrivateKey)?;
-        if bytes.len() < 73 || bytes[0] != 0x30 {
+        if bytes.len() < 68 || bytes[0] != 0x30 {
             return Err(CryptoError::InvalidPrivateKey);
         }
-        let priv_offset = 36;
-        if bytes.len() < priv_offset + 34 || bytes[priv_offset] != 0x04 || bytes[priv_offset + 1] != 0x20 {
+        if bytes[34] != 0x04 || bytes[35] != 0x20 {
             return Err(CryptoError::InvalidPrivateKey);
         }
-        let raw_key = &bytes[priv_offset + 2..priv_offset + 34];
+        let raw_key = &bytes[36..68];
         let secret_key = SecretKey::from_slice(raw_key).map_err(|_| CryptoError::InvalidPrivateKey)?;
         let signing_key = SigningKey::from(secret_key);
         let verifying_key = *signing_key.verifying_key();

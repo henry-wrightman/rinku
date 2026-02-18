@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRinku } from "../context/WalletContext";
 import { API_URL } from "../config";
 
@@ -11,43 +11,63 @@ interface ContractSummary {
   stateHash: string;
   height: number;
   createdAt: number;
+  wasmBase64: string;
+  state?: Record<string, unknown>;
 }
 
-interface ContractState {
+interface ContractEvent {
   contractId: string;
-  creator: string;
-  wasmBase64: string;
-  deployUrl: string;
-  state: Record<string, unknown>;
-  stateHash: string;
-  height: number;
-  createdAt: number;
+  eventName: string;
+  data: Record<string, unknown>;
+  index: number;
+}
+
+interface StateChange {
+  key: string;
+  oldValue: unknown;
+  newValue: unknown;
+}
+
+interface StateDiff {
+  preHash: string;
+  postHash: string;
+  changes: StateChange[];
+}
+
+interface CallResult {
+  success: boolean;
+  gasUsed: number;
+  error?: string;
+  errorMessage?: string;
+  logs: string[];
+  events: ContractEvent[];
+  stateDiff?: StateDiff;
+  returnData?: string;
+  newState?: Record<string, unknown>;
+  newStateHash?: string;
+  newHeight?: number;
 }
 
 export function ContractsTab() {
-  const { wallet: keyPair, accountInfo, submitTransaction, refreshAccount } = useRinku();
+  const { wallet: keyPair, accountInfo, refreshAccount, submitTransaction } = useRinku();
   const walletReady = !!keyPair;
   const [contracts, setContracts] = useState<ContractSummary[]>([]);
   const [selectedContract, setSelectedContract] =
-    useState<ContractState | null>(null);
+    useState<ContractSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [deployForm, setDeployForm] = useState({ initState: "{}" });
-  const [callForm, setCallForm] = useState({
-    entrypoint: "mint",
-    input: '{"to": "", "amount": 100}',
-  });
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchAccountInfo = async () => {
-    if (!keyPair) return;
-    try {
-      await refreshAccount();
-    } catch (e) {
-      console.error("Failed to fetch account:", e);
-    }
-  };
+  const [wasmFile, setWasmFile] = useState<File | null>(null);
+  const [initState, setInitState] = useState("{}");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [callEntrypoint, setCallEntrypoint] = useState("init");
+  const [callInput, setCallInput] = useState("{}");
+  const [callResult, setCallResult] = useState<CallResult | null>(null);
+
+  const [expandedState, setExpandedState] = useState(false);
 
   const fetchContracts = async () => {
     try {
@@ -66,6 +86,9 @@ export function ContractsTab() {
       const res = await fetch(`${NODE_URL}/contracts/${contractId}`);
       const data = await res.json();
       setSelectedContract(data);
+      setCallResult(null);
+      setError(null);
+      setResult(null);
     } catch (e) {
       console.error("Failed to fetch contract:", e);
     }
@@ -77,19 +100,39 @@ export function ContractsTab() {
     return () => clearInterval(interval);
   }, []);
 
-  const getGasPrice = async (): Promise<number> => {
-    try {
-      const res = await fetch(`${NODE_URL}/gas/price`);
-      const data = await res.json();
-      return data.current || 0.01;
-    } catch {
-      return 0.01;
-    }
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const arrayBuffer = reader.result as ArrayBuffer;
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        resolve(btoa(binary));
+      };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
   };
 
   const handleDeploy = async () => {
     if (!walletReady || !keyPair) {
-      setError("Set up a wallet first");
+      setError("Connect a wallet first");
+      return;
+    }
+
+    if (!wasmFile) {
+      setError("Select a .wasm file to deploy");
+      return;
+    }
+
+    let parsedInitState: Record<string, unknown>;
+    try {
+      parsedInitState = JSON.parse(initState);
+    } catch {
+      setError("Invalid JSON in init state");
       return;
     }
 
@@ -98,28 +141,29 @@ export function ContractsTab() {
     setSubmitting(true);
 
     try {
-      const fee = await getGasPrice();
+      const wasmBase64 = await fileToBase64(wasmFile);
 
-      const data = await submitTransaction({
+      const contractData = JSON.stringify({
+        action: "deploy",
+        wasmBase64,
+        initState: parsedInitState,
+      });
+
+      const txResult = await submitTransaction({
         to: "contract:deploy",
         amount: 0,
         kind: "contract",
-        gasPrice: fee,
-        parentCount: 5,
+        data: contractData,
       });
 
-      if (data.hash) {
-        setResult(
-          `Contract deploy submitted (tx: ${data.hash.slice(0, 12)}...)`,
-        );
-        setDeployForm({ initState: "{}" });
-        setTimeout(() => {
-          fetchContracts();
-          fetchAccountInfo();
-        }, 1000);
-      } else {
-        setError("Deploy failed");
-      }
+      setResult(`deploy tx submitted! hash: ${txResult.hash.slice(0, 16)}... (contract deploys on finalization)`);
+      setWasmFile(null);
+      setInitState("{}");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setTimeout(() => {
+        fetchContracts();
+        refreshAccount();
+      }, 3000);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -130,34 +174,92 @@ export function ContractsTab() {
   const handleCall = async () => {
     if (!selectedContract) return;
     if (!walletReady || !keyPair) {
-      setError("Set up a wallet first");
+      setError("Connect a wallet first");
+      return;
+    }
+
+    let parsedInput: Record<string, unknown>;
+    try {
+      parsedInput = JSON.parse(callInput);
+    } catch {
+      setError("Invalid JSON in call input");
       return;
     }
 
     setError(null);
     setResult(null);
+    setCallResult(null);
     setSubmitting(true);
 
     try {
-      const fee = await getGasPrice();
-
-      const data = await submitTransaction({
-        to: `contract:${selectedContract.contractId}`,
-        amount: 0,
-        kind: "contract",
-        gasPrice: fee,
-        parentCount: 5,
+      const contractData = JSON.stringify({
+        action: "call",
+        contractId: selectedContract.contractId,
+        entrypoint: callEntrypoint,
+        input: parsedInput,
       });
 
-      if (data.hash) {
-        setResult(`Contract call submitted (tx: ${data.hash.slice(0, 12)}...)`);
-        setTimeout(() => {
-          fetchContractDetails(selectedContract.contractId);
-          fetchContracts();
-          fetchAccountInfo();
-        }, 1000);
+      const txResult = await submitTransaction({
+        to: selectedContract.contractId,
+        amount: 0,
+        kind: "contract",
+        data: contractData,
+      });
+
+      setResult(`call tx submitted! hash: ${txResult.hash.slice(0, 16)}... (executes on finalization)`);
+      setTimeout(() => {
+        fetchContractDetails(selectedContract.contractId);
+        fetchContracts();
+        refreshAccount();
+      }, 3000);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSimulateCall = async () => {
+    if (!selectedContract) return;
+    if (!walletReady || !keyPair) {
+      setError("Connect a wallet first");
+      return;
+    }
+
+    let parsedInput: Record<string, unknown>;
+    try {
+      parsedInput = JSON.parse(callInput);
+    } catch {
+      setError("Invalid JSON in call input");
+      return;
+    }
+
+    setError(null);
+    setResult(null);
+    setCallResult(null);
+    setSubmitting(true);
+
+    try {
+      const res = await fetch(
+        `${NODE_URL}/contracts/${selectedContract.contractId}/call`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            caller: keyPair.fingerprint,
+            entrypoint: callEntrypoint,
+            input: parsedInput,
+          }),
+        },
+      );
+
+      const data: CallResult = await res.json();
+      setCallResult(data);
+
+      if (data.success) {
+        setResult(`simulation ok — gas: ${data.gasUsed} (not committed)`);
       } else {
-        setError("Call failed");
+        setError(data.errorMessage || data.error || "Simulation failed");
       }
     } catch (e: any) {
       setError(e.message);
@@ -167,8 +269,11 @@ export function ContractsTab() {
   };
 
   const formatTime = (ts: number) => {
-    return new Date(ts).toLocaleString();
+    return new Date(ts * 1000).toLocaleString();
   };
+
+  const hasWasm =
+    selectedContract?.wasmBase64 && selectedContract.wasmBase64.length > 0;
 
   if (loading) {
     return <div className="loading">loading contracts...</div>;
@@ -177,7 +282,7 @@ export function ContractsTab() {
   return (
     <div className="rewards-tab">
       <div className="section">
-        <h3>network contracts</h3>
+        <h3>smart contracts</h3>
         <div className="staking-overview">
           <div className="stat-row">
             <span>deployed contracts:</span>
@@ -185,11 +290,7 @@ export function ContractsTab() {
           </div>
           <div className="stat-row">
             <span>runtime:</span>
-            <span className="value">mock wasm</span>
-          </div>
-          <div className="stat-row">
-            <span>entrypoints:</span>
-            <span className="value">mint, transfer, get_balance</span>
+            <span className="value">{"wasmi (wasm)"}</span>
           </div>
         </div>
       </div>
@@ -209,7 +310,7 @@ export function ContractsTab() {
               <div className="stat-row">
                 <span>address:</span>
                 <span className="value mono">
-                  {keyPair?.fingerprint?.slice(0, 12)}...
+                  {keyPair?.fingerprint?.slice(0, 16)}...
                 </span>
               </div>
               <div className="stat-row">
@@ -233,21 +334,70 @@ export function ContractsTab() {
       {walletReady && (
         <div className="section">
           <h3>deploy contract</h3>
-          <div className="form-row">
+          <div style={{ marginBottom: 8 }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: 12,
+                color: "#888",
+                marginBottom: 4,
+              }}
+            >
+              wasm binary (.wasm file)
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".wasm"
+              onChange={(e) => setWasmFile(e.target.files?.[0] || null)}
+              style={{
+                background: "#000",
+                border: "1px solid #333",
+                color: "#d8dee9",
+                padding: "6px 8px",
+                width: "100%",
+                fontFamily: "'Courier New', Courier, monospace",
+                fontSize: 12,
+              }}
+            />
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: 12,
+                color: "#888",
+                marginBottom: 4,
+              }}
+            >
+              initial state (json)
+            </label>
             <input
               type="text"
-              placeholder="initial state (json)"
-              value={deployForm.initState}
-              onChange={(e) =>
-                setDeployForm({ ...deployForm, initState: e.target.value })
-              }
+              placeholder='{"key": "value"}'
+              value={initState}
+              onChange={(e) => setInitState(e.target.value)}
+              style={{
+                background: "#000",
+                border: "1px solid #333",
+                color: "#a3be8c",
+                padding: "8px 12px",
+                width: "100%",
+                fontFamily: "'Courier New', Courier, monospace",
+                fontSize: 13,
+                boxSizing: "border-box",
+              }}
             />
-            <button onClick={handleDeploy} disabled={submitting}>
-              {submitting ? "deploying..." : "deploy"}
-            </button>
           </div>
-          <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>
-            Contract will be deployed from your connected wallet
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={handleDeploy} disabled={submitting || !wasmFile}>
+              {submitting ? "deploying..." : "deploy (signed tx)"}
+            </button>
+            {wasmFile && (
+              <span style={{ fontSize: 11, color: "#888" }}>
+                {wasmFile.name} ({(wasmFile.size / 1024).toFixed(1)} KB)
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -272,7 +422,9 @@ export function ContractsTab() {
                 <span className="mono" style={{ color: "#b48ead" }}>
                   {c.contractId}
                 </span>
-                <span className="value">height {c.height}</span>
+                <span className="value" style={{ fontSize: 11 }}>
+                  h:{c.height} {c.wasmBase64?.length > 0 ? "wasm" : "mock"}
+                </span>
               </div>
             ))}
           </div>
@@ -287,7 +439,22 @@ export function ContractsTab() {
               <div className="stat-row">
                 <span>creator:</span>
                 <span className="value mono">
-                  {selectedContract.creator.slice(0, 16)}...
+                  {selectedContract.creator.slice(0, 20)}...
+                </span>
+              </div>
+              <div className="stat-row">
+                <span>type:</span>
+                <span className="value">
+                  {hasWasm ? "wasm" : "mock"}
+                  {hasWasm && (
+                    <span style={{ color: "#666", marginLeft: 4 }}>
+                      (
+                      {Math.ceil(
+                        (selectedContract.wasmBase64.length * 3) / 4 / 1024,
+                      )}{" "}
+                      KB)
+                    </span>
+                  )}
                 </span>
               </div>
               <div className="stat-row">
@@ -302,67 +469,261 @@ export function ContractsTab() {
               </div>
               <div className="stat-row">
                 <span>state hash:</span>
-                <span className="value mono">
-                  {selectedContract.stateHash.slice(0, 16)}...
+                <span className="value mono">{selectedContract.stateHash}</span>
+              </div>
+              <div className="stat-row">
+                <span>deploy url:</span>
+                <span className="value mono" style={{ fontSize: 11 }}>
+                  {selectedContract.deployUrl}
                 </span>
               </div>
             </div>
 
-            <h4 style={{ marginTop: 16 }}>state</h4>
-            <pre
-              style={{
-                background: "#000",
-                border: "1px solid #333",
-                padding: 12,
-                fontSize: 12,
-                color: "#a3be8c",
-                overflow: "auto",
-                maxHeight: 200,
-              }}
-            >
-              {JSON.stringify(selectedContract.state, null, 2)}
-            </pre>
+            <div style={{ marginTop: 12 }}>
+              <h4
+                onClick={() => setExpandedState(!expandedState)}
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                {expandedState ? "▼" : "▶"} contract state
+              </h4>
+              {expandedState && (
+                <pre
+                  style={{
+                    background: "#000",
+                    border: "1px solid #333",
+                    padding: 12,
+                    fontSize: 12,
+                    color: "#a3be8c",
+                    overflow: "auto",
+                    maxHeight: 200,
+                  }}
+                >
+                  {JSON.stringify(selectedContract.state || {}, null, 2)}
+                </pre>
+              )}
+            </div>
           </div>
 
           {walletReady && (
             <div className="section">
               <h3>call contract</h3>
-              <div className="form-row">
-                <select
-                  value={callForm.entrypoint}
-                  onChange={(e) =>
-                    setCallForm({ ...callForm, entrypoint: e.target.value })
-                  }
+              <div style={{ marginBottom: 8 }}>
+                <label
                   style={{
-                    flex: "none",
-                    width: 140,
+                    display: "block",
+                    fontSize: 12,
+                    color: "#888",
+                    marginBottom: 4,
+                  }}
+                >
+                  entrypoint
+                </label>
+                <input
+                  type="text"
+                  placeholder="init"
+                  value={callEntrypoint}
+                  onChange={(e) => setCallEntrypoint(e.target.value)}
+                  style={{
                     background: "#000",
                     border: "1px solid #333",
                     color: "#a3be8c",
                     padding: "8px 12px",
+                    width: "100%",
                     fontFamily: "'Courier New', Courier, monospace",
                     fontSize: 13,
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    color: "#888",
+                    marginBottom: 4,
                   }}
                 >
-                  <option value="mint">mint</option>
-                  <option value="transfer">transfer</option>
-                  <option value="get_balance">get_balance</option>
-                </select>
-                <input
-                  type="text"
-                  placeholder="input (json)"
-                  value={callForm.input}
-                  onChange={(e) =>
-                    setCallForm({ ...callForm, input: e.target.value })
-                  }
+                  input (json)
+                </label>
+                <textarea
+                  placeholder='{"key": "value"}'
+                  value={callInput}
+                  onChange={(e) => setCallInput(e.target.value)}
+                  rows={3}
+                  style={{
+                    background: "#000",
+                    border: "1px solid #333",
+                    color: "#a3be8c",
+                    padding: "8px 12px",
+                    width: "100%",
+                    fontFamily: "'Courier New', Courier, monospace",
+                    fontSize: 13,
+                    resize: "vertical",
+                    boxSizing: "border-box",
+                  }}
                 />
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <button onClick={handleCall} disabled={submitting}>
-                  {submitting ? "executing..." : "execute"}
+                  {submitting ? "submitting..." : "execute (signed tx)"}
                 </button>
+                <button onClick={handleSimulateCall} disabled={submitting} style={{ opacity: 0.8 }}>
+                  {submitting ? "simulating..." : "simulate (dry run)"}
+                </button>
+                <span style={{ fontSize: 11, color: "#666" }}>
+                  signed by {keyPair?.fingerprint?.slice(0, 8)}...
+                </span>
               </div>
-              <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>
-                Contract call will be signed by your connected wallet
+            </div>
+          )}
+
+          {callResult && (
+            <div className="section">
+              <h3>execution result</h3>
+              <div className="staking-overview">
+                <div className="stat-row">
+                  <span>status:</span>
+                  <span
+                    className="value"
+                    style={{
+                      color: callResult.success ? "#a3be8c" : "#bf616a",
+                    }}
+                  >
+                    {callResult.success ? "success" : "failed"}
+                  </span>
+                </div>
+                <div className="stat-row">
+                  <span>gas used:</span>
+                  <span className="value">
+                    {callResult.gasUsed.toLocaleString()}
+                  </span>
+                </div>
+                {callResult.errorMessage && (
+                  <div className="stat-row">
+                    <span>error:</span>
+                    <span className="value" style={{ color: "#bf616a" }}>
+                      {callResult.errorMessage}
+                    </span>
+                  </div>
+                )}
               </div>
+
+              {callResult.logs.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <h4>logs</h4>
+                  <pre
+                    style={{
+                      background: "#000",
+                      border: "1px solid #333",
+                      padding: 8,
+                      fontSize: 11,
+                      color: "#ebcb8b",
+                      overflow: "auto",
+                      maxHeight: 120,
+                    }}
+                  >
+                    {callResult.logs.map((l, i) => `[${i}] ${l}`).join("\n")}
+                  </pre>
+                </div>
+              )}
+
+              {callResult.events.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <h4>events</h4>
+                  {callResult.events.map((ev, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        background: "#000",
+                        border: "1px solid #333",
+                        padding: 8,
+                        marginBottom: 4,
+                        fontSize: 12,
+                      }}
+                    >
+                      <span style={{ color: "#88c0d0" }}>{ev.eventName}</span>
+                      <pre
+                        style={{
+                          color: "#a3be8c",
+                          margin: "4px 0 0",
+                          fontSize: 11,
+                        }}
+                      >
+                        {JSON.stringify(ev.data, null, 2)}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {callResult.stateDiff &&
+                callResult.stateDiff.changes.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <h4>state changes</h4>
+                    <div
+                      style={{
+                        background: "#000",
+                        border: "1px solid #333",
+                        padding: 8,
+                        fontSize: 12,
+                      }}
+                    >
+                      {callResult.stateDiff.changes.map((ch, i) => (
+                        <div key={i} style={{ marginBottom: 4 }}>
+                          <span style={{ color: "#88c0d0" }}>{ch.key}</span>
+                          <span style={{ color: "#666" }}>{" : "}</span>
+                          <span style={{ color: "#bf616a" }}>
+                            {ch.oldValue !== null
+                              ? JSON.stringify(ch.oldValue)
+                              : "null"}
+                          </span>
+                          <span style={{ color: "#666" }}>{" → "}</span>
+                          <span style={{ color: "#a3be8c" }}>
+                            {ch.newValue !== null
+                              ? JSON.stringify(ch.newValue)
+                              : "deleted"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "#666",
+                        marginTop: 4,
+                      }}
+                    >
+                      {callResult.stateDiff.preHash} →{" "}
+                      {callResult.stateDiff.postHash}
+                    </div>
+                  </div>
+                )}
+
+              {callResult.newState && (
+                <div style={{ marginTop: 12 }}>
+                  <h4>updated state</h4>
+                  <pre
+                    style={{
+                      background: "#000",
+                      border: "1px solid #333",
+                      padding: 12,
+                      fontSize: 12,
+                      color: "#a3be8c",
+                      overflow: "auto",
+                      maxHeight: 200,
+                    }}
+                  >
+                    {JSON.stringify(callResult.newState, null, 2)}
+                  </pre>
+                  {callResult.newStateHash && (
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
+                      state hash: {callResult.newStateHash} | height:{" "}
+                      {callResult.newHeight}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </>

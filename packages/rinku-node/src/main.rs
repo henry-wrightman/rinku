@@ -11,8 +11,12 @@ mod cbor_codec;
 mod checkpoint;
 mod config;
 mod consensus;
+mod contract_storage;
 mod contracts;
+mod sparse_merkle_trie;
 mod dag_pruning;
+#[cfg(feature = "wasm")]
+mod wasm_runtime;
 mod emission;
 mod fast_path;
 mod fork_remediation;

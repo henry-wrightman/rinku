@@ -29,7 +29,7 @@ primary_region = "sjc"
   API_PORT = "8080"
   P2P_PORT = "4001"
   DATA_DIR = "/data"
-  CHECKPOINT_INTERVAL_MS = "10000"
+  CHECKPOINT_INTERVAL_MS = "30000"
   # P2P Bootstrap - set via `fly secrets set` for non-genesis nodes
   # P2P_BOOTSTRAP_PEERS = "/ip4/<IP>/tcp/4001/p2p/<PEER_ID>"
   # GENESIS_VALIDATORS = "<ADDRESS>:<BLS_PUBLIC_KEY>"

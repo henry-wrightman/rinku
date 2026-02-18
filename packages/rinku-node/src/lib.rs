@@ -6,6 +6,7 @@ pub mod cbor_codec;
 pub mod checkpoint;
 pub mod config;
 pub mod consensus;
+pub mod contract_storage;
 pub mod contracts;
 pub mod dag_pruning;
 pub mod emission;
@@ -31,6 +32,8 @@ pub mod trust;
 pub mod validator;
 pub mod validator_identity;
 pub mod versioning;
+#[cfg(feature = "wasm")]
+pub mod wasm_runtime;
 #[cfg(feature = "zk")]
 pub mod zk;
 #[cfg(feature = "tui")]

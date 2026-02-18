@@ -1623,6 +1623,64 @@ impl NodeState {
         }
     }
 
+    pub async fn apply_contract_transfer_effects(&self, effects: &[crate::contracts::TransferEffect]) -> anyhow::Result<()> {
+        if effects.is_empty() {
+            return Ok(());
+        }
+        let mut state = self.inner.write().await;
+        for effect in effects {
+            let from_balance = match state.accounts.get(&effect.from) {
+                Some(acct) => acct.balance,
+                None => {
+                    tracing::error!(
+                        "Contract transfer rejected: sender {} does not exist in state",
+                        &effect.from[..16.min(effect.from.len())]
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Contract transfer sender {} not found in state",
+                        effect.from
+                    ));
+                }
+            };
+
+            if from_balance < effect.amount {
+                tracing::error!(
+                    "Contract transfer rejected: {} has {:.8} but needs {:.8}",
+                    &effect.from[..16.min(effect.from.len())],
+                    from_balance,
+                    effect.amount
+                );
+                return Err(anyhow::anyhow!(
+                    "Contract transfer insufficient balance: {} has {} but needs {}",
+                    effect.from, from_balance, effect.amount
+                ));
+            }
+
+            if let Some(from_acct) = state.accounts.get_mut(&effect.from) {
+                from_acct.balance -= effect.amount;
+            }
+
+            let to_acct = state
+                .accounts
+                .entry(effect.to.clone())
+                .or_insert_with(|| {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    Account::new(effect.to.clone(), now)
+                });
+            to_acct.balance += effect.amount;
+            tracing::debug!(
+                "Contract transfer applied: {} -> {} ({:.6} RKU)",
+                &effect.from[..16.min(effect.from.len())],
+                &effect.to[..16.min(effect.to.len())],
+                effect.amount
+            );
+        }
+        Ok(())
+    }
+
     pub async fn get_or_create_account(&self, address: &str) -> Account {
         let mut state = self.inner.write().await;
         if let Some(account) = state.accounts.get(address) {
@@ -3197,6 +3255,7 @@ impl NodeState {
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
         let is_consolidation_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation));
+        let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
         
         // System transactions (consolidation/anchor) bypass normal validation
         // They're created by validators to consolidate DAG tips
@@ -3259,6 +3318,62 @@ impl NodeState {
                 }
             }
             
+            // Validate contract transaction data
+            if is_contract_tx {
+                const MAX_CONTRACT_DATA_SIZE: usize = 3 * 1024 * 1024; // 3MB (allows ~2MB WASM base64-encoded)
+                match &tx.tx.data {
+                    None => {
+                        tracing::warn!("Contract transaction rejected: missing data field");
+                        return Err(anyhow::anyhow!(
+                            "Contract transactions require a 'data' field with deploy or call payload"
+                        ));
+                    }
+                    Some(data) => {
+                        if data.len() > MAX_CONTRACT_DATA_SIZE {
+                            tracing::warn!(
+                                "Contract transaction rejected: data too large ({} bytes, max {})",
+                                data.len(), MAX_CONTRACT_DATA_SIZE
+                            );
+                            return Err(anyhow::anyhow!(
+                                "Contract data too large: {} bytes (max {} bytes)",
+                                data.len(), MAX_CONTRACT_DATA_SIZE
+                            ));
+                        }
+                        match rinku_core::types::ContractTransactionData::from_data_field(data) {
+                            Ok(contract_data) => {
+                                match &contract_data {
+                                    rinku_core::types::ContractTransactionData::Deploy { wasm_base64, .. } => {
+                                        let wasm_size_estimate = wasm_base64.len() * 3 / 4;
+                                        const MAX_WASM_SIZE: usize = 2 * 1024 * 1024;
+                                        if wasm_size_estimate > MAX_WASM_SIZE {
+                                            return Err(anyhow::anyhow!(
+                                                "WASM binary too large: ~{} bytes (max {})",
+                                                wasm_size_estimate, MAX_WASM_SIZE
+                                            ));
+                                        }
+                                        if wasm_base64.is_empty() {
+                                            return Err(anyhow::anyhow!("WASM binary cannot be empty"));
+                                        }
+                                    }
+                                    rinku_core::types::ContractTransactionData::Call { contract_id, entrypoint, .. } => {
+                                        if contract_id.is_empty() {
+                                            return Err(anyhow::anyhow!("Contract ID cannot be empty"));
+                                        }
+                                        if entrypoint.is_empty() {
+                                            return Err(anyhow::anyhow!("Entrypoint cannot be empty"));
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Contract transaction rejected: invalid data: {}", e);
+                                return Err(anyhow::anyhow!("{}", e));
+                            }
+                        }
+                    }
+                }
+            }
+
             // Validate timestamp is not too far in the future
             // This prevents malicious actors from using far-future timestamps to delay finalization
             use crate::config::MAX_FUTURE_TIMESTAMP_MS;
@@ -3280,8 +3395,8 @@ impl NodeState {
             // Calculate required balance based on transaction type
             let required_balance = if is_stake_tx {
                 tx.tx.amount + gas_fee // Stake: need amount + gas
-            } else if is_unstake_tx || is_claim_tx {
-                gas_fee // Unstake/Claim: only need gas
+            } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                gas_fee // Unstake/Claim/Contract: only need gas
             } else {
                 tx.tx.amount + gas_fee // Transfer: need amount + gas
             };
@@ -3579,25 +3694,25 @@ impl NodeState {
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+        let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
         
         // PHASE 1: Apply balance and nonce changes
         {
             let mut state = self.inner.write().await;
             
             if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-                // Deduct based on transaction type
                 if is_stake_tx {
                     from_account.balance -= tx.tx.amount + gas_fee;
-                } else if is_unstake_tx || is_claim_tx {
-                    from_account.balance -= gas_fee; // Only gas for unstake/claim
+                } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                    from_account.balance -= gas_fee; // Only gas for unstake/claim/contract
                 } else {
                     from_account.balance -= tx.tx.amount + gas_fee;
                 }
                 from_account.nonce = tx.tx.nonce + 1;
             }
             
-            // Credit recipient for transfers (not stake/unstake/claim)
-            if !is_stake_tx && !is_unstake_tx && !is_claim_tx {
+            // Credit recipient for transfers (not stake/unstake/claim/contract)
+            if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
                 let to_account = state
                     .accounts
                     .entry(tx.tx.to.clone())
@@ -3684,7 +3799,122 @@ impl NodeState {
                         }
                     }
                 }
+                TransactionKind::Contract => {
+                    if let Some(ref data) = tx.tx.data {
+                        match rinku_core::types::ContractTransactionData::from_data_field(data) {
+                            Ok(contract_data) => {
+                                self.execute_contract_transaction(tx, contract_data).await;
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to parse contract tx data during finalization: {}", e);
+                            }
+                        }
+                    }
+                }
                 _ => {}
+            }
+        }
+    }
+
+    async fn execute_contract_transaction(
+        &self,
+        tx: &SignedTransaction,
+        contract_data: rinku_core::types::ContractTransactionData,
+    ) {
+        let runtime = crate::contracts::ContractRuntime::new();
+
+        match contract_data {
+            rinku_core::types::ContractTransactionData::Deploy { wasm_base64, init_state } => {
+                let contract_id = crate::contracts::create_contract_id(&tx.tx.from, tx.tx.nonce);
+                let state_hash = crate::contracts::compute_state_hash(&init_state);
+                let deploy_url = format!("rinku://contract/{}", contract_id);
+
+                let contract_state = crate::contracts::ContractState {
+                    contract_id: contract_id.clone(),
+                    creator: tx.tx.from.clone(),
+                    wasm_base64,
+                    deploy_url,
+                    state: init_state,
+                    state_hash,
+                    height: 0,
+                    created_at: tx.tx.timestamp / 1000,
+                    schema: None,
+                };
+
+                match self.store_contract(contract_state).await {
+                    Ok(()) => {
+                        tracing::info!(
+                            "Contract {} deployed via finalized tx {} by {}",
+                            contract_id, &tx.hash[..16.min(tx.hash.len())],
+                            &tx.tx.from[..16.min(tx.tx.from.len())]
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to store contract {} from tx: {}", contract_id, e);
+                    }
+                }
+            }
+            rinku_core::types::ContractTransactionData::Call { contract_id, entrypoint, input } => {
+                let contract = match self.get_contract(&contract_id).await {
+                    Some(c) => c,
+                    None => {
+                        tracing::error!(
+                            "Contract {} not found during finalization of tx {}",
+                            contract_id, &tx.hash[..16.min(tx.hash.len())]
+                        );
+                        return;
+                    }
+                };
+
+                let result = runtime.execute(
+                    &contract_id,
+                    &contract.wasm_base64,
+                    &entrypoint,
+                    &input,
+                    &contract.state,
+                    contract.height + 1,
+                    tx.tx.gas_limit,
+                );
+
+                if result.success {
+                    let mut new_state = contract.state.clone();
+                    let new_height = contract.height + 1;
+
+                    if let Some(ref diff) = result.state_diff {
+                        for change in &diff.changes {
+                            if let Some(ref new_value) = change.new_value {
+                                new_state.insert(change.key.clone(), new_value.clone());
+                            } else {
+                                new_state.remove(&change.key);
+                            }
+                        }
+                    }
+
+                    let new_state_hash = crate::contracts::compute_state_hash(&new_state);
+
+                    if let Err(e) = self.update_contract_state(
+                        &contract_id,
+                        new_state,
+                        new_state_hash,
+                        new_height,
+                    ).await {
+                        tracing::error!("Failed to update contract {} state: {}", contract_id, e);
+                    } else {
+                        tracing::info!(
+                            "Contract {} call '{}' executed via finalized tx {} (height: {}, gas: {})",
+                            contract_id, entrypoint,
+                            &tx.hash[..16.min(tx.hash.len())],
+                            new_height, result.gas_used
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        "Contract {} call '{}' failed during finalization of tx {}: {:?}",
+                        contract_id, entrypoint,
+                        &tx.hash[..16.min(tx.hash.len())],
+                        result.error
+                    );
+                }
             }
         }
     }

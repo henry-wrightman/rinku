@@ -144,6 +144,8 @@ struct TxInner {
     memo: Option<String>,
     #[serde(default)]
     references: Option<Vec<String>>,
+    #[serde(default)]
+    data: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1817,7 +1819,7 @@ async fn submit_transaction(
             kind: inner.kind.clone(),
             gas_limit: None,
             gas_price: Some(inner.fee),
-            data: None,
+            data: inner.data.clone(),
             signature: Some(inner.sig.clone()),
             memo: inner.memo.clone(),
             references: inner.references.clone(),
@@ -1920,7 +1922,7 @@ async fn submit_fast_path_transaction(
             kind: inner.kind.clone(),
             gas_limit: None,
             gas_price: Some(inner.fee),
-            data: None,
+            data: inner.data.clone(),
             signature: Some(inner.sig.clone()),
             memo: inner.memo.clone(),
             references: inner.references.clone(),
@@ -2118,7 +2120,7 @@ async fn submit_batch_transaction(
                     kind: inner.kind,
                     gas_limit: None,
                     gas_price: Some(inner.fee),
-                    data: None,
+                    data: inner.data,
                     signature: Some(inner.sig.clone()),
                     memo: inner.memo,
                     references: inner.references,
@@ -3503,6 +3505,218 @@ async fn get_contract(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeployContractRequest {
+    creator: String,
+    wasm_base64: String,
+    #[serde(default)]
+    init_state: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    nonce: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeployContractResponse {
+    success: bool,
+    contract_id: String,
+    deploy_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn deploy_contract(
+    State(_state): State<NodeState>,
+    Json(req): Json<DeployContractRequest>,
+) -> impl IntoResponse {
+    const MAX_WASM_SIZE: usize = 2 * 1024 * 1024;
+
+    if req.creator.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DeployContractResponse {
+                success: false,
+                contract_id: String::new(),
+                deploy_url: String::new(),
+                error: Some("Creator address is required".to_string()),
+            }),
+        );
+    }
+
+    let wasm_bytes_len = req.wasm_base64.len() * 3 / 4;
+    if wasm_bytes_len > MAX_WASM_SIZE {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DeployContractResponse {
+                success: false,
+                contract_id: String::new(),
+                deploy_url: String::new(),
+                error: Some(format!("WASM binary too large: {} bytes (max {})", wasm_bytes_len, MAX_WASM_SIZE)),
+            }),
+        );
+    }
+
+    use base64::Engine as _;
+    let wasm_valid = base64::engine::general_purpose::STANDARD
+        .decode(&req.wasm_base64)
+        .map(|bytes| bytes.len() >= 8 && bytes[0..4] == [0x00, 0x61, 0x73, 0x6d])
+        .unwrap_or(false);
+
+    if !wasm_valid {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DeployContractResponse {
+                success: false,
+                contract_id: String::new(),
+                deploy_url: String::new(),
+                error: Some("Invalid WASM binary (bad magic bytes or base64 encoding)".to_string()),
+            }),
+        );
+    }
+
+    let nonce = req.nonce.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    });
+    let contract_id = crate::contracts::create_contract_id(&req.creator, nonce);
+    let deploy_url = format!("rinku://contract/{}", contract_id);
+
+    info!("Contract deploy preview: {} (submit as signed transaction to finalize)", contract_id);
+    (
+        StatusCode::OK,
+        Json(DeployContractResponse {
+            success: true,
+            contract_id,
+            deploy_url,
+            error: None,
+        }),
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CallContractRequest {
+    caller: String,
+    entrypoint: String,
+    #[serde(default)]
+    input: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    gas_limit: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CallContractResponse {
+    success: bool,
+    gas_used: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_message: Option<String>,
+    logs: Vec<String>,
+    events: Vec<crate::contracts::ContractEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state_diff: Option<crate::contracts::StateDiff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    return_data: Option<String>,
+    new_state: Option<HashMap<String, serde_json::Value>>,
+    new_state_hash: Option<String>,
+    new_height: Option<u64>,
+}
+
+async fn call_contract(
+    State(state): State<NodeState>,
+    Path(contract_id): Path<String>,
+    Json(req): Json<CallContractRequest>,
+) -> impl IntoResponse {
+    let contract = match state.get_contract(&contract_id).await {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(CallContractResponse {
+                    success: false,
+                    gas_used: 0,
+                    error: Some(format!("Contract not found: {}", contract_id)),
+                    error_message: None,
+                    logs: Vec::new(),
+                    events: Vec::new(),
+                    state_diff: None,
+                    return_data: None,
+                    new_state: None,
+                    new_state_hash: None,
+                    new_height: None,
+                }),
+            );
+        }
+    };
+
+    let runtime = crate::contracts::ContractRuntime::new();
+    let result = runtime.execute(
+        &contract_id,
+        &contract.wasm_base64,
+        &req.entrypoint,
+        &req.input,
+        &contract.state,
+        contract.height + 1,
+        req.gas_limit,
+    );
+
+    if result.success {
+        let mut new_state = contract.state.clone();
+        let new_height = contract.height + 1;
+
+        if let Some(ref diff) = result.state_diff {
+            for change in &diff.changes {
+                if let Some(ref new_value) = change.new_value {
+                    new_state.insert(change.key.clone(), new_value.clone());
+                } else {
+                    new_state.remove(&change.key);
+                }
+            }
+        }
+
+        let new_state_hash = crate::contracts::compute_state_hash(&new_state);
+
+        (
+            StatusCode::OK,
+            Json(CallContractResponse {
+                success: true,
+                gas_used: result.gas_used,
+                error: None,
+                error_message: None,
+                logs: result.logs,
+                events: result.events,
+                state_diff: result.state_diff,
+                return_data: None,
+                new_state: Some(new_state),
+                new_state_hash: Some(new_state_hash),
+                new_height: Some(new_height),
+            }),
+        )
+    } else {
+        (
+            StatusCode::OK,
+            Json(CallContractResponse {
+                success: false,
+                gas_used: result.gas_used,
+                error: result.error.clone(),
+                error_message: result.error,
+                logs: result.logs,
+                events: result.events,
+                state_diff: None,
+                return_data: None,
+                new_state: None,
+                new_state_hash: None,
+                new_height: None,
+            }),
+        )
+    }
+}
+
 async fn get_version(State(state): State<NodeState>) -> Json<VersionResponse> {
     let (chain_id, network_id) = state.get_chain_info().await;
     Json(VersionResponse {
@@ -3919,7 +4133,9 @@ pub async fn start_api_server(
         .route("/api/staking", get(get_staking))
         .route("/api/staking/:address", get(get_staking_address))
         .route("/api/contracts", get(get_contracts))
+        .route("/api/contracts/deploy", post(deploy_contract))
         .route("/api/contracts/:contract_id", get(get_contract))
+        .route("/api/contracts/:contract_id/call", post(call_contract))
         .route("/api/tokenomics/supply", get(get_tokenomics_supply))
         .route("/api/tokenomics/emission", get(get_tokenomics_emission))
         .route("/api/tokenomics/slashing", get(get_tokenomics_slashing))

@@ -519,7 +519,7 @@ function App() {
           >
             faucet
           </span>
-          {/* <span
+          <span
             className={tab === "contracts" ? "active" : ""}
             onClick={() => {
               setTab("contracts");
@@ -527,7 +527,7 @@ function App() {
             }}
           >
             contracts
-          </span> */}
+          </span>
           {/* <span
             className={tab === "zk" ? "active" : ""}
             onClick={() => {

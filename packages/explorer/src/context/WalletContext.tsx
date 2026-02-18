@@ -34,6 +34,7 @@ export interface SubmitTxPayload {
   memo?: string;
   references?: string[];
   parentCount?: number;
+  data?: string;
 }
 
 export interface SubmitTxResult {
@@ -179,6 +180,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       gasPrice: payload.gasPrice ?? 0.001,
       memo: payload.memo,
       references: payload.references,
+      data: payload.data,
     });
 
     const res = await fetch(`${API_URL}/tx`, {
@@ -222,6 +224,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           gasPrice: payload.gasPrice ?? 0.001,
           memo: payload.memo,
           references: payload.references,
+          data: payload.data,
         });
 
         const retryRes = await fetch(`${API_URL}/tx`, {

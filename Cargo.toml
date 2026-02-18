@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "packages/rinku-core",
     "packages/rinku-node",
+    "packages/rinku-contract-sdk",
 ]
 
 [workspace.package]
@@ -90,6 +91,9 @@ ark-relations = "0.4"
 
 # Poseidon hash (circomlib-compatible)
 light-poseidon = "0.2"
+
+# WASM runtime
+wasmi = "1.0"
 
 [profile.release]
 strip = true

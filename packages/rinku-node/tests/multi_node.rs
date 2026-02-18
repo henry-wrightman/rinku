@@ -89,7 +89,6 @@ fn create_test_checkpoint(height: u64, previous_hash: Option<String>, tx_hashes:
         aggregated_signature: None,
         signer_bitmap: None,
         finalized_tx_hashes: vec![],
-        weight_trie_root: "weight_trie_root".to_string(),
     }
 }
 
@@ -481,7 +480,6 @@ mod checkpoint_adoption_tests {
             aggregated_signature: None,
             signer_bitmap: None,
             finalized_tx_hashes: vec![],
-            weight_trie_root: "weight_trie_root".to_string(),
         };
         
         let can_adopt_orphan = orphan_checkpoint.previous_hash == Some(cp1.hash.clone());
