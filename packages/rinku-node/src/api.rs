@@ -3670,7 +3670,8 @@ async fn call_contract(
     );
 
     let base_fee = current_gas_price;
-    let execution_fee = (result.gas_used as f64 / crate::wasm_runtime::BASE_TX_GAS as f64) * current_gas_price;
+    let additional_gas = result.gas_used.saturating_sub(crate::wasm_runtime::BASE_TX_GAS);
+    let execution_fee = (additional_gas as f64 / crate::wasm_runtime::BASE_TX_GAS as f64) * current_gas_price;
     let total_estimated_fee = base_fee + execution_fee;
 
     if result.success {

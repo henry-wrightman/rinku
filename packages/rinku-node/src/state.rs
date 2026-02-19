@@ -3548,7 +3548,7 @@ impl NodeState {
             let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
             let required_balance = if is_stake_tx {
                 tx.tx.amount + gas_fee
-            } else if is_unstake_tx || is_claim_tx {
+            } else if is_unstake_tx || is_claim_tx || is_contract_tx {
                 gas_fee
             } else {
                 tx.tx.amount + gas_fee
@@ -3621,14 +3621,17 @@ impl NodeState {
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+        let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
 
         {
             let state = self.inner.read().await;
             if let Some(from_account) = state.accounts.get(&tx.tx.from) {
-                let required = if is_stake_tx || (!is_unstake_tx && !is_claim_tx) {
+                let required = if is_stake_tx {
                     tx.tx.amount + gas_fee
-                } else {
+                } else if is_unstake_tx || is_claim_tx || is_contract_tx {
                     gas_fee
+                } else {
+                    tx.tx.amount + gas_fee
                 };
                 if from_account.balance < required {
                     tracing::warn!(
@@ -3972,7 +3975,8 @@ impl NodeState {
 
     async fn charge_contract_execution_fee(&self, from: &str, gas_used: u64, gas_price: f64) {
         use crate::wasm_runtime::BASE_TX_GAS;
-        let execution_fee = (gas_used as f64 / BASE_TX_GAS as f64) * gas_price;
+        let additional_gas = gas_used.saturating_sub(BASE_TX_GAS);
+        let execution_fee = (additional_gas as f64 / BASE_TX_GAS as f64) * gas_price;
         if execution_fee > 0.0 {
             let mut state = self.inner.write().await;
             if let Some(account) = state.accounts.get_mut(from) {
@@ -3984,8 +3988,8 @@ impl NodeState {
             state.total_burned += execution_fee * 0.5;
             state.total_to_validators += execution_fee * 0.5;
             tracing::info!(
-                "Contract execution fee: {} gas = {:.6} RKU from {}",
-                gas_used, execution_fee, &from[..16.min(from.len())]
+                "Contract execution fee: {} total gas ({} additional) = {:.6} RKU from {}",
+                gas_used, additional_gas, execution_fee, &from[..16.min(from.len())]
             );
         }
     }

@@ -27,7 +27,7 @@ pub const GAS_PER_INPUT_BYTE: u64 = 16;
 pub const BASE_TX_GAS: u64 = 21_000;
 
 pub fn compute_total_gas(fuel_consumed: u64, host_gas_used: u64, base_gas: u64, input_bytes: usize) -> u64 {
-    let fuel_gas = fuel_consumed / FUEL_TO_GAS_RATIO;
+    let fuel_gas = fuel_consumed.div_ceil(FUEL_TO_GAS_RATIO);
     let input_gas = (input_bytes as u64) * GAS_PER_INPUT_BYTE;
     base_gas + fuel_gas + host_gas_used + input_gas
 }
