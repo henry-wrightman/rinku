@@ -3826,15 +3826,52 @@ impl NodeState {
         match contract_data {
             rinku_core::types::ContractTransactionData::Deploy { wasm_base64, init_state } => {
                 let contract_id = crate::contracts::create_contract_id(&tx.tx.from, tx.tx.nonce);
-                let state_hash = crate::contracts::compute_state_hash(&init_state);
                 let deploy_url = format!("rinku://contract/{}", contract_id);
+
+                let mut final_state = init_state.clone();
+
+                let init_input: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+                let init_result = runtime.execute_with_caller(
+                    &contract_id,
+                    &wasm_base64,
+                    "init",
+                    &init_input,
+                    &init_state,
+                    1,
+                    Some(1_000_000),
+                    &tx.tx.from,
+                    tx.tx.timestamp / 1000,
+                );
+
+                if init_result.success {
+                    if let Some(ref diff) = init_result.state_diff {
+                        for change in &diff.changes {
+                            if let Some(ref new_value) = change.new_value {
+                                final_state.insert(change.key.clone(), new_value.clone());
+                            } else {
+                                final_state.remove(&change.key);
+                            }
+                        }
+                    }
+                    tracing::info!(
+                        "Contract {} init executed successfully ({} state keys)",
+                        contract_id, final_state.len()
+                    );
+                } else {
+                    tracing::warn!(
+                        "Contract {} init failed (non-fatal): {:?}",
+                        contract_id, init_result.error
+                    );
+                }
+
+                let state_hash = crate::contracts::compute_state_hash(&final_state);
 
                 let contract_state = crate::contracts::ContractState {
                     contract_id: contract_id.clone(),
                     creator: tx.tx.from.clone(),
                     wasm_base64,
                     deploy_url,
-                    state: init_state,
+                    state: final_state,
                     state_hash,
                     height: 0,
                     created_at: tx.tx.timestamp / 1000,
@@ -3866,7 +3903,7 @@ impl NodeState {
                     }
                 };
 
-                let result = runtime.execute(
+                let result = runtime.execute_with_caller(
                     &contract_id,
                     &contract.wasm_base64,
                     &entrypoint,
@@ -3874,6 +3911,8 @@ impl NodeState {
                     &contract.state,
                     contract.height + 1,
                     tx.tx.gas_limit,
+                    &tx.tx.from,
+                    tx.tx.timestamp / 1000,
                 );
 
                 if result.success {

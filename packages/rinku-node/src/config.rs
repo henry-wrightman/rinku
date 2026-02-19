@@ -211,7 +211,7 @@ impl NodeConfig {
             checkpoint_interval_ms: env::var("CHECKPOINT_INTERVAL_MS")
                 .ok()
                 .and_then(|n| n.parse().ok())
-                .unwrap_or(15000),
+                .unwrap_or(10000),
             gossip_interval_ms: env::var("GOSSIP_INTERVAL_MS")
                 .ok()
                 .and_then(|n| n.parse().ok())

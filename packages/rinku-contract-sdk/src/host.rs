@@ -1,3 +1,4 @@
+#[link(wasm_import_module = "rinku")]
 extern "C" {
     #[link_name = "storage_read"]
     fn _storage_read(key_ptr: i32, key_len: i32) -> i32;

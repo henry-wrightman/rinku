@@ -17,8 +17,8 @@ const MAX_LOGS: usize = 64;
 const MAX_EVENTS: usize = 64;
 const MAX_VIEW_KEYS: usize = 32;
 const MAX_TRANSFERS: usize = 16;
-const DEFAULT_FUEL: u64 = 1_000_000;
-const MAX_MEMORY_PAGES: u32 = 16;
+const DEFAULT_FUEL: u64 = 10_000_000;
+const MAX_MEMORY_PAGES: u32 = 256;
 const MAX_RETURN_DATA: usize = 65536;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,8 +224,8 @@ impl WasmEngine {
             .map_err(|e| anyhow!("Invalid WASM module: {}", e))?;
 
         for import in module.imports() {
-            if import.module() != "rinku" {
-                return Err(anyhow!("Module imports from unknown namespace '{}', only 'rinku' is allowed", import.module()));
+            if import.module() != "rinku" && import.module() != "env" {
+                return Err(anyhow!("Module imports from unknown namespace '{}', only 'rinku' and 'env' are allowed", import.module()));
             }
         }
 
@@ -318,6 +318,17 @@ impl WasmEngine {
                 };
             }
         };
+
+        if let Some(Extern::Memory(mem)) = instance.get_export(&store, "memory") {
+            let mem_size = mem.data_size(&store) as u32;
+            if mem_size > 0 {
+                store.data_mut().alloc_offset = mem_size;
+                tracing::info!(
+                    "WASM alloc_offset={} (mem_size={}, pages={}) for {} entrypoint={}",
+                    mem_size, mem_size, mem_size / 65536, contract_id, entrypoint
+                );
+            }
+        }
 
         let result_i32 = instance.get_typed_func::<(), i32>(&store, entrypoint);
         let result_void = instance.get_typed_func::<(), ()>(&store, entrypoint);
@@ -417,16 +428,18 @@ impl WasmEngine {
     }
 
     fn register_host_functions(&self, linker: &mut Linker<HostState>) -> Result<()> {
-        self.register_storage_functions(linker)?;
-        self.register_context_functions(linker)?;
-        self.register_io_functions(linker)?;
-        self.register_crypto_functions(linker)?;
-        self.register_ledger_functions(linker)?;
+        for module in &["rinku", "env"] {
+            self.register_storage_functions(linker, module)?;
+            self.register_context_functions(linker, module)?;
+            self.register_io_functions(linker, module)?;
+            self.register_crypto_functions(linker, module)?;
+            self.register_ledger_functions(linker, module)?;
+        }
         Ok(())
     }
 
-    fn register_storage_functions(&self, linker: &mut Linker<HostState>) -> Result<()> {
-        linker.func_wrap("rinku", "storage_read", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
+    fn register_storage_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
+        linker.func_wrap(module, "storage_read", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -450,7 +463,7 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "storage_read_len", |caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
+        linker.func_wrap(module, "storage_read_len", |caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -467,7 +480,7 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "storage_write", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32| -> i32 {
+        linker.func_wrap(module, "storage_write", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -494,7 +507,7 @@ impl WasmEngine {
             0
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "storage_delete", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
+        linker.func_wrap(module, "storage_delete", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -513,7 +526,7 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "storage_has", |caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
+        linker.func_wrap(module, "storage_has", |caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -530,8 +543,8 @@ impl WasmEngine {
         Ok(())
     }
 
-    fn register_context_functions(&self, linker: &mut Linker<HostState>) -> Result<()> {
-        linker.func_wrap("rinku", "get_caller", |mut caller: Caller<'_, HostState>| -> i32 {
+    fn register_context_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
+        linker.func_wrap(module, "get_caller", |mut caller: Caller<'_, HostState>| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -543,19 +556,19 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_caller_len", |caller: Caller<'_, HostState>| -> i32 {
+        linker.func_wrap(module, "get_caller_len", |caller: Caller<'_, HostState>| -> i32 {
             caller.data().caller.len() as i32
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_block_height", |caller: Caller<'_, HostState>| -> i64 {
+        linker.func_wrap(module, "get_block_height", |caller: Caller<'_, HostState>| -> i64 {
             caller.data().block_height as i64
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_timestamp", |caller: Caller<'_, HostState>| -> i64 {
+        linker.func_wrap(module, "get_timestamp", |caller: Caller<'_, HostState>| -> i64 {
             caller.data().timestamp as i64
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_contract_id", |mut caller: Caller<'_, HostState>| -> i32 {
+        linker.func_wrap(module, "get_contract_id", |mut caller: Caller<'_, HostState>| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -567,31 +580,44 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_contract_id_len", |caller: Caller<'_, HostState>| -> i32 {
+        linker.func_wrap(module, "get_contract_id_len", |caller: Caller<'_, HostState>| -> i32 {
             caller.data().contract_id.len() as i32
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_input", |mut caller: Caller<'_, HostState>| -> i32 {
+        linker.func_wrap(module, "get_input", |mut caller: Caller<'_, HostState>| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
             };
             let input = caller.data().input_data.clone();
+            let alloc_off = caller.data().alloc_offset;
+            let mem_sz = memory.data_size(caller.as_context()) as u32;
+            tracing::info!(
+                "get_input: {} bytes, alloc_offset={}, mem_size={}, data={}",
+                input.len(), alloc_off, mem_sz,
+                String::from_utf8_lossy(&input[..input.len().min(200)])
+            );
             match write_to_guest(&memory, &mut caller, &input) {
-                Ok((ptr, _)) => ptr,
-                Err(_) => -1,
+                Ok((ptr, len)) => {
+                    tracing::debug!("get_input: wrote at ptr={}, len={}", ptr, len);
+                    ptr
+                },
+                Err(e) => {
+                    tracing::warn!("get_input: write_to_guest failed: {}", e);
+                    -1
+                },
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_input_len", |caller: Caller<'_, HostState>| -> i32 {
+        linker.func_wrap(module, "get_input_len", |caller: Caller<'_, HostState>| -> i32 {
             caller.data().input_data.len() as i32
         }).map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
     }
 
-    fn register_io_functions(&self, linker: &mut Linker<HostState>) -> Result<()> {
-        linker.func_wrap("rinku", "log", |mut caller: Caller<'_, HostState>, msg_ptr: i32, msg_len: i32| {
+    fn register_io_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
+        linker.func_wrap(module, "log", |mut caller: Caller<'_, HostState>, msg_ptr: i32, msg_len: i32| {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 _ => return,
@@ -610,7 +636,7 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "emit_event", |mut caller: Caller<'_, HostState>, name_ptr: i32, name_len: i32, data_ptr: i32, data_len: i32| -> i32 {
+        linker.func_wrap(module, "emit_event", |mut caller: Caller<'_, HostState>, name_ptr: i32, name_len: i32, data_ptr: i32, data_len: i32| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -648,7 +674,7 @@ impl WasmEngine {
             0
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "set_return_data", |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| {
+        linker.func_wrap(module, "set_return_data", |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 _ => return,
@@ -662,7 +688,7 @@ impl WasmEngine {
             caller.data_mut().return_data = data;
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "set_error", |mut caller: Caller<'_, HostState>, msg_ptr: i32, msg_len: i32| {
+        linker.func_wrap(module, "set_error", |mut caller: Caller<'_, HostState>, msg_ptr: i32, msg_len: i32| {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 _ => return,
@@ -677,15 +703,15 @@ impl WasmEngine {
             caller.data_mut().error = Some(msg);
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_return_data_len", |caller: Caller<'_, HostState>| -> i32 {
+        linker.func_wrap(module, "get_return_data_len", |caller: Caller<'_, HostState>| -> i32 {
             caller.data().return_data.len() as i32
         }).map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
     }
 
-    fn register_crypto_functions(&self, linker: &mut Linker<HostState>) -> Result<()> {
-        linker.func_wrap("rinku", "sha256", |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| -> i32 {
+    fn register_crypto_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
+        linker.func_wrap(module, "sha256", |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -707,7 +733,7 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "keccak256", |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| -> i32 {
+        linker.func_wrap(module, "keccak256", |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -732,8 +758,8 @@ impl WasmEngine {
         Ok(())
     }
 
-    fn register_ledger_functions(&self, linker: &mut Linker<HostState>) -> Result<()> {
-        linker.func_wrap("rinku", "get_balance", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
+    fn register_ledger_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
+        linker.func_wrap(module, "get_balance", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -752,7 +778,7 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_staked", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
+        linker.func_wrap(module, "get_staked", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -771,7 +797,7 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_account_age", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
+        linker.func_wrap(module, "get_account_age", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -791,7 +817,7 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_nonce", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
+        linker.func_wrap(module, "get_nonce", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -810,7 +836,7 @@ impl WasmEngine {
             }
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "transfer", |mut caller: Caller<'_, HostState>, from_ptr: i32, from_len: i32, to_ptr: i32, to_len: i32, amount_micro: i64| -> i32 {
+        linker.func_wrap(module, "transfer", |mut caller: Caller<'_, HostState>, from_ptr: i32, from_len: i32, to_ptr: i32, to_len: i32, amount_micro: i64| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -875,7 +901,7 @@ impl WasmEngine {
             0
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "emit_view_key", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32| -> i32 {
+        linker.func_wrap(module, "emit_view_key", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32| -> i32 {
             let memory = match get_memory(&caller) {
                 Some(m) => m,
                 None => return -1,
@@ -909,7 +935,7 @@ impl WasmEngine {
             0
         }).map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap("rinku", "get_gas_price", |caller: Caller<'_, HostState>| -> i64 {
+        linker.func_wrap(module, "get_gas_price", |caller: Caller<'_, HostState>| -> i64 {
             let host = caller.data();
             (host.gas_meter.gas_remaining()) as i64
         }).map_err(|e| anyhow!("{}", e))?;
