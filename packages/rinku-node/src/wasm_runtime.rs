@@ -20,6 +20,17 @@ const MAX_TRANSFERS: usize = 16;
 const DEFAULT_FUEL: u64 = 10_000_000;
 const MAX_MEMORY_PAGES: u32 = 256;
 const MAX_RETURN_DATA: usize = 65536;
+pub const FUEL_TO_GAS_RATIO: u64 = 100;
+pub const BASE_CONTRACT_DEPLOY_GAS: u64 = 50_000;
+pub const BASE_CONTRACT_CALL_GAS: u64 = 21_000;
+pub const GAS_PER_INPUT_BYTE: u64 = 16;
+pub const BASE_TX_GAS: u64 = 21_000;
+
+pub fn compute_total_gas(fuel_consumed: u64, host_gas_used: u64, base_gas: u64, input_bytes: usize) -> u64 {
+    let fuel_gas = fuel_consumed / FUEL_TO_GAS_RATIO;
+    let input_gas = (input_bytes as u64) * GAS_PER_INPUT_BYTE;
+    base_gas + fuel_gas + host_gas_used + input_gas
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WasmAbi {
@@ -92,6 +103,7 @@ pub struct HostState {
     pub transfer_ops: Vec<TransferOp>,
     pub view_key_emissions: Vec<ViewKeyEmission>,
     pub max_memory_pages: u32,
+    pub gas_price: f64,
 }
 
 impl HostState {
@@ -121,6 +133,7 @@ impl HostState {
             input_data,
             error: None,
             alloc_offset: 0,
+            gas_price: ctx.gas_price,
             accounts: ctx.accounts,
             transfer_ops: Vec::new(),
             view_key_emissions: Vec::new(),
@@ -272,6 +285,8 @@ impl WasmEngine {
         ctx: ExecutionContext,
     ) -> WasmExecutionOutput {
         let fuel = gas_limit.unwrap_or(DEFAULT_FUEL);
+        let input_bytes = serde_json::to_vec(input).map(|v| v.len()).unwrap_or(0);
+        let base_gas = if entrypoint == "init" { BASE_CONTRACT_DEPLOY_GAS } else { BASE_CONTRACT_CALL_GAS };
         let host_state = HostState::new(
             contract_id.to_string(),
             caller.to_string(),
@@ -301,13 +316,15 @@ impl WasmEngine {
         let instance = match linker.instantiate_and_start(&mut store, &module) {
             Ok(inst) => inst,
             Err(e) => {
-                let consumed = fuel.saturating_sub(store.get_fuel().unwrap_or(0));
+                let fuel_consumed = fuel.saturating_sub(store.get_fuel().unwrap_or(0));
                 let host = store.into_data();
+                let host_gas = host.gas_meter.gas_used();
+                let total_gas = compute_total_gas(fuel_consumed, host_gas, base_gas, input_bytes);
                 return WasmExecutionOutput {
                     result: ExecutionResult {
                         success: false,
                         state_diff: None,
-                        gas_used: consumed,
+                        gas_used: total_gas,
                         error: Some(format!("WASM instantiation failed: {}", e)),
                         logs: host.logs,
                         events: Vec::new(),
@@ -335,14 +352,14 @@ impl WasmEngine {
 
         if let Ok(func) = result_i32 {
             let call_result = func.call(&mut store, ());
-            let consumed = fuel.saturating_sub(store.get_fuel().unwrap_or(0));
-            return self.handle_i32_result(call_result, store, contract_id, height, consumed);
+            let fuel_consumed = fuel.saturating_sub(store.get_fuel().unwrap_or(0));
+            return self.handle_i32_result(call_result, store, contract_id, height, fuel_consumed, base_gas, input_bytes);
         }
 
         if let Ok(func) = result_void {
             let call_result = func.call(&mut store, ());
-            let consumed = fuel.saturating_sub(store.get_fuel().unwrap_or(0));
-            return self.handle_void_result(call_result, store, contract_id, height, consumed);
+            let fuel_consumed = fuel.saturating_sub(store.get_fuel().unwrap_or(0));
+            return self.handle_void_result(call_result, store, contract_id, height, fuel_consumed, base_gas, input_bytes);
         }
 
         wrap_err(format!("Entrypoint '{}' not found in WASM module", entrypoint))
@@ -354,12 +371,16 @@ impl WasmEngine {
         store: Store<HostState>,
         contract_id: &str,
         height: u64,
-        consumed: u64,
+        fuel_consumed: u64,
+        base_gas: u64,
+        input_bytes: usize,
     ) -> WasmExecutionOutput {
         match call_result {
             Ok(status_code) => {
                 let host = store.into_data();
                 if status_code != 0 {
+                    let host_gas = host.gas_meter.gas_used();
+                    let total_gas = compute_total_gas(fuel_consumed, host_gas, base_gas, input_bytes);
                     return WasmExecutionOutput {
                         transfer_ops: Vec::new(),
                         view_key_emissions: Vec::new(),
@@ -367,17 +388,19 @@ impl WasmEngine {
                         result: ExecutionResult {
                             success: false,
                             state_diff: None,
-                            gas_used: consumed,
+                            gas_used: total_gas,
                             error: host.error.or_else(|| Some(format!("Contract returned error code: {}", status_code))),
                             logs: host.logs,
                             events: host.events,
                         },
                     };
                 }
-                build_success_output(host, contract_id, height, consumed)
+                build_success_output(host, contract_id, height, fuel_consumed, base_gas, input_bytes)
             }
             Err(e) => {
                 let host = store.into_data();
+                let host_gas = host.gas_meter.gas_used();
+                let total_gas = compute_total_gas(fuel_consumed, host_gas, base_gas, input_bytes);
                 WasmExecutionOutput {
                     transfer_ops: Vec::new(),
                     view_key_emissions: Vec::new(),
@@ -385,7 +408,7 @@ impl WasmEngine {
                     result: ExecutionResult {
                         success: false,
                         state_diff: None,
-                        gas_used: consumed,
+                        gas_used: total_gas,
                         error: Some(host.error.unwrap_or_else(|| format!("Execution error: {}", e))),
                         logs: host.logs,
                         events: host.events,
@@ -401,15 +424,19 @@ impl WasmEngine {
         store: Store<HostState>,
         contract_id: &str,
         height: u64,
-        consumed: u64,
+        fuel_consumed: u64,
+        base_gas: u64,
+        input_bytes: usize,
     ) -> WasmExecutionOutput {
         match call_result {
             Ok(()) => {
                 let host = store.into_data();
-                build_success_output(host, contract_id, height, consumed)
+                build_success_output(host, contract_id, height, fuel_consumed, base_gas, input_bytes)
             }
             Err(e) => {
                 let host = store.into_data();
+                let host_gas = host.gas_meter.gas_used();
+                let total_gas = compute_total_gas(fuel_consumed, host_gas, base_gas, input_bytes);
                 WasmExecutionOutput {
                     transfer_ops: Vec::new(),
                     view_key_emissions: Vec::new(),
@@ -417,7 +444,7 @@ impl WasmEngine {
                     result: ExecutionResult {
                         success: false,
                         state_diff: None,
-                        gas_used: consumed,
+                        gas_used: total_gas,
                         error: Some(host.error.unwrap_or_else(|| format!("Execution error: {}", e))),
                         logs: host.logs,
                         events: host.events,
@@ -937,7 +964,7 @@ impl WasmEngine {
 
         linker.func_wrap(module, "get_gas_price", |caller: Caller<'_, HostState>| -> i64 {
             let host = caller.data();
-            (host.gas_meter.gas_remaining()) as i64
+            (host.gas_price * 1_000_000.0) as i64
         }).map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
@@ -966,7 +993,7 @@ fn wrap_err(msg: String) -> WasmExecutionOutput {
     }
 }
 
-fn build_success_output(host: HostState, contract_id: &str, height: u64, consumed: u64) -> WasmExecutionOutput {
+fn build_success_output(host: HostState, contract_id: &str, height: u64, fuel_consumed: u64, base_gas: u64, input_bytes: usize) -> WasmExecutionOutput {
     let state_diff = compute_state_diff(
         contract_id,
         height,
@@ -974,6 +1001,8 @@ fn build_success_output(host: HostState, contract_id: &str, height: u64, consume
         &host.storage,
     );
     let has_changes = !state_diff.changes.is_empty();
+    let host_gas = host.gas_meter.gas_used();
+    let total_gas = compute_total_gas(fuel_consumed, host_gas, base_gas, input_bytes);
     WasmExecutionOutput {
         transfer_ops: host.transfer_ops.clone(),
         view_key_emissions: host.view_key_emissions.clone(),
@@ -981,7 +1010,7 @@ fn build_success_output(host: HostState, contract_id: &str, height: u64, consume
         result: ExecutionResult {
             success: true,
             state_diff: if has_changes { Some(state_diff) } else { None },
-            gas_used: consumed,
+            gas_used: total_gas,
             error: None,
             logs: host.logs,
             events: host.events,

@@ -2578,14 +2578,15 @@ impl NodeState {
             let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Stake));
             let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Unstake));
             let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::ClaimRewards));
+            let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Contract));
             
             // Deduct from sender based on transaction type (matches execute_finalized_transaction)
             if let Some(sender) = simulated_accounts.get_mut(from) {
                 if is_stake_tx {
                     // Stake: deduct amount + fee (amount goes to stake, not recipient)
                     sender.0 = (sender.0 - amount - fee).max(0.0);
-                } else if is_unstake_tx || is_claim_tx {
-                    // Unstake/Claim: only deduct gas fee
+                } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                    // Unstake/Claim/Contract: only deduct gas fee (contract execution fee charged separately)
                     sender.0 = (sender.0 - fee).max(0.0);
                 } else {
                     // Regular transfer: deduct amount + fee
@@ -2594,8 +2595,8 @@ impl NodeState {
                 sender.1 += 1; // Increment nonce
             }
             
-            // Credit recipient only for regular transfers (not stake/unstake/claim)
-            if !is_stake_tx && !is_unstake_tx && !is_claim_tx {
+            // Credit recipient only for regular transfers (not stake/unstake/claim/contract)
+            if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
                 if let Some(receiver) = simulated_accounts.get_mut(to) {
                     receiver.0 += amount;
                 } else {
@@ -3822,6 +3823,10 @@ impl NodeState {
         contract_data: rinku_core::types::ContractTransactionData,
     ) {
         let runtime = crate::contracts::ContractRuntime::new();
+        let gas_price = {
+            let state = self.inner.read().await;
+            tx.tx.gas_price.unwrap_or(state.current_gas_price)
+        };
 
         match contract_data {
             rinku_core::types::ContractTransactionData::Deploy { wasm_base64, init_state } => {
@@ -3843,6 +3848,9 @@ impl NodeState {
                     tx.tx.timestamp / 1000,
                 );
 
+                let execution_gas = init_result.gas_used;
+                self.charge_contract_execution_fee(&tx.tx.from, execution_gas, gas_price).await;
+
                 if init_result.success {
                     if let Some(ref diff) = init_result.state_diff {
                         for change in &diff.changes {
@@ -3854,13 +3862,13 @@ impl NodeState {
                         }
                     }
                     tracing::info!(
-                        "Contract {} init executed successfully ({} state keys)",
-                        contract_id, final_state.len()
+                        "Contract {} init executed successfully ({} state keys, gas: {})",
+                        contract_id, final_state.len(), execution_gas
                     );
                 } else {
                     tracing::warn!(
-                        "Contract {} init failed (non-fatal): {:?}",
-                        contract_id, init_result.error
+                        "Contract {} init failed (non-fatal, gas: {}): {:?}",
+                        contract_id, execution_gas, init_result.error
                     );
                 }
 
@@ -3915,6 +3923,9 @@ impl NodeState {
                     tx.tx.timestamp / 1000,
                 );
 
+                let execution_gas = result.gas_used;
+                self.charge_contract_execution_fee(&tx.tx.from, execution_gas, gas_price).await;
+
                 if result.success {
                     let mut new_state = contract.state.clone();
                     let new_height = contract.height + 1;
@@ -3943,18 +3954,39 @@ impl NodeState {
                             "Contract {} call '{}' executed via finalized tx {} (height: {}, gas: {})",
                             contract_id, entrypoint,
                             &tx.hash[..16.min(tx.hash.len())],
-                            new_height, result.gas_used
+                            new_height, execution_gas
                         );
                     }
                 } else {
                     tracing::warn!(
-                        "Contract {} call '{}' failed during finalization of tx {}: {:?}",
+                        "Contract {} call '{}' failed during finalization of tx {} (gas: {}): {:?}",
                         contract_id, entrypoint,
                         &tx.hash[..16.min(tx.hash.len())],
+                        execution_gas,
                         result.error
                     );
                 }
             }
+        }
+    }
+
+    async fn charge_contract_execution_fee(&self, from: &str, gas_used: u64, gas_price: f64) {
+        use crate::wasm_runtime::BASE_TX_GAS;
+        let execution_fee = (gas_used as f64 / BASE_TX_GAS as f64) * gas_price;
+        if execution_fee > 0.0 {
+            let mut state = self.inner.write().await;
+            if let Some(account) = state.accounts.get_mut(from) {
+                account.balance -= execution_fee;
+                if account.balance < 0.0 {
+                    account.balance = 0.0;
+                }
+            }
+            state.total_burned += execution_fee * 0.5;
+            state.total_to_validators += execution_fee * 0.5;
+            tracing::info!(
+                "Contract execution fee: {} gas = {:.6} RKU from {}",
+                gas_used, execution_fee, &from[..16.min(from.len())]
+            );
         }
     }
     

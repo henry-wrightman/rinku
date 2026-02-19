@@ -3613,6 +3613,8 @@ struct CallContractResponse {
     success: bool,
     gas_used: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    estimated_fee: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_message: Option<String>,
@@ -3640,6 +3642,7 @@ async fn call_contract(
                 Json(CallContractResponse {
                     success: false,
                     gas_used: 0,
+                    estimated_fee: None,
                     error: Some(format!("Contract not found: {}", contract_id)),
                     error_message: None,
                     logs: Vec::new(),
@@ -3654,6 +3657,7 @@ async fn call_contract(
         }
     };
 
+    let current_gas_price = state.get_gas_price().await;
     let runtime = crate::contracts::ContractRuntime::new();
     let result = runtime.execute(
         &contract_id,
@@ -3664,6 +3668,10 @@ async fn call_contract(
         contract.height + 1,
         req.gas_limit,
     );
+
+    let base_fee = current_gas_price;
+    let execution_fee = (result.gas_used as f64 / crate::wasm_runtime::BASE_TX_GAS as f64) * current_gas_price;
+    let total_estimated_fee = base_fee + execution_fee;
 
     if result.success {
         let mut new_state = contract.state.clone();
@@ -3686,6 +3694,7 @@ async fn call_contract(
             Json(CallContractResponse {
                 success: true,
                 gas_used: result.gas_used,
+                estimated_fee: Some(total_estimated_fee),
                 error: None,
                 error_message: None,
                 logs: result.logs,
@@ -3703,6 +3712,7 @@ async fn call_contract(
             Json(CallContractResponse {
                 success: false,
                 gas_used: result.gas_used,
+                estimated_fee: Some(total_estimated_fee),
                 error: result.error.clone(),
                 error_message: result.error,
                 logs: result.logs,
