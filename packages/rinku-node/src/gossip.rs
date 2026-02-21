@@ -3239,7 +3239,7 @@ impl GossipService {
                 Ok(None)
             }
 
-            GossipMessage::PeerDiscovery { peers, node_id, is_relayer, relay_fee_rate, relay_address, .. } => {
+            GossipMessage::PeerDiscovery { peers, node_id, is_relayer, relay_fee_rate, relay_address, sender_url, .. } => {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -3277,18 +3277,18 @@ impl GossipService {
 
                 if is_relayer {
                     if let Some(ref relay_addr) = relay_address {
-                        let sender_url_str = peers.first().cloned().unwrap_or_default();
+                        let sender_url_str = sender_url.clone().unwrap_or_else(|| peers.first().cloned().unwrap_or_default());
                         let relay_stake = self.state.get_validator_stake(relay_addr).await.unwrap_or(0.0);
                         inner.relay_pool.insert(relay_addr.clone(), RelayNodeInfo {
                             address: relay_addr.clone(),
-                            node_url: sender_url_str,
+                            node_url: sender_url_str.clone(),
                             fee_rate: relay_fee_rate.unwrap_or(0.005),
                             stake: relay_stake,
                             relays_completed: 0,
                             last_seen: now,
                             is_healthy: true,
                         });
-                        info!("Relay pool: added/updated relayer {} (fee_rate: {:.4})", &relay_addr[..16.min(relay_addr.len())], relay_fee_rate.unwrap_or(0.005));
+                        info!("Relay pool: added/updated relayer {} (fee_rate: {:.4}, url: {})", &relay_addr[..16.min(relay_addr.len())], relay_fee_rate.unwrap_or(0.005), &sender_url_str);
                     }
                 }
 

@@ -957,7 +957,7 @@ impl NodeState {
                         start_time: std::time::Instant::now(),
                     };
                     
-                    node_state.sync_stakes_to_accounts().await;
+                    // NOTE: sync_stakes_to_accounts deferred to main.rs after genesis validator replacement
                     node_state.recalculate_dag_weights().await;
                     
                     return Ok(node_state);
@@ -1143,8 +1143,9 @@ impl NodeState {
             start_time: std::time::Instant::now(),
         };
         
-        // Sync stakes from RewardsService to account state
-        node_state.sync_stakes_to_accounts().await;
+        // NOTE: sync_stakes_to_accounts is NOT called here.
+        // It must be called from main.rs AFTER replace_validators_with_genesis
+        // to avoid creating ghost accounts from stale reward snapshots.
         
         // Recalculate DAG weights based on current account state
         node_state.recalculate_dag_weights().await;
@@ -1165,8 +1166,33 @@ impl NodeState {
         Ok(node_state)
     }
     
+    /// Remove accounts that are not in the allowed set, not the faucet/genesis,
+    /// and have 0 balance + 0 staked (ghost accounts from old snapshots)
+    pub async fn cleanup_stale_accounts(&self, allowed_addresses: &std::collections::HashSet<String>) {
+        let mut state = self.inner.write().await;
+        let stale: Vec<String> = state.accounts
+            .iter()
+            .filter(|(addr, account)| {
+                *addr != "faucet"
+                    && *addr != "genesis"
+                    && !allowed_addresses.contains(*addr)
+                    && account.balance == 0.0
+                    && account.staked == 0.0
+            })
+            .map(|(addr, _)| addr.clone())
+            .collect();
+        
+        if !stale.is_empty() {
+            for addr in &stale {
+                state.accounts.remove(addr);
+            }
+            info!("Cleaned up {} ghost account(s) from old snapshot", stale.len());
+        }
+    }
+    
     /// Sync all stakes from RewardsService to account.staked fields
-    async fn sync_stakes_to_accounts(&self) {
+    /// Must be called AFTER replace_validators_with_genesis to avoid ghost accounts
+    pub async fn sync_stakes_to_accounts(&self) {
         let rewards = self.rewards.read().await;
         let stakes: Vec<(String, f64, u64)> = rewards.get_all_stakes()
             .iter()
@@ -3251,6 +3277,25 @@ impl NodeState {
     }
 
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<TransactionResult> {
+        let is_relay_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay));
+        if is_relay_tx {
+            let relay_data = tx.tx.data.as_ref().and_then(|d| {
+                serde_json::from_str::<serde_json::Value>(d).ok()
+            });
+            let inner_kind_str = relay_data.as_ref()
+                .and_then(|v| v.get("innerKind").and_then(|k| k.as_str()))
+                .unwrap_or("transfer");
+            let inner_kind = match inner_kind_str {
+                "stake" | "Stake" => rinku_core::types::TransactionKind::Stake,
+                "unstake" | "Unstake" => rinku_core::types::TransactionKind::Unstake,
+                "claimRewards" | "ClaimRewards" => rinku_core::types::TransactionKind::ClaimRewards,
+                "contract" | "Contract" => rinku_core::types::TransactionKind::Contract,
+                _ => rinku_core::types::TransactionKind::Transfer,
+            };
+            let relayer_addr = tx.tx.from.clone();
+            return self.add_relay_transaction(tx, &relayer_addr, inner_kind).await;
+        }
+
         // PHASE 0: Validate transaction BEFORE any state mutations
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
@@ -4945,12 +4990,12 @@ impl NodeState {
         let mut state = self.inner.write().await;
         let old_count = state.validators.len();
         
-        // Build new validator map from genesis validators
-        let mut new_validators = std::collections::HashMap::new();
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        
+        let mut new_validators = std::collections::HashMap::new();
         
         for (address, bls_public_key) in genesis_validators {
             let validator = Validator {
@@ -4961,6 +5006,25 @@ impl NodeState {
                 missed_checkpoints: 0,
             };
             new_validators.insert(address.clone(), validator);
+            
+            if !state.accounts.contains_key(address) {
+                let mut account = Account::new(address.clone(), now_secs);
+                account.staked = MIN_VALIDATOR_STAKE;
+                state.accounts.insert(address.clone(), account);
+                info!(
+                    "Genesis validator account created: {} (staked: {} RKU)",
+                    &address[..16.min(address.len())], MIN_VALIDATOR_STAKE
+                );
+            } else {
+                let account = state.accounts.get_mut(address).unwrap();
+                if account.staked < MIN_VALIDATOR_STAKE {
+                    account.staked = MIN_VALIDATOR_STAKE;
+                    info!(
+                        "Genesis validator account updated staked amount: {} -> {} RKU",
+                        &address[..16.min(address.len())], MIN_VALIDATOR_STAKE
+                    );
+                }
+            }
         }
         
         let new_count = new_validators.len();

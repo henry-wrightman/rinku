@@ -270,13 +270,43 @@ async fn main() -> Result<()> {
         );
     }
 
+    // FRESH_START: Wipe persistent storage to force a clean genesis
+    let fresh_start = std::env::var("FRESH_START")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    
     // Check if data directory exists and log contents
     let data_path = std::path::Path::new(&config.data_dir);
-    if data_path.exists() {
+    if fresh_start && data_path.exists() {
+        warn!("FRESH_START=true: Wiping data directory {}", config.data_dir);
+        let redb_path = data_path.join("redb.db");
+        if redb_path.exists() {
+            if let Err(e) = std::fs::remove_file(&redb_path) {
+                warn!("Could not remove redb.db: {}", e);
+            } else {
+                info!("Removed redb.db for fresh start");
+            }
+        }
+        let vi_path = data_path.join("validator-identity");
+        if vi_path.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&vi_path) {
+                warn!("Could not remove validator-identity dir: {}", e);
+            } else {
+                info!("Removed validator-identity dir for fresh start");
+            }
+        }
+        let sled_path = data_path.join("sled-db");
+        if sled_path.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&sled_path) {
+                warn!("Could not remove sled-db dir: {}", e);
+            } else {
+                info!("Removed sled-db dir for fresh start");
+            }
+        }
+    } else if data_path.exists() {
         info!("Data directory exists, checking for stale locks...");
         let sled_path = data_path.join("sled-db");
         if sled_path.exists() {
-            // Try to remove any stale lock files
             let lock_path = sled_path.join("lock");
             if lock_path.exists() {
                 info!("Found lock file, attempting to remove stale lock...");
@@ -377,13 +407,21 @@ async fn main() -> Result<()> {
             vi_guard.seed_genesis_validators(&genesis_seed);
         }
         
-        // CRITICAL FIX: Register genesis validator stakes in the RewardsService
-        // Without this, genesis validators are in state.validators but NOT in
-        // rewards.stakes, causing distribute_checkpoint_rewards() to skip them
-        // and give 100% of emission rewards to user-staked validators only.
+        let genesis_addresses: std::collections::HashSet<String> = genesis_seed.iter().map(|(a, _)| a.clone()).collect();
         {
             use crate::validator_identity::MIN_VALIDATOR_STAKE;
             let mut rewards = state.rewards.write().await;
+            let existing_stakes: Vec<String> = rewards.get_all_stakes().iter().map(|s| s.staker.clone()).collect();
+            let mut removed = 0;
+            for staker in &existing_stakes {
+                if !genesis_addresses.contains(staker) {
+                    rewards.remove_stake(staker);
+                    removed += 1;
+                }
+            }
+            if removed > 0 {
+                info!("Removed {} stale stake(s) from rewards service (not in genesis set)", removed);
+            }
             let mut registered = 0;
             for (address, _) in &genesis_seed {
                 if rewards.get_stake(address).is_none() {
@@ -404,7 +442,15 @@ async fn main() -> Result<()> {
             "Seeded {} genesis validator(s) into validator registry",
             genesis_seed.len()
         );
+        
+        // Clean up ghost accounts: remove accounts that are not genesis validators,
+        // not the faucet, and have 0 balance + 0 staked (leftover from old snapshots)
+        state.cleanup_stale_accounts(&genesis_addresses).await;
     }
+    
+    // Sync stakes to accounts AFTER genesis validator replacement
+    // This ensures only current stakers get accounts, not stale ones from old snapshots
+    state.sync_stakes_to_accounts().await;
 
     let mut checkpoint_service = CheckpointService::new(
         state.clone(),

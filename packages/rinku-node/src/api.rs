@@ -195,6 +195,14 @@ struct RelaySubmitRequest {
     parents: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AutoRelayRequest {
+    intent: rinku_core::types::RelayIntent,
+    #[serde(default, alias = "tipUrls")]
+    parents: Vec<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RelaySubmitResponse {
@@ -1923,7 +1931,7 @@ async fn submit_transaction(
 async fn submit_relay_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<RelaySubmitRequest>,
-) -> impl IntoResponse {
+) -> (StatusCode, Json<RelaySubmitResponse>) {
     let intent = &req.intent;
     
     if intent.is_expired() {
@@ -2089,6 +2097,63 @@ async fn submit_relay_transaction(
             }),
         ),
     }
+}
+
+async fn submit_auto_relay(
+    State(api_state): State<ApiState>,
+    Json(req): Json<AutoRelayRequest>,
+) -> impl IntoResponse {
+    let intent = &req.intent;
+
+    let (validator_addr, _) = api_state.node_state.get_validator_info().await;
+    let relayer_address = match validator_addr {
+        Some(addr) => addr,
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(RelaySubmitResponse {
+                    success: false,
+                    hash: String::new(),
+                    intent_hash: intent.intent_hash.clone(),
+                    relayer: String::new(),
+                    intent_from: intent.from.clone(),
+                    error: Some("This node does not have a relayer wallet configured".to_string()),
+                    fast_path_eligible: None,
+                    fast_path_status: None,
+                }),
+            );
+        }
+    };
+
+    let relayer_balance = api_state.node_state.get_account(&relayer_address).await
+        .map(|a| a.balance).unwrap_or(0.0);
+    tracing::info!("Auto-relay: relayer={}, balance={:.8}", &relayer_address[..16.min(relayer_address.len())], relayer_balance);
+    if relayer_balance < 0.01 {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(RelaySubmitResponse {
+                success: false,
+                hash: String::new(),
+                intent_hash: intent.intent_hash.clone(),
+                relayer: relayer_address,
+                intent_from: intent.from.clone(),
+                error: Some("Relayer node has insufficient balance to pay gas".to_string()),
+                fast_path_eligible: None,
+                fast_path_status: None,
+            }),
+        );
+    }
+
+    let gas_price = api_state.node_state.get_gas_price().await;
+
+    let relay_req = RelaySubmitRequest {
+        intent: req.intent,
+        relayer: relayer_address,
+        gas_price,
+        parents: req.parents,
+    };
+
+    submit_relay_transaction(State(api_state), Json(relay_req)).await
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -3347,6 +3412,7 @@ async fn get_relay_pool(
         let pool: Vec<serde_json::Value> = relayers.iter().map(|r| {
             serde_json::json!({
                 "address": r.address,
+                "nodeUrl": r.node_url,
                 "feeRate": r.fee_rate,
                 "stake": r.stake,
                 "relaysCompleted": r.relays_completed,
@@ -4367,6 +4433,7 @@ pub async fn start_api_server(
         .route("/api/slashing/evidence", post(post_slashing_evidence))
         .route("/api/tx", post(submit_transaction))
         .route("/api/tx/relay", post(submit_relay_transaction))
+        .route("/api/tx/auto-relay", post(submit_auto_relay))
         .route("/api/relay/pool", get(get_relay_pool))
         .route("/api/tx/fast", post(submit_fast_path_transaction))
         .route("/api/tx/fast/:hash", get(get_fast_path_status))

@@ -664,11 +664,15 @@ impl RelayIntent {
             obj.insert("kind".into(), serde_json::to_value(kind).unwrap_or_default());
         }
         obj.insert("maxGasPrice".into(), Self::js_compatible_number(self.max_gas_price));
-        if let Some(relay_fee) = self.relay_fee {
-            obj.insert("relayFee".into(), Self::js_compatible_number(relay_fee));
-        }
         if let Some(ref memo) = self.memo {
-            obj.insert("memo".into(), serde_json::Value::String(memo.clone()));
+            if !memo.trim().is_empty() {
+                obj.insert("memo".into(), serde_json::Value::String(memo.clone()));
+            }
+        }
+        if let Some(relay_fee) = self.relay_fee {
+            if relay_fee > 0.0 {
+                obj.insert("relayFee".into(), Self::js_compatible_number(relay_fee));
+            }
         }
         obj.insert("nonce".into(), serde_json::json!(self.nonce));
         if let Some(ref refs) = self.references {
