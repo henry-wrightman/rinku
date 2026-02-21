@@ -635,6 +635,8 @@ pub struct RelayIntent {
     #[serde(default)]
     pub data: Option<String>,
     pub max_gas_price: f64,
+    #[serde(default)]
+    pub relay_fee: Option<f64>,
     pub expiry_ms: u64,
     pub public_key: String,
     pub intent_hash: String,
@@ -662,6 +664,9 @@ impl RelayIntent {
             obj.insert("kind".into(), serde_json::to_value(kind).unwrap_or_default());
         }
         obj.insert("maxGasPrice".into(), Self::js_compatible_number(self.max_gas_price));
+        if let Some(relay_fee) = self.relay_fee {
+            obj.insert("relayFee".into(), Self::js_compatible_number(relay_fee));
+        }
         if let Some(ref memo) = self.memo {
             obj.insert("memo".into(), serde_json::Value::String(memo.clone()));
         }

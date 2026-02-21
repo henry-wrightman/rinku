@@ -59,6 +59,8 @@ pub enum Reward {
     Stake(StakeReward),
     #[serde(rename = "witness")]
     Witness(WitnessReward),
+    #[serde(rename = "relay")]
+    Relay(RelayReward),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,11 +94,22 @@ pub struct WitnessReward {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RelayReward {
+    pub recipient: String,
+    pub amount: f64,
+    pub tx_hash: String,
+    pub intent_hash: String,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RewardsSummary {
     pub address: String,
     pub tip_rewards: f64,
     pub stake_rewards: f64,
     pub witness_rewards: f64,
+    pub relay_rewards: f64,
     pub total_rewards: f64,
     pub pending_rewards: f64,
 }
@@ -114,6 +127,8 @@ pub struct LifetimeRewards {
     pub tip_rewards: f64,
     pub stake_rewards: f64,
     pub witness_rewards: f64,
+    #[serde(default)]
+    pub relay_rewards: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -403,7 +418,8 @@ impl RewardsService {
             tip_rewards: lifetime.tip_rewards,
             stake_rewards: lifetime.stake_rewards,
             witness_rewards: lifetime.witness_rewards,
-            total_rewards: lifetime.tip_rewards + lifetime.stake_rewards + lifetime.witness_rewards,
+            relay_rewards: lifetime.relay_rewards,
+            total_rewards: lifetime.tip_rewards + lifetime.stake_rewards + lifetime.witness_rewards + lifetime.relay_rewards,
             pending_rewards: pending,
         }
     }
@@ -615,11 +631,35 @@ impl RewardsService {
         stakers
     }
 
+    pub fn process_relay_reward(
+        &mut self,
+        relayer: &str,
+        relay_fee: f64,
+        tx_hash: &str,
+        intent_hash: &str,
+    ) -> Option<RelayReward> {
+        if relay_fee <= 0.0 {
+            return None;
+        }
+
+        let reward = RelayReward {
+            recipient: relayer.to_string(),
+            amount: relay_fee,
+            tx_hash: tx_hash.to_string(),
+            intent_hash: intent_hash.to_string(),
+            timestamp: current_time_ms(),
+        };
+
+        self.add_reward(relayer, Reward::Relay(reward.clone()));
+        Some(reward)
+    }
+
     fn add_reward(&mut self, address: &str, reward: Reward) {
         let amount = match &reward {
             Reward::Tip(r) => r.amount,
             Reward::Stake(r) => r.amount,
             Reward::Witness(r) => r.amount,
+            Reward::Relay(r) => r.amount,
         };
 
         let lifetime = self.lifetime_rewards.entry(address.to_string()).or_default();
@@ -627,6 +667,7 @@ impl RewardsService {
             Reward::Tip(_) => lifetime.tip_rewards += amount,
             Reward::Stake(_) => lifetime.stake_rewards += amount,
             Reward::Witness(_) => lifetime.witness_rewards += amount,
+            Reward::Relay(_) => lifetime.relay_rewards += amount,
         }
 
         let rewards = self.rewards.entry(address.to_string()).or_default();

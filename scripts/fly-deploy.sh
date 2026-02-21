@@ -4,6 +4,7 @@ set -e
 GENESIS_APP="rinku-genesis"
 VALIDATOR1_APP="rinku-validator-1"
 VALIDATOR2_APP="rinku-validator-2"
+RELAYER1_APP="rinku-relayer-1"
 REGION="sjc"
 CHAIN_ID="rinku-testnet"
 NETWORK_ID="testnet"
@@ -332,12 +333,38 @@ configure_validator() {
     log_success "Configured $validator_app with bootstrap peer (IS_GENESIS_NODE=false)"
 }
 
+configure_relayer() {
+    local relayer_app=$1
+    local genesis_ip=$2
+    local peer_id=$3
+    local genesis_validators_env=$4
+    
+    log_info "Configuring $relayer_app as relayer node..."
+    
+    local bootstrap_peer="/ip4/${genesis_ip}/tcp/4001/p2p/${peer_id}"
+    
+    fly secrets set -a "$relayer_app" \
+        P2P_BOOTSTRAP_PEERS="$bootstrap_peer" \
+        GENESIS_VALIDATORS="$genesis_validators_env" \
+        IS_GENESIS_NODE="false" \
+        MAINNET_MODE="true" \
+        CHAIN_ID="$CHAIN_ID" \
+        NETWORK_ID="$NETWORK_ID" \
+        VALIDATOR_KEY_PASSWORD="testnet-${relayer_app}" \
+        PUBLIC_URL="https://${relayer_app}.fly.dev" \
+        RELAY_MODE="true" \
+        RELAY_MIN_STAKE="100" \
+        RELAY_FEE_PERCENT="0.1"
+    
+    log_success "Configured $relayer_app as relayer with relay mode enabled"
+}
+
 show_status() {
     echo ""
     log_info "=== Rinku Network Status ==="
     echo ""
     
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP" "$RELAYER1_APP"; do
         if app_exists "$app"; then
             echo -e "${GREEN}$app:${NC}"
             local status=$(fly status -a "$app" 2>/dev/null | grep -E "^(Machines|ID)" | head -5)
@@ -421,6 +448,11 @@ deploy_update() {
         deploy_app "$VALIDATOR2_APP"
     fi
     
+    if app_exists "$RELAYER1_APP"; then
+        log_info "Deploying relayer 1..."
+        deploy_app "$RELAYER1_APP"
+    fi
+    
     log_success "=== All nodes updated successfully ==="
     show_status
 }
@@ -444,7 +476,11 @@ deploy_update_validators() {
         deploy_app "$VALIDATOR2_APP"
     fi
     
-    log_success "Validator nodes updated"
+    if app_exists "$RELAYER1_APP"; then
+        deploy_app "$RELAYER1_APP"
+    fi
+    
+    log_success "Validator and relayer nodes updated"
 }
 
 deploy_fresh() {
@@ -470,14 +506,16 @@ deploy_fresh() {
     create_app_if_needed "$GENESIS_APP"
     create_app_if_needed "$VALIDATOR1_APP"
     create_app_if_needed "$VALIDATOR2_APP"
+    create_app_if_needed "$RELAYER1_APP"
     
     log_info "Step 2: Allocating IPv4 addresses..."
     allocate_ipv4_if_needed "$GENESIS_APP"
     allocate_ipv4_if_needed "$VALIDATOR1_APP"
     allocate_ipv4_if_needed "$VALIDATOR2_APP"
+    allocate_ipv4_if_needed "$RELAYER1_APP"
     
     log_info "Step 3: Destroying existing machines (IPs are preserved)..."
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP" "$RELAYER1_APP"; do
     if app_exists "$app"; then
         destroy_all_machines "$app"
         wait_for_no_machines "$app"
@@ -488,6 +526,7 @@ deploy_fresh() {
     wipe_and_recreate_volume "$GENESIS_APP"
     wipe_and_recreate_volume "$VALIDATOR1_APP"
     wipe_and_recreate_volume "$VALIDATOR2_APP"
+    wipe_and_recreate_volume "$RELAYER1_APP"
     
     log_info "Step 5: Configuring and deploying genesis node..."
     configure_genesis "$GENESIS_APP"
@@ -515,10 +554,12 @@ deploy_fresh() {
     log_info "Step 8: Configuring validators (temporary GENESIS_VALIDATORS)..."
     configure_validator "$VALIDATOR1_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
     configure_validator "$VALIDATOR2_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
+    configure_relayer "$RELAYER1_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
     
-    log_info "Step 9: Deploying validators..."
+    log_info "Step 9: Deploying validators and relayer..."
     deploy_app "$VALIDATOR1_APP"
     deploy_app "$VALIDATOR2_APP"
+    deploy_app "$RELAYER1_APP"
 
     log_info "Step 10: Building full GENESIS_VALIDATORS list..."
     local genesis_validators_env
@@ -535,6 +576,7 @@ deploy_fresh() {
     echo "  Genesis:     https://${GENESIS_APP}.fly.dev"
     echo "  Validator 1: https://${VALIDATOR1_APP}.fly.dev"
     echo "  Validator 2: https://${VALIDATOR2_APP}.fly.dev"
+    echo "  Relayer 1:   https://${RELAYER1_APP}.fly.dev"
     echo ""
     log_info "Explorer should connect to: https://${GENESIS_APP}.fly.dev"
 }

@@ -3618,10 +3618,15 @@ impl NodeState {
         let is_claim_tx = matches!(inner_kind, rinku_core::types::TransactionKind::ClaimRewards);
         let is_contract_tx = matches!(inner_kind, rinku_core::types::TransactionKind::Contract);
 
-        let intent_from_addr = tx.tx.data.as_ref().and_then(|d| {
+        let relay_data_parsed = tx.tx.data.as_ref().and_then(|d| {
             serde_json::from_str::<serde_json::Value>(d).ok()
-                .and_then(|v| v.get("intentFrom")?.as_str().map(|s| s.to_string()))
-        }).ok_or_else(|| anyhow::anyhow!("Relay transaction missing intentFrom in data"))?;
+        });
+        let intent_from_addr = relay_data_parsed.as_ref()
+            .and_then(|v| v.get("intentFrom")?.as_str().map(|s| s.to_string()))
+            .ok_or_else(|| anyhow::anyhow!("Relay transaction missing intentFrom in data"))?;
+        let relay_fee = relay_data_parsed.as_ref()
+            .and_then(|v| v.get("relayFee")?.as_f64())
+            .unwrap_or(0.0);
 
         {
             let state = self.inner.read().await;
@@ -3651,11 +3656,11 @@ impl NodeState {
             }
 
             let required_balance_intent = if is_stake_tx {
-                tx.tx.amount
+                tx.tx.amount + relay_fee
             } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                0.0
+                relay_fee
             } else {
-                tx.tx.amount
+                tx.tx.amount + relay_fee
             };
 
             if intent_from_addr != "genesis" {
@@ -3815,15 +3820,19 @@ impl NodeState {
                 });
                 let intent_from = relay_parsed.as_ref()
                     .and_then(|v| v.get("intentFrom")?.as_str().map(|s| s.to_string()));
+                let fp_relay_fee = relay_parsed.as_ref()
+                    .and_then(|v| v.get("relayFee")?.as_f64())
+                    .unwrap_or(0.0);
 
                 if let Some(ref intent_sender) = intent_from {
                     if let Some(from_account) = state.accounts.get(intent_sender) {
-                        if from_account.balance < tx.tx.amount {
+                        let required_balance = tx.tx.amount + fp_relay_fee;
+                        if from_account.balance < required_balance {
                             tracing::warn!(
                                 "FastPath relay rejected: intent signer {} insufficient balance ({:.8} < {:.8})",
                                 &intent_sender[..16.min(intent_sender.len())],
                                 from_account.balance,
-                                tx.tx.amount
+                                required_balance
                             );
                             return false;
                         }
@@ -3949,7 +3958,9 @@ impl NodeState {
                         "contract" | "Contract" => rinku_core::types::TransactionKind::Contract,
                         _ => rinku_core::types::TransactionKind::Transfer,
                     };
-                    Some((intent_from, inner_kind))
+                    let relay_fee = v.get("relayFee").and_then(|f| f.as_f64()).unwrap_or(0.0);
+                    let intent_hash = v.get("intentHash").and_then(|h| h.as_str()).unwrap_or("").to_string();
+                    Some((intent_from, inner_kind, relay_fee, intent_hash))
                 })
             })
         } else {
@@ -3961,20 +3972,23 @@ impl NodeState {
             let mut state = self.inner.write().await;
 
             if is_relay_tx {
-                if let Some((ref intent_from_addr, ref inner_kind)) = relay_info {
+                if let Some((ref intent_from_addr, ref inner_kind, relay_fee, _)) = relay_info {
                     let is_inner_transfer = matches!(inner_kind, rinku_core::types::TransactionKind::Transfer);
 
                     if let Some(from_account) = state.accounts.get_mut(intent_from_addr) {
                         if is_inner_transfer {
-                            from_account.balance -= tx.tx.amount;
+                            from_account.balance -= tx.tx.amount + relay_fee;
                         } else if matches!(inner_kind, rinku_core::types::TransactionKind::Stake) {
-                            from_account.balance -= tx.tx.amount;
+                            from_account.balance -= tx.tx.amount + relay_fee;
+                        } else {
+                            from_account.balance -= relay_fee;
                         }
                         from_account.nonce = tx.tx.nonce + 1;
                     }
 
                     if let Some(relayer_account) = state.accounts.get_mut(&tx.tx.from) {
                         relayer_account.balance -= gas_fee;
+                        relayer_account.balance += relay_fee;
                     }
 
                     if is_inner_transfer {
@@ -4098,7 +4112,11 @@ impl NodeState {
                     }
                 }
                 TransactionKind::Relay => {
-                    if let Some((ref intent_from_addr, ref inner_kind)) = relay_info {
+                    if let Some((ref intent_from_addr, ref inner_kind, relay_fee, ref intent_hash)) = relay_info {
+                        if relay_fee > 0.0 {
+                            let mut rewards = self.rewards.write().await;
+                            rewards.process_relay_reward(&tx.tx.from, relay_fee, &tx.hash, intent_hash);
+                        }
                         match inner_kind {
                             TransactionKind::Stake => {
                                 let stake_update: Option<(f64, u64)> = {

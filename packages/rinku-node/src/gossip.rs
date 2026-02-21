@@ -300,6 +300,12 @@ pub enum GossipMessage {
         node_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
+        #[serde(default)]
+        is_relayer: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay_fee_rate: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay_address: Option<String>,
     },
     ConflictResolution {
         conflict_id: String,
@@ -403,6 +409,14 @@ pub struct PeerInfo {
     pub consecutive_failures: u32,
     #[serde(default)]
     pub backoff_until: u64,
+    #[serde(default)]
+    pub is_relayer: bool,
+    #[serde(default)]
+    pub relay_fee_rate: Option<f64>,
+    #[serde(default)]
+    pub relay_stake: Option<f64>,
+    #[serde(default)]
+    pub relays_completed: u64,
 }
 
 /// Maximum size for stale nonce cache (addresses tracked)
@@ -446,9 +460,20 @@ pub struct GossipServiceInner {
     /// Fast-path finality tracking for data-only transactions
     pub fast_path_pending: HashMap<String, rinku_core::types::FastPathFinality>,
     pub fast_path_confirmed: HashMap<String, rinku_core::types::FastPathFinality>,
-    /// Tracks tx hashes that have been executed on fast-path (balances applied)
-    /// to prevent double-execution at checkpoint time
     pub fast_path_executed: std::collections::HashSet<String>,
+    pub relay_pool: HashMap<String, RelayNodeInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayNodeInfo {
+    pub address: String,
+    pub node_url: String,
+    pub fee_rate: f64,
+    pub stake: f64,
+    pub relays_completed: u64,
+    pub last_seen: u64,
+    pub is_healthy: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -511,6 +536,10 @@ impl GossipService {
                 is_healthy: true,
                 consecutive_failures: 0,
                 backoff_until: 0,
+                is_relayer: false,
+                relay_fee_rate: None,
+                relay_stake: None,
+                relays_completed: 0,
             });
         }
 
@@ -548,6 +577,7 @@ impl GossipService {
                 fast_path_pending: HashMap::new(),
                 fast_path_confirmed: HashMap::new(),
                 fast_path_executed: std::collections::HashSet::new(),
+                relay_pool: HashMap::new(),
             })),
             node_id,
             interval_ms,
@@ -1905,10 +1935,30 @@ impl GossipService {
         }
         
         let public_url = std::env::var("PUBLIC_URL").ok();
+        let is_relayer = std::env::var("RELAY_MODE")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        let relay_fee_rate = if is_relayer {
+            std::env::var("RELAY_FEE_PERCENT")
+                .ok()
+                .and_then(|n| n.parse().ok())
+                .or(Some(0.005))
+        } else {
+            None
+        };
+        let relay_address = if is_relayer {
+            let (addr, _) = self.state.get_validator_info().await;
+            addr
+        } else {
+            None
+        };
         let message = GossipMessage::PeerDiscovery {
             peers: known_peers,
             node_id: self.node_id.clone(),
             sender_url: public_url,
+            is_relayer,
+            relay_fee_rate,
+            relay_address,
         };
         
         for peer in &current_peers {
@@ -3189,28 +3239,25 @@ impl GossipService {
                 Ok(None)
             }
 
-            GossipMessage::PeerDiscovery { peers, node_id, .. } => {
-                // sender_url already handled at top of handle_message
+            GossipMessage::PeerDiscovery { peers, node_id, is_relayer, relay_fee_rate, relay_address, .. } => {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs();
 
-                // Get own URL for self-filtering
                 let own_url = std::env::var("PUBLIC_URL").ok();
                 let own_normalized = own_url.as_ref().map(|u| u.trim_end_matches('/').to_string());
 
                 let mut inner = self.inner.write().await;
-                for addr in peers {
-                    // Skip adding self as a peer
+                for addr in &peers {
                     let addr_normalized = addr.trim_end_matches('/');
                     if own_normalized.as_deref() == Some(addr_normalized) {
                         continue;
                     }
                     
-                    if !inner.peers.contains_key(&addr) {
+                    if !inner.peers.contains_key(addr) {
                         inner.peers.insert(addr.clone(), PeerInfo {
-                            address: addr,
+                            address: addr.clone(),
                             node_id: node_id.clone(),
                             last_seen: now,
                             dag_size: 0,
@@ -3219,10 +3266,32 @@ impl GossipService {
                             is_healthy: true,
                             consecutive_failures: 0,
                             backoff_until: 0,
+                            is_relayer: false,
+                            relay_fee_rate: None,
+                            relay_stake: None,
+                            relays_completed: 0,
                         });
                         inner.stats.peers_discovered += 1;
                     }
                 }
+
+                if is_relayer {
+                    if let Some(ref relay_addr) = relay_address {
+                        let sender_url_str = peers.first().cloned().unwrap_or_default();
+                        let relay_stake = self.state.get_validator_stake(relay_addr).await.unwrap_or(0.0);
+                        inner.relay_pool.insert(relay_addr.clone(), RelayNodeInfo {
+                            address: relay_addr.clone(),
+                            node_url: sender_url_str,
+                            fee_rate: relay_fee_rate.unwrap_or(0.005),
+                            stake: relay_stake,
+                            relays_completed: 0,
+                            last_seen: now,
+                            is_healthy: true,
+                        });
+                        info!("Relay pool: added/updated relayer {} (fee_rate: {:.4})", &relay_addr[..16.min(relay_addr.len())], relay_fee_rate.unwrap_or(0.005));
+                    }
+                }
+
                 Ok(None)
             }
 
@@ -3872,6 +3941,18 @@ impl GossipService {
         inner.fast_path_executed.clone()
     }
 
+    pub async fn get_relay_pool(&self) -> Vec<RelayNodeInfo> {
+        let inner = self.inner.read().await;
+        inner.relay_pool.values().filter(|r| r.is_healthy).cloned().collect()
+    }
+
+    pub async fn increment_relay_completed(&self, relayer_address: &str) {
+        let mut inner = self.inner.write().await;
+        if let Some(relay) = inner.relay_pool.get_mut(relayer_address) {
+            relay.relays_completed += 1;
+        }
+    }
+
     async fn execute_on_fast_path(&self, tx: &rinku_core::types::SignedTransaction) {
         {
             let inner = self.inner.read().await;
@@ -4185,6 +4266,10 @@ impl GossipService {
                 is_healthy: true,
                 consecutive_failures: 0,
                 backoff_until: 0,
+                is_relayer: false,
+                relay_fee_rate: None,
+                relay_stake: None,
+                relays_completed: 0,
             });
             inner.stats.peers_discovered += 1;
         }

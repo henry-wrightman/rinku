@@ -377,6 +377,29 @@ async fn main() -> Result<()> {
             vi_guard.seed_genesis_validators(&genesis_seed);
         }
         
+        // CRITICAL FIX: Register genesis validator stakes in the RewardsService
+        // Without this, genesis validators are in state.validators but NOT in
+        // rewards.stakes, causing distribute_checkpoint_rewards() to skip them
+        // and give 100% of emission rewards to user-staked validators only.
+        {
+            use crate::validator_identity::MIN_VALIDATOR_STAKE;
+            let mut rewards = state.rewards.write().await;
+            let mut registered = 0;
+            for (address, _) in &genesis_seed {
+                if rewards.get_stake(address).is_none() {
+                    if let Ok(_) = rewards.stake(address, MIN_VALIDATOR_STAKE) {
+                        registered += 1;
+                    }
+                }
+            }
+            if registered > 0 {
+                info!(
+                    "Registered {} genesis validator stake(s) in rewards service ({} RKU each)",
+                    registered, MIN_VALIDATOR_STAKE
+                );
+            }
+        }
+        
         info!(
             "Seeded {} genesis validator(s) into validator registry",
             genesis_seed.len()

@@ -1990,6 +1990,7 @@ async fn submit_relay_transaction(
         .unwrap_or_default()
         .as_millis() as u64;
 
+    let relay_fee = intent.relay_fee.unwrap_or(0.0);
     let relay_data = serde_json::json!({
         "relay": true,
         "intentHash": intent.intent_hash,
@@ -1997,6 +1998,7 @@ async fn submit_relay_transaction(
         "intentTo": intent.to,
         "intentAmount": intent.amount,
         "intentNonce": intent.nonce,
+        "relayFee": relay_fee,
         "relayer": req.relayer,
         "innerKind": intent.kind,
     });
@@ -3337,6 +3339,33 @@ async fn get_gossip_stats(
     }
 }
 
+async fn get_relay_pool(
+    State(api_state): State<ApiState>,
+) -> Json<serde_json::Value> {
+    if let Some(ref gossip_service) = api_state.gossip_service {
+        let relayers = gossip_service.get_relay_pool().await;
+        let pool: Vec<serde_json::Value> = relayers.iter().map(|r| {
+            serde_json::json!({
+                "address": r.address,
+                "feeRate": r.fee_rate,
+                "stake": r.stake,
+                "relaysCompleted": r.relays_completed,
+                "lastSeen": r.last_seen,
+                "isHealthy": r.is_healthy,
+            })
+        }).collect();
+        Json(serde_json::json!({
+            "relayers": pool,
+            "count": pool.len(),
+        }))
+    } else {
+        Json(serde_json::json!({
+            "relayers": [],
+            "count": 0,
+        }))
+    }
+}
+
 async fn get_peers(
     State(api_state): State<ApiState>,
 ) -> Json<PeersResponse> {
@@ -3632,6 +3661,7 @@ struct RewardsAddressResponse {
     tip_rewards: f64,
     stake_rewards: f64,
     witness_rewards: f64,
+    relay_rewards: f64,
     total_rewards: f64,
     pending_rewards: f64,
 }
@@ -3648,6 +3678,7 @@ async fn get_rewards_address(
         tip_rewards: summary.tip_rewards,
         stake_rewards: summary.stake_rewards,
         witness_rewards: summary.witness_rewards,
+        relay_rewards: summary.relay_rewards,
         total_rewards: summary.total_rewards,
         pending_rewards: summary.pending_rewards,
     })
@@ -4336,6 +4367,7 @@ pub async fn start_api_server(
         .route("/api/slashing/evidence", post(post_slashing_evidence))
         .route("/api/tx", post(submit_transaction))
         .route("/api/tx/relay", post(submit_relay_transaction))
+        .route("/api/relay/pool", get(get_relay_pool))
         .route("/api/tx/fast", post(submit_fast_path_transaction))
         .route("/api/tx/fast/:hash", get(get_fast_path_status))
         .route("/api/tx/batch", post(submit_batch_transaction))
