@@ -14,11 +14,12 @@ name = "rinku-node"
 path = "src/main.rs"
 
 [features]
-default = ["p2p"]
+default = ["p2p", "wasm"]
 tui = ["ratatui", "crossterm"]
 zk = ["ark-bn254", "ark-groth16", "ark-serialize", "ark-std", "ark-ff", "ark-ec", "ark-relations", "light-poseidon"]
 p2p = ["libp2p"]
-full = ["zk", "p2p", "tui"]
+wasm = ["wasmi"]
+full = ["zk", "p2p", "tui", "wasm"]
 
 [dependencies]
 rinku-core = { path = "../rinku-core" }
@@ -67,6 +68,7 @@ blst = { workspace = true }
 flate2 = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
+p256 = { workspace = true }
 sysinfo = { workspace = true }
 
 # TUI (optional)
@@ -84,6 +86,10 @@ ark-relations = { workspace = true, optional = true }
 light-poseidon = { workspace = true, optional = true }
 futures = "0.3.31"
 
+# WASM runtime (optional)
+wasmi = { workspace = true, optional = true }
+
 [dev-dependencies]
 proptest = { workspace = true }
 tempfile = "3"
+wat = "1"

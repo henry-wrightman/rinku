@@ -144,6 +144,8 @@ struct TxInner {
     memo: Option<String>,
     #[serde(default)]
     references: Option<Vec<String>>,
+    #[serde(default)]
+    data: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -175,6 +177,32 @@ struct BatchSubmitTxResponse {
 struct SubmitTxResponse {
     success: bool,
     hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_eligible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fast_path_status: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RelaySubmitRequest {
+    intent: rinku_core::types::RelayIntent,
+    relayer: String,
+    gas_price: f64,
+    #[serde(default, alias = "tipUrls")]
+    parents: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RelaySubmitResponse {
+    success: bool,
+    hash: String,
+    intent_hash: String,
+    relayer: String,
+    intent_from: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1817,7 +1845,7 @@ async fn submit_transaction(
             kind: inner.kind.clone(),
             gas_limit: None,
             gas_price: Some(inner.fee),
-            data: None,
+            data: inner.data.clone(),
             signature: Some(inner.sig.clone()),
             memo: inner.memo.clone(),
             references: inner.references.clone(),
@@ -1892,6 +1920,175 @@ async fn submit_transaction(
     }
 }
 
+async fn submit_relay_transaction(
+    State(api_state): State<ApiState>,
+    Json(req): Json<RelaySubmitRequest>,
+) -> impl IntoResponse {
+    let intent = &req.intent;
+    
+    if intent.is_expired() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(RelaySubmitResponse {
+                success: false,
+                hash: String::new(),
+                intent_hash: intent.intent_hash.clone(),
+                relayer: req.relayer.clone(),
+                intent_from: intent.from.clone(),
+                error: Some("Intent has expired".to_string()),
+                fast_path_eligible: None,
+                fast_path_status: None,
+            }),
+        );
+    }
+
+    if req.gas_price > intent.max_gas_price {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(RelaySubmitResponse {
+                success: false,
+                hash: String::new(),
+                intent_hash: intent.intent_hash.clone(),
+                relayer: req.relayer.clone(),
+                intent_from: intent.from.clone(),
+                error: Some(format!(
+                    "Gas price {:.6} exceeds intent max {:.6}",
+                    req.gas_price, intent.max_gas_price
+                )),
+                fast_path_eligible: None,
+                fast_path_status: None,
+            }),
+        );
+    }
+
+    let canonical = intent.canonical_fields();
+    let verify_result = crate::relay::verify_intent_signature_with_pubkey(
+        &canonical,
+        &intent.intent_signature,
+        &intent.from,
+        &intent.public_key,
+    );
+    
+    if let Err(e) = verify_result {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(RelaySubmitResponse {
+                success: false,
+                hash: String::new(),
+                intent_hash: intent.intent_hash.clone(),
+                relayer: req.relayer.clone(),
+                intent_from: intent.from.clone(),
+                error: Some(format!("Invalid intent signature: {}", e)),
+                fast_path_eligible: None,
+                fast_path_status: None,
+            }),
+        );
+    }
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let relay_data = serde_json::json!({
+        "relay": true,
+        "intentHash": intent.intent_hash,
+        "intentFrom": intent.from,
+        "intentTo": intent.to,
+        "intentAmount": intent.amount,
+        "intentNonce": intent.nonce,
+        "relayer": req.relayer,
+        "innerKind": intent.kind,
+    });
+
+    let inner_kind = intent.kind.unwrap_or(rinku_core::types::TransactionKind::Transfer);
+
+    let tx_data: serde_json::Value = serde_json::json!({
+        "from": req.relayer,
+        "to": intent.to,
+        "amount": intent.amount,
+        "nonce": intent.nonce,
+        "ts": now_ms,
+        "parents": req.parents,
+        "kind": "relay",
+        "fee": req.gas_price,
+        "relay": relay_data,
+    });
+    let tx_json = serde_json::to_string(&tx_data).unwrap_or_default();
+
+    use sha2::Digest;
+    let tx_hash = hex::encode(sha2::Sha256::digest(tx_json.as_bytes()));
+
+    let tx = rinku_core::types::SignedTransaction {
+        tx: rinku_core::types::Transaction {
+            from: req.relayer.clone(),
+            to: intent.to.clone(),
+            amount: intent.amount,
+            nonce: intent.nonce,
+            timestamp: now_ms,
+            parents: req.parents.clone(),
+            kind: Some(rinku_core::types::TransactionKind::Relay),
+            gas_limit: None,
+            gas_price: Some(req.gas_price),
+            data: Some(serde_json::to_string(&relay_data).unwrap_or_default()),
+            signature: Some(intent.intent_signature.clone()),
+            memo: intent.memo.clone(),
+            references: intent.references.clone(),
+        },
+        hash: tx_hash.clone(),
+        signature: intent.intent_signature.clone(),
+    };
+
+    match api_state.node_state.add_relay_transaction(tx.clone(), &req.relayer, inner_kind).await {
+        Ok(_) => {
+            if let Some(ref gossip) = api_state.gossip_service {
+                let (validator_addr, _) = api_state.node_state.get_validator_info().await;
+                let validator_stake = if let Some(ref addr) = validator_addr {
+                    api_state.node_state.get_validator_stake(addr).await.unwrap_or(0.0)
+                } else {
+                    0.0
+                };
+                
+                if let Some(addr) = validator_addr {
+                    gossip.broadcast_fast_path_transaction(tx, &addr, validator_stake).await;
+                    info!("Relay tx {} broadcast via FAST-PATH (intent from {}, relayer {})", 
+                        &tx_hash[..16.min(tx_hash.len())], 
+                        &intent.from[..16.min(intent.from.len())],
+                        &req.relayer[..16.min(req.relayer.len())]);
+                } else {
+                    gossip.broadcast_transaction(tx).await;
+                }
+            }
+            (
+                StatusCode::OK,
+                Json(RelaySubmitResponse {
+                    success: true,
+                    hash: tx_hash,
+                    intent_hash: intent.intent_hash.clone(),
+                    relayer: req.relayer,
+                    intent_from: intent.from.clone(),
+                    error: None,
+                    fast_path_eligible: Some(true),
+                    fast_path_status: Some("pending".to_string()),
+                }),
+            )
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(RelaySubmitResponse {
+                success: false,
+                hash: tx_hash,
+                intent_hash: intent.intent_hash.clone(),
+                relayer: req.relayer,
+                intent_from: intent.from.clone(),
+                error: Some(e.to_string()),
+                fast_path_eligible: None,
+                fast_path_status: None,
+            }),
+        ),
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FastPathTxResponse {
@@ -1920,7 +2117,7 @@ async fn submit_fast_path_transaction(
             kind: inner.kind.clone(),
             gas_limit: None,
             gas_price: Some(inner.fee),
-            data: None,
+            data: inner.data.clone(),
             signature: Some(inner.sig.clone()),
             memo: inner.memo.clone(),
             references: inner.references.clone(),
@@ -2118,7 +2315,7 @@ async fn submit_batch_transaction(
                     kind: inner.kind,
                     gas_limit: None,
                     gas_price: Some(inner.fee),
-                    data: None,
+                    data: inner.data,
                     signature: Some(inner.sig.clone()),
                     memo: inner.memo,
                     references: inner.references,
@@ -2434,6 +2631,10 @@ struct TransactionResponse {
     url: String,
     sig: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<rinku_core::types::TransactionKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     memo: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     references: Option<Vec<String>>,
@@ -2494,6 +2695,19 @@ async fn get_transaction(
                 (None, None, None)
             };
         
+        let redacted_data = if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay)) {
+            tx.tx.data.as_ref().and_then(|d| {
+                let mut v: serde_json::Value = serde_json::from_str(d).ok()?;
+                if let Some(obj) = v.as_object_mut() {
+                    obj.remove("intentFrom");
+                    obj.remove("intentNonce");
+                }
+                Some(serde_json::to_string(&v).unwrap_or_default())
+            })
+        } else {
+            tx.tx.data.clone()
+        };
+
         Ok(Json(TransactionResponse {
             hash: tx.hash.clone(),
             from: tx.tx.from.clone(),
@@ -2507,6 +2721,8 @@ async fn get_transaction(
             weight,
             url: format!("/tx/h/{}", tx.hash),
             sig: tx.signature.clone(),
+            kind: tx.tx.kind.clone(),
+            data: redacted_data,
             memo: tx.tx.memo.clone(),
             references: tx.tx.references.clone(),
             fast_path_status,
@@ -2536,7 +2752,7 @@ async fn get_transaction_replies(
     let state = &api_state.node_state;
     
     // Collect reply data from DAG first, then release lock before async gossip calls
-    let reply_data: Vec<(String, String, String, f64, f64, u64, u64, Vec<String>, bool, f64, Option<String>, Option<Vec<String>>, String)> = {
+    let reply_data: Vec<(String, String, String, f64, f64, u64, u64, Vec<String>, bool, f64, Option<String>, Option<Vec<String>>, String, Option<rinku_core::types::TransactionKind>, Option<String>)> = {
         let inner = state.inner.read().await;
         let all_txs = inner.dag.all_transactions();
         
@@ -2576,6 +2792,8 @@ async fn get_transaction_replies(
                     tx.tx.memo.clone(),
                     tx.tx.references.clone(),
                     tx.signature.clone(),
+                    tx.tx.kind.clone(),
+                    tx.tx.data.clone(),
                 )
             })
             .collect()
@@ -2598,7 +2816,7 @@ async fn get_transaction_replies(
         };
     
     let mut replies: Vec<TransactionResponse> = reply_data.into_iter()
-        .map(|(tx_hash, from, to, amount, fee, nonce, ts, tip_urls, finalized, weight, memo, references, sig)| {
+        .map(|(tx_hash, from, to, amount, fee, nonce, ts, tip_urls, finalized, weight, memo, references, sig, kind, data)| {
             let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
                 if let Some(fp) = fast_path_statuses.get(&tx_hash) {
                     let status = match fp.status {
@@ -2613,6 +2831,19 @@ async fn get_transaction_replies(
                 } else {
                     (None, None, None)
                 };
+
+            let redacted_data = if matches!(kind, Some(rinku_core::types::TransactionKind::Relay)) {
+                data.as_ref().and_then(|d| {
+                    let mut v: serde_json::Value = serde_json::from_str(d).ok()?;
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.remove("intentFrom");
+                        obj.remove("intentNonce");
+                    }
+                    Some(serde_json::to_string(&v).unwrap_or_default())
+                })
+            } else {
+                data
+            };
             
             TransactionResponse {
                 hash: tx_hash.clone(),
@@ -2627,6 +2858,8 @@ async fn get_transaction_replies(
                 weight,
                 url: format!("/tx/h/{}", tx_hash),
                 sig,
+                kind,
+                data: redacted_data,
                 memo,
                 references,
                 fast_path_status,
@@ -3503,6 +3736,229 @@ async fn get_contract(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeployContractRequest {
+    creator: String,
+    wasm_base64: String,
+    #[serde(default)]
+    init_state: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    nonce: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeployContractResponse {
+    success: bool,
+    contract_id: String,
+    deploy_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn deploy_contract(
+    State(_state): State<NodeState>,
+    Json(req): Json<DeployContractRequest>,
+) -> impl IntoResponse {
+    const MAX_WASM_SIZE: usize = 2 * 1024 * 1024;
+
+    if req.creator.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DeployContractResponse {
+                success: false,
+                contract_id: String::new(),
+                deploy_url: String::new(),
+                error: Some("Creator address is required".to_string()),
+            }),
+        );
+    }
+
+    let wasm_bytes_len = req.wasm_base64.len() * 3 / 4;
+    if wasm_bytes_len > MAX_WASM_SIZE {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DeployContractResponse {
+                success: false,
+                contract_id: String::new(),
+                deploy_url: String::new(),
+                error: Some(format!("WASM binary too large: {} bytes (max {})", wasm_bytes_len, MAX_WASM_SIZE)),
+            }),
+        );
+    }
+
+    use base64::Engine as _;
+    let wasm_valid = base64::engine::general_purpose::STANDARD
+        .decode(&req.wasm_base64)
+        .map(|bytes| bytes.len() >= 8 && bytes[0..4] == [0x00, 0x61, 0x73, 0x6d])
+        .unwrap_or(false);
+
+    if !wasm_valid {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DeployContractResponse {
+                success: false,
+                contract_id: String::new(),
+                deploy_url: String::new(),
+                error: Some("Invalid WASM binary (bad magic bytes or base64 encoding)".to_string()),
+            }),
+        );
+    }
+
+    let nonce = req.nonce.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    });
+    let contract_id = crate::contracts::create_contract_id(&req.creator, nonce);
+    let deploy_url = format!("rinku://contract/{}", contract_id);
+
+    info!("Contract deploy preview: {} (submit as signed transaction to finalize)", contract_id);
+    (
+        StatusCode::OK,
+        Json(DeployContractResponse {
+            success: true,
+            contract_id,
+            deploy_url,
+            error: None,
+        }),
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CallContractRequest {
+    caller: String,
+    entrypoint: String,
+    #[serde(default)]
+    input: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    gas_limit: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CallContractResponse {
+    success: bool,
+    gas_used: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    estimated_fee: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_message: Option<String>,
+    logs: Vec<String>,
+    events: Vec<crate::contracts::ContractEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state_diff: Option<crate::contracts::StateDiff>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    return_data: Option<String>,
+    new_state: Option<HashMap<String, serde_json::Value>>,
+    new_state_hash: Option<String>,
+    new_height: Option<u64>,
+}
+
+async fn call_contract(
+    State(state): State<NodeState>,
+    Path(contract_id): Path<String>,
+    Json(req): Json<CallContractRequest>,
+) -> impl IntoResponse {
+    let contract = match state.get_contract(&contract_id).await {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(CallContractResponse {
+                    success: false,
+                    gas_used: 0,
+                    estimated_fee: None,
+                    error: Some(format!("Contract not found: {}", contract_id)),
+                    error_message: None,
+                    logs: Vec::new(),
+                    events: Vec::new(),
+                    state_diff: None,
+                    return_data: None,
+                    new_state: None,
+                    new_state_hash: None,
+                    new_height: None,
+                }),
+            );
+        }
+    };
+
+    let current_gas_price = state.get_gas_price().await;
+    let runtime = crate::contracts::ContractRuntime::new();
+    let result = runtime.execute(
+        &contract_id,
+        &contract.wasm_base64,
+        &req.entrypoint,
+        &req.input,
+        &contract.state,
+        contract.height + 1,
+        req.gas_limit,
+    );
+
+    let base_fee = current_gas_price;
+    let additional_gas = result.gas_used.saturating_sub(crate::wasm_runtime::BASE_TX_GAS);
+    let execution_fee = (additional_gas as f64 / crate::wasm_runtime::BASE_TX_GAS as f64) * current_gas_price;
+    let total_estimated_fee = base_fee + execution_fee;
+
+    if result.success {
+        let mut new_state = contract.state.clone();
+        let new_height = contract.height + 1;
+
+        if let Some(ref diff) = result.state_diff {
+            for change in &diff.changes {
+                if let Some(ref new_value) = change.new_value {
+                    new_state.insert(change.key.clone(), new_value.clone());
+                } else {
+                    new_state.remove(&change.key);
+                }
+            }
+        }
+
+        let new_state_hash = crate::contracts::compute_state_hash(&new_state);
+
+        (
+            StatusCode::OK,
+            Json(CallContractResponse {
+                success: true,
+                gas_used: result.gas_used,
+                estimated_fee: Some(total_estimated_fee),
+                error: None,
+                error_message: None,
+                logs: result.logs,
+                events: result.events,
+                state_diff: result.state_diff,
+                return_data: None,
+                new_state: Some(new_state),
+                new_state_hash: Some(new_state_hash),
+                new_height: Some(new_height),
+            }),
+        )
+    } else {
+        (
+            StatusCode::OK,
+            Json(CallContractResponse {
+                success: false,
+                gas_used: result.gas_used,
+                estimated_fee: Some(total_estimated_fee),
+                error: result.error.clone(),
+                error_message: result.error,
+                logs: result.logs,
+                events: result.events,
+                state_diff: None,
+                return_data: None,
+                new_state: None,
+                new_state_hash: None,
+                new_height: None,
+            }),
+        )
+    }
+}
+
 async fn get_version(State(state): State<NodeState>) -> Json<VersionResponse> {
     let (chain_id, network_id) = state.get_chain_info().await;
     Json(VersionResponse {
@@ -3879,6 +4335,7 @@ pub async fn start_api_server(
         .route("/api/peers", get(get_peers))
         .route("/api/slashing/evidence", post(post_slashing_evidence))
         .route("/api/tx", post(submit_transaction))
+        .route("/api/tx/relay", post(submit_relay_transaction))
         .route("/api/tx/fast", post(submit_fast_path_transaction))
         .route("/api/tx/fast/:hash", get(get_fast_path_status))
         .route("/api/tx/batch", post(submit_batch_transaction))
@@ -3919,7 +4376,9 @@ pub async fn start_api_server(
         .route("/api/staking", get(get_staking))
         .route("/api/staking/:address", get(get_staking_address))
         .route("/api/contracts", get(get_contracts))
+        .route("/api/contracts/deploy", post(deploy_contract))
         .route("/api/contracts/:contract_id", get(get_contract))
+        .route("/api/contracts/:contract_id/call", post(call_contract))
         .route("/api/tokenomics/supply", get(get_tokenomics_supply))
         .route("/api/tokenomics/emission", get(get_tokenomics_emission))
         .route("/api/tokenomics/slashing", get(get_tokenomics_slashing))

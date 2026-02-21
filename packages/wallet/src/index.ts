@@ -83,6 +83,22 @@ export class Wallet {
     const state = await this.refresh();
     return state.balance;
   }
+  
+  getNonce(): number {
+    return this.state?.nonce ?? 0;
+  }
+  
+  setNonce(nonce: number): void {
+    if (this.state) {
+      this.state.nonce = nonce;
+    }
+  }
+  
+  incrementNonce(): void {
+    if (this.state) {
+      this.state.nonce++;
+    }
+  }
 
   async getGasPrice(): Promise<number> {
     try {
@@ -165,15 +181,19 @@ export class Wallet {
     fee?: number;
     kind?: TransactionKind;
     tipUrls?: string[];
+    nonce?: number;
+    skipRefresh?: boolean;
   }): Promise<SignedTransaction> {
-    await this.refresh();
+    if (!options.skipRefresh) {
+      await this.refresh();
+    }
 
     if (!this.state) {
       throw new Error("Wallet not initialized");
     }
 
     const actualFee = options.fee ?? 0.01;
-    if (this.state.balance < options.amount + actualFee) {
+    if (!options.skipRefresh && this.state.balance < options.amount + actualFee) {
       throw new Error("Insufficient balance for amount + fee");
     }
 
@@ -187,19 +207,23 @@ export class Wallet {
       tipUrls = [];
     }
 
+    const nonceToUse = options.nonce ?? this.state.nonce;
     const { tx } = await createAndSignTransaction(
       this.keyManager.getKeyPair(),
       {
         to: options.to,
         amount: options.amount,
         fee: actualFee,
-        nonce: this.state.nonce,
+        nonce: nonceToUse,
         tipUrls,
         kind: options.kind,
       },
     );
 
-    this.state.nonce++;
+    // Only increment internal nonce if we used it
+    if (options.nonce === undefined) {
+      this.state.nonce++;
+    }
 
     return tx;
   }

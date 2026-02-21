@@ -14,6 +14,7 @@ pub enum TransactionKind {
     Reward,
     #[serde(alias = "dataOnly")]
     DataOnly,
+    Relay,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,6 +127,44 @@ impl SignedTransaction {
     
     pub fn is_data_only(&self) -> bool {
         self.tx.is_data_only()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action")]
+pub enum ContractTransactionData {
+    #[serde(rename = "deploy")]
+    Deploy {
+        #[serde(alias = "wasmBase64", alias = "wasm_base64")]
+        wasm_base64: String,
+        #[serde(default, alias = "initState", alias = "init_state")]
+        init_state: HashMap<String, serde_json::Value>,
+    },
+    #[serde(rename = "call")]
+    Call {
+        #[serde(alias = "contractId", alias = "contract_id")]
+        contract_id: String,
+        entrypoint: String,
+        #[serde(default)]
+        input: HashMap<String, serde_json::Value>,
+    },
+}
+
+impl ContractTransactionData {
+    pub fn from_data_field(data: &str) -> Result<Self, String> {
+        serde_json::from_str(data).map_err(|e| format!("Invalid contract data: {}", e))
+    }
+
+    pub fn to_data_field(&self) -> Result<String, String> {
+        serde_json::to_string(self).map_err(|e| format!("Failed to serialize contract data: {}", e))
+    }
+
+    pub fn is_deploy(&self) -> bool {
+        matches!(self, ContractTransactionData::Deploy { .. })
+    }
+
+    pub fn is_call(&self) -> bool {
+        matches!(self, ContractTransactionData::Call { .. })
     }
 }
 
@@ -579,4 +618,66 @@ pub struct WeightTrieLeaf {
     pub neutral_stake_micro: u64,
     pub total_network_stake_micro: u64,
     pub attestation_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayIntent {
+    pub from: String,
+    pub to: String,
+    pub amount: f64,
+    pub nonce: u64,
+    pub kind: Option<TransactionKind>,
+    #[serde(default)]
+    pub memo: Option<String>,
+    #[serde(default)]
+    pub references: Option<Vec<String>>,
+    #[serde(default)]
+    pub data: Option<String>,
+    pub max_gas_price: f64,
+    pub expiry_ms: u64,
+    pub public_key: String,
+    pub intent_hash: String,
+    pub intent_signature: String,
+}
+
+impl RelayIntent {
+    fn js_compatible_number(v: f64) -> serde_json::Value {
+        if v.fract() == 0.0 && v.abs() < (i64::MAX as f64) {
+            serde_json::Value::Number(serde_json::Number::from(v as i64))
+        } else {
+            serde_json::json!(v)
+        }
+    }
+
+    pub fn canonical_fields(&self) -> String {
+        let mut obj = serde_json::Map::new();
+        obj.insert("amount".into(), Self::js_compatible_number(self.amount));
+        if let Some(ref data) = self.data {
+            obj.insert("data".into(), serde_json::Value::String(data.clone()));
+        }
+        obj.insert("expiryMs".into(), serde_json::json!(self.expiry_ms));
+        obj.insert("from".into(), serde_json::Value::String(self.from.clone()));
+        if let Some(ref kind) = self.kind {
+            obj.insert("kind".into(), serde_json::to_value(kind).unwrap_or_default());
+        }
+        obj.insert("maxGasPrice".into(), Self::js_compatible_number(self.max_gas_price));
+        if let Some(ref memo) = self.memo {
+            obj.insert("memo".into(), serde_json::Value::String(memo.clone()));
+        }
+        obj.insert("nonce".into(), serde_json::json!(self.nonce));
+        if let Some(ref refs) = self.references {
+            obj.insert("references".into(), serde_json::to_value(refs).unwrap_or_default());
+        }
+        obj.insert("to".into(), serde_json::Value::String(self.to.clone()));
+        serde_json::to_string(&obj).unwrap_or_default()
+    }
+
+    pub fn is_expired(&self) -> bool {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        now_ms > self.expiry_ms
+    }
 }

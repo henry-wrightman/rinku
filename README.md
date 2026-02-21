@@ -1,136 +1,319 @@
-# rinku
+# Rinku - URL-Native Distributed Ledger
 
-rinku is a distributed ledger with DAG-based consensus, aiming to provide self-provable transactions. This repo includes the Rust node implementation, a core TS library, a web explorer, a faucet, and supporting tooling.
+A URL-native distributed ledger leveraging DAG-based consensus and weight-based Sybil resistance. The core innovation is embedding the entire ledger state within cryptographically-linked URLs, enabling trustless verification without traditional node infrastructure.
 
-## Requirements
+## Quick Start
 
-- Rust (stable, via `rustup`)
-- Node.js 18+ and npm
-- Optional: Fly.io CLI (`flyctl`) for deployment
+### Prerequisites
 
-## Quick start
+- **Rust** (1.75+) - Install via [rustup](https://rustup.rs/)
+- **Node.js** (18+) - For the explorer and faucet
+
+### Build the Node
 
 ```bash
-npm install
+# Clone and build
+git clone <repo-url>
+cd rinku
+
+# Build the Rust node
+cargo build -p rinku-node --release
 ```
 
-## Running a node (local)
-
-The node is implemented in Rust under `packages/rinku-node`. You can run it with defaults or configure via environment variables.
+### Run Locally (Standalone Genesis Node)
 
 ```bash
-RINKU_PORT=3001 \
-RINKU_DB_PATH=./rinku-data \
-RUST_LOG=info \
-cargo run -p rinku-node
+# Start a fresh local node
+RUST_LOG=info cargo run -p rinku-node
+
+# Or run in TUI mode (terminal interface)
+RUST_LOG=info cargo run -p rinku-node --features tui -- --tui
 ```
 
-### Connect to the current Fly.io testnet
+---
 
-The current testnet is hosted on Fly.io nodes. To join it, use any Fly node as a bootstrap source.
+## Connecting to Testnet via TUI
 
-1. Pick a Fly node URL (ask the team for the current list).
-2. Fetch bootstrap info:
+To sync your local node with the live Fly.io testnet validators:
+
+### Step 1: Get Bootstrap Info from Testnet
 
 ```bash
-curl https://<fly-node>.fly.dev/api/bootstrap
+# Get the P2P bootstrap info from the genesis node
+curl https://rinku-genesis.fly.dev/api/bootstrap
 ```
 
-(current fly nodes as of 1/28/25)  
-https://rinku-genesis.fly.dev  
-https://rinku-validator-1.fly.dev  
-https://rinku-validator-2.fly.dev  
+This returns the peer ID and multiaddr needed to connect via P2P.
 
-3. Start your node with the returned bootstrap values (replace `<PUBLIC_IP>` in the
-   `bootstrap_multiaddr` with the Fly node's public IP):
+### Step 2: Run Local Node with Testnet Peers
 
-```bash
-CHAIN_ID=rinku-testnet \
-NETWORK_ID=testnet \
-GENESIS_VALIDATORS="<addr:bls_pubkey from genesis_validator_env>" \
-P2P_BOOTSTRAP_PEERS="/ip4/<PUBLIC_IP>/tcp/4001/p2p/<PEER_ID>" \
-API_PORT=3001 \
-P2P_PORT=4001 \
-cargo run -p rinku-node
-```
+From the bootstrap response, extract these values:
+- `peerId` — the genesis node's libp2p peer ID
+- `genesisValidatorEnv` — the `address:blsPublicKey` string for `GENESIS_VALIDATORS`
 
-You can verify connectivity with:
+Then look up the genesis node's public IPv4 (shown in the bootstrap response's `bootstrapMultiaddr` field, or via `fly ips list -a rinku-genesis`).
 
 ```bash
-curl http://localhost:3001/api/sync/status
-```
+# Required: P2P connection to the testnet
+export P2P_BOOTSTRAP_PEERS="/ip4/<GENESIS_IP>/tcp/4001/p2p/<PEER_ID>"
 
-### Node configuration
+# Required: Trust anchor — tells your node which validators are authorized
+# Use the genesisValidatorEnv value from /api/bootstrap
+# For multiple validators, separate with semicolons: "addr1:bls1;addr2:bls2;addr3:bls3"
+export GENESIS_VALIDATORS="<ADDRESS>:<BLS_PUBLIC_KEY>"
 
-Common environment variables:
+# Required: Must match the testnet's chain/network identity
+export CHAIN_ID="rinku-testnet"
+export NETWORK_ID="testnet"
 
-- `RINKU_PORT` — HTTP API port (default: 3001)
-- `NODE_PEERS` — Comma-separated list of peer URLs
-- `RINKU_DB_PATH` — Database path (default: `./rinku-data`)
-- `RUST_LOG` — Log level (default: `info`)
-- `MAINNET_MODE` — Enforce mainnet-grade checks (default: `false`)
-- `GENESIS_VALIDATORS` — Bootstrap validators (`addr:bls_pubkey;...`)
-- `PUBLIC_URL` — Node URL for leader election
-- `CHAIN_ID` — Chain identifier (default: `rinku-testnet`)
-- `NETWORK_ID` — Network identifier (default: `testnet`)
+# Required: Mainnet mode enforces strict validation (the testnet runs with this enabled)
+export MAINNET_MODE="true"
 
-For a complete multi-node testnet guide, see `scripts/TESTNET_SETUP.md`.
+# Required: Your node's reachable URL (used for leader election protocol)
+export PUBLIC_URL="http://localhost:3001"
 
-### Local multi-node testnet
+# Optional: HTTP peer for fallback sync (in addition to P2P)
+export NODE_PEERS="https://rinku-genesis.fly.dev"
 
-```bash
-./scripts/local-testnet.sh start 3
-./scripts/local-testnet.sh status
-./scripts/local-testnet.sh validate
-./scripts/local-testnet.sh stop
-```
+# Logging
+export RUST_LOG="rinku_node=info"
 
-### TUI (terminal UI)
-
-The node has a TUI mode behind the `tui` feature flag.
-
-```bash
+# Run in TUI mode
 cargo run -p rinku-node --features tui -- --tui
 ```
 
-Flags:
-
-- `--tui` or `-t` — enable the terminal UI
-
-When TUI is enabled, logs are written to `.rinku-data/tui.log` to avoid corrupting the UI.
-
-## Running tests
-
-### JS/TS packages
+Or as a single command:
 
 ```bash
-npm run test
+P2P_BOOTSTRAP_PEERS="/ip4/<GENESIS_IP>/tcp/4001/p2p/<PEER_ID>" \
+GENESIS_VALIDATORS="<ADDRESS>:<BLS_PUBLIC_KEY>" \
+CHAIN_ID="rinku-testnet" \
+NETWORK_ID="testnet" \
+MAINNET_MODE="true" \
+PUBLIC_URL="http://localhost:3001" \
+NODE_PEERS="https://rinku-genesis.fly.dev" \
+RUST_LOG="rinku_node=info" \
+cargo run -p rinku-node --features tui -- --tui
 ```
 
-### Rust (node and core)
+**Important notes:**
+- Use `/ip4/` (not `/dns4/`) when the bootstrap address is a raw IP
+- `CHAIN_ID` and `NETWORK_ID` must match the testnet — mismatches cause handshake rejection
+- Without `GENESIS_VALIDATORS`, your node cannot verify checkpoint signatures during sync
+- `IS_GENESIS_NODE` is auto-detected as `false` when `P2P_BOOTSTRAP_PEERS` is set
+
+### Step 3: Verify Sync
+
+In the TUI, you should see:
+- Checkpoint height increasing as you sync
+- DAG size growing
+- Peer count > 0 once connected
+
+Or via API:
+```bash
+curl http://localhost:3001/api/sync/status
+curl http://localhost:3001/api/dag/summary
+```
+
+### Testnet Nodes
+
+| Node | URL | Purpose |
+|------|-----|---------|
+| Genesis | https://rinku-genesis.fly.dev | Primary testnet node |
+| Validator 1 | https://rinku-validator-1.fly.dev | Validator node |
+| Validator 2 | https://rinku-validator-2.fly.dev | Validator node |
+
+---
+
+## Environment Variables
+
+### Core Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `API_PORT` | HTTP API port | `3001` |
+| `DATA_DIR` | Database storage path | `.rinku-data` |
+| `CHAIN_ID` | Chain identifier (must match network) | `rinku-mainnet` |
+| `NETWORK_ID` | Network identifier | `mainnet` |
+| `RUST_LOG` | Log level (debug, info, warn, error) | `info` |
+| `IS_GENESIS_NODE` | Allow creating new chain if no peers | auto-detected |
+
+### P2P Networking
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `P2P_ENABLED` | Enable libp2p networking | `true` |
+| `P2P_PORT` | P2P listen port | `4001` |
+| `P2P_BOOTSTRAP_PEERS` | Comma-separated multiaddrs | `""` |
+| `P2P_MDNS` | Enable mDNS for LAN discovery | `true` |
+| `P2P_MAX_PEERS` | Maximum peer connections | `50` |
+
+### HTTP Sync
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NODE_PEERS` | Comma-separated HTTP peer URLs | `""` |
+
+### Validator Mode
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MAINNET_MODE` | Enforce mainnet-grade security | `false` |
+| `PUBLIC_URL` | Node's public URL for leader election | `""` |
+| `GENESIS_VALIDATORS` | Genesis validator set (addr:bls;...) | `""` |
+| `VALIDATOR_KEY_PASSWORD` | Validator key passphrase | `""` |
+
+---
+
+## Wallet Key Management
+
+The node generates an ECDSA P-256 wallet on first startup, stored encrypted at `<DATA_DIR>/validator.key`. This wallet holds RKU, stakes, and receives staking rewards.
+
+### Export Your Node's Wallet Key
 
 ```bash
-cargo test -p rinku-node
-cargo test -p rinku-core
+# Show the wallet address only
+cargo run -p rinku-node -- --show-address
+
+# Export wallet JSON (compatible with Explorer import)
+VALIDATOR_KEY_PASSWORD="your-password" cargo run -p rinku-node -- --export-key
 ```
 
-## Useful scripts
+The wallet JSON is printed to stdout (instructions go to stderr), so you can pipe it:
+```bash
+VALIDATOR_KEY_PASSWORD="your-password" cargo run -p rinku-node -- --export-key > my-wallet.json
+```
+
+The exported JSON contains `publicKey`, `privateKey` (PKCS8 DER hex), and `fingerprint` — the same format used by the Explorer wallet.
+
+### Import a Wallet Key Into a Node
 
 ```bash
-# Start the explorer dev server
-npm run dev:explorer
+# Import from wallet JSON (exported from Explorer or another node)
+VALIDATOR_KEY_PASSWORD="your-password" cargo run -p rinku-node -- --import-key '{"publicKey":"04...","privateKey":"3081...","fingerprint":"..."}'
 
-# Start the faucet dev server
-npm run dev:faucet
+# Import from PKCS8 DER hex
+VALIDATOR_KEY_PASSWORD="your-password" cargo run -p rinku-node -- --import-key 308187020100...
 
-# Validate a running testnet
-npm run validate
-
-# Run activity bot against a node
-RINKU_NODE_URL=http://localhost:3001 npm run activity-bot
+# Import from raw 32-byte private key hex
+VALIDATOR_KEY_PASSWORD="your-password" cargo run -p rinku-node -- --import-key 368e9a5471...
 ```
 
-## Docs
+This lets you use the same wallet identity across the Explorer and your validator node. The key is encrypted with your `VALIDATOR_KEY_PASSWORD` before being saved.
 
-- `packages/rinku-node/consensus.md` — consensus protocol notes
-- `rinku.pdf` - self-provable units which are kinda sick
+**Note:** In `MAINNET_MODE`, `VALIDATOR_KEY_PASSWORD` must be explicitly set (the default `dev-password` is rejected).
+
+### Key File Location
+
+| File | Contents |
+|------|----------|
+| `<DATA_DIR>/validator.key` | Encrypted ECDSA private key (wallet for RKU transactions) |
+| `<DATA_DIR>/validator-identity/validator_keys.json` | BLS signing keys (for checkpoint signatures) |
+
+---
+
+## TUI Mode
+
+The TUI (Terminal User Interface) provides a real-time dashboard for monitoring node state:
+
+```bash
+# Build with TUI feature
+cargo build -p rinku-node --features tui
+
+# Run TUI
+cargo run -p rinku-node --features tui -- --tui
+```
+
+TUI displays:
+- Checkpoint height and DAG size
+- Connected peers
+- Transaction throughput
+- Finality metrics
+- Network status
+
+---
+
+## Explorer
+
+The web-based block explorer runs on port 5000:
+
+```bash
+# Build core library and start explorer
+npm run build -w @rinku/core
+npm run dev -w @rinku/explorer
+```
+
+Visit http://localhost:5000 to view:
+- DAG visualization
+- Account balances
+- Transaction history
+- Staking interface
+- Faucet
+
+---
+
+## API Endpoints
+
+The node exposes a REST API on port 3001:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/dag/summary` | DAG statistics |
+| `GET /api/accounts` | All accounts |
+| `GET /api/account/:addr` | Account details |
+| `GET /api/tx/:hash` | Transaction details |
+| `POST /api/tx` | Submit transaction |
+| `GET /api/sync/status` | Sync status |
+| `GET /api/bootstrap` | P2P bootstrap info |
+| `GET /api/peers` | Connected peers |
+| `GET /api/finality/metrics` | Finality statistics |
+
+---
+
+## Project Structure
+
+```
+rinku/
+├── packages/
+│   ├── rinku-core/      # Core types, crypto, merkle trees (Rust)
+│   ├── rinku-node/      # Full node implementation (Rust)
+│   ├── core/            # TypeScript core library
+│   ├── explorer/        # React block explorer
+│   └── faucet/          # Testnet faucet
+├── scripts/             # Deployment and testing scripts
+├── fly.toml             # Fly.io deployment config
+└── Cargo.toml           # Rust workspace config
+```
+
+---
+
+## Development
+
+### Run All Services Locally
+
+```bash
+# Terminal 1: Rust node
+RUST_LOG=info cargo run -p rinku-node
+
+# Terminal 2: Explorer (port 5000)
+npm run build -w @rinku/core && npm run dev -w @rinku/explorer
+
+# Terminal 3: Faucet
+npm run dev -w @rinku/faucet
+```
+
+### Run Tests
+
+```bash
+# Rust tests
+cargo test
+
+# TypeScript tests
+npm test
+```
+
+---
+
+## License
+
+MIT

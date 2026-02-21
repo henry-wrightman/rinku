@@ -112,6 +112,7 @@ export interface TransactionInner {
   hash: string;
   memo?: string;
   references?: string[];
+  data?: string;
 }
 
 export interface SignedTransaction {
@@ -129,6 +130,7 @@ export async function createSignedTransaction(
     gasPrice?: number;
     memo?: string;
     references?: string[];
+    data?: string;
   }
 ): Promise<SignedTransaction> {
   const txData: Record<string, unknown> = {
@@ -146,9 +148,12 @@ export async function createSignedTransaction(
     txData.memo = payload.memo.slice(0, 1024);
   }
   
-  // Only include references if provided (max 4)
   if (payload.references && payload.references.length > 0) {
     txData.references = payload.references.slice(0, 4).filter(r => r.trim());
+  }
+
+  if (payload.data) {
+    txData.data = payload.data;
   }
   
   const txJson = JSON.stringify(txData);

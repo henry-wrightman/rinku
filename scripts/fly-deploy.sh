@@ -288,7 +288,7 @@ apply_genesis_validators_secrets() {
     log_info "Applying GENESIS_VALIDATORS to all nodes..."
     for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
         fly secrets set -a "$app" GENESIS_VALIDATORS="$genesis_validators_env"
-        # fly secrets deploy -a "$app"
+        fly secrets deploy -a "$app"
     done
     log_success "Applied GENESIS_VALIDATORS to all nodes"
 }
@@ -467,9 +467,9 @@ deploy_fresh() {
     check_fly_auth
     
     log_info "Step 1: Creating/preparing apps..."
-    # create_app_if_needed "$GENESIS_APP"
-    # create_app_if_needed "$VALIDATOR1_APP"
-    # create_app_if_needed "$VALIDATOR2_APP"
+    create_app_if_needed "$GENESIS_APP"
+    create_app_if_needed "$VALIDATOR1_APP"
+    create_app_if_needed "$VALIDATOR2_APP"
     
     log_info "Step 2: Allocating IPv4 addresses..."
     allocate_ipv4_if_needed "$GENESIS_APP"

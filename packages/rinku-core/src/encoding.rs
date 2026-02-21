@@ -59,6 +59,14 @@ pub fn create_zk_proof_url(proof_payload: &str) -> String {
     format!("rinku://zk/{}", proof_payload)
 }
 
+pub fn create_receipt_url(receipt_payload: &str) -> String {
+    format!("rinku://sr/{}", receipt_payload)
+}
+
+pub fn create_verifiable_object_url(vo_payload: &str) -> String {
+    format!("rinku://vo/{}", vo_payload)
+}
+
 pub fn parse_rinku_url(url: &str) -> Result<(String, String), EncodingError> {
     if url.starts_with("rinku://") {
         let rest = &url[8..];

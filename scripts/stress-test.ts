@@ -29,19 +29,8 @@ async function waitForNode(timeout = 30000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     try {
-      // Prefer the real health route; fall back to API endpoints for older configs.
-      const health = await fetchJson(`${NODE_URL}/health`);
-      if (health.status === 'ok') return true;
-    } catch {
-    }
-    try {
       const health = await fetchJson(`${NODE_URL}/api/health`);
       if (health.status === 'ok') return true;
-    } catch {
-    }
-    try {
-      await fetchJson(`${NODE_URL}/api/stats`);
-      return true;
     } catch {
     }
     await new Promise(r => setTimeout(r, 500));
@@ -53,33 +42,12 @@ async function getNodeStats(): Promise<any> {
   return fetchJson(`${NODE_URL}/api/stats`);
 }
 
-function normalizeStats(stats: any): {
-  dagNodes: number;
-  tips: number;
-  accounts: number;
-  checkpointHeight: number;
-} {
-  return {
-    dagNodes: stats.dag_nodes ?? stats.dagNodes ?? stats.dagSize ?? 0,
-    tips: stats.tips ?? stats.tipCount ?? 0,
-    accounts: stats.accounts ?? stats.accountCount ?? 0,
-    checkpointHeight: stats.checkpoint_height ?? stats.checkpointHeight ?? 0,
-  };
-}
-
-async function getCheckpointLatest(): Promise<any> {
-  return fetchJson(`${NODE_URL}/api/checkpoints/latest`);
+async function getCheckpointInfo(): Promise<any> {
+  return fetchJson(`${NODE_URL}/api/checkpoints`);
 }
 
 async function getDagSummary(): Promise<any> {
   return fetchJson(`${NODE_URL}/api/dag/summary`);
-}
-
-function normalizeDagSummary(summary: any): { totalNodes: number; tipCount: number } {
-  return {
-    totalNodes: summary.total_nodes ?? summary.totalNodes ?? summary.total ?? 0,
-    tipCount: summary.tip_count ?? summary.tipCount ?? summary.tips?.length ?? 0,
-  };
 }
 
 async function test_HighThroughput(): Promise<TestResult> {
@@ -95,19 +63,19 @@ async function test_HighThroughput(): Promise<TestResult> {
     if (accountList.length < 2) {
       return {
         name,
-        passed: true,
+        passed: false,
         duration: Date.now() - start,
-        details: 'Skipped: not enough accounts to test throughput'
+        details: 'Not enough accounts to test throughput'
       };
     }
     
-    const initialStats = normalizeStats(await getNodeStats());
-    const initialDagSize = initialStats.dagNodes;
+    const initialStats = await getNodeStats();
+    const initialDagSize = initialStats.dagSize;
     
     await new Promise(r => setTimeout(r, 10000));
     
-    const finalStats = normalizeStats(await getNodeStats());
-    const finalDagSize = finalStats.dagNodes;
+    const finalStats = await getNodeStats();
+    const finalDagSize = finalStats.dagSize;
     const newTxs = finalDagSize - initialDagSize;
     
     const duration = Date.now() - start;
@@ -136,14 +104,14 @@ async function test_TipConsolidation(): Promise<TestResult> {
   try {
     await log(`Starting ${name}...`);
     
-    const initialStats = normalizeDagSummary(await getDagSummary());
+    const initialStats = await getDagSummary();
     const initialTips = initialStats.tipCount;
     
     await log(`Initial tips: ${initialTips}`);
     
     await new Promise(r => setTimeout(r, 15000));
     
-    const finalStats = normalizeDagSummary(await getDagSummary());
+    const finalStats = await getDagSummary();
     const finalTips = finalStats.tipCount;
     
     await log(`Final tips: ${finalTips}`);
@@ -174,31 +142,20 @@ async function test_CheckpointProgression(): Promise<TestResult> {
   try {
     await log(`Starting ${name}...`);
     
-    const initial = await getCheckpointLatest();
+    const initial = await getCheckpointInfo();
     const initialHeight = initial.height || 0;
-    const initialStats = normalizeStats(await getNodeStats());
     
     await log(`Initial checkpoint height: ${initialHeight}`);
     
     await new Promise(r => setTimeout(r, 45000));
     
-    const final = await getCheckpointLatest();
+    const final = await getCheckpointInfo();
     const finalHeight = final.height || 0;
-    const finalStats = normalizeStats(await getNodeStats());
     
     await log(`Final checkpoint height: ${finalHeight}`);
     
     const progression = finalHeight - initialHeight;
-    const dagDelta = finalStats.dagNodes - initialStats.dagNodes;
-    if (progression <= 0 && dagDelta <= 0) {
-      return {
-        name,
-        passed: true,
-        duration: Date.now() - start,
-        details: `Skipped: no new transactions (checkpoint height ${initialHeight})`
-      };
-    }
-    const passed = progression >= 1;
+    const passed = progression >= 2;
     
     return {
       name,
@@ -234,16 +191,15 @@ async function test_RateLimiting(): Promise<TestResult> {
     
     const responses = await Promise.all(requests);
     const rateLimited = responses.filter(r => r.status === 429).length;
-    const rejected = responses.filter(r => r.status >= 400).length;
-    const ok = responses.filter(r => r.status >= 200 && r.status < 300).length;
+    const badRequest = responses.filter(r => r.status === 400).length;
     
-    const passed = rateLimited > 0 || rejected > 0;
+    const passed = rateLimited > 0 || badRequest > 20;
     
     return {
       name,
       passed,
       duration: Date.now() - start,
-      details: `429 responses: ${rateLimited}, rejected: ${rejected}, ok: ${ok}`
+      details: `429 responses: ${rateLimited}, 400 responses: ${badRequest}`
     };
   } catch (e: any) {
     return {
@@ -301,9 +257,9 @@ async function test_SnapshotRestore(): Promise<TestResult> {
   try {
     await log(`Starting ${name}...`);
     
-    const stats = normalizeStats(await getNodeStats());
-    const dagSize = stats.dagNodes;
-    const accountCount = stats.accounts;
+    const stats = await getNodeStats();
+    const dagSize = stats.dagSize;
+    const accountCount = stats.accountCount;
     
     const passed = dagSize > 0 && accountCount > 0;
     

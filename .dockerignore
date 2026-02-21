@@ -8,6 +8,7 @@
 # Include Rust packages
 !packages/rinku-core
 !packages/rinku-node
+!packages/rinku-contract-sdk
 
 # Include activity bot build inputs
 !package.json
@@ -23,6 +24,7 @@
 # Exclude build artifacts
 packages/rinku-core/target
 packages/rinku-node/target
+packages/rinku-contract-sdk/target
 target
 
 # Exclude node_modules and TS packages
