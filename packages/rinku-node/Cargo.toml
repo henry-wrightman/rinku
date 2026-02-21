@@ -68,6 +68,7 @@ blst = { workspace = true }
 flate2 = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
+p256 = { workspace = true }
 sysinfo = { workspace = true }
 
 # TUI (optional)

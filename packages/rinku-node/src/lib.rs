@@ -20,6 +20,7 @@ pub mod mempool_cleanup;
 pub mod network;
 pub mod persistence;
 pub mod proofs;
+pub mod relay;
 pub mod rewards;
 pub mod slashing;
 pub mod sparse_merkle_trie;

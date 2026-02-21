@@ -28,6 +28,7 @@ mod mempool_cleanup;
 mod network;
 mod persistence;
 mod proofs;
+mod relay;
 mod storage;
 mod rewards;
 mod slashing;

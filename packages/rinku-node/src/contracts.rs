@@ -245,12 +245,11 @@ pub fn compute_state_hash(state: &HashMap<String, Value>) -> String {
 }
 
 pub fn create_contract_id(creator: &str, nonce: u64) -> String {
-    let data = format!("{}:{}", creator, nonce);
-    let mut h: u32 = 0;
-    for byte in data.bytes() {
-        h = h.wrapping_shl(5).wrapping_sub(h).wrapping_add(byte as u32);
-    }
-    format!("sc_{:08x}", h)
+    use sha2::{Sha256, Digest};
+    let data = format!("rinku:contract:{}:{}", creator, nonce);
+    let hash = Sha256::digest(data.as_bytes());
+    let hex_str: String = hash[..20].iter().map(|b| format!("{:02x}", b)).collect();
+    format!("sc_{}", hex_str)
 }
 
 pub fn compute_state_diff(
@@ -1397,8 +1396,12 @@ mod tests {
         let id3 = create_contract_id("creator2", 0);
 
         assert!(id1.starts_with("sc_"));
+        assert_eq!(id1.len(), 3 + 40);
         assert_ne!(id1, id2);
         assert_ne!(id1, id3);
+
+        let id_repeat = create_contract_id("creator1", 0);
+        assert_eq!(id1, id_repeat);
     }
 
     #[test]
