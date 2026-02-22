@@ -93,7 +93,7 @@ impl VoteAccumulator {
             let reduction = validator.voting_power * reduction_ratio;
             validator.voting_power -= reduction;
             self.total_voting_power -= reduction;
-            if let Some(vote) = self.votes.get(address) {
+            if let Some(_vote) = self.votes.get(address) {
                 self.accumulated_power -= reduction;
             }
             Some(reduction)

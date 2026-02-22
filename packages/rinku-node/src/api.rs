@@ -4066,7 +4066,7 @@ async fn get_version(State(state): State<NodeState>) -> Json<VersionResponse> {
         features: vec![
             "dag-consensus".to_string(),
             "url-native".to_string(),
-            "sled-persistence".to_string(),
+            "redb-persistence".to_string(),
             "finality-proofs".to_string(),
             "merkle-sum-tree".to_string(),
             "bls-aggregation".to_string(),

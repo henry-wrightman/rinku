@@ -286,8 +286,8 @@ build_genesis_validators_env() {
 apply_genesis_validators_secrets() {
     local genesis_validators_env=$1
     
-    log_info "Applying GENESIS_VALIDATORS to all nodes..."
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+    log_info "Applying GENESIS_VALIDATORS to all nodes (including relayer)..."
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP" "$RELAYER1_APP"; do
         fly secrets set -a "$app" GENESIS_VALIDATORS="$genesis_validators_env"
         fly secrets deploy -a "$app"
     done

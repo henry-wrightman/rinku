@@ -26,14 +26,12 @@ mod leader_election;
 mod mempool_cleanup;
 #[cfg(feature = "p2p")]
 mod network;
-mod persistence;
 mod proofs;
 mod relay;
 mod storage;
 mod rewards;
 mod slashing;
 mod state;
-mod state_trie;
 mod sync_verification;
 mod tip_consolidator;
 mod trust;
@@ -323,7 +321,7 @@ async fn main() -> Result<()> {
     }
 
     info!("Initializing node state...");
-    let state = state::NodeState::new(config.clone()).await?;
+    let mut state = state::NodeState::new(config.clone()).await?;
 
     let key_password = std::env::var("VALIDATOR_KEY_PASSWORD").unwrap_or_else(|_| "dev-password".to_string());
     let key_path = std::env::var("VALIDATOR_KEY_PATH").ok();
@@ -368,12 +366,6 @@ async fn main() -> Result<()> {
 
     let slashing_service = Arc::new(RwLock::new(SlashingService::new()));
     info!("Slashing service initialized");
-    
-    let consensus_service = Arc::new(RwLock::new(
-        ConsensusService::new(state.clone())
-            .with_slashing_service(slashing_service.clone())
-    ));
-    info!("Consensus service initialized with slashing integration");
 
     let validator_identity_path = format!("{}/validator-identity", config.data_dir);
     let validator_identity = match ValidatorIdentityService::new(&validator_identity_path) {
@@ -388,8 +380,9 @@ async fn main() -> Result<()> {
     };
 
     // CRITICAL: When GENESIS_VALIDATORS is set, it becomes the authoritative source
-    // of truth for the validator set. Both registries must be replaced to prevent
-    // stale validators from persisting across restarts/redeployments.
+    // of truth for the validator registry (used for consensus verification and leader election).
+    // Only the genesis node creates validator accounts/stakes - validator nodes trust
+    // that accounts were inherited via PRE-SYNC from the genesis node.
     if !config.trust.genesis_validators.is_empty() {
         let genesis_seed: Vec<(String, Vec<u8>)> = config
             .trust
@@ -398,8 +391,9 @@ async fn main() -> Result<()> {
             .map(|v| (v.address.clone(), v.bls_public_key.clone()))
             .collect();
         
-        // Replace state.validators first (used for checkpoint signature verification)
-        state.replace_validators_with_genesis(&genesis_seed).await;
+        // Replace state.validators (used for checkpoint signature verification)
+        // Only genesis node creates accounts; validators just set the registry
+        state.replace_validators_with_genesis(&genesis_seed, config.is_genesis_node).await;
         
         // Replace ValidatorIdentityService.active_validators (used for leader election)
         if let Some(ref vi) = validator_identity {
@@ -407,50 +401,124 @@ async fn main() -> Result<()> {
             vi_guard.seed_genesis_validators(&genesis_seed);
         }
         
-        let genesis_addresses: std::collections::HashSet<String> = genesis_seed.iter().map(|(a, _)| a.clone()).collect();
-        {
-            use crate::validator_identity::MIN_VALIDATOR_STAKE;
-            let mut rewards = state.rewards.write().await;
-            let existing_stakes: Vec<String> = rewards.get_all_stakes().iter().map(|s| s.staker.clone()).collect();
-            let mut removed = 0;
-            for staker in &existing_stakes {
-                if !genesis_addresses.contains(staker) {
-                    rewards.remove_stake(staker);
-                    removed += 1;
-                }
-            }
-            if removed > 0 {
-                info!("Removed {} stale stake(s) from rewards service (not in genesis set)", removed);
-            }
-            let mut registered = 0;
-            for (address, _) in &genesis_seed {
-                if rewards.get_stake(address).is_none() {
-                    if let Ok(_) = rewards.stake(address, MIN_VALIDATOR_STAKE) {
-                        registered += 1;
+        // Only genesis node manages stakes in the rewards service.
+        // Validator nodes inherit stakes via PRE-SYNC snapshot.
+        if config.is_genesis_node {
+            let genesis_addresses: std::collections::HashSet<String> = genesis_seed.iter().map(|(a, _)| a.clone()).collect();
+            {
+                use crate::validator_identity::MIN_VALIDATOR_STAKE;
+                let mut rewards = state.rewards.write().await;
+                let existing_stakes: Vec<String> = rewards.get_all_stakes().iter().map(|s| s.staker.clone()).collect();
+                let mut removed = 0;
+                for staker in &existing_stakes {
+                    if !genesis_addresses.contains(staker) {
+                        rewards.remove_stake(staker);
+                        removed += 1;
                     }
                 }
+                if removed > 0 {
+                    info!("Removed {} stale stake(s) from rewards service (not in genesis set)", removed);
+                }
+                let mut registered = 0;
+                for (address, _) in &genesis_seed {
+                    if rewards.get_stake(address).is_none() {
+                        if let Ok(_) = rewards.stake(address, MIN_VALIDATOR_STAKE) {
+                            registered += 1;
+                        }
+                    }
+                }
+                if registered > 0 {
+                    info!(
+                        "Registered {} genesis validator stake(s) in rewards service ({} RKU each)",
+                        registered, MIN_VALIDATOR_STAKE
+                    );
+                }
             }
-            if registered > 0 {
-                info!(
-                    "Registered {} genesis validator stake(s) in rewards service ({} RKU each)",
-                    registered, MIN_VALIDATOR_STAKE
-                );
-            }
+            
+            // Clean up ghost accounts only on genesis node
+            state.cleanup_stale_accounts(&genesis_addresses).await;
         }
         
         info!(
-            "Seeded {} genesis validator(s) into validator registry",
-            genesis_seed.len()
+            "Seeded {} genesis validator(s) into validator registry (is_genesis={})",
+            genesis_seed.len(), config.is_genesis_node
         );
         
-        // Clean up ghost accounts: remove accounts that are not genesis validators,
-        // not the faucet, and have 0 balance + 0 staked (leftover from old snapshots)
-        state.cleanup_stale_accounts(&genesis_addresses).await;
+        // Startup guard for validator nodes: verify all genesis validator accounts
+        // exist in the loaded state. Behavior depends on how state was obtained:
+        // - Loaded from persisted storage: ABORT (data is corrupt/incomplete, needs resync)
+        // - Fresh PRE-SYNC: WARN only (GENESIS_VALIDATORS may be temporarily mismatched
+        //   during deploy step 8→10 transition, will self-resolve on next restart)
+        if !config.is_genesis_node {
+            let missing: Vec<String> = {
+                let st = state.inner.read().await;
+                genesis_seed.iter()
+                    .filter(|(addr, _)| !st.accounts.contains_key(addr))
+                    .map(|(addr, _)| addr[..16.min(addr.len())].to_string())
+                    .collect()
+            };
+            if !missing.is_empty() {
+                if state.loaded_from_persistence {
+                    warn!(
+                        "STARTUP GUARD: {} genesis validator account(s) missing from persisted state: [{}]. \
+                         Auto-wiping database to trigger fresh PRE-SYNC.",
+                        missing.len(),
+                        missing.join(", ")
+                    );
+                    let db_path = format!("{}/redb.db", config.data_dir);
+                    match std::fs::remove_file(&db_path) {
+                        Ok(_) => {
+                            info!("Removed stale database, re-initializing state via PRE-SYNC...");
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            info!("No database file to remove, proceeding with fresh PRE-SYNC...");
+                        }
+                        Err(e) => {
+                            return Err(anyhow::anyhow!(
+                                "STARTUP GUARD: Failed to remove stale database at {}: {}. \
+                                 Cannot auto-heal. Manually delete the data directory and restart.",
+                                db_path, e
+                            ));
+                        }
+                    }
+                    drop(state);
+                    let fresh_state = state::NodeState::new(config.clone()).await?;
+                    state = fresh_state;
+                    state.replace_validators_with_genesis(&genesis_seed, config.is_genesis_node).await;
+                    if let Some(ref vi) = validator_identity {
+                        let mut vi_guard = vi.write().await;
+                        vi_guard.seed_genesis_validators(&genesis_seed);
+                    }
+                    info!(
+                        "STARTUP GUARD: Auto-healed via fresh PRE-SYNC (wiped stale persisted state)"
+                    );
+                } else {
+                    warn!(
+                        "STARTUP GUARD: {} genesis validator account(s) missing after PRE-SYNC: [{}]. \
+                         This is expected during fresh deploys if GENESIS_VALIDATORS hasn't been updated yet. \
+                         The node will continue but may not participate in consensus until config is corrected.",
+                        missing.len(),
+                        missing.join(", ")
+                    );
+                }
+            }
+        }
+    } else {
+        let empty_set = std::collections::HashSet::new();
+        state.cleanup_stale_accounts(&empty_set).await;
     }
     
     // Sync stakes to accounts AFTER genesis validator replacement
-    // This ensures only current stakers get accounts, not stale ones from old snapshots
-    state.sync_stakes_to_accounts().await;
+    // Only on genesis node - validators inherit synced state via PRE-SYNC
+    if config.is_genesis_node {
+        state.sync_stakes_to_accounts().await;
+    }
+
+    let consensus_service = Arc::new(RwLock::new(
+        ConsensusService::new(state.clone())
+            .with_slashing_service(slashing_service.clone())
+    ));
+    info!("Consensus service initialized with slashing integration");
 
     let mut checkpoint_service = CheckpointService::new(
         state.clone(),

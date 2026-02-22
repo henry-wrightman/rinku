@@ -1315,17 +1315,25 @@ impl GossipService {
         
         info!("Snapshot sync complete: applied {} DAG transactions", added);
 
-        // CRITICAL: Push local-only accounts back to peer to prevent account loss
-        // This ensures accounts created on this node are shared with the peer
         let local_only_accounts: std::collections::HashMap<String, rinku_core::types::Account> = 
             local_accounts_before
                 .into_iter()
-                .filter(|(fingerprint, _)| !peer_fingerprints.contains(fingerprint))
+                .filter(|(fingerprint, account)| {
+                    if peer_fingerprints.contains(fingerprint) {
+                        return false;
+                    }
+                    if fingerprint == "faucet" {
+                        return false;
+                    }
+                    let has_balance = account.balance > 0.001;
+                    let has_activity = account.nonce > 0;
+                    has_balance || has_activity
+                })
                 .collect();
         
         if !local_only_accounts.is_empty() {
             info!(
-                "Pushing {} local-only accounts back to peer {} after sync",
+                "Pushing {} active local-only accounts back to peer {} after sync (filtered stale)",
                 local_only_accounts.len(), peer
             );
             
@@ -1515,21 +1523,28 @@ impl GossipService {
         
         warn!("RECOVERY: Force snapshot sync complete - applied {} DAG transactions", added);
 
-        // Identify accounts that were local-only (not in peer's snapshot)
-        // These need to be pushed back to the peer
         let local_only_accounts: std::collections::HashMap<String, rinku_core::types::Account> = 
             local_accounts_before
                 .into_iter()
-                .filter(|(fingerprint, _)| !peer_fingerprints.contains(fingerprint))
+                .filter(|(fingerprint, account)| {
+                    if peer_fingerprints.contains(fingerprint) {
+                        return false;
+                    }
+                    if fingerprint == "faucet" {
+                        return false;
+                    }
+                    let has_balance = account.balance > 0.001;
+                    let has_activity = account.nonce > 0;
+                    has_balance || has_activity
+                })
                 .collect();
         
         if !local_only_accounts.is_empty() {
             info!(
-                "Pushing {} local-only accounts back to peer {}",
+                "RECOVERY: Pushing {} active local-only accounts back to peer {} (filtered stale)",
                 local_only_accounts.len(), peer
             );
             
-            // Push local-only accounts back to peer
             if let Err(e) = self.push_accounts_to_peer(peer, local_only_accounts).await {
                 warn!("Failed to push local accounts to peer {}: {}", peer, e);
             }

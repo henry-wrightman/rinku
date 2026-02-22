@@ -18,14 +18,12 @@ pub mod leader_election;
 pub mod mempool_cleanup;
 #[cfg(feature = "p2p")]
 pub mod network;
-pub mod persistence;
 pub mod proofs;
 pub mod relay;
 pub mod rewards;
 pub mod slashing;
 pub mod sparse_merkle_trie;
 pub mod state;
-pub mod state_trie;
 pub mod storage;
 pub mod sync_verification;
 pub mod tip_consolidator;
