@@ -338,8 +338,16 @@ impl NodeState {
             }
             
             if let Some(ref local_addr) = local_validator_addr {
+                let is_genesis_validator = genesis_validators.is_empty() 
+                    || genesis_validators.iter().any(|gv| gv.address == *local_addr);
+                
                 if !new_validators.contains_key(local_addr) {
-                    if let Some(backup) = local_validator_backup {
+                    if !is_genesis_validator {
+                        info!(
+                            "Local validator {} not in GENESIS_VALIDATORS - NOT re-adding to synced set (non-validator node)",
+                            &local_addr[..local_addr.len().min(16)]
+                        );
+                    } else if let Some(backup) = local_validator_backup {
                         info!("Re-adding local validator {} to synced set (from backup)", local_addr);
                         new_validators.insert(local_addr.clone(), backup);
                     } else {
@@ -370,6 +378,54 @@ impl NodeState {
                 old_validator_count, new_validators.len()
             );
             state.validators = new_validators;
+        }
+        
+        let mut ghost_removed = 0;
+        let ghost_candidates: Vec<String> = state.accounts
+            .iter()
+            .filter(|(addr, account)| {
+                *addr != "faucet"
+                    && *addr != "genesis"
+                    && account.staked > 0.0
+                    && account.nonce == 0
+                    && !state.validators.contains_key(*addr)
+            })
+            .map(|(addr, _)| addr.clone())
+            .collect();
+        
+        for addr in &ghost_candidates {
+            if let Some(account) = state.accounts.get_mut(addr) {
+                warn!(
+                    "Ghost validator cleanup: zeroing stale stake on {} (staked={:.4}, balance={:.4}, nonce=0, not in validator set)",
+                    &addr[..addr.len().min(16)], account.staked, account.balance
+                );
+                account.staked = 0.0;
+                ghost_removed += 1;
+            }
+        }
+        
+        let stale_to_remove: Vec<String> = state.accounts
+            .iter()
+            .filter(|(addr, account)| {
+                *addr != "faucet"
+                    && *addr != "genesis"
+                    && account.balance < 0.001
+                    && account.staked == 0.0
+                    && account.nonce == 0
+                    && !state.validators.contains_key(*addr)
+            })
+            .map(|(addr, _)| addr.clone())
+            .collect();
+        
+        for addr in &stale_to_remove {
+            state.accounts.remove(addr);
+        }
+        
+        if ghost_removed > 0 || !stale_to_remove.is_empty() {
+            info!(
+                "Post-sync cleanup: {} ghost stakes zeroed, {} empty accounts removed, {} accounts remaining",
+                ghost_removed, stale_to_remove.len(), state.accounts.len()
+            );
         }
         
         state.checkpoints = snapshot.checkpoints.clone();

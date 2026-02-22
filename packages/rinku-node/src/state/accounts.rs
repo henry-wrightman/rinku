@@ -370,7 +370,16 @@ impl NodeState {
                 continue;
             }
             let is_stale = peer_account.nonce == 0 && peer_account.balance < 0.001;
-            if is_stale && !state.accounts.contains_key(&fingerprint) {
+            let is_ghost_validator = peer_account.staked > 0.0 
+                && peer_account.nonce == 0 
+                && !state.validators.contains_key(&fingerprint);
+            if (is_stale || is_ghost_validator) && !state.accounts.contains_key(&fingerprint) {
+                if is_ghost_validator {
+                    info!(
+                        "Rejecting ghost validator account {} from merge (staked={:.4}, nonce=0, not in validator set)",
+                        &fingerprint[..fingerprint.len().min(16)], peer_account.staked
+                    );
+                }
                 rejected_stale += 1;
                 continue;
             }

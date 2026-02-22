@@ -401,10 +401,11 @@ async fn main() -> Result<()> {
             vi_guard.seed_genesis_validators(&genesis_seed);
         }
         
+        let genesis_addresses: std::collections::HashSet<String> = genesis_seed.iter().map(|(a, _)| a.clone()).collect();
+        
         // Only genesis node manages stakes in the rewards service.
         // Validator nodes inherit stakes via PRE-SYNC snapshot.
         if config.is_genesis_node {
-            let genesis_addresses: std::collections::HashSet<String> = genesis_seed.iter().map(|(a, _)| a.clone()).collect();
             {
                 use crate::validator_identity::MIN_VALIDATOR_STAKE;
                 let mut rewards = state.rewards.write().await;
@@ -435,8 +436,6 @@ async fn main() -> Result<()> {
                 }
             }
             
-            // Clean up ghost accounts only on genesis node
-            state.cleanup_stale_accounts(&genesis_addresses).await;
         }
         
         info!(
@@ -503,6 +502,8 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        // Clean up ghost accounts on ALL nodes (not just genesis)
+        state.cleanup_stale_accounts(&genesis_addresses).await;
     } else {
         let empty_set = std::collections::HashSet::new();
         state.cleanup_stale_accounts(&empty_set).await;

@@ -1315,6 +1315,7 @@ impl GossipService {
         
         info!("Snapshot sync complete: applied {} DAG transactions", added);
 
+        let current_validators = self.state.get_validators_map().await;
         let local_only_accounts: std::collections::HashMap<String, rinku_core::types::Account> = 
             local_accounts_before
                 .into_iter()
@@ -1323,6 +1324,13 @@ impl GossipService {
                         return false;
                     }
                     if fingerprint == "faucet" {
+                        return false;
+                    }
+                    if account.staked > 0.0 && account.nonce == 0 && !current_validators.contains_key(fingerprint) {
+                        info!(
+                            "Filtering ghost validator {} from push-back (staked={:.4}, nonce=0, not in validator set)",
+                            &fingerprint[..fingerprint.len().min(16)], account.staked
+                        );
                         return false;
                     }
                     let has_balance = account.balance > 0.001;
@@ -1523,6 +1531,7 @@ impl GossipService {
         
         warn!("RECOVERY: Force snapshot sync complete - applied {} DAG transactions", added);
 
+        let current_validators = self.state.get_validators_map().await;
         let local_only_accounts: std::collections::HashMap<String, rinku_core::types::Account> = 
             local_accounts_before
                 .into_iter()
@@ -1531,6 +1540,13 @@ impl GossipService {
                         return false;
                     }
                     if fingerprint == "faucet" {
+                        return false;
+                    }
+                    if account.staked > 0.0 && account.nonce == 0 && !current_validators.contains_key(fingerprint) {
+                        info!(
+                            "RECOVERY: Filtering ghost validator {} from push-back (staked={:.4}, nonce=0, not in validator set)",
+                            &fingerprint[..fingerprint.len().min(16)], account.staked
+                        );
                         return false;
                     }
                     let has_balance = account.balance > 0.001;
