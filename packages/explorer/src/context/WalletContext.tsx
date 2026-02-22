@@ -115,7 +115,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           staked: data.staked ?? 0,
         };
         setAccountInfo(info);
-        localNonceRef.current = info.nonce;
+        if (localNonceRef.current === null || info.nonce > localNonceRef.current) {
+          localNonceRef.current = info.nonce;
+        }
         return info;
       } else {
         const info: AccountInfo = {
@@ -125,7 +127,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           staked: 0,
         };
         setAccountInfo(info);
-        localNonceRef.current = 0;
+        if (localNonceRef.current === null) {
+          localNonceRef.current = 0;
+        }
         return info;
       }
     } catch (e) {
@@ -204,14 +208,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
         if (expectedMatch) {
           retryNonce = parseInt(expectedMatch[1], 10);
-          localNonceRef.current = retryNonce;
+          localNonceRef.current = Math.max(localNonceRef.current ?? 0, retryNonce);
           setAccountInfo((prev) =>
             prev ? { ...prev, nonce: retryNonce } : prev,
           );
         } else {
           const freshAccount = await refreshAccount();
           if (!freshAccount) throw new Error(errMsg);
-          retryNonce = freshAccount.nonce;
+          retryNonce = Math.max(localNonceRef.current ?? 0, freshAccount.nonce);
         }
 
         const retryTips = await fetchTips();
@@ -259,9 +263,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const submitTransaction = useCallback(
     (payload: SubmitTxPayload): Promise<SubmitTxResult> => {
-      const promise = txQueueRef.current.then(() =>
-        submitTransactionInner(payload),
-      );
+      const promise = txQueueRef.current.then(async () => {
+        const result = await submitTransactionInner(payload);
+        await new Promise((r) => setTimeout(r, 600));
+        return result;
+      });
       txQueueRef.current = promise.catch(() => {});
       return promise;
     },

@@ -1,10 +1,12 @@
 import { Wallet } from "@rinku/wallet";
+import { sign, hash, deserializeKeyPair, arrayToHex as coreArrayToHex } from "@rinku/core";
 
 const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3001";
+const RELAYER_NODE_URL = process.env.RINKU_RELAYER_URL || NODE_URL;
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "500"); // Reduced from 2000 for higher throughput
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "5000"); // Reduced from 2000 for higher throughput
 const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "1000");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
@@ -19,6 +21,7 @@ const CONTRACT_INTERVAL_MS = parseInt(
 );
 const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "180000");
 const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "300000");
+const RELAY_INTERVAL_MS = parseInt(process.env.RELAY_INTERVAL || "3000");
 const CONSOLIDATION_INTERVAL_MS = parseInt(
   process.env.CONSOLIDATION_INTERVAL || "10000",
 );
@@ -208,6 +211,8 @@ let totalStakes = 0;
 let totalRewardsClaimed = 0;
 let totalBatchTransactions = 0;
 let totalConsolidations = 0;
+let totalRelayIntents = 0;
+let totalRelaySuccesses = 0;
 let errors = 0;
 let pendingOperations = 0;
 let maxPendingOps = 50; // Increased from 5 for higher throughput
@@ -978,6 +983,365 @@ async function claimRewards(): Promise<void> {
   }
 }
 
+interface RelayIntent {
+  from: string;
+  to: string;
+  amount: number;
+  nonce: number;
+  kind?: string;
+  memo?: string;
+  maxGasPrice: number;
+  relayFee?: number;
+  expiryMs: number;
+  publicKey: string;
+  intentHash: string;
+  intentSignature: string;
+}
+
+async function createRelayIntent(
+  wallet: Wallet,
+  fingerprint: string,
+  payload: {
+    to: string;
+    amount: number;
+    nonce: number;
+    kind?: string;
+    memo?: string;
+    references?: string[];
+    data?: string;
+    maxGasPrice: number;
+    relayFee?: number;
+    expiryMs: number;
+  },
+): Promise<RelayIntent> {
+  const canonical: Record<string, unknown> = {};
+  canonical.amount = payload.amount;
+  if (payload.data) {
+    canonical.data = payload.data;
+  }
+  canonical.expiryMs = payload.expiryMs;
+  canonical.from = fingerprint;
+  if (payload.kind) {
+    canonical.kind = payload.kind;
+  }
+  canonical.maxGasPrice = payload.maxGasPrice;
+  if (payload.memo && payload.memo.trim()) {
+    canonical.memo = payload.memo.slice(0, 1024);
+  }
+  if (payload.relayFee !== undefined && payload.relayFee > 0) {
+    canonical.relayFee = payload.relayFee;
+  }
+  canonical.nonce = payload.nonce;
+  if (payload.references && payload.references.length > 0) {
+    canonical.references = payload.references.slice(0, 4).filter((r) => r.trim());
+  }
+  canonical.to = payload.to;
+
+  const sortedKeys = Object.keys(canonical).sort();
+  const sorted: Record<string, unknown> = {};
+  for (const key of sortedKeys) {
+    sorted[key] = canonical[key];
+  }
+  const canonicalJson = JSON.stringify(sorted);
+  const intentHash = await hash(canonicalJson);
+
+  const keyPair = deserializeKeyPair(wallet.export());
+  const intentSignature = await sign(canonicalJson, keyPair.privateKey);
+  const publicKeyHex = coreArrayToHex(keyPair.publicKey);
+
+  return {
+    from: fingerprint,
+    to: payload.to,
+    amount: payload.amount,
+    nonce: payload.nonce,
+    kind: payload.kind,
+    memo: payload.memo,
+    maxGasPrice: payload.maxGasPrice,
+    relayFee: payload.relayFee,
+    expiryMs: payload.expiryMs,
+    publicKey: publicKeyHex,
+    intentHash,
+    intentSignature,
+  };
+}
+
+let cachedRelayerNodeUrl: string | null = null;
+let relayerDiscoveryFailures = 0;
+
+async function discoverRelayerNodeUrl(): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(
+      `${NODE_URL}/api/relay/pool`,
+      {},
+      5000,
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        relayers?: Array<{
+          address: string;
+          nodeUrl: string;
+          isHealthy: boolean;
+        }>;
+      };
+      const healthy = (data.relayers || []).filter(
+        (r) => r.isHealthy && r.nodeUrl,
+      );
+      if (healthy.length > 0) {
+        const chosen = healthy[0];
+        if (!relayerAddress) {
+          relayerAddress = chosen.address;
+        }
+        cachedRelayerNodeUrl = chosen.nodeUrl;
+        relayerDiscoveryFailures = 0;
+        return chosen.nodeUrl;
+      }
+    }
+  } catch {}
+  relayerDiscoveryFailures++;
+  return null;
+}
+
+async function doRelayTransaction(): Promise<void> {
+  if (wallets.length < 2) return;
+  if (pendingOperations >= maxPendingOps) return;
+  if (gasThrottled) return;
+
+  pendingOperations++;
+  try {
+    let relayerNodeUrl = cachedRelayerNodeUrl;
+    if (!relayerNodeUrl || relayerDiscoveryFailures > 0) {
+      relayerNodeUrl = await discoverRelayerNodeUrl();
+    }
+    if (!relayerNodeUrl) {
+      relayerNodeUrl = RELAYER_NODE_URL;
+      log(`Relay: no healthy relayer in pool, falling back to ${relayerNodeUrl}`);
+    }
+
+    const availableSenders = wallets.filter(
+      (w) => !globalLockedSenders.has(w.fingerprint),
+    );
+    if (availableSenders.length < 2) return;
+
+    const sender = pickRandom(availableSenders);
+    if (!lockSender(sender.fingerprint)) return;
+
+    try {
+      const balance = await sender.wallet.getBalance();
+      const relayFee = 0.5;
+      const amount = Math.floor(Math.random() * 3) + 1;
+      const needed = amount + relayFee + 5;
+
+      if (balance < needed) {
+        log(
+          `Relay skip: ${sender.fingerprint.slice(0, 12)}... insufficient balance (${balance.toFixed(2)} < ${needed.toFixed(2)})`,
+        );
+        return;
+      }
+
+      const recipients = wallets.filter(
+        (w) => w.fingerprint !== sender.fingerprint,
+      );
+      if (recipients.length === 0) return;
+      const recipient = pickRandom(recipients);
+
+      const nonce = await initializeNonceTracking(
+        sender.wallet,
+        sender.fingerprint,
+      );
+
+      const expiryMs = Date.now() + 120000;
+      const maxGasPrice = Math.max(currentGasPrice * 5, 10);
+
+      const intent = await createRelayIntent(
+        sender.wallet,
+        sender.fingerprint,
+        {
+          to: recipient.fingerprint,
+          amount,
+          nonce,
+          maxGasPrice,
+          relayFee,
+          expiryMs,
+        },
+      );
+
+      totalRelayIntents++;
+
+      const parents = await getTipParents();
+      const res = await fetchWithTimeout(
+        `${relayerNodeUrl}/api/tx/auto-relay`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            intent,
+            parents,
+          }),
+        },
+      );
+
+      if (res.ok) {
+        const result = (await res.json()) as {
+          success: boolean;
+          hash: string;
+          intentHash: string;
+          relayer: string;
+        };
+        if (result.success) {
+          incrementLocalNonce(sender.fingerprint);
+          totalRelaySuccesses++;
+          totalTransactions++;
+          log(
+            `Relay TX: ${sender.fingerprint.slice(0, 12)}... -> ${recipient.fingerprint.slice(0, 12)}... (${amount} RKU, fee=${relayFee}) relayer=${result.relayer.slice(0, 12)}... tx=${result.hash.slice(0, 12)}...`,
+          );
+        } else {
+          log(`Relay TX submitted but not successful`);
+          errors++;
+        }
+      } else {
+        const errData = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          relayer?: string;
+        };
+        const errMsg = errData.error || `status ${res.status}`;
+        if (errMsg.toLowerCase().includes("insufficient balance")) {
+          log(`Relay TX failed: relayer ${errData.relayer?.slice(0, 16) || "?"} out of funds at ${relayerNodeUrl}, requesting top-up...`);
+          cachedRelayerNodeUrl = null;
+          await fundRelayer();
+        } else if (errMsg.toLowerCase().includes("nonce")) {
+          if (updateNonceFromError(sender.fingerprint, errMsg)) {
+          } else {
+            await invalidateAndResyncNonce(sender.wallet, sender.fingerprint);
+          }
+        } else {
+          log(`Relay TX failed: ${errMsg.slice(0, 80)}`);
+        }
+        errors++;
+      }
+    } finally {
+      unlockSender(sender.fingerprint);
+    }
+  } catch (err: any) {
+    log(`Relay TX error: ${err.message?.slice(0, 60)}`);
+    errors++;
+  } finally {
+    pendingOperations--;
+  }
+}
+
+let relayerAddress: string | null = null;
+let lastRelayerFundTime = 0;
+const RELAYER_FUND_COOLDOWN_MS = 65000;
+
+async function fundRelayer(): Promise<boolean> {
+  const now = Date.now();
+  if (now - lastRelayerFundTime < RELAYER_FUND_COOLDOWN_MS) {
+    return false;
+  }
+
+  let address = relayerAddress;
+  if (!address) {
+    try {
+      const res = await fetchWithTimeout(
+        `${NODE_URL}/api/relay/pool`,
+        {},
+        3000,
+      );
+      if (res.ok) {
+        const data = (await res.json()) as {
+          relayers?: Array<{ address: string }>;
+        };
+        if (data.relayers && data.relayers.length > 0) {
+          address = data.relayers[0].address;
+          relayerAddress = address;
+        }
+      }
+    } catch {}
+  }
+
+  if (!address) {
+    try {
+      const res = await fetchWithTimeout(
+        `${NODE_URL}/api/node/info`,
+        {},
+        3000,
+      );
+      if (res.ok) {
+        const data = (await res.json()) as { validatorAddress?: string };
+        if (data.validatorAddress) {
+          address = data.validatorAddress;
+          relayerAddress = address;
+        }
+      }
+    } catch {}
+  }
+
+  if (!address) {
+    log(`Cannot fund relayer: address unknown`);
+    return false;
+  }
+
+  try {
+    const faucetRes = await fetchWithTimeout(`${FAUCET_URL}/api/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    });
+    lastRelayerFundTime = Date.now();
+    if (faucetRes.ok) {
+      log(`Funded relayer ${address.slice(0, 12)}... via faucet (100 RKU)`);
+      return true;
+    } else {
+      const err = await faucetRes.text().catch(() => "");
+      log(`Relayer funding failed: ${err.slice(0, 80)}`);
+      return false;
+    }
+  } catch (e: any) {
+    log(`Relayer funding error: ${e.message?.slice(0, 60)}`);
+    return false;
+  }
+}
+
+async function checkRelayPool(): Promise<void> {
+  try {
+    const res = await fetchWithTimeout(
+      `${NODE_URL}/api/relay/pool`,
+      {},
+      3000,
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        relayers?: Array<{
+          address: string;
+          feeRate: number;
+          relaysCompleted: number;
+        }>;
+      };
+      const relayers = (data.relayers || []) as Array<{
+        address: string;
+        feeRate: number;
+        relaysCompleted: number;
+        nodeUrl?: string;
+        isHealthy?: boolean;
+      }>;
+      if (relayers.length > 0) {
+        const healthyWithUrl = relayers.filter((r) => r.isHealthy !== false && r.nodeUrl);
+        if (healthyWithUrl.length > 0 && !cachedRelayerNodeUrl) {
+          cachedRelayerNodeUrl = healthyWithUrl[0].nodeUrl!;
+        }
+        if (!relayerAddress && relayers[0].address) {
+          relayerAddress = relayers[0].address;
+        }
+        log(
+          `Relay pool: ${relayers.length} relayer(s) - ${relayers.map((r) => `${r.address.slice(0, 12)}...(${r.relaysCompleted} relays)`).join(", ")}`,
+        );
+      } else {
+        log(`Relay pool: empty (no relayers registered)`);
+      }
+    }
+  } catch {}
+}
+
 function log(msg: string): void {
   const time = new Date().toLocaleTimeString();
   console.log(`[${time}] ${msg}`);
@@ -1003,6 +1367,9 @@ function printStats(): void {
   );
   console.log(
     `  Staking: ${totalStakes} stakes, ${totalRewardsClaimed} rewards claimed`,
+  );
+  console.log(
+    `  Relay: ${totalRelaySuccesses}/${totalRelayIntents} intents relayed`,
   );
   console.log(
     `  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps} | Skipped (low bal): ${skippedDueToBalance}`,
@@ -1126,6 +1493,9 @@ async function main() {
   console.log(
     `Batch TX: ${BATCH_TX_COUNT} per batch, ${Math.round(BATCH_TX_CHANCE * 100)}% chance`,
   );
+  console.log(`Relay interval: ${RELAY_INTERVAL_MS / 1000}s`);
+  console.log(`Relayer fallback URL: ${RELAYER_NODE_URL}`);
+  console.log(`Relay discovery: will auto-discover relayer from ${NODE_URL}/api/relay/pool`);
   console.log(
     `Tip consolidation: threshold=${TIP_CONSOLIDATION_THRESHOLD}, ${CONSOLIDATION_TIP_COUNT} tips/tx, every ${CONSOLIDATION_INTERVAL_MS / 1000}s`,
   );
@@ -1171,9 +1541,14 @@ async function main() {
     await claimRewards();
   }, REWARDS_INTERVAL_MS);
 
+  setInterval(async () => {
+    await doRelayTransaction();
+  }, RELAY_INTERVAL_MS);
+
   setInterval(printStats, 60000);
   setInterval(checkTipCount, 30000);
   setInterval(doConsolidation, CONSOLIDATION_INTERVAL_MS);
+  setInterval(checkRelayPool, 120000);
 
   // Check wallet balances and refill if needed every 15s
   setInterval(async () => {
@@ -1181,7 +1556,7 @@ async function main() {
   }, 15000);
 
   log("Enhanced bot running!");
-  log("Features: Concurrent TX, Contracts, Staking, Rewards");
+  log("Features: Concurrent TX, Contracts, Staking, Rewards, Relay/Meta-TX");
   log("Press Ctrl+C to stop.");
 }
 

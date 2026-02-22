@@ -306,6 +306,8 @@ pub enum GossipMessage {
         relay_fee_rate: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         relay_address: Option<String>,
+        #[serde(default)]
+        relays_completed: u64,
     },
     ConflictResolution {
         conflict_id: String,
@@ -640,6 +642,40 @@ impl GossipService {
 
         if peer_count > 0 {
             self.initial_sync().await;
+        }
+
+        let is_relayer = std::env::var("RELAY_MODE")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        if is_relayer {
+            let (addr, _) = self.state.get_validator_info().await;
+            if let Some(ref relay_addr) = addr {
+                let dag_relay_count = self.state.count_relay_txs_by_sender(relay_addr).await;
+                if dag_relay_count > 0 {
+                    let mut inner = self.inner.write().await;
+                    let existing = inner.relay_pool.get(relay_addr).map(|r| r.relays_completed).unwrap_or(0);
+                    let best = existing.max(dag_relay_count);
+                    let public_url = std::env::var("PUBLIC_URL").unwrap_or_default();
+                    let relay_fee_rate = std::env::var("RELAY_FEE_PERCENT")
+                        .ok()
+                        .and_then(|n| n.parse().ok())
+                        .unwrap_or(0.005);
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    inner.relay_pool.insert(relay_addr.clone(), RelayNodeInfo {
+                        address: relay_addr.clone(),
+                        node_url: public_url,
+                        fee_rate: relay_fee_rate,
+                        stake: 0.0,
+                        relays_completed: best,
+                        last_seen: now,
+                        is_healthy: true,
+                    });
+                    info!("Seeded relay count from DAG: {} relay txs for {}", best, &relay_addr[..16.min(relay_addr.len())]);
+                }
+            }
         }
 
         // If we have a libp2p network handle, spawn a task to receive messages
@@ -1983,6 +2019,16 @@ impl GossipService {
         } else {
             None
         };
+        let own_relays_completed = if is_relayer {
+            if let Some(ref addr) = relay_address {
+                let inner = self.inner.read().await;
+                inner.relay_pool.get(addr).map(|r| r.relays_completed).unwrap_or(0)
+            } else {
+                0
+            }
+        } else {
+            0
+        };
         let message = GossipMessage::PeerDiscovery {
             peers: known_peers,
             node_id: self.node_id.clone(),
@@ -1990,6 +2036,7 @@ impl GossipService {
             is_relayer,
             relay_fee_rate,
             relay_address,
+            relays_completed: own_relays_completed,
         };
         
         for peer in &current_peers {
@@ -2730,7 +2777,12 @@ impl GossipService {
                 }
                 
                 match self.state.add_transaction(tx.clone()).await {
-                    Ok(_) => result.added += 1,
+                    Ok(_) => {
+                        if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay)) {
+                            self.increment_relay_completed(&tx.tx.from).await;
+                        }
+                        result.added += 1;
+                    }
                     Err(e) => {
                         // Only count as failure if it's not a "duplicate" type error
                         let err_msg = format!("{:?}", e);
@@ -3096,6 +3148,9 @@ impl GossipService {
                 if is_new {
                     match self.state.add_transaction(tx.clone()).await {
                         Ok(TransactionResult::Accepted) => {
+                            if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay)) {
+                                self.increment_relay_completed(&tx.tx.from).await;
+                            }
                             // Only propagate fully accepted transactions
                             let mut inner = self.inner.write().await;
                             // Limit pending_txs to prevent OOM under high load
@@ -3270,7 +3325,7 @@ impl GossipService {
                 Ok(None)
             }
 
-            GossipMessage::PeerDiscovery { peers, node_id, is_relayer, relay_fee_rate, relay_address, sender_url, .. } => {
+            GossipMessage::PeerDiscovery { peers, node_id, is_relayer, relay_fee_rate, relay_address, sender_url, relays_completed: gossiped_relays, .. } => {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -3310,16 +3365,18 @@ impl GossipService {
                     if let Some(ref relay_addr) = relay_address {
                         let sender_url_str = sender_url.clone().unwrap_or_else(|| peers.first().cloned().unwrap_or_default());
                         let relay_stake = self.state.get_validator_stake(relay_addr).await.unwrap_or(0.0);
+                        let existing_completed = inner.relay_pool.get(relay_addr).map(|r| r.relays_completed).unwrap_or(0);
+                        let best_relays = existing_completed.max(gossiped_relays);
                         inner.relay_pool.insert(relay_addr.clone(), RelayNodeInfo {
                             address: relay_addr.clone(),
                             node_url: sender_url_str.clone(),
                             fee_rate: relay_fee_rate.unwrap_or(0.005),
                             stake: relay_stake,
-                            relays_completed: 0,
+                            relays_completed: best_relays,
                             last_seen: now,
                             is_healthy: true,
                         });
-                        info!("Relay pool: added/updated relayer {} (fee_rate: {:.4}, url: {})", &relay_addr[..16.min(relay_addr.len())], relay_fee_rate.unwrap_or(0.005), &sender_url_str);
+                        info!("Relay pool: added/updated relayer {} (fee_rate: {:.4}, url: {}, relays: {})", &relay_addr[..16.min(relay_addr.len())], relay_fee_rate.unwrap_or(0.005), &sender_url_str, best_relays);
                     }
                 }
 
@@ -3677,6 +3734,9 @@ impl GossipService {
                 if is_new {
                     match self.state.add_transaction(tx.clone()).await {
                         Ok(TransactionResult::Accepted) | Ok(TransactionResult::Buffered) => {
+                            if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay)) {
+                                self.increment_relay_completed(&tx.tx.from).await;
+                            }
                             let validators = self.state.get_validators_map().await;
                             let total_stake: f64 = validators.values().map(|v| v.stake).sum();
                             let quorum_threshold = total_stake * 2.0 / 3.0;

@@ -61,6 +61,7 @@ interface RewardsSummary {
   tipRewards: number;
   stakeRewards: number;
   witnessRewards: number;
+  relayRewards: number;
   totalRewards: number;
   pendingRewards: number;
 }
@@ -177,6 +178,8 @@ function AccountPage() {
         return { label: "consolidate", color: "#81a1c1" };
       case "reward":
         return { label: "reward", color: "#b48ead" };
+      case "relay":
+        return { label: "relay", color: "#5e81ac" };
       default:
         return { label: "transfer", color: "#d8dee9" };
     }
@@ -324,6 +327,12 @@ function AccountPage() {
                 <span className="label">witness rewards</span>
                 <span className="value">
                   {rewards.witnessRewards.toFixed(2)}
+                </span>
+              </div>
+              <div className="meta-row">
+                <span className="label">relay rewards</span>
+                <span className="value">
+                  {(rewards.relayRewards || 0).toFixed(2)}
                 </span>
               </div>
               <div className="meta-row">

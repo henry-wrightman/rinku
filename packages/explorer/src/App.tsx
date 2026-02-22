@@ -16,6 +16,8 @@ import {
   ThreadTab,
   AnimatedNumber,
   ChatTab,
+  ChatRoomsTab,
+  RelayPoolTab,
 } from "./components";
 import { formatNumber, formatTps } from "./utils";
 import { useTheme } from "./hooks/useTheme";
@@ -126,7 +128,9 @@ type TabType =
   | "zk"
   | "verify"
   | "thread"
-  | "chat";
+  | "chat"
+  | "rooms"
+  | "relayers";
 
 const validTabs: TabType[] = [
   "dag",
@@ -139,6 +143,8 @@ const validTabs: TabType[] = [
   "verify",
   "thread",
   "chat",
+  "rooms",
+  "relayers",
 ];
 
 function App() {
@@ -350,10 +356,7 @@ function App() {
         </button>
       </div>
 
-      <WalletModal
-        isOpen={walletOpen}
-        onClose={() => setWalletOpen(false)}
-      />
+      <WalletModal isOpen={walletOpen} onClose={() => setWalletOpen(false)} />
 
       <div className="stats">
         <div className="stat-item">
@@ -564,7 +567,7 @@ function App() {
           >
             verify
           </span>
-          <span
+          {/* <span
             className={tab === "thread" ? "active" : ""}
             onClick={() => {
               setTab("thread");
@@ -572,8 +575,8 @@ function App() {
             }}
           >
             thread
-          </span>
-          <span
+          </span> */}
+          {/* <span
             className={tab === "chat" ? "active" : ""}
             onClick={() => {
               setTab("chat");
@@ -581,6 +584,24 @@ function App() {
             }}
           >
             chat
+          </span> */}
+          <span
+            className={tab === "rooms" ? "active" : ""}
+            onClick={() => {
+              setTab("rooms");
+              setMobileNavOpen(false);
+            }}
+          >
+            rooms
+          </span>
+          <span
+            className={tab === "relayers" ? "active" : ""}
+            onClick={() => {
+              setTab("relayers");
+              setMobileNavOpen(false);
+            }}
+          >
+            relayers
           </span>
         </div>
       </div>
@@ -615,9 +636,11 @@ function App() {
       {tab === "thread" && (
         <ThreadTab onWalletOpen={() => setWalletOpen(true)} />
       )}
-      {tab === "chat" && (
-        <ChatTab onWalletOpen={() => setWalletOpen(true)} />
+      {tab === "chat" && <ChatTab onWalletOpen={() => setWalletOpen(true)} />}
+      {tab === "rooms" && (
+        <ChatRoomsTab onWalletOpen={() => setWalletOpen(true)} />
       )}
+      {tab === "relayers" && <RelayPoolTab />}
     </div>
   );
 }

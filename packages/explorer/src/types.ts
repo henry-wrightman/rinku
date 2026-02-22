@@ -2,10 +2,11 @@ export interface Account {
   fingerprint: string;
   balance: number;
   nonce: number;
+  staked: number;
   firstTxTimestamp: number;
 }
 
-export type TransactionKind = 'transfer' | 'stake' | 'unstake' | 'claim_rewards' | 'contract' | 'consolidation' | 'reward';
+export type TransactionKind = 'transfer' | 'stake' | 'unstake' | 'claim_rewards' | 'contract' | 'consolidation' | 'reward' | 'relay';
 
 export type FastPathStatus = 'pending' | 'confirmed' | 'executed' | 'finalized' | 'timeout' | 'not_eligible';
 

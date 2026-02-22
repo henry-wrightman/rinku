@@ -1525,6 +1525,15 @@ impl NodeState {
         txs.truncate(limit);
         txs
     }
+
+    pub async fn count_relay_txs_by_sender(&self, address: &str) -> u64 {
+        let state = self.inner.read().await;
+        state.dag
+            .get_all_nodes()
+            .into_iter()
+            .filter(|n| n.tx.tx.from == address && matches!(n.tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay)))
+            .count() as u64
+    }
     
     pub async fn get_transaction_with_weight(&self, hash: &str) -> Option<(SignedTransaction, f64)> {
         let state = self.inner.read().await;

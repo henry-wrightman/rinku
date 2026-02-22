@@ -169,6 +169,88 @@ export async function createSignedTransaction(
   return { tx };
 }
 
+export interface RelayIntent {
+  from: string;
+  to: string;
+  amount: number;
+  nonce: number;
+  kind?: string;
+  memo?: string;
+  references?: string[];
+  data?: string;
+  maxGasPrice: number;
+  relayFee?: number;
+  expiryMs: number;
+  publicKey: string;
+  intentHash: string;
+  intentSignature: string;
+}
+
+export async function createRelayIntent(
+  keyPair: SerializedKeyPair,
+  payload: {
+    to: string;
+    amount: number;
+    nonce: number;
+    kind?: string;
+    memo?: string;
+    references?: string[];
+    data?: string;
+    maxGasPrice: number;
+    relayFee?: number;
+    expiryMs: number;
+  }
+): Promise<RelayIntent> {
+  const canonical: Record<string, unknown> = {};
+  canonical.amount = payload.amount;
+  if (payload.data) {
+    canonical.data = payload.data;
+  }
+  canonical.expiryMs = payload.expiryMs;
+  canonical.from = keyPair.fingerprint;
+  if (payload.kind) {
+    canonical.kind = payload.kind;
+  }
+  canonical.maxGasPrice = payload.maxGasPrice;
+  if (payload.relayFee !== undefined && payload.relayFee > 0) {
+    canonical.relayFee = payload.relayFee;
+  }
+  if (payload.memo && payload.memo.trim()) {
+    canonical.memo = payload.memo.slice(0, 1024);
+  }
+  canonical.nonce = payload.nonce;
+  if (payload.references && payload.references.length > 0) {
+    canonical.references = payload.references.slice(0, 4).filter(r => r.trim());
+  }
+  canonical.to = payload.to;
+
+  const sortedKeys = Object.keys(canonical).sort();
+  const sorted: Record<string, unknown> = {};
+  for (const key of sortedKeys) {
+    sorted[key] = canonical[key];
+  }
+  const canonicalJson = JSON.stringify(sorted);
+  const intentHash = await sha256Hex(canonicalJson);
+  const intentSignature = await signMessage(keyPair.privateKey, canonicalJson);
+
+  return {
+    from: keyPair.fingerprint,
+    to: payload.to,
+    amount: payload.amount,
+    nonce: payload.nonce,
+    kind: payload.kind,
+    memo: payload.memo,
+    references: payload.references,
+    data: payload.data,
+    maxGasPrice: payload.maxGasPrice,
+    relayFee: payload.relayFee,
+    expiryMs: payload.expiryMs,
+    publicKey: keyPair.publicKey,
+    intentHash,
+    intentSignature,
+  };
+}
+
 export function validateSerializedKey(data: string): boolean {
   try {
     const parsed = JSON.parse(data);

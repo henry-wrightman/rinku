@@ -2052,6 +2052,8 @@ async fn submit_relay_transaction(
     match api_state.node_state.add_relay_transaction(tx.clone(), &req.relayer, inner_kind).await {
         Ok(_) => {
             if let Some(ref gossip) = api_state.gossip_service {
+                gossip.increment_relay_completed(&req.relayer).await;
+
                 let (validator_addr, _) = api_state.node_state.get_validator_info().await;
                 let validator_stake = if let Some(ref addr) = validator_addr {
                     api_state.node_state.get_validator_stake(addr).await.unwrap_or(0.0)

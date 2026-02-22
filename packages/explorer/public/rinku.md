@@ -256,6 +256,48 @@ A verifier with only a pinned checkpoint can validate:
 
 This isn't full statelessness (you can't *discover* proofs without infrastructure), but it's **verification statelessness** - once you have a proof URL, you need nothing else.
 
+### 4.6 Eliminating Indexer Infrastructure
+
+Traditional smart contract platforms suffer from a fundamental read problem: contracts store state on-chain, but querying that state at scale requires a separate indexing layer. On Ethereum, this manifests as The Graph — a decentralized indexing protocol that re-processes every block, extracts events, builds queryable databases, and serves GraphQL APIs. Without it, most dApps cannot function. This creates a paradox: a "decentralized" application depends on centralized query infrastructure to display a user's own data.
+
+Rinku's stateless dApp architecture eliminates this dependency entirely through **StatefulReceipts**.
+
+**The traditional dApp read path:**
+
+```
+User submits tx -> Contract mutates state -> dApp queries indexer -> Indexer re-processes blocks -> Indexer builds database -> dApp displays state
+```
+
+**Rinku's write-only client model:**
+
+```
+User submits tx -> Contract mutates state -> StatefulReceipt returned -> Client holds verified state
+```
+
+Every mutating contract call in rinku returns a `StatefulReceipt` containing:
+
+- **View key values** — the contract's relevant state (balance, position, membership, etc.) as declared by the contract's `ViewKeySpec`
+- **Merkle multi-proof** — proving those values against the checkpoint state root
+- **Finality certificate** — anchoring the proof to a finalized checkpoint
+
+The client is **persistently stateless** — it never queries view functions, never polls for updates, never depends on an indexer. After every interaction, the client already holds a cryptographically verified snapshot of the state it cares about. Correctness is local.
+
+**What this eliminates:**
+
+| Traditional Stack Layer | Purpose | Rinku Equivalent |
+|------------------------|---------|------------------|
+| Indexer (The Graph) | Re-process blocks, build query DB | Not needed — receipts carry state |
+| Subgraph deployments | Define what to index per contract | Not needed — contracts declare `ViewKeySpec` |
+| GraphQL API layer | Serve indexed data to frontends | Not needed — clients hold receipts |
+| RPC node (for reads) | Query contract view functions | Not needed — receipts are self-proving |
+| Caching layer | Reduce read latency | Not needed — state is already local |
+
+**Cross-user state sharing via receipts:**
+
+Because StatefulReceipts are self-proving, users can share verified state with each other without infrastructure. A receipt proving "I have 500 tokens in this escrow" can be handed to a counterparty, who verifies it offline against the checkpoint state root. This enables **receipt composability** — contracts can accept other contracts' receipts as proof inputs (BYOP), acting as their own oracles without external oracle infrastructure.
+
+**The tradeoff:** Clients only have state they have interacted with or been given receipts for. Arbitrary historical queries across all accounts (e.g., "list all holders of token X") still require infrastructure. But for the vast majority of dApp use cases — "what is *my* balance, *my* position, *my* vote" — receipts cover it completely. The indexer layer is not optimized; it is removed.
+
 ## 5. Proof Profiles
 
 Different use cases require different security/size tradeoffs. Each profile includes specific fields:
@@ -450,8 +492,11 @@ The core innovation is architectural: treating URLs as canonical proof objects r
 1. **Transaction inclusion proofs** - Prove a payment happened, offline
 2. **Account state proofs** - Prove balance/stake at a checkpoint, offline
 3. **Verification statelessness** - Verify any proof with only a trust anchor
+4. **Indexer elimination** - StatefulReceipts return verified contract state directly to clients, removing the need for indexing infrastructure (The Graph, subgraphs, GraphQL layers) that traditional smart contract platforms depend on
 
 By embracing checkpoint-bounded proofs rather than fighting the impossible battle of proving live state, rinku achieves practical self-provability. The freshness tradeoff (proofs are 15-30 seconds historical) is acceptable for most use cases, while opening entirely new paradigms for trustless verification.
+
+The write-only client model — where clients submit transactions and receive self-proving receipts — means dApps no longer require read infrastructure. The ledger proves facts. Clients hold those proofs. No intermediary is needed.
 
 Ultimately, *the link is the proof* - for both what happened (transactions) and what was true (state).
 

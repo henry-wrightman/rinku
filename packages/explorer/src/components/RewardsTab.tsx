@@ -9,13 +9,14 @@ interface RewardsSummary {
   tipRewards: number;
   stakeRewards: number;
   witnessRewards: number;
+  relayRewards: number;
   totalRewards: number;
   pendingRewards: number;
   rewardHistory: Reward[];
 }
 
 interface Reward {
-  type: "tip" | "stake" | "witness";
+  type: "tip" | "stake" | "witness" | "relay";
   recipient: string;
   amount: number;
   timestamp: number;
@@ -299,6 +300,12 @@ export function RewardsTab() {
                 <span className="label">witness rewards</span>
                 <span className="amount">
                   {rewards.witnessRewards.toFixed(2)}
+                </span>
+              </div>
+              <div className="reward-type">
+                <span className="label">relay rewards</span>
+                <span className="amount">
+                  {(rewards.relayRewards || 0).toFixed(2)}
                 </span>
               </div>
               <div className="reward-type total">
