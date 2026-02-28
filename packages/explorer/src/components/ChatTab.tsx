@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useWebSocketContext } from "../context/WebSocketContext";
 import {
   loadSessions,
   getSession,
@@ -456,14 +457,29 @@ export function ChatTab({ onWalletOpen }: ChatTabProps) {
     }
   }, [wallet, myAddress, activePeer]);
 
+  const { status: wsStatus, lastEvent: wsLastEvent } = useWebSocketContext();
+  const lastChatRef = useRef(wsLastEvent);
+
   useEffect(() => {
     if (!wallet) return;
     scanForMessages();
+  }, [wallet, scanForMessages]);
+
+  useEffect(() => {
+    if (!wallet || !wsLastEvent || wsLastEvent === lastChatRef.current) return;
+    lastChatRef.current = wsLastEvent;
+    if (wsLastEvent.type === 'FastPathExecuted' || wsLastEvent.type === 'NewTransaction') {
+      scanForMessages();
+    }
+  }, [wallet, wsLastEvent, scanForMessages]);
+
+  useEffect(() => {
+    if (!wallet || wsStatus === 'connected') return;
     pollRef.current = setInterval(scanForMessages, 2000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [wallet, scanForMessages]);
+  }, [wallet, wsStatus, scanForMessages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

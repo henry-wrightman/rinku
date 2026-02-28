@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useWebSocketContext } from "../context/WebSocketContext";
 
 interface SupplyStats {
   maxSupply: number;
@@ -100,29 +101,44 @@ export function TokenomicsTab() {
   const [slashing, setSlashing] = useState<SlashingInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const fetchData = useCallback(async () => {
+    try {
+      const [supplyRes, emissionRes, slashingRes] = await Promise.all([
+        fetch(`${NODE_URL}/tokenomics/supply`),
+        fetch(`${NODE_URL}/tokenomics/emission`),
+        fetch(`${NODE_URL}/tokenomics/slashing`),
+      ]);
+
+      if (supplyRes.ok) setSupply(await supplyRes.json());
+      if (emissionRes.ok) setEmission(await emissionRes.json());
+      if (slashingRes.ok) setSlashing(await slashingRes.json());
+    } catch (e) {
+      console.error("Failed to fetch tokenomics:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [supplyRes, emissionRes, slashingRes] = await Promise.all([
-          fetch(`${NODE_URL}/tokenomics/supply`),
-          fetch(`${NODE_URL}/tokenomics/emission`),
-          fetch(`${NODE_URL}/tokenomics/slashing`),
-        ]);
-
-        if (supplyRes.ok) setSupply(await supplyRes.json());
-        if (emissionRes.ok) setEmission(await emissionRes.json());
-        if (slashingRes.ok) setSlashing(await slashingRes.json());
-      } catch (e) {
-        console.error("Failed to fetch tokenomics:", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchData();
+  }, [fetchData]);
+
+  const { status: wsStatus, lastEvent } = useWebSocketContext();
+  const lastTokenRef = useRef(lastEvent);
+
+  useEffect(() => {
+    if (!lastEvent || lastEvent === lastTokenRef.current) return;
+    lastTokenRef.current = lastEvent;
+    if (lastEvent.type === 'CheckpointCreated') {
+      fetchData();
+    }
+  }, [lastEvent]);
+
+  useEffect(() => {
+    if (wsStatus === 'connected') return;
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [wsStatus]);
 
   if (loading) {
     return <div className="loading">loading tokenomics data...</div>;

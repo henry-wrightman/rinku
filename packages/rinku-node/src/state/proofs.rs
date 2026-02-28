@@ -4,9 +4,9 @@ impl NodeState {
     /// Get pending (unfinalized) transaction stats for a sender
     /// Returns (pending_outgoing_amount, pending_gas, pending_tx_count)
     /// Used for finality-first validation: effective_balance = confirmed - pending_outgoing - pending_gas
-    pub(crate) fn get_pending_stats_for_sender(state: &StateInner, sender: &str) -> (f64, f64, u64) {
-        let mut pending_amount = 0.0;
-        let mut pending_gas = 0.0;
+    pub(crate) fn get_pending_stats_for_sender(state: &StateInner, sender: &str) -> (u64, u64, u64) {
+        let mut pending_amount = 0u64;
+        let mut pending_gas = 0u64;
         let mut pending_count = 0u64;
         
         for node in state.dag.get_all_nodes() {
@@ -14,7 +14,6 @@ impl NodeState {
                 let gas = node.tx.tx.gas_price.unwrap_or(state.current_gas_price);
                 pending_gas += gas;
                 
-                // Only count amount for transfers and stakes (not unstake/claim)
                 let is_unstake = matches!(node.tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
                 let is_claim = matches!(node.tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
                 if !is_unstake && !is_claim {
@@ -37,10 +36,10 @@ impl NodeState {
     
     /// Get effective balance for a sender, accounting for pending (unfinalized) transactions
     /// effective_balance = confirmed_balance - pending_outgoing - pending_gas
-    pub(crate) fn get_effective_balance(state: &StateInner, sender: &str) -> f64 {
-        let confirmed_balance = state.accounts.get(sender).map(|a| a.balance).unwrap_or(0.0);
+    pub(crate) fn get_effective_balance(state: &StateInner, sender: &str) -> u64 {
+        let confirmed_balance = state.accounts.get(sender).map(|a| a.balance).unwrap_or(0);
         let (pending_amount, pending_gas, _) = Self::get_pending_stats_for_sender(state, sender);
-        confirmed_balance - pending_amount - pending_gas
+        confirmed_balance.saturating_sub(pending_amount).saturating_sub(pending_gas)
     }
 
     /// Compute state root from all account states
@@ -112,7 +111,7 @@ impl NodeState {
         let current_gas_price = state.current_gas_price;
         
         // Clone accounts into a mutable HashMap for simulation
-        let mut simulated_accounts: HashMap<String, (f64, u64, f64)> = state.accounts.iter()
+        let mut simulated_accounts: HashMap<String, (u64, u64, u64)> = state.accounts.iter()
             .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
             .collect();
         
@@ -121,12 +120,11 @@ impl NodeState {
         // Get pending rewards and stake amounts snapshot for claim/unstake simulation
         // CRITICAL: Must use rewards service as source of truth to match execute_finalized_transaction
         let rewards = self.rewards.read().await;
-        let pending_rewards_snapshot: HashMap<String, f64> = pending_txs.iter()
+        let pending_rewards_snapshot: HashMap<String, u64> = pending_txs.iter()
             .filter(|tx| matches!(tx.tx.kind, Some(rinku_core::TransactionKind::ClaimRewards)))
             .map(|tx| (tx.tx.from.clone(), rewards.get_pending_rewards(&tx.tx.from)))
             .collect();
-        // Get stake amounts from rewards service for unstake simulation
-        let stake_amounts_snapshot: HashMap<String, f64> = pending_txs.iter()
+        let stake_amounts_snapshot: HashMap<String, u64> = pending_txs.iter()
             .filter(|tx| matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Unstake)))
             .filter_map(|tx| {
                 rewards.get_stake(&tx.tx.from).map(|p| (tx.tx.from.clone(), p.amount))
@@ -135,7 +133,7 @@ impl NodeState {
         
         // Build simulated_reward_state for v3 proofs
         // Structure: (pending_rewards, staked_at, last_reward_at, claimed_rewards_total)
-        let mut simulated_reward_state: HashMap<String, (f64, u64, Option<u64>, f64)> = HashMap::new();
+        let mut simulated_reward_state: HashMap<String, (u64, u64, Option<u64>, u64)> = HashMap::new();
         
         // Collect reward state for all affected addresses
         for address in affected_addresses {
@@ -175,13 +173,11 @@ impl NodeState {
             if let Some(sender) = simulated_accounts.get_mut(from) {
                 if is_stake_tx {
                     // Stake: deduct amount + fee (amount goes to stake, not recipient)
-                    sender.0 = (sender.0 - amount - fee).max(0.0);
+                    sender.0 = sender.0.saturating_sub(amount).saturating_sub(fee);
                 } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                    // Unstake/Claim/Contract: only deduct gas fee (contract execution fee charged separately)
-                    sender.0 = (sender.0 - fee).max(0.0);
+                    sender.0 = sender.0.saturating_sub(fee);
                 } else {
-                    // Regular transfer: deduct amount + fee
-                    sender.0 = (sender.0 - amount - fee).max(0.0);
+                    sender.0 = sender.0.saturating_sub(amount).saturating_sub(fee);
                 }
                 sender.1 += 1; // Increment nonce
             }
@@ -192,7 +188,7 @@ impl NodeState {
                     receiver.0 += amount;
                 } else {
                     // Create new account for receiver
-                    simulated_accounts.insert(to.clone(), (amount, 0, 0.0));
+                    simulated_accounts.insert(to.clone(), (amount, 0, 0));
                 }
             }
             
@@ -208,7 +204,7 @@ impl NodeState {
                     }
                 } else {
                     // Create new reward state entry for new stakers
-                    simulated_reward_state.insert(from.clone(), (0.0, tx.tx.timestamp, None, 0.0));
+                    simulated_reward_state.insert(from.clone(), (0, tx.tx.timestamp, None, 0));
                 }
             } else if is_unstake_tx {
                 // CRITICAL: Use rewards service stake amount (not account.staked) to match execution
@@ -216,34 +212,32 @@ impl NodeState {
                 if let Some(rewards_stake) = stake_amounts_snapshot.get(from) {
                     if let Some(staker) = simulated_accounts.get_mut(from) {
                         staker.0 += rewards_stake; // Return stake to balance (from rewards service)
-                        staker.2 = 0.0; // Clear stake
+                        staker.2 = 0; // Clear stake
                     }
                 } else {
-                    // Fallback to account.staked if not in snapshot (shouldn't happen for unstake txs)
                     if let Some(staker) = simulated_accounts.get_mut(from) {
                         let unstaked = staker.2;
                         staker.0 += unstaked;
-                        staker.2 = 0.0;
+                        staker.2 = 0;
                     }
                 }
             } else if is_claim_tx {
                 // Claim adds pending rewards to balance (matches execute_finalized_transaction)
                 if let Some(claimed) = pending_rewards_snapshot.get(from) {
-                    if *claimed > 0.0 {
+                    if *claimed > 0 {
                         if let Some(claimer) = simulated_accounts.get_mut(from) {
                             let old_balance = claimer.0;
-                            claimer.0 += claimed; // Add claimed rewards to balance
+                            claimer.0 += claimed;
                             tracing::info!(
-                                "[SIMULATION] Claim for {}: pending_rewards={:.8}, old_balance={:.8}, new_balance={:.8}",
+                                "[SIMULATION] Claim for {}: pending_rewards={}, old_balance={}, new_balance={}",
                                 &from[..16.min(from.len())],
                                 claimed,
                                 old_balance,
                                 claimer.0
                             );
                             
-                            // Update simulated_reward_state after claim
                             if let Some(reward_state) = simulated_reward_state.get_mut(from) {
-                                reward_state.0 = 0.0; // pending_rewards = 0 after claim
+                                reward_state.0 = 0; // pending_rewards = 0 after claim
                                 reward_state.3 += claimed; // claimed_total += claimed amount
                             }
                         }
@@ -269,7 +263,7 @@ impl NodeState {
         // Log simulated state for debugging proof generation issues
         for (addr, (balance, nonce, staked)) in account_entries.iter().take(5) {
             tracing::debug!(
-                "Simulated state for {}: balance={:.8}, nonce={}, staked={:.8}",
+                "Simulated state for {}: balance={}, nonce={}, staked={}",
                 &addr[..16.min(addr.len())],
                 balance,
                 nonce,
@@ -336,22 +330,22 @@ impl NodeState {
                     let (pending_rewards, staked_at, last_reward_at, claimed_total) = 
                         simulated_reward_state.get(address)
                             .cloned()
-                            .unwrap_or((0.0, 0, None, 0.0));
+                            .unwrap_or((0, 0, None, 0));
                     
                     let proof = rinku_core::types::AccountStateProof {
-                        version: 3, // v3 includes reward state
+                        version: 3,
                         address: address.clone(),
-                        balance_micro: Self::to_micro_units(*balance),
-                        balance: *balance,
+                        balance_micro: *balance,
+                        balance: rinku_core::types::from_micro_units(*balance),
                         nonce: *nonce,
-                        staked_micro: Self::to_micro_units(*staked),
-                        staked: *staked,
-                        pending_rewards_micro: Self::to_micro_units(pending_rewards),
-                        pending_rewards,
+                        staked_micro: *staked,
+                        staked: rinku_core::types::from_micro_units(*staked),
+                        pending_rewards_micro: pending_rewards,
+                        pending_rewards: rinku_core::types::from_micro_units(pending_rewards),
                         staked_at,
                         last_reward_at,
-                        claimed_rewards_total_micro: Self::to_micro_units(claimed_total),
-                        claimed_rewards_total: claimed_total,
+                        claimed_rewards_total_micro: claimed_total,
+                        claimed_rewards_total: rinku_core::types::from_micro_units(claimed_total),
                         checkpoint_height: checkpoint.height,
                         checkpoint_hash: checkpoint.hash.clone(),
                         checkpoint_timestamp: checkpoint.timestamp,
@@ -390,15 +384,13 @@ impl NodeState {
     /// 
     /// Canonical format: "account:{address}:{balance_micro}:{nonce}:{staked_micro}"
     /// Where balance_micro and staked_micro are u64 values (1 RKU = 100,000,000 micro-RKU)
-    pub(crate) fn hash_account_leaf_for_proof(addr: &str, balance: f64, nonce: u64, stake: f64) -> String {
-        let balance_micro = Self::to_micro_units(balance);
-        let staked_micro = Self::to_micro_units(stake);
+    pub(crate) fn hash_account_leaf_for_proof(addr: &str, balance: u64, nonce: u64, stake: u64) -> String {
         let data = format!(
             "account:{}:{}:{}:{}",
             addr,
-            balance_micro,
+            balance,
             nonce,
-            staked_micro
+            stake
         );
         Self::sha256_hex_for_proof(&data)
     }
@@ -460,23 +452,23 @@ impl NodeState {
         // Get reward state from existing proof if available
         let (pending_rewards, staked_at, last_reward_at, claimed_total) = 
             account.latest_balance_proof.as_ref()
-                .map(|p| (p.pending_rewards, p.staked_at, p.last_reward_at, p.claimed_rewards_total))
-                .unwrap_or((0.0, 0, None, 0.0));
+                .map(|p| (p.pending_rewards_micro, p.staked_at, p.last_reward_at, p.claimed_rewards_total_micro))
+                .unwrap_or((0, 0, None, 0));
         
         Some(rinku_core::types::AccountStateProof {
-            version: 3, // v3 includes reward state
+            version: 3,
             address: address.to_string(),
-            balance_micro: Self::to_micro_units(account.balance),
-            balance: account.balance,
+            balance_micro: account.balance,
+            balance: rinku_core::types::from_micro_units(account.balance),
             nonce: account.nonce,
-            staked_micro: Self::to_micro_units(account.staked),
-            staked: account.staked,
-            pending_rewards_micro: Self::to_micro_units(pending_rewards),
-            pending_rewards,
+            staked_micro: account.staked,
+            staked: rinku_core::types::from_micro_units(account.staked),
+            pending_rewards_micro: pending_rewards,
+            pending_rewards: rinku_core::types::from_micro_units(pending_rewards),
             staked_at,
             last_reward_at,
-            claimed_rewards_total_micro: Self::to_micro_units(claimed_total),
-            claimed_rewards_total: claimed_total,
+            claimed_rewards_total_micro: claimed_total,
+            claimed_rewards_total: rinku_core::types::from_micro_units(claimed_total),
             checkpoint_height: checkpoint.height,
             checkpoint_hash: checkpoint.hash.clone(),
             checkpoint_timestamp: checkpoint.timestamp,
@@ -533,7 +525,7 @@ impl NodeState {
         let merkle_proof = Self::compute_merkle_proof_path_canonical(&leaves, merkle_index);
         
         tracing::info!(
-            "Generated proof for {} at checkpoint {}: balance={:.8}, nonce={}, staked={:.8}",
+            "Generated proof for {} at checkpoint {}: balance={}, nonce={}, staked={}",
             &address[..16.min(address.len())],
             checkpoint.height,
             account.balance,
@@ -541,26 +533,25 @@ impl NodeState {
             account.staked
         );
         
-        // Get reward state from existing proof if available
         let (pending_rewards, staked_at, last_reward_at, claimed_total) = 
             account.latest_balance_proof.as_ref()
-                .map(|p| (p.pending_rewards, p.staked_at, p.last_reward_at, p.claimed_rewards_total))
-                .unwrap_or((0.0, 0, None, 0.0));
+                .map(|p| (p.pending_rewards_micro, p.staked_at, p.last_reward_at, p.claimed_rewards_total_micro))
+                .unwrap_or((0, 0, None, 0));
         
         Some(rinku_core::types::AccountStateProof {
-            version: 3, // v3 includes reward state
+            version: 3,
             address: address.to_string(),
-            balance_micro: Self::to_micro_units(account.balance),
-            balance: account.balance,
+            balance_micro: account.balance,
+            balance: rinku_core::types::from_micro_units(account.balance),
             nonce: account.nonce,
-            staked_micro: Self::to_micro_units(account.staked),
-            staked: account.staked,
-            pending_rewards_micro: Self::to_micro_units(pending_rewards),
-            pending_rewards,
+            staked_micro: account.staked,
+            staked: rinku_core::types::from_micro_units(account.staked),
+            pending_rewards_micro: pending_rewards,
+            pending_rewards: rinku_core::types::from_micro_units(pending_rewards),
             staked_at,
             last_reward_at,
-            claimed_rewards_total_micro: Self::to_micro_units(claimed_total),
-            claimed_rewards_total: claimed_total,
+            claimed_rewards_total_micro: claimed_total,
+            claimed_rewards_total: rinku_core::types::from_micro_units(claimed_total),
             checkpoint_height: checkpoint.height,
             checkpoint_hash: checkpoint.hash.clone(),
             checkpoint_timestamp: checkpoint.timestamp,
@@ -665,7 +656,7 @@ impl NodeState {
     ) {
         // First pass: sync account state and collect addresses needing RewardsService sync
         // For v3 proofs, we now have authoritative reward state: (address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount)
-        let mut rewards_to_sync: Vec<(String, f64, u64, Option<u64>, f64, f64)> = Vec::new();
+        let mut rewards_to_sync: Vec<(String, u64, u64, Option<u64>, u64, u64)> = Vec::new();
         
         {
             let mut state = self.inner.write().await;
@@ -675,68 +666,66 @@ impl NodeState {
                 if let Some(account) = state.accounts.get_mut(address) {
                     // CONSENSUS FIX: Detect and fix balance divergence from leader's authoritative state
                     // This can happen when reward calculations differ between leader and follower
-                    let balance_diff = (account.balance - proof.balance).abs();
-                    let staked_diff = (account.staked - proof.staked).abs();
+                    let balance_diff = account.balance.abs_diff(proof.balance_micro);
+                    let staked_diff = account.staked.abs_diff(proof.staked_micro);
                     
-                    if balance_diff > 0.000001 || staked_diff > 0.000001 || account.nonce != proof.nonce {
+                    if balance_diff > 0 || staked_diff > 0 || account.nonce != proof.nonce {
                         tracing::warn!(
-                            "STATE SYNC for {} at checkpoint {}: local(bal={:.4}, nonce={}, stk={:.4}) -> leader(bal={:.4}, nonce={}, stk={:.4})",
+                            "STATE SYNC for {} at checkpoint {}: local(bal={}, nonce={}, stk={}) -> leader(bal={}, nonce={}, stk={})",
                             &address[..16.min(address.len())],
                             proof.checkpoint_height,
                             account.balance, account.nonce, account.staked,
-                            proof.balance, proof.nonce, proof.staked
+                            proof.balance_micro, proof.nonce, proof.staked_micro
                         );
-                        // Synchronize to leader's authoritative state
-                        account.balance = proof.balance;
+                        account.balance = proof.balance_micro;
                         account.nonce = proof.nonce;
-                        account.staked = proof.staked;
+                        account.staked = proof.staked_micro;
                         // Mark for RewardsService sync with authoritative v3 values
                         if is_v3_proof {
                             rewards_to_sync.push((
                                 address.clone(),
-                                proof.pending_rewards,
+                                proof.pending_rewards_micro,
                                 proof.staked_at,
                                 proof.last_reward_at,
-                                proof.claimed_rewards_total,
-                                proof.staked
+                                proof.claimed_rewards_total_micro,
+                                proof.staked_micro
                             ));
                         }
                     } else {
                         tracing::info!(
-                            "Storing precomputed proof for {} at checkpoint {}: balance={:.4}, nonce={}, staked={:.4}",
+                            "Storing precomputed proof for {} at checkpoint {}: balance={}, nonce={}, staked={}",
                             &address[..16.min(address.len())],
                             proof.checkpoint_height,
-                            proof.balance,
+                            proof.balance_micro,
                             proof.nonce,
-                            proof.staked
+                            proof.staked_micro
                         );
                     }
                     account.latest_balance_proof = Some(proof.clone());
                 } else {
                     // Account doesn't exist locally - create it from leader's proof
                     tracing::info!(
-                        "Creating account {} from leader proof at checkpoint {}: balance={:.4}, nonce={}, staked={:.4}",
+                        "Creating account {} from leader proof at checkpoint {}: balance={}, nonce={}, staked={}",
                         &address[..16.min(address.len())],
                         proof.checkpoint_height,
-                        proof.balance,
+                        proof.balance_micro,
                         proof.nonce,
-                        proof.staked
+                        proof.staked_micro
                     );
                     let mut new_account = Account::new(address.clone(), proof.checkpoint_height as u64);
-                    new_account.balance = proof.balance;
+                    new_account.balance = proof.balance_micro;
                     new_account.nonce = proof.nonce;
-                    new_account.staked = proof.staked;
+                    new_account.staked = proof.staked_micro;
                     new_account.latest_balance_proof = Some(proof.clone());
                     state.accounts.insert(address.clone(), new_account);
-                    // Also mark for RewardsService sync with v3 values (new account)
-                    if proof.version >= 3 && proof.staked > 0.0 {
+                    if proof.version >= 3 && proof.staked_micro > 0 {
                         rewards_to_sync.push((
                             address.clone(),
-                            proof.pending_rewards,
+                            proof.pending_rewards_micro,
                             proof.staked_at,
                             proof.last_reward_at,
-                            proof.claimed_rewards_total,
-                            proof.staked
+                            proof.claimed_rewards_total_micro,
+                            proof.staked_micro
                         ));
                     }
                 }

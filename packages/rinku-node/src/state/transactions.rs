@@ -1,26 +1,14 @@
 use super::*;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum FastPathExecResult {
+    Executed,
+    AlreadyApplied,
+    Rejected,
+}
+
 impl NodeState {
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<TransactionResult> {
-        let is_relay_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay));
-        if is_relay_tx {
-            let relay_data = tx.tx.data.as_ref().and_then(|d| {
-                serde_json::from_str::<serde_json::Value>(d).ok()
-            });
-            let inner_kind_str = relay_data.as_ref()
-                .and_then(|v| v.get("innerKind").and_then(|k| k.as_str()))
-                .unwrap_or("transfer");
-            let inner_kind = match inner_kind_str {
-                "stake" | "Stake" => rinku_core::types::TransactionKind::Stake,
-                "unstake" | "Unstake" => rinku_core::types::TransactionKind::Unstake,
-                "claimRewards" | "ClaimRewards" => rinku_core::types::TransactionKind::ClaimRewards,
-                "contract" | "Contract" => rinku_core::types::TransactionKind::Contract,
-                _ => rinku_core::types::TransactionKind::Transfer,
-            };
-            let relayer_addr = tx.tx.from.clone();
-            return self.add_relay_transaction(tx, &relayer_addr, inner_kind).await;
-        }
-
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
@@ -35,6 +23,49 @@ impl NodeState {
         if !is_system_tx {
             let state = self.inner.read().await;
             let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+            
+            if state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned {
+                let tx_kind = tx.tx.kind.unwrap_or(rinku_core::types::TransactionKind::Transfer);
+                let safety = tx_kind.partition_safety();
+                
+                match safety {
+                    rinku_core::types::PartitionSafety::CpOnly => {
+                        tracing::info!(
+                            "Transaction rejected during partition: {:?} transactions require full quorum",
+                            tx_kind
+                        );
+                        return Err(anyhow::anyhow!(
+                            "Transaction type '{:?}' is not allowed during network partition. \
+                             Stake, unstake, and reward claim operations require full network quorum. \
+                             The network is currently partitioned (epoch {}). \
+                             Please wait for the partition to heal.",
+                            tx_kind,
+                            state.partition_state.current_epoch.unwrap_or(0)
+                        ));
+                    }
+                    rinku_core::types::PartitionSafety::BoundedSpend => {
+                        let tx_cost = tx.tx.amount + gas_fee;
+                        if let Some(account) = state.accounts.get(&tx.tx.from) {
+                            if let Some(budget) = account.partition_budget {
+                                let remaining = budget - account.partition_budget_spent;
+                                if tx_cost > remaining {
+                                    tracing::info!(
+                                        "Transaction rejected: exceeds partition budget. Cost: {:.6}, remaining budget: {:.6}",
+                                        tx_cost, remaining
+                                    );
+                                    return Err(anyhow::anyhow!(
+                                        "Transaction cost ({:.6} RKU) exceeds remaining partition budget ({:.6} RKU). \
+                                         You set a partition spending limit of {:.6} RKU and have spent {:.6} RKU \
+                                         during this partition epoch.",
+                                        tx_cost, remaining, budget, account.partition_budget_spent
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    rinku_core::types::PartitionSafety::Safe => {}
+                }
+            }
             
             if is_stake_tx {
                 let rewards = self.rewards.read().await;
@@ -277,6 +308,9 @@ impl NodeState {
             finalized: false,
             checkpoint_height: None,
             received_at_ms: Some(now_ms),
+            partition_epoch: None,
+            provisional_finality: false,
+            rolled_back: false,
         };
 
         let mut state = self.inner.write().await;
@@ -310,19 +344,24 @@ impl NodeState {
 
         state.dag.add_node(node)?;
         
+        state.finalized_tx_history.push_back((now_ms, 1));
+        while state.finalized_tx_history.len() > 300 {
+            state.finalized_tx_history.pop_front();
+        }
+
         state.txs_this_period += 1;
 
-        const PERIOD_MS: u64 = 15000;
-        const TARGET_TPS: f64 = 10.0;
-        const MAX_CHANGE_PERCENT: f64 = 0.125;
+        let period_ms = state.config.gas.period_duration_ms;
+        let target_txs = state.config.gas.target_txs_per_period as f64;
+        let max_change = state.config.gas.adjustment_factor;
         const ELASTICITY: f64 = 2.0;
 
-        if now_ms - state.period_start_ms >= PERIOD_MS {
-            let target_txs = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
+        if now_ms - state.period_start_ms >= period_ms {
             let utilization = state.txs_this_period as f64 / target_txs;
             let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
-            let change_factor = 1.0 + change_ratio * MAX_CHANGE_PERCENT;
-            state.current_gas_price = (state.current_gas_price * change_factor).clamp(
+            let change_factor = 1.0 + change_ratio * max_change;
+            state.current_gas_price = ((state.current_gas_price as f64) * change_factor) as u64;
+            state.current_gas_price = state.current_gas_price.clamp(
                 state.config.gas.min_gas_price,
                 state.config.gas.max_gas_price,
             );
@@ -335,200 +374,12 @@ impl NodeState {
         Ok(TransactionResult::Accepted)
     }
     
-    pub async fn add_relay_transaction(
-        &self,
-        tx: SignedTransaction,
-        relayer_address: &str,
-        inner_kind: rinku_core::types::TransactionKind,
-    ) -> Result<TransactionResult> {
-        let is_stake_tx = matches!(inner_kind, rinku_core::types::TransactionKind::Stake);
-        let is_unstake_tx = matches!(inner_kind, rinku_core::types::TransactionKind::Unstake);
-        let is_claim_tx = matches!(inner_kind, rinku_core::types::TransactionKind::ClaimRewards);
-        let is_contract_tx = matches!(inner_kind, rinku_core::types::TransactionKind::Contract);
-
-        let relay_data_parsed = tx.tx.data.as_ref().and_then(|d| {
-            serde_json::from_str::<serde_json::Value>(d).ok()
-        });
-        let intent_from_addr = relay_data_parsed.as_ref()
-            .and_then(|v| v.get("intentFrom")?.as_str().map(|s| s.to_string()))
-            .ok_or_else(|| anyhow::anyhow!("Relay transaction missing intentFrom in data"))?;
-        let relay_fee = relay_data_parsed.as_ref()
-            .and_then(|v| v.get("relayFee")?.as_f64())
-            .unwrap_or(0.0);
-
-        {
-            let state = self.inner.read().await;
-            let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
-
-            if let Some(ref memo) = tx.tx.memo {
-                if memo.len() > 1024 {
-                    return Err(anyhow::anyhow!("Memo too large: {} bytes (max 1024)", memo.len()));
-                }
-            }
-            if let Some(ref refs) = tx.tx.references {
-                if refs.len() > 4 {
-                    return Err(anyhow::anyhow!("Too many references: {} (max 4)", refs.len()));
-                }
-            }
-
-            if is_stake_tx {
-                let rewards = self.rewards.read().await;
-                let min_stake = rewards.get_config().min_stake_amount;
-                drop(rewards);
-                if tx.tx.amount < min_stake {
-                    return Err(anyhow::anyhow!(
-                        "Minimum stake amount is {} RKU, you tried to stake {}",
-                        min_stake, tx.tx.amount
-                    ));
-                }
-            }
-
-            let required_balance_intent = if is_stake_tx {
-                tx.tx.amount + relay_fee
-            } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                relay_fee
-            } else {
-                tx.tx.amount + relay_fee
-            };
-
-            if intent_from_addr != "genesis" {
-                if !state.accounts.contains_key(&intent_from_addr) {
-                    return Err(anyhow::anyhow!("Intent signer account does not exist"));
-                }
-
-                let effective_balance = Self::get_effective_balance(&state, &intent_from_addr);
-                if effective_balance < required_balance_intent {
-                    return Err(anyhow::anyhow!(
-                        "Insufficient balance for intent signer: have {:.6}, need {:.6}",
-                        effective_balance, required_balance_intent
-                    ));
-                }
-
-                let effective_nonce = Self::get_effective_nonce(&state, &intent_from_addr);
-                let confirmed_nonce = state.accounts.get(&intent_from_addr).map(|a| a.nonce).unwrap_or(0);
-                if tx.tx.nonce < confirmed_nonce {
-                    return Err(anyhow::anyhow!(
-                        "Stale nonce: confirmed nonce is {}, got {}",
-                        confirmed_nonce, tx.tx.nonce
-                    ));
-                }
-                if tx.tx.nonce != effective_nonce {
-                    return Err(anyhow::anyhow!(
-                        "Invalid nonce: expected {}, got {}",
-                        effective_nonce, tx.tx.nonce
-                    ));
-                }
-            }
-
-            if !state.accounts.contains_key(relayer_address) {
-                return Err(anyhow::anyhow!("Relayer account does not exist"));
-            }
-            let relayer_balance = state.accounts.get(relayer_address)
-                .map(|a| a.balance)
-                .unwrap_or(0.0);
-            if relayer_balance < gas_fee {
-                return Err(anyhow::anyhow!(
-                    "Relayer insufficient gas balance: have {:.6}, need {:.6}",
-                    relayer_balance, gas_fee
-                ));
-            }
-        }
-
-        let client_parents: Vec<String> = tx.tx.parents.iter()
-            .map(|p| {
-                if p.starts_with("rinku://tx/h/") {
-                    p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
-                } else if p.starts_with("rinku://tx/") {
-                    p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
-                } else {
-                    p.clone()
-                }
-            })
-            .collect();
-
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let now_ms = now_secs * 1000;
-
-        let (tx_weight, normalized_parents) = {
-            let state = self.inner.read().await;
-            let weight = if let Some(account) = state.accounts.get(&tx.tx.from) {
-                calculate_account_weight(account, now_secs)
-            } else {
-                1.0
-            };
-            let valid_parents: Vec<String> = client_parents.iter()
-                .filter(|p| !p.is_empty() && state.dag.get_node(p).is_some())
-                .cloned()
-                .collect();
-            let final_parents = if valid_parents.is_empty() {
-                state.dag.tips().into_iter().take(2).collect()
-            } else {
-                valid_parents
-            };
-            (weight, final_parents)
-        };
-
-        let node = rinku_core::types::DagNode {
-            hash: tx.hash.clone(),
-            tx: tx.clone(),
-            parents: normalized_parents.clone(),
-            children: Vec::new(),
-            weight: tx_weight,
-            finalized: false,
-            checkpoint_height: None,
-            received_at_ms: Some(now_ms),
-        };
-
-        let mut state = self.inner.write().await;
-
-        let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
-        let relayer_balance = state.accounts.get(relayer_address)
-            .map(|a| a.balance)
-            .unwrap_or(0.0);
-        if relayer_balance < gas_fee {
-            return Err(anyhow::anyhow!(
-                "Relayer insufficient gas balance: have {:.6}, need {:.6}",
-                relayer_balance, gas_fee
-            ));
-        }
-
-        let effective_nonce = Self::get_effective_nonce(&state, &intent_from_addr);
-        if tx.tx.nonce != effective_nonce {
-            return Err(anyhow::anyhow!(
-                "Invalid nonce: expected {}, got {}",
-                effective_nonce, tx.tx.nonce
-            ));
-        }
-
-        if state.dag.get_node(&tx.hash).is_some() {
-            return Err(anyhow::anyhow!("Duplicate transaction hash"));
-        }
-
-        state.dag.add_node(node)?;
-        state.txs_this_period += 1;
-
-        tracing::info!(
-            "RELAY TX accepted: hash={}, intentFrom={}, relayer={}, amount={:.4}",
-            &tx.hash[..16.min(tx.hash.len())],
-            &intent_from_addr[..16.min(intent_from_addr.len())],
-            &relayer_address[..16.min(relayer_address.len())],
-            tx.tx.amount
-        );
-
-        drop(state);
-        Ok(TransactionResult::Accepted)
-    }
-
-    pub async fn execute_fast_path_transaction(&self, tx: &SignedTransaction) -> bool {
+    pub async fn execute_fast_path_transaction(&self, tx: &SignedTransaction) -> FastPathExecResult {
         let gas_fee = {
             let state = self.inner.read().await;
             tx.tx.gas_price.unwrap_or(state.current_gas_price)
         };
 
-        let is_relay_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay));
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
@@ -537,61 +388,7 @@ impl NodeState {
         {
             let state = self.inner.read().await;
 
-            if is_relay_tx {
-                let relay_parsed = tx.tx.data.as_ref().and_then(|d| {
-                    serde_json::from_str::<serde_json::Value>(d).ok()
-                });
-                let intent_from = relay_parsed.as_ref()
-                    .and_then(|v| v.get("intentFrom")?.as_str().map(|s| s.to_string()));
-                let fp_relay_fee = relay_parsed.as_ref()
-                    .and_then(|v| v.get("relayFee")?.as_f64())
-                    .unwrap_or(0.0);
-
-                if let Some(ref intent_sender) = intent_from {
-                    if let Some(from_account) = state.accounts.get(intent_sender) {
-                        let required_balance = tx.tx.amount + fp_relay_fee;
-                        if from_account.balance < required_balance {
-                            tracing::warn!(
-                                "FastPath relay rejected: intent signer {} insufficient balance ({:.8} < {:.8})",
-                                &intent_sender[..16.min(intent_sender.len())],
-                                from_account.balance,
-                                required_balance
-                            );
-                            return false;
-                        }
-                        if tx.tx.nonce != from_account.nonce {
-                            tracing::warn!(
-                                "FastPath relay rejected: intent signer {} nonce mismatch (tx={} vs account={})",
-                                &intent_sender[..16.min(intent_sender.len())],
-                                tx.tx.nonce,
-                                from_account.nonce
-                            );
-                            return false;
-                        }
-                    } else {
-                        tracing::warn!("FastPath relay rejected: intent signer account {} not found", &intent_sender[..16.min(intent_sender.len())]);
-                        return false;
-                    }
-                } else {
-                    tracing::warn!("FastPath relay rejected: missing intentFrom in relay data");
-                    return false;
-                }
-
-                if let Some(relayer_account) = state.accounts.get(&tx.tx.from) {
-                    if relayer_account.balance < gas_fee {
-                        tracing::warn!(
-                            "FastPath relay rejected: relayer {} insufficient gas ({:.8} < {:.8})",
-                            &tx.tx.from[..16.min(tx.tx.from.len())],
-                            relayer_account.balance,
-                            gas_fee
-                        );
-                        return false;
-                    }
-                } else {
-                    tracing::warn!("FastPath relay rejected: relayer account {} not found", &tx.tx.from[..16.min(tx.tx.from.len())]);
-                    return false;
-                }
-            } else {
+            {
                 if let Some(from_account) = state.accounts.get(&tx.tx.from) {
                     let required = if is_stake_tx {
                         tx.tx.amount + gas_fee
@@ -607,23 +404,32 @@ impl NodeState {
                             from_account.balance,
                             required
                         );
-                        return false;
+                        return FastPathExecResult::Rejected;
                     }
                     if tx.tx.nonce != from_account.nonce {
+                        if tx.tx.nonce < from_account.nonce {
+                            tracing::info!(
+                                "FastPath: {} nonce already past tx (tx={} < account={}) - tx was already applied via sync",
+                                &tx.tx.from[..16.min(tx.tx.from.len())],
+                                tx.tx.nonce,
+                                from_account.nonce
+                            );
+                            return FastPathExecResult::AlreadyApplied;
+                        }
                         tracing::warn!(
                             "FastPath execution rejected: {} nonce mismatch (tx={} vs account={})",
                             &tx.tx.from[..16.min(tx.tx.from.len())],
                             tx.tx.nonce,
                             from_account.nonce
                         );
-                        return false;
+                        return FastPathExecResult::Rejected;
                     }
                 } else {
                     tracing::warn!(
                         "FastPath execution rejected: account {} not found",
                         &tx.tx.from[..16.min(tx.tx.from.len())]
                     );
-                    return false;
+                    return FastPathExecResult::Rejected;
                 }
             }
         }
@@ -639,7 +445,7 @@ impl NodeState {
             gas_fee
         );
 
-        true
+        FastPathExecResult::Executed
     }
 
     pub async fn execute_finalized_transaction(&self, tx: &SignedTransaction) {
@@ -653,74 +459,30 @@ impl NodeState {
             tx.tx.gas_price.unwrap_or(state.current_gas_price)
         };
         
-        let is_relay_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay));
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
         let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
 
-        let relay_info = if is_relay_tx {
-            tx.tx.data.as_ref().and_then(|d| {
-                serde_json::from_str::<serde_json::Value>(d).ok().and_then(|v| {
-                    let intent_from = v.get("intentFrom")?.as_str()?.to_string();
-                    let inner_kind_str = v.get("innerKind").and_then(|k| k.as_str()).unwrap_or("transfer");
-                    let inner_kind = match inner_kind_str {
-                        "stake" | "Stake" => rinku_core::types::TransactionKind::Stake,
-                        "unstake" | "Unstake" => rinku_core::types::TransactionKind::Unstake,
-                        "claimRewards" | "ClaimRewards" => rinku_core::types::TransactionKind::ClaimRewards,
-                        "contract" | "Contract" => rinku_core::types::TransactionKind::Contract,
-                        _ => rinku_core::types::TransactionKind::Transfer,
-                    };
-                    let relay_fee = v.get("relayFee").and_then(|f| f.as_f64()).unwrap_or(0.0);
-                    let intent_hash = v.get("intentHash").and_then(|h| h.as_str()).unwrap_or("").to_string();
-                    Some((intent_from, inner_kind, relay_fee, intent_hash))
-                })
-            })
-        } else {
-            None
-        };
-        
         {
             let mut state = self.inner.write().await;
+            let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
 
-            if is_relay_tx {
-                if let Some((ref intent_from_addr, ref inner_kind, relay_fee, _)) = relay_info {
-                    let is_inner_transfer = matches!(inner_kind, rinku_core::types::TransactionKind::Transfer);
-
-                    if let Some(from_account) = state.accounts.get_mut(intent_from_addr) {
-                        if is_inner_transfer {
-                            from_account.balance -= tx.tx.amount + relay_fee;
-                        } else if matches!(inner_kind, rinku_core::types::TransactionKind::Stake) {
-                            from_account.balance -= tx.tx.amount + relay_fee;
-                        } else {
-                            from_account.balance -= relay_fee;
-                        }
-                        from_account.nonce = tx.tx.nonce + 1;
-                    }
-
-                    if let Some(relayer_account) = state.accounts.get_mut(&tx.tx.from) {
-                        relayer_account.balance -= gas_fee;
-                        relayer_account.balance += relay_fee;
-                    }
-
-                    if is_inner_transfer {
-                        let to_account = state
-                            .accounts
-                            .entry(tx.tx.to.clone())
-                            .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-                        to_account.balance += tx.tx.amount;
-                    }
-                }
-            } else {
+            {
                 if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-                    if is_stake_tx {
-                        from_account.balance -= tx.tx.amount + gas_fee;
+                    let tx_cost = if is_stake_tx {
+                        tx.tx.amount + gas_fee
                     } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                        from_account.balance -= gas_fee;
+                        gas_fee
                     } else {
-                        from_account.balance -= tx.tx.amount + gas_fee;
-                    }
+                        tx.tx.amount + gas_fee
+                    };
+                    from_account.balance -= tx_cost;
                     from_account.nonce = tx.tx.nonce + 1;
+
+                    if is_in_partition && from_account.partition_budget.is_some() {
+                        from_account.partition_budget_spent += tx_cost;
+                    }
                 }
             
                 if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
@@ -732,8 +494,8 @@ impl NodeState {
                 }
             }
             
-            state.total_burned += gas_fee * 0.5;
-            state.total_to_validators += gas_fee * 0.5;
+            state.total_burned += gas_fee / 2;
+            state.total_to_validators += gas_fee / 2;
         }
         
         if let Some(ref kind) = tx.tx.kind {
@@ -743,7 +505,7 @@ impl NodeState {
             
             match kind {
                 TransactionKind::Stake => {
-                    let stake_update: Option<(f64, u64)> = {
+                    let stake_update: Option<(u64, u64)> = {
                         let mut rewards = self.rewards.write().await;
                         if let Err(e) = rewards.stake(from_addr, stake_amount) {
                             tracing::warn!("Failed to process stake tx: {}", e);
@@ -758,7 +520,7 @@ impl NodeState {
                     }
                 }
                 TransactionKind::Unstake => {
-                    let unstake_result: Option<f64> = {
+                    let unstake_result: Option<u64> = {
                         let mut rewards = self.rewards.write().await;
                         match rewards.unstake(from_addr) {
                             Ok(amount) => {
@@ -775,7 +537,7 @@ impl NodeState {
                         let mut state = self.inner.write().await;
                         if let Some(account) = state.accounts.get_mut(from_addr) {
                             account.balance += unstaked_amount;
-                            account.staked = 0.0;
+                            account.staked = 0;
                             tracing::info!(
                                 "Unstake finalized: {} balance restored by {} RKU (new balance: {})",
                                 &from_addr[..16.min(from_addr.len())],
@@ -786,7 +548,7 @@ impl NodeState {
                     }
                 }
                 TransactionKind::ClaimRewards => {
-                    let claimed: f64 = {
+                    let claimed: u64 = {
                         let mut rewards = self.rewards.write().await;
                         rewards.claim_rewards(from_addr)
                     };
@@ -795,7 +557,7 @@ impl NodeState {
                         &from_addr[..16.min(from_addr.len())],
                         claimed
                     );
-                    if claimed > 0.0 {
+                    if claimed > 0 {
                         let mut state = self.inner.write().await;
                         if let Some(account) = state.accounts.get_mut(from_addr) {
                             let old_balance = account.balance;
@@ -818,63 +580,6 @@ impl NodeState {
                             Err(e) => {
                                 tracing::error!("Failed to parse contract tx data during finalization: {}", e);
                             }
-                        }
-                    }
-                }
-                TransactionKind::Relay => {
-                    if let Some((ref intent_from_addr, ref inner_kind, relay_fee, ref intent_hash)) = relay_info {
-                        if relay_fee > 0.0 {
-                            let mut rewards = self.rewards.write().await;
-                            rewards.process_relay_reward(&tx.tx.from, relay_fee, &tx.hash, intent_hash);
-                        }
-                        match inner_kind {
-                            TransactionKind::Stake => {
-                                let stake_update: Option<(f64, u64)> = {
-                                    let mut rewards = self.rewards.write().await;
-                                    if let Err(e) = rewards.stake(intent_from_addr, stake_amount) {
-                                        tracing::warn!("Failed to process relayed stake tx: {}", e);
-                                        None
-                                    } else {
-                                        tracing::debug!("Finalized relayed stake: {} staked {} RKU", &intent_from_addr[..16.min(intent_from_addr.len())], stake_amount);
-                                        rewards.get_stake(intent_from_addr).map(|p| (p.amount, p.staked_at))
-                                    }
-                                };
-                                if let Some((amount, staked_at)) = stake_update {
-                                    self.update_account_staked(intent_from_addr, amount, Some(staked_at / 1000)).await;
-                                }
-                            }
-                            TransactionKind::Unstake => {
-                                let unstake_result: Option<f64> = {
-                                    let mut rewards = self.rewards.write().await;
-                                    match rewards.unstake(intent_from_addr) {
-                                        Ok(amount) => Some(amount),
-                                        Err(e) => {
-                                            tracing::warn!("Failed to process relayed unstake tx: {}", e);
-                                            None
-                                        }
-                                    }
-                                };
-                                if let Some(unstaked_amount) = unstake_result {
-                                    let mut state = self.inner.write().await;
-                                    if let Some(account) = state.accounts.get_mut(intent_from_addr.as_str()) {
-                                        account.balance += unstaked_amount;
-                                        account.staked = 0.0;
-                                    }
-                                }
-                            }
-                            TransactionKind::ClaimRewards => {
-                                let claimed: f64 = {
-                                    let mut rewards = self.rewards.write().await;
-                                    rewards.claim_rewards(intent_from_addr)
-                                };
-                                if claimed > 0.0 {
-                                    let mut state = self.inner.write().await;
-                                    if let Some(account) = state.accounts.get_mut(intent_from_addr.as_str()) {
-                                        account.balance += claimed;
-                                    }
-                                }
-                            }
-                            _ => {}
                         }
                     }
                 }
@@ -1036,22 +741,19 @@ impl NodeState {
         }
     }
 
-    async fn charge_contract_execution_fee(&self, from: &str, gas_used: u64, gas_price: f64) {
+    async fn charge_contract_execution_fee(&self, from: &str, gas_used: u64, gas_price: u64) {
         use crate::wasm_runtime::BASE_TX_GAS;
         let additional_gas = gas_used.saturating_sub(BASE_TX_GAS);
-        let execution_fee = (additional_gas as f64 / BASE_TX_GAS as f64) * gas_price;
-        if execution_fee > 0.0 {
+        let execution_fee = additional_gas * gas_price / BASE_TX_GAS;
+        if execution_fee > 0 {
             let mut state = self.inner.write().await;
             if let Some(account) = state.accounts.get_mut(from) {
-                account.balance -= execution_fee;
-                if account.balance < 0.0 {
-                    account.balance = 0.0;
-                }
+                account.balance = account.balance.saturating_sub(execution_fee);
             }
-            state.total_burned += execution_fee * 0.5;
-            state.total_to_validators += execution_fee * 0.5;
+            state.total_burned += execution_fee / 2;
+            state.total_to_validators += execution_fee / 2;
             tracing::info!(
-                "Contract execution fee: {} total gas ({} additional) = {:.6} RKU from {}",
+                "Contract execution fee: {} total gas ({} additional) = {} micro from {}",
                 gas_used, additional_gas, execution_fee, &from[..16.min(from.len())]
             );
         }
@@ -1094,7 +796,7 @@ impl NodeState {
             (creators, state.node_validator_address.clone(), parents)
         };
         
-        if tx_amount > 0.0 || gas_fee > 0.0 {
+        if tx_amount > 0 || gas_fee > 0 {
             let reward_base = tx_amount + gas_fee;
             let mut rewards = self.rewards.write().await;
             
@@ -1156,6 +858,9 @@ impl NodeState {
             finalized: false,
             checkpoint_height: None,
             received_at_ms: Some(now_ms),
+            partition_epoch: None,
+            provisional_finality: false,
+            rolled_back: false,
         };
 
         state.dag.add_node(node)?;
@@ -1225,6 +930,10 @@ impl NodeState {
                 validator_signatures: Vec::new(),
                 finalized_tx_hashes: Vec::new(),
                 weight_trie_root: String::new(),
+            provisional: false,
+            partition_epoch: None,
+            visible_stake_pct: None,
+                merge_report_hash: None,
             };
             
             if !state.checkpoints.iter().any(|c| c.height == checkpoint.height) {
@@ -1270,6 +979,9 @@ impl NodeState {
                     finalized: false,
                     checkpoint_height: None,
                     received_at_ms: Some(now_dag),
+            partition_epoch: None,
+            provisional_finality: false,
+                    rolled_back: false,
                 };
                 let _ = state.dag.add_node(node);
             }
@@ -1320,6 +1032,9 @@ impl NodeState {
             finalized: false,
             checkpoint_height: None,
             received_at_ms: Some(now_ms),
+            partition_epoch: None,
+            provisional_finality: false,
+            rolled_back: false,
         };
 
         state.dag.add_node(node)?;
@@ -1454,6 +1169,9 @@ impl NodeState {
                 finalized: false,
                 checkpoint_height: None,
                 received_at_ms: Some(now_ms),
+            partition_epoch: None,
+            provisional_finality: false,
+                rolled_back: false,
             };
             
             let result = state
@@ -1466,17 +1184,17 @@ impl NodeState {
             results.push(result);
         }
 
-        const PERIOD_MS: u64 = 15000;
-        const TARGET_TPS: f64 = 1000.0;
-        const MAX_CHANGE_PERCENT: f64 = 0.125;
+        let period_ms = state.config.gas.period_duration_ms;
+        let target_txs = state.config.gas.target_txs_per_period as f64;
+        let max_change = state.config.gas.adjustment_factor;
         const ELASTICITY: f64 = 2.0;
 
-        if now_ms - state.period_start_ms >= PERIOD_MS {
-            let target_txs = TARGET_TPS * (PERIOD_MS as f64 / 1000.0);
+        if now_ms - state.period_start_ms >= period_ms {
             let utilization = state.txs_this_period as f64 / target_txs;
             let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
-            let change_factor = 1.0 + change_ratio * MAX_CHANGE_PERCENT;
-            state.current_gas_price = (state.current_gas_price * change_factor).clamp(
+            let change_factor = 1.0 + change_ratio * max_change;
+            state.current_gas_price = ((state.current_gas_price as f64) * change_factor) as u64;
+            state.current_gas_price = state.current_gas_price.clamp(
                 state.config.gas.min_gas_price,
                 state.config.gas.max_gas_price,
             );
@@ -1526,15 +1244,6 @@ impl NodeState {
         txs
     }
 
-    pub async fn count_relay_txs_by_sender(&self, address: &str) -> u64 {
-        let state = self.inner.read().await;
-        state.dag
-            .get_all_nodes()
-            .into_iter()
-            .filter(|n| n.tx.tx.from == address && matches!(n.tx.tx.kind, Some(rinku_core::types::TransactionKind::Relay)))
-            .count() as u64
-    }
-    
     pub async fn get_transaction_with_weight(&self, hash: &str) -> Option<(SignedTransaction, f64)> {
         let state = self.inner.read().await;
         let result = state.dag.get_node(hash).map(|n| (n.tx.clone(), n.weight));

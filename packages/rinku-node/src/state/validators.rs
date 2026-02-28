@@ -13,13 +13,13 @@ impl NodeState {
     }
     
     /// Get the stake amount for a validator
-    pub async fn get_validator_stake(&self, address: &str) -> Option<f64> {
+    pub async fn get_validator_stake(&self, address: &str) -> Option<u64> {
         let state = self.inner.read().await;
         state.validators.get(address).map(|v| v.stake)
     }
     
     /// Get total validator stake for fast-path quorum calculation
-    pub async fn get_total_validator_stake(&self) -> f64 {
+    pub async fn get_total_validator_stake(&self) -> u64 {
         let state = self.inner.read().await;
         state.validators.values().map(|v| v.stake).sum()
     }
@@ -129,6 +129,11 @@ impl NodeState {
         if let Some(node) = state.dag.get_node(hash) {
             (node.finalized, node.checkpoint_height)
         } else {
+            for cp in state.checkpoints.iter().rev() {
+                if cp.finalized_tx_hashes.contains(&hash.to_string()) {
+                    return (true, Some(cp.height));
+                }
+            }
             (false, None)
         }
     }

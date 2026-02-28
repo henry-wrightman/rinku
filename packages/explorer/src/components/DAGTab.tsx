@@ -36,8 +36,6 @@ const formatTxKind = (
       return { label: "consolidate", color: "#81a1c1" };
     case "reward":
       return { label: "reward", color: "#b48ead" };
-    case "relay":
-      return { label: "relay", color: "#5e81ac" };
     default:
       return { label: "transfer", color: "#d8dee9" };
   }
@@ -222,9 +220,7 @@ export function DAGTab({
               {formatTxKind(node.kind).label}
             </span>
             {" · "}
-            {node.kind === "relay"
-              ? <><span style={{ color: "#5e81ac" }}>relayer</span>{" → "}{truncate(node.to, 6)}</>
-              : <>{node.from === "genesis" ? "genesis" : truncate(node.from, 6)}{" → "}{truncate(node.to, 6)}</>} ·{" "}
+            {node.from === "genesis" ? "genesis" : truncate(node.from, 6)}{" → "}{truncate(node.to, 6)} ·{" "}
             {timeAgo(node.ts)} · refs {node.parentCount} parent(s) ·{" "}
             <span
               style={{

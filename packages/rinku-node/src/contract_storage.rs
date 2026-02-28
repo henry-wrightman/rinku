@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{debug, info};
 
-use crate::sparse_merkle_trie::{hash_contract_key, SparseMerkleTrie, MerkleProof};
+use crate::sparse_merkle_trie::{hash_contract_key, SparseMerkleTrie, MerkleProof, SparseMultiProof};
 use crate::storage::RedbStorage;
 
 pub struct ContractStorageManager {
@@ -126,6 +126,8 @@ impl ContractStorageManager {
         self.trie.flush_to_storage(storage)
     }
 
+    /// Returns independent per-key proofs. For a combined multiproof that shares
+    /// helper nodes across keys, use `prove_keys_multi` instead.
     pub fn prove_multiple_keys(
         &self,
         contract_id: &str,
@@ -137,6 +139,19 @@ impl ContractStorageManager {
             proofs.push(self.prove_key(contract_id, key, storage)?);
         }
         Ok(proofs)
+    }
+
+    pub fn prove_keys_multi(
+        &self,
+        contract_id: &str,
+        keys: &[String],
+        storage: Option<&RedbStorage>,
+    ) -> Result<SparseMultiProof> {
+        let trie_keys: Vec<[u8; 32]> = keys
+            .iter()
+            .map(|k| hash_contract_key(contract_id, k))
+            .collect();
+        self.trie.prove_multi(&trie_keys, storage)
     }
 
     pub fn verify_key_proof(proof: &MerkleProof) -> bool {
@@ -232,6 +247,25 @@ mod tests {
         assert_eq!(state.len(), 3);
         assert_eq!(state.get("a"), Some(&Value::from(1)));
         assert_eq!(state.get("missing"), None);
+    }
+
+    #[test]
+    fn test_prove_keys_multi() {
+        let mut mgr = ContractStorageManager::new();
+        mgr.write_key("contract_1", "alpha", &Value::from(1), None).unwrap();
+        mgr.write_key("contract_1", "beta", &Value::from(2), None).unwrap();
+        mgr.write_key("contract_1", "gamma", &Value::from(3), None).unwrap();
+
+        let keys = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
+        let multiproof = mgr.prove_keys_multi("contract_1", &keys, None).unwrap();
+
+        assert_eq!(multiproof.root, mgr.root());
+        assert!(multiproof.verify());
+        assert_eq!(multiproof.keys.len(), 3);
+        assert_eq!(multiproof.values.len(), 3);
+        for v in &multiproof.values {
+            assert!(v.is_some());
+        }
     }
 
     #[test]

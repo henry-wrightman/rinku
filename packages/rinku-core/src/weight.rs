@@ -1,7 +1,7 @@
 use crate::types::{
-    Account, WeightVote, WeightAttestation, AggregatedWeight, 
-    TransactionWeightProof, PendingWeightVote, WeightTrieLeaf,
-    to_micro_units,
+    Account, WeightVote, AggregatedWeight, 
+    PendingWeightVote, WeightTrieLeaf,
+    from_micro_units,
 };
 use crate::crypto::{sha256, sha256_hex};
 use std::collections::HashMap;
@@ -25,14 +25,18 @@ const BALANCE_WEIGHT_EXPONENT: f64 = 0.5;
 
 pub fn calculate_account_weight(account: &Account, current_time: u64) -> f64 {
     let age_weight = calculate_age_weight(account, current_time);
-    let balance_weight = calculate_balance_weight(account.balance);
-    let stake_weight = calculate_stake_weight(account.staked);
+    let balance_rku = from_micro_units(account.balance);
+    let staked_rku = from_micro_units(account.staked);
+    let balance_weight = calculate_balance_weight(balance_rku);
+    let stake_weight = calculate_stake_weight(staked_rku);
 
-    age_weight * balance_weight + stake_weight
+    let base_weight = age_weight * balance_weight + stake_weight;
+    base_weight * (1.0 - account.reputation_penalty.clamp(0.0, 1.0))
 }
 
 pub fn calculate_age_weight(account: &Account, current_time: u64) -> f64 {
-    if account.staked < MIN_BOND_FOR_AGE_WEIGHT {
+    let staked_rku = from_micro_units(account.staked);
+    if staked_rku < MIN_BOND_FOR_AGE_WEIGHT {
         return 1.0;
     }
 
@@ -57,13 +61,14 @@ pub fn calculate_stake_weight(stake: f64) -> f64 {
 }
 
 pub fn calculate_validator_weight(
-    stake: f64,
+    stake: u64,
     first_stake_time: u64,
     current_time: u64,
     missed_checkpoints: u32,
 ) -> f64 {
-    if stake < MIN_BOND_FOR_AGE_WEIGHT {
-        return stake.powf(BALANCE_WEIGHT_EXPONENT);
+    let stake_rku = from_micro_units(stake);
+    if stake_rku < MIN_BOND_FOR_AGE_WEIGHT {
+        return stake_rku.powf(BALANCE_WEIGHT_EXPONENT);
     }
 
     let age_seconds = current_time.saturating_sub(first_stake_time);
@@ -73,22 +78,23 @@ pub fn calculate_validator_weight(
     let decay = (1.0 - AGE_WEIGHT_DECAY_PER_MISSED).powi(missed_checkpoints as i32);
     let decayed_age_factor = age_factor * decay;
 
-    stake.powf(BALANCE_WEIGHT_EXPONENT) * decayed_age_factor
+    stake_rku.powf(BALANCE_WEIGHT_EXPONENT) * decayed_age_factor
 }
 
 pub fn calculate_transaction_weight(
     sender_weight: f64,
-    gas_paid: f64,
+    gas_paid: u64,
     is_consolidation: bool,
 ) -> f64 {
     if is_consolidation {
         return sender_weight * 0.1;
     }
 
-    sender_weight + (gas_paid * 10.0)
+    let gas_rku = from_micro_units(gas_paid);
+    sender_weight + (gas_rku * 10.0)
 }
 
-pub fn total_validator_weight(validators: &[(f64, u64, u32)], current_time: u64) -> f64 {
+pub fn total_validator_weight(validators: &[(u64, u64, u32)], current_time: u64) -> f64 {
     validators
         .iter()
         .map(|(stake, first_stake, missed)| {
@@ -121,15 +127,21 @@ mod tests {
 
     #[test]
     fn test_age_weight_requires_min_bond() {
+        use crate::types::to_micro_units;
         let account = Account {
             address: "test".to_string(),
-            balance: 1000.0,
+            balance: to_micro_units(1000.0),
             nonce: 0,
             first_seen: 0,
-            staked: 50.0,
-            unbonding: 0.0,
+            staked: to_micro_units(50.0),
+            unbonding: 0,
             unbonding_release: None,
             latest_balance_proof: None,
+            partition_violations: 0,
+            reputation_penalty: 0.0,
+            penalty_decay_checkpoint: None,
+            partition_budget: None,
+            partition_budget_spent: 0,
         };
 
         let weight = calculate_age_weight(&account, 86400 * 30);
@@ -138,15 +150,21 @@ mod tests {
 
     #[test]
     fn test_age_weight_with_stake() {
+        use crate::types::to_micro_units;
         let account = Account {
             address: "test".to_string(),
-            balance: 1000.0,
+            balance: to_micro_units(1000.0),
             nonce: 0,
             first_seen: 0,
-            staked: 100.0,
-            unbonding: 0.0,
+            staked: to_micro_units(100.0),
+            unbonding: 0,
             unbonding_release: None,
             latest_balance_proof: None,
+            partition_violations: 0,
+            reputation_penalty: 0.0,
+            penalty_decay_checkpoint: None,
+            partition_budget: None,
+            partition_budget_spent: 0,
         };
 
         let weight_30_days = calculate_age_weight(&account, 86400 * 30);
@@ -156,7 +174,8 @@ mod tests {
 
     #[test]
     fn test_validator_weight_decay() {
-        let stake = 1000.0;
+        use crate::types::to_micro_units;
+        let stake = to_micro_units(1000.0);
         let first_stake = 0;
         let current = 86400 * 30;
 

@@ -14,7 +14,7 @@ impl NodeState {
                 *addr != "faucet"
                     && *addr != "genesis"
                     && !allowed_addresses.contains(*addr)
-                    && account.staked > 0.0
+                    && account.staked > 0
             })
             .map(|(addr, _)| addr.clone())
             .collect();
@@ -25,7 +25,7 @@ impl NodeState {
                     "Zeroing stale stake on non-validator account {}: {:.4} RKU",
                     &addr[..16.min(addr.len())], account.staked
                 );
-                account.staked = 0.0;
+                account.staked = 0;
             }
         }
         if !stale_stakers.is_empty() {
@@ -38,8 +38,8 @@ impl NodeState {
                 *addr != "faucet"
                     && *addr != "genesis"
                     && !allowed_addresses.contains(*addr)
-                    && account.balance == 0.0
-                    && account.staked == 0.0
+                    && account.balance == 0
+                    && account.staked == 0
             })
             .map(|(addr, _)| addr.clone())
             .collect();
@@ -56,7 +56,7 @@ impl NodeState {
     /// Must be called AFTER replace_validators_with_genesis to avoid ghost accounts
     pub async fn sync_stakes_to_accounts(&self) {
         let rewards = self.rewards.read().await;
-        let stakes: Vec<(String, f64, u64)> = rewards.get_all_stakes()
+        let stakes: Vec<(String, u64, u64)> = rewards.get_all_stakes()
             .iter()
             .map(|s| (s.staker.clone(), s.amount, s.staked_at / 1000))
             .collect();
@@ -147,6 +147,7 @@ impl NodeState {
             state.total_supply,
             state.genesis_time,
             &dag_entries,
+            state.total_transactions,
         )?;
 
         // Save weight trie (trust scores)
@@ -192,7 +193,7 @@ impl NodeState {
         if state.accounts.len() > MAX_ACCOUNTS {
             let mut removable: Vec<String> = state.accounts
                 .iter()
-                .filter(|(_, a)| a.balance < 0.001 && a.staked < 0.001)
+                .filter(|(_, a)| a.balance == 0 && a.staked == 0)
                 .map(|(k, _)| k.clone())
                 .collect();
             
@@ -224,7 +225,7 @@ impl NodeState {
     }
 
     /// Update account's staked amount (syncs with RewardsService)
-    pub async fn update_account_staked(&self, address: &str, staked_amount: f64, staked_at: Option<u64>) {
+    pub async fn update_account_staked(&self, address: &str, staked_amount: u64, staked_at: Option<u64>) {
         let mut state = self.inner.write().await;
         if let Some(account) = state.accounts.get_mut(address) {
             account.staked = staked_amount;
@@ -251,6 +252,7 @@ impl NodeState {
         }
         let mut state = self.inner.write().await;
         for effect in effects {
+            let amount_micro = rinku_core::types::to_micro_units(effect.amount);
             let from_balance = match state.accounts.get(&effect.from) {
                 Some(acct) => acct.balance,
                 None => {
@@ -265,21 +267,21 @@ impl NodeState {
                 }
             };
 
-            if from_balance < effect.amount {
+            if from_balance < amount_micro {
                 tracing::error!(
-                    "Contract transfer rejected: {} has {:.8} but needs {:.8}",
+                    "Contract transfer rejected: {} has {} but needs {}",
                     &effect.from[..16.min(effect.from.len())],
                     from_balance,
-                    effect.amount
+                    amount_micro
                 );
                 return Err(anyhow::anyhow!(
                     "Contract transfer insufficient balance: {} has {} but needs {}",
-                    effect.from, from_balance, effect.amount
+                    effect.from, from_balance, amount_micro
                 ));
             }
 
             if let Some(from_acct) = state.accounts.get_mut(&effect.from) {
-                from_acct.balance -= effect.amount;
+                from_acct.balance -= amount_micro;
             }
 
             let to_acct = state
@@ -292,12 +294,12 @@ impl NodeState {
                         .as_secs();
                     Account::new(effect.to.clone(), now)
                 });
-            to_acct.balance += effect.amount;
+            to_acct.balance += amount_micro;
             tracing::debug!(
-                "Contract transfer applied: {} -> {} ({:.6} RKU)",
+                "Contract transfer applied: {} -> {} ({} micro-RKU)",
                 &effect.from[..16.min(effect.from.len())],
                 &effect.to[..16.min(effect.to.len())],
-                effect.amount
+                amount_micro
             );
         }
         Ok(())
@@ -369,8 +371,8 @@ impl NodeState {
             if fingerprint == "faucet" {
                 continue;
             }
-            let is_stale = peer_account.nonce == 0 && peer_account.balance < 0.001;
-            let is_ghost_validator = peer_account.staked > 0.0 
+            let is_stale = peer_account.nonce == 0 && peer_account.balance == 0;
+            let is_ghost_validator = peer_account.staked > 0 
                 && peer_account.nonce == 0 
                 && !state.validators.contains_key(&fingerprint);
             if (is_stale || is_ghost_validator) && !state.accounts.contains_key(&fingerprint) {
@@ -391,9 +393,9 @@ impl NodeState {
                     updated += 1;
                 } else if peer_account.nonce == local_account.nonce {
                     // Same nonce - check for balance/stake divergence
-                    let balance_diff = (peer_account.balance - local_account.balance).abs();
-                    let stake_diff = (peer_account.staked - local_account.staked).abs();
-                    if balance_diff > 0.0001 || stake_diff > 0.0001 {
+                    let balance_diff = peer_account.balance.abs_diff(local_account.balance);
+                    let stake_diff = peer_account.staked.abs_diff(local_account.staked);
+                    if balance_diff > 0 || stake_diff > 0 {
                         // Accept peer's state to fix divergence
                         // Peer is authoritative since they initiated the sync
                         info!(

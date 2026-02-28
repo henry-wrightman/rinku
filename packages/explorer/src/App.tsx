@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { State, DAGNode } from "./types";
+import { useWebSocketContext } from "./context/WebSocketContext";
 import {
   Header,
   DAGTab,
@@ -17,7 +18,6 @@ import {
   AnimatedNumber,
   ChatTab,
   ChatRoomsTab,
-  RelayPoolTab,
 } from "./components";
 import { formatNumber, formatTps } from "./utils";
 import { useTheme } from "./hooks/useTheme";
@@ -129,8 +129,7 @@ type TabType =
   | "verify"
   | "thread"
   | "chat"
-  | "rooms"
-  | "relayers";
+  | "rooms";
 
 const validTabs: TabType[] = [
   "dag",
@@ -144,7 +143,6 @@ const validTabs: TabType[] = [
   "thread",
   "chat",
   "rooms",
-  "relayers",
 ];
 
 function App() {
@@ -293,15 +291,29 @@ function App() {
     }
   }, []);
 
+  const { status: wsStatus, lastEvent } = useWebSocketContext();
+  const lastEventRef = useRef(lastEvent);
+
   useEffect(() => {
     fetchSummary();
     fetchPage(page);
+  }, [page, fetchSummary, fetchPage]);
+
+  useEffect(() => {
+    if (!lastEvent || lastEvent === lastEventRef.current) return;
+    lastEventRef.current = lastEvent;
+    fetchSummary();
+    fetchPage(page);
+  }, [lastEvent, page, fetchSummary, fetchPage]);
+
+  useEffect(() => {
+    if (wsStatus === 'connected') return;
     const interval = setInterval(() => {
       fetchSummary();
       fetchPage(page);
     }, 5000);
     return () => clearInterval(interval);
-  }, [page, fetchSummary, fetchPage]);
+  }, [wsStatus, page, fetchSummary, fetchPage]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -315,6 +327,7 @@ function App() {
           connected={false}
           protocolVersion={versionInfo?.protocolVersion}
           nodeVersion={versionInfo?.nodeVersion}
+          wsStatus={wsStatus}
         />
         <div className="loading">loading...</div>
       </div>
@@ -327,6 +340,7 @@ function App() {
         connected={connected}
         protocolVersion={versionInfo?.protocolVersion}
         nodeVersion={versionInfo?.nodeVersion}
+        wsStatus={wsStatus}
         peersConnected={
           Array.from(
             (peerStats?.p2pPeers || [])
@@ -594,15 +608,6 @@ function App() {
           >
             rooms
           </span>
-          <span
-            className={tab === "relayers" ? "active" : ""}
-            onClick={() => {
-              setTab("relayers");
-              setMobileNavOpen(false);
-            }}
-          >
-            relayers
-          </span>
         </div>
       </div>
       {mobileNavOpen && (
@@ -640,7 +645,6 @@ function App() {
       {tab === "rooms" && (
         <ChatRoomsTab onWalletOpen={() => setWalletOpen(true)} />
       )}
-      {tab === "relayers" && <RelayPoolTab />}
     </div>
   );
 }

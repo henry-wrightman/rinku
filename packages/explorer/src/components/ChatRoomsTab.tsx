@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRinku } from "../context/WalletContext";
 import { API_URL } from "../config";
+import { useWebSocketContext } from "../context/WebSocketContext";
 
 const NODE_URL = API_URL;
 
@@ -157,12 +158,27 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
     }
   }, [contractId, activeRoom]);
 
+  const { status: wsStatus, lastEvent } = useWebSocketContext();
+  const lastChatRoomRef = useRef(lastEvent);
+
   useEffect(() => {
     if (!contractId) return;
     fetchContractState();
+  }, [contractId, fetchContractState]);
+
+  useEffect(() => {
+    if (!contractId || !lastEvent || lastEvent === lastChatRoomRef.current) return;
+    lastChatRoomRef.current = lastEvent;
+    if (lastEvent.type === 'FastPathExecuted' || lastEvent.type === 'CheckpointCreated') {
+      fetchContractState();
+    }
+  }, [lastEvent, contractId, fetchContractState]);
+
+  useEffect(() => {
+    if (!contractId || wsStatus === 'connected') return;
     const interval = setInterval(fetchContractState, 3000);
     return () => clearInterval(interval);
-  }, [contractId, fetchContractState]);
+  }, [wsStatus, contractId, fetchContractState]);
 
   const callContract = async (entrypoint: string, input: Record<string, unknown>) => {
     if (!walletReady || !keyPair || !contractId) return null;

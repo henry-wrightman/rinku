@@ -6,7 +6,27 @@ export interface AccountState {
 }
 
 /** Transaction kind - distinguishes protocol transactions from user transactions */
-export type TransactionKind = 'transfer' | 'stake' | 'unstake' | 'claim_rewards' | 'contract' | 'consolidation' | 'reward';
+export type TransactionKind = 'transfer' | 'stake' | 'unstake' | 'claim_rewards' | 'contract' | 'consolidation' | 'reward' | 'data_only';
+
+/** Partition safety classification for transactions during network partition */
+export type PartitionSafety = 'safe' | 'bounded_spend' | 'cp_only';
+
+/** Maps a TransactionKind to its PartitionSafety classification */
+export function classifyPartitionSafety(kind: TransactionKind): PartitionSafety {
+  switch (kind) {
+    case 'data_only':
+    case 'consolidation':
+    case 'reward':
+      return 'safe';
+    case 'transfer':
+    case 'contract':
+      return 'bounded_spend';
+    case 'stake':
+    case 'unstake':
+    case 'claim_rewards':
+      return 'cp_only';
+  }
+}
 
 export interface Transaction {
   from: string;
@@ -371,6 +391,7 @@ export interface Checkpoint {
   blsSignature?: BLSCheckpointSignature;  // Aggregated BLS signature for compact proofs
   protocolVersion?: string;
   versionSignals?: { version: string; weight: number; count: number }[];
+  mergeReportHash?: string;
 }
 
 /** Compact proof that a transaction is part of canonical history */

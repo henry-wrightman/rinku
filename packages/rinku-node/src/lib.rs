@@ -10,16 +10,18 @@ pub mod contract_storage;
 pub mod contracts;
 pub mod dag_pruning;
 pub mod emission;
+pub mod events;
 pub mod fast_path;
 pub mod fork_remediation;
 pub mod gas;
 pub mod gossip;
 pub mod leader_election;
 pub mod mempool_cleanup;
+pub mod merge;
 #[cfg(feature = "p2p")]
 pub mod network;
+pub mod partition_detector;
 pub mod proofs;
-pub mod relay;
 pub mod rewards;
 pub mod slashing;
 pub mod sparse_merkle_trie;
@@ -31,6 +33,7 @@ pub mod trust;
 pub mod validator;
 pub mod validator_identity;
 pub mod versioning;
+pub mod websocket;
 #[cfg(feature = "wasm")]
 pub mod wasm_runtime;
 #[cfg(feature = "zk")]

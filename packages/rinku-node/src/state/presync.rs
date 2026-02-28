@@ -261,7 +261,7 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
 
 /// Convert P2P SnapshotData to SyncSnapshot format
 #[cfg(feature = "p2p")]
-fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
+pub fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
     use rinku_core::types::{Account, Validator, Checkpoint, SignedTransaction, Transaction};
     
     let now_secs = std::time::SystemTime::now()
@@ -280,9 +280,14 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
             nonce: a.nonce,
             first_seen: now_secs,
             staked: a.stake,
-            unbonding: 0.0,
+            unbonding: 0,
             unbonding_release: None,
             latest_balance_proof: None,
+            partition_violations: 0,
+            reputation_penalty: 0.0,
+            penalty_decay_checkpoint: None,
+            partition_budget: None,
+            partition_budget_spent: 0,
         })
     }).collect();
     
@@ -318,6 +323,10 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
             signer_bitmap: None,
             finalized_tx_hashes: Vec::new(),
             weight_trie_root: String::new(),
+            provisional: false,
+            partition_epoch: None,
+            visible_stake_pct: None,
+            merge_report_hash: None,
         }
     }).collect();
     
@@ -345,13 +354,13 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
     }).collect();
     
     let genesis_time = checkpoints.first().map(|c| c.timestamp).unwrap_or(now_secs);
-    let total_supply: f64 = accounts.values().map(|a| a.balance + a.staked).sum();
+    let total_supply: u64 = accounts.values().map(|a| a.balance + a.staked).sum();
     
     SyncSnapshot {
         accounts,
         validators,
         checkpoints,
-        gas_price: 0.001,
+        gas_price: 100_000,
         total_supply,
         genesis_time,
         dag_transactions,
@@ -360,8 +369,8 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
         rewards_snapshot: None,
         emission_snapshot: None,
         slashing_snapshot: None,
-        total_burned: 0.0,
-        total_to_validators: 0.0,
+        total_burned: 0,
+        total_to_validators: 0,
         genesis_hash,
         finalized_tx_hashes: Vec::new(),
         tx_checkpoint_heights: HashMap::new(),
@@ -369,27 +378,3 @@ fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapshot {
     }
 }
 
-/// Fallback for non-P2P builds - tries HTTP sync from NODE_PEERS
-#[cfg(not(feature = "p2p"))]
-pub(crate) async fn try_presync_from_peers(_bootstrap_peers: &[String], is_genesis_node: bool) -> Option<SyncSnapshot> {
-    // Get HTTP peers from NODE_PEERS env var
-    let http_peers: Vec<String> = std::env::var("NODE_PEERS")
-        .map(|p| p.split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect())
-        .unwrap_or_default();
-    
-    if http_peers.is_empty() {
-        if is_genesis_node {
-            info!("PRE-SYNC: Genesis node, creating new chain");
-        } else {
-            warn!("PRE-SYNC: P2P feature not enabled and no NODE_PEERS configured");
-            warn!("PRE-SYNC: Set NODE_PEERS to sync from existing network (e.g., NODE_PEERS=https://rinku-genesis.fly.dev)");
-        }
-        return None;
-    }
-    
-    info!("PRE-SYNC: P2P not enabled, using HTTP sync from NODE_PEERS");
-    try_http_presync(&http_peers, is_genesis_node).await
-}

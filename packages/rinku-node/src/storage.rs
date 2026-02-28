@@ -379,10 +379,11 @@ impl RedbStorage {
         accounts: &HashMap<String, Account>,
         validators: &HashMap<String, Validator>,
         checkpoints: &[Checkpoint],
-        gas_price: f64,
-        total_supply: f64,
+        gas_price: u64,
+        total_supply: u64,
         genesis_time: u64,
         dag_entries: &[DagSnapshotEntry],
+        total_transactions: u64,
     ) -> Result<()> {
         let db = self.db_read();
         let write_txn = db.begin_write()?;
@@ -425,6 +426,7 @@ impl RedbStorage {
             table.insert(b"gas_price".as_slice(), serde_json::to_vec(&gas_price)?.as_slice())?;
             table.insert(b"total_supply".as_slice(), serde_json::to_vec(&total_supply)?.as_slice())?;
             table.insert(b"genesis_time".as_slice(), serde_json::to_vec(&genesis_time)?.as_slice())?;
+            table.insert(b"total_transactions".as_slice(), serde_json::to_vec(&total_transactions)?.as_slice())?;
         }
         
         write_txn.commit()?;
@@ -445,16 +447,17 @@ impl RedbStorage {
             HashMap<String, Account>,
             HashMap<String, Validator>,
             Vec<Checkpoint>,
-            f64,
-            f64,
+            u64,
+            u64,
             u64,
             Vec<DagSnapshotEntry>,
+            Option<u64>,
         )>,
     > {
         let db = self.db_read();
         let read_txn = db.begin_read()?;
         
-        let gas_price: f64 = {
+        let gas_price: u64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"gas_price".as_slice())? {
                 Some(data) => serde_json::from_slice(data.value())?,
@@ -465,7 +468,7 @@ impl RedbStorage {
             }
         };
         
-        let total_supply: f64 = {
+        let total_supply: u64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"total_supply".as_slice())? {
                 Some(data) => serde_json::from_slice(data.value())?,
@@ -478,6 +481,14 @@ impl RedbStorage {
             match table.get(b"genesis_time".as_slice())? {
                 Some(data) => serde_json::from_slice(data.value())?,
                 None => return Ok(None),
+            }
+        };
+        
+        let persisted_total_transactions: Option<u64> = {
+            let table = read_txn.open_table(TABLE_METADATA)?;
+            match table.get(b"total_transactions".as_slice())? {
+                Some(data) => serde_json::from_slice(data.value()).ok(),
+                None => None,
             }
         };
         
@@ -553,6 +564,7 @@ impl RedbStorage {
             total_supply,
             genesis_time,
             dag_entries,
+            persisted_total_transactions,
         )))
     }
 

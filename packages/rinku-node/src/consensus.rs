@@ -229,12 +229,12 @@ impl ConsensusService {
                 .iter()
                 .map(|(addr, v)| ValidatorSnapshot {
                     address: addr.clone(),
-                    voting_power: v.effective_stake,
+                    voting_power: v.effective_stake as f64,
                     bls_public_key: v.bls_public_key.clone(),
                 })
                 .collect();
             validators.sort_by(|a, b| a.address.cmp(&b.address));
-            let total = vs_guard.total_active_stake();
+            let total = vs_guard.total_active_stake() as f64;
             (total, validators)
         } else {
             let state = self.state.inner.read().await;
@@ -242,14 +242,14 @@ impl ConsensusService {
                 .iter()
                 .map(|(addr, v)| ValidatorSnapshot {
                     address: addr.clone(),
-                    voting_power: v.stake,
+                    voting_power: v.stake as f64,
                     bls_public_key: v.bls_public_key.as_ref()
                         .and_then(|k| hex::decode(k).ok())
                         .unwrap_or_default(),
                 })
                 .collect();
             validators.sort_by(|a, b| a.address.cmp(&b.address));
-            let total = state.validators.values().map(|v| v.stake).sum();
+            let total: f64 = state.validators.values().map(|v| v.stake as f64).sum();
             (total, validators)
         };
 
@@ -289,7 +289,7 @@ impl ConsensusService {
             let mut addrs: Vec<_> = validator_state.active_validators().keys().cloned().collect();
             addrs.sort();
             let idx = self.get_validator_index_deterministic(&vote.validator, &addrs);
-            (validator.effective_stake, validator.bls_public_key.clone(), idx)
+            (validator.effective_stake as f64, validator.bls_public_key.clone(), idx)
         } else {
             let state = self.state.inner.read().await;
             let validator = state.validators.get(&vote.validator)
@@ -300,7 +300,7 @@ impl ConsensusService {
             let mut addrs: Vec<_> = state.validators.keys().cloned().collect();
             addrs.sort();
             let idx = self.get_validator_index_deterministic(&vote.validator, &addrs);
-            (validator.stake, pubkey, idx)
+            (validator.stake as f64, pubkey, idx)
         };
 
         if bls_pubkey.is_empty() {
@@ -397,7 +397,7 @@ impl ConsensusService {
         }
     }
 
-    pub async fn handle_double_sign_detection(&mut self, evidence: &DoubleSignEvidence) -> Option<f64> {
+    pub async fn handle_double_sign_detection(&mut self, evidence: &DoubleSignEvidence) -> Option<u64> {
         let slashed_amount = if let Some(ref vs) = self.validator_service {
             let mut vs_guard = vs.write().await;
             if vs_guard.get_validator(&evidence.validator).is_some() {
@@ -428,7 +428,7 @@ impl ConsensusService {
             );
 
             {
-                let original_stake = slashed / 0.15;
+                let original_stake = (slashed as f64 / 0.15) as u64;
                 let mut slashing = self.slashing_service.write().await;
                 slashing.slash(
                     &evidence.validator,
@@ -468,15 +468,15 @@ impl ConsensusService {
                 if *count >= crate::slashing::LIVENESS_MISS_THRESHOLD {
                     warn!("Validator {} missed {} consecutive checkpoints", validator, count);
                     
-                    let stake = if let Some(ref vs) = self.validator_service {
+                    let stake: u64 = if let Some(ref vs) = self.validator_service {
                         let vs_guard = vs.read().await;
-                        vs_guard.get_validator(validator).map(|v| v.effective_stake).unwrap_or(0.0)
+                        vs_guard.get_validator(validator).map(|v| v.effective_stake as u64).unwrap_or(0)
                     } else {
                         let state = self.state.inner.read().await;
-                        state.validators.get(validator).map(|v| v.stake).unwrap_or(0.0)
+                        state.validators.get(validator).map(|v| v.stake).unwrap_or(0)
                     };
                     
-                    if stake > 0.0 {
+                    if stake > 0 {
                         let mut slashing = self.slashing_service.write().await;
                         slashing.record_liveness_failure(validator, checkpoint_height, stake);
                     }
@@ -560,7 +560,7 @@ impl ConsensusService {
                     signatures.push(ValidatorSignature {
                         validator: addr.clone(),
                         signature: URL_SAFE_NO_PAD.encode(&vote.signature),
-                        weight: validator.effective_stake,
+                        weight: validator.effective_stake as u64,
                         bls_public_key: Some(validator.bls_public_key_base64()),
                     });
                 }
@@ -596,15 +596,15 @@ impl ConsensusService {
         let (total_stake, validators_map) = if let Some(ref vs) = self.validator_service {
             let vs_guard = vs.read().await;
             let total = vs_guard.total_active_stake();
-            let map: HashMap<String, (f64, Vec<u8>)> = vs_guard.active_validators()
+            let map: HashMap<String, (u64, Vec<u8>)> = vs_guard.active_validators()
                 .iter()
                 .map(|(k, v)| (k.clone(), (v.effective_stake, v.bls_public_key.clone())))
                 .collect();
             (total, map)
         } else {
             let state = self.state.inner.read().await;
-            let total: f64 = state.validators.values().map(|v| v.stake).sum();
-            let map: HashMap<String, (f64, Vec<u8>)> = state.validators.iter()
+            let total: u64 = state.validators.values().map(|v| v.stake).sum();
+            let map: HashMap<String, (u64, Vec<u8>)> = state.validators.iter()
                 .map(|(k, v)| {
                     let pk = v.bls_public_key.as_ref()
                         .and_then(|s| hex::decode(s).ok())
@@ -615,7 +615,7 @@ impl ConsensusService {
             (total, map)
         };
 
-        if total_stake <= 0.0 {
+        if total_stake == 0 {
             return Ok(QuorumVerificationResult {
                 valid: false,
                 verified_stake: 0.0,
@@ -625,7 +625,7 @@ impl ConsensusService {
             });
         }
 
-        let mut verified_stake = 0.0;
+        let mut verified_stake: u64 = 0;
         let checkpoint_hash = hex::decode(&checkpoint.hash).unwrap_or_default();
 
         for sig_info in &checkpoint.validator_signatures {
@@ -640,13 +640,13 @@ impl ConsensusService {
             }
         }
 
-        let ratio = verified_stake / total_stake;
+        let ratio = verified_stake as f64 / total_stake as f64;
         let quorum_reached = ratio >= QUORUM_THRESHOLD;
 
         Ok(QuorumVerificationResult {
             valid: quorum_reached,
-            verified_stake,
-            total_stake,
+            verified_stake: verified_stake as f64,
+            total_stake: total_stake as f64,
             quorum_reached,
             error: if quorum_reached {
                 None
@@ -718,13 +718,13 @@ impl ConsensusService {
 
         // Amount must be positive (except for unstake which can be 0)
         let is_unstake = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-        if tx.tx.amount <= 0.0 && !is_unstake {
+        if tx.tx.amount == 0 && !is_unstake {
             warn!("Invalid transaction amount");
             return Ok(false);
         }
 
         let sender = self.state.get_account(&tx.tx.from).await;
-        let gas_fee = tx.tx.gas_price.unwrap_or(0.001); // Default gas price
+        let gas_fee = tx.tx.gas_price.unwrap_or(100_000);
         
         match &sender {
             Some(account) => {
@@ -744,7 +744,7 @@ impl ConsensusService {
                 
                 if account.balance < required_balance {
                     warn!(
-                        "Insufficient balance: have {:.6}, need {:.6} (amount: {:.6}, gas: {:.6})",
+                        "Insufficient balance: have {}, need {} (amount: {}, gas: {})",
                         account.balance, required_balance, tx.tx.amount, gas_fee
                     );
                     return Ok(false);
@@ -929,10 +929,10 @@ mod tests {
         assert!(acc.quorum_reached(), "66.66% should reach quorum");
     }
 
-    fn create_test_tx(from: &str, amount: f64, gas_price: Option<f64>, kind: Option<TransactionKind>) -> SignedTransaction {
+    fn create_test_tx(from: &str, amount: u64, gas_price: Option<u64>, kind: Option<TransactionKind>) -> SignedTransaction {
         let tx = Transaction {
             from: from.to_string(),
-            to: from.to_string(), // stake to self
+            to: from.to_string(),
             amount,
             nonce: 0,
             timestamp: 1000000,
@@ -956,52 +956,49 @@ mod tests {
 
     #[test]
     fn test_stake_requires_balance_plus_gas() {
-        // Test that stake validation checks for amount + gas, not just amount
-        let tx = create_test_tx("test_user", 100.0, Some(0.01), Some(TransactionKind::Stake));
+        let tx = create_test_tx("test_user", 10_000_000_000, Some(1_000_000), Some(TransactionKind::Stake));
         
-        // Required balance should be 100.0 + 0.01 = 100.01
-        let gas_fee = tx.tx.gas_price.unwrap_or(0.001);
+        let gas_fee = tx.tx.gas_price.unwrap_or(100_000);
         let is_stake = matches!(tx.tx.kind, Some(TransactionKind::Stake));
         let required = if is_stake { tx.tx.amount + gas_fee } else { tx.tx.amount + gas_fee };
         
-        assert_eq!(required, 100.01);
+        assert_eq!(required, 10_001_000_000);
         assert!(is_stake);
     }
 
     #[test]
     fn test_unstake_only_needs_gas() {
-        let tx = create_test_tx("test_user", 0.0, Some(0.01), Some(TransactionKind::Unstake));
+        let tx = create_test_tx("test_user", 0, Some(1_000_000), Some(TransactionKind::Unstake));
         
-        let gas_fee = tx.tx.gas_price.unwrap_or(0.001);
+        let gas_fee = tx.tx.gas_price.unwrap_or(100_000);
         let is_unstake = matches!(tx.tx.kind, Some(TransactionKind::Unstake));
         let required = if is_unstake { gas_fee } else { tx.tx.amount + gas_fee };
         
-        assert_eq!(required, 0.01);
+        assert_eq!(required, 1_000_000);
         assert!(is_unstake);
     }
 
     #[test]
     fn test_transfer_requires_amount_plus_gas() {
-        let tx = create_test_tx("test_user", 50.0, Some(0.005), None);
+        let tx = create_test_tx("test_user", 5_000_000_000, Some(500_000), None);
         
-        let gas_fee = tx.tx.gas_price.unwrap_or(0.001);
+        let gas_fee = tx.tx.gas_price.unwrap_or(100_000);
         let is_stake = matches!(tx.tx.kind, Some(TransactionKind::Stake));
         let is_unstake = matches!(tx.tx.kind, Some(TransactionKind::Unstake));
-        let required = if is_stake || is_unstake { 0.0 } else { tx.tx.amount + gas_fee };
+        let required: u64 = if is_stake || is_unstake { 0 } else { tx.tx.amount + gas_fee };
         
-        assert_eq!(required, 50.005);
+        assert_eq!(required, 5_000_500_000);
         assert!(!is_stake);
         assert!(!is_unstake);
     }
 
     #[test]
     fn test_zero_balance_cannot_stake() {
-        // Simulates the bug: account with 0 balance trying to stake 100
-        let account_balance = 0.0;
-        let stake_amount = 100.0;
-        let gas_fee = 0.001;
+        let account_balance: u64 = 0;
+        let stake_amount: u64 = 10_000_000_000;
+        let gas_fee: u64 = 100_000;
         
-        let required_balance = stake_amount + gas_fee; // 100.001
+        let required_balance = stake_amount + gas_fee;
         let has_sufficient = account_balance >= required_balance;
         
         assert!(!has_sufficient, "Zero balance should NOT be able to stake");
@@ -1009,12 +1006,11 @@ mod tests {
 
     #[test]
     fn test_insufficient_balance_for_stake_plus_gas() {
-        // Account has exactly the stake amount but not enough for gas
-        let account_balance = 100.0;
-        let stake_amount = 100.0;
-        let gas_fee = 0.001;
+        let account_balance: u64 = 10_000_000_000;
+        let stake_amount: u64 = 10_000_000_000;
+        let gas_fee: u64 = 100_000;
         
-        let required_balance = stake_amount + gas_fee; // 100.001
+        let required_balance = stake_amount + gas_fee;
         let has_sufficient = account_balance >= required_balance;
         
         assert!(!has_sufficient, "Balance equal to stake amount should fail (no gas)");
@@ -1022,11 +1018,11 @@ mod tests {
 
     #[test]
     fn test_sufficient_balance_for_stake() {
-        let account_balance = 100.01;
-        let stake_amount = 100.0;
-        let gas_fee = 0.001;
+        let account_balance: u64 = 10_001_000_000;
+        let stake_amount: u64 = 10_000_000_000;
+        let gas_fee: u64 = 100_000;
         
-        let required_balance = stake_amount + gas_fee; // 100.001
+        let required_balance = stake_amount + gas_fee;
         let has_sufficient = account_balance >= required_balance;
         
         assert!(has_sufficient, "Balance > stake + gas should succeed");

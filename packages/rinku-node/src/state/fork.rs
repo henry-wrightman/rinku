@@ -29,7 +29,7 @@ impl NodeState {
                 from_account.balance += tx.amount;
                 if let Some(gas_price) = tx.gas_price {
                     let gas_limit = tx.gas_limit.unwrap_or(21000);
-                    from_account.balance += gas_price * gas_limit as f64;
+                    from_account.balance += gas_price * gas_limit;
                 }
                 if from_account.nonce > 0 {
                     from_account.nonce -= 1;
@@ -37,10 +37,7 @@ impl NodeState {
             }
 
             if let Some(to_account) = state.accounts.get_mut(&tx.to) {
-                to_account.balance -= tx.amount;
-                if to_account.balance < 0.0 {
-                    to_account.balance = 0.0;
-                }
+                to_account.balance = to_account.balance.saturating_sub(tx.amount);
             }
         }
 

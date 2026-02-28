@@ -286,8 +286,8 @@ build_genesis_validators_env() {
 apply_genesis_validators_secrets() {
     local genesis_validators_env=$1
     
-    log_info "Applying GENESIS_VALIDATORS to all nodes (including relayer)..."
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP" "$RELAYER1_APP"; do
+    log_info "Applying GENESIS_VALIDATORS to all nodes..."
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do #  "$RELAYER1_APP"
         fly secrets set -a "$app" GENESIS_VALIDATORS="$genesis_validators_env"
         fly secrets deploy -a "$app"
     done
@@ -364,7 +364,7 @@ show_status() {
     log_info "=== Rinku Network Status ==="
     echo ""
     
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP" "$RELAYER1_APP"; do
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
         if app_exists "$app"; then
             echo -e "${GREEN}$app:${NC}"
             local status=$(fly status -a "$app" 2>/dev/null | grep -E "^(Machines|ID)" | head -5)
@@ -506,16 +506,16 @@ deploy_fresh() {
     create_app_if_needed "$GENESIS_APP"
     create_app_if_needed "$VALIDATOR1_APP"
     create_app_if_needed "$VALIDATOR2_APP"
-    create_app_if_needed "$RELAYER1_APP"
+    # create_app_if_needed "$RELAYER1_APP"
     
     log_info "Step 2: Allocating IPv4 addresses..."
     allocate_ipv4_if_needed "$GENESIS_APP"
     allocate_ipv4_if_needed "$VALIDATOR1_APP"
     allocate_ipv4_if_needed "$VALIDATOR2_APP"
-    allocate_ipv4_if_needed "$RELAYER1_APP"
+    # allocate_ipv4_if_needed "$RELAYER1_APP"
     
     log_info "Step 3: Destroying existing machines (IPs are preserved)..."
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP" "$RELAYER1_APP"; do
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do # " "$RELAYER1_APP
     if app_exists "$app"; then
         destroy_all_machines "$app"
         wait_for_no_machines "$app"
@@ -526,7 +526,7 @@ deploy_fresh() {
     wipe_and_recreate_volume "$GENESIS_APP"
     wipe_and_recreate_volume "$VALIDATOR1_APP"
     wipe_and_recreate_volume "$VALIDATOR2_APP"
-    wipe_and_recreate_volume "$RELAYER1_APP"
+    # wipe_and_recreate_volume "$RELAYER1_APP"
     
     log_info "Step 5: Configuring and deploying genesis node..."
     configure_genesis "$GENESIS_APP"
@@ -554,12 +554,12 @@ deploy_fresh() {
     log_info "Step 8: Configuring validators (temporary GENESIS_VALIDATORS)..."
     configure_validator "$VALIDATOR1_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
     configure_validator "$VALIDATOR2_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
-    configure_relayer "$RELAYER1_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
+    # configure_relayer "$RELAYER1_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
     
     log_info "Step 9: Deploying validators and relayer..."
     deploy_app "$VALIDATOR1_APP"
     deploy_app "$VALIDATOR2_APP"
-    deploy_app "$RELAYER1_APP"
+    # deploy_app "$RELAYER1_APP"
 
     log_info "Step 10: Building full GENESIS_VALIDATORS list..."
     local genesis_validators_env
@@ -576,7 +576,7 @@ deploy_fresh() {
     echo "  Genesis:     https://${GENESIS_APP}.fly.dev"
     echo "  Validator 1: https://${VALIDATOR1_APP}.fly.dev"
     echo "  Validator 2: https://${VALIDATOR2_APP}.fly.dev"
-    echo "  Relayer 1:   https://${RELAYER1_APP}.fly.dev"
+    # echo "  Relayer 1:   https://${RELAYER1_APP}.fly.dev"
     echo ""
     log_info "Explorer should connect to: https://${GENESIS_APP}.fly.dev"
 }

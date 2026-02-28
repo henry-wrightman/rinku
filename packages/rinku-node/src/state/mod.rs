@@ -21,7 +21,7 @@ use crate::slashing::SlashingService;
 
 use std::collections::VecDeque;
 
-mod presync;
+pub(crate) mod presync;
 mod accounts;
 mod metadata;
 mod dag;
@@ -29,10 +29,12 @@ mod checkpoints;
 mod stats;
 mod proofs;
 mod transactions;
+pub use transactions::FastPathExecResult;
 mod validators;
 mod sync;
 mod fork;
 mod contracts;
+pub mod partition;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionResult {
@@ -40,129 +42,14 @@ pub enum TransactionResult {
     Buffered,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct HttpSnapshotResponse {
-    accounts: HashMap<String, Account>,
-    validators: HashMap<String, Validator>,
-    checkpoints: Vec<Checkpoint>,
-    gas_price: f64,
-    total_supply: f64,
-    genesis_time: u64,
-    dag_transactions: Vec<SignedTransaction>,
-    total_transactions: u64,
-    #[allow(dead_code)]
-    checkpoint_height: u64,
-    #[serde(default)]
-    contracts: HashMap<String, crate::contracts::ContractState>,
-    #[serde(default)]
-    rewards_snapshot: Option<crate::rewards::RewardsSnapshot>,
-    #[serde(default)]
-    emission_snapshot: Option<crate::emission::EmissionSnapshot>,
-    #[serde(default)]
-    slashing_snapshot: Option<crate::slashing::SlashingSnapshot>,
-    #[serde(default)]
-    total_burned: f64,
-    #[serde(default)]
-    total_to_validators: f64,
-    #[serde(default)]
-    genesis_hash: Option<String>,
-    #[serde(default)]
-    finalized_tx_hashes: Vec<String>,
-    #[serde(default)]
-    tx_checkpoint_heights: HashMap<String, u64>,
-    #[serde(default)]
-    weight_scores: HashMap<String, AggregatedWeight>,
-}
-
-async fn try_http_presync(http_peers: &[String], is_genesis_node: bool) -> Option<SyncSnapshot> {
-    if is_genesis_node {
-        info!("PRE-SYNC: Genesis node, skipping HTTP sync");
-        return None;
-    }
-    
-    if http_peers.is_empty() {
-        info!("PRE-SYNC: No HTTP peers configured (NODE_PEERS empty)");
-        return None;
-    }
-    
-    info!("PRE-SYNC: Attempting HTTP sync from {} peer(s)", http_peers.len());
-    
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .ok()?;
-    
-    let delays = [5, 10, 20, 40, 80, 80, 80, 80];
-    
-    for (attempt, delay) in delays.iter().enumerate() {
-        info!("PRE-SYNC: HTTP attempt {}/8...", attempt + 1);
-        
-        for peer in http_peers {
-            let url = format!("{}/api/sync/snapshot", peer.trim_end_matches('/'));
-            
-            match client.get(&url).send().await {
-                Ok(response) if response.status().is_success() => {
-                    match response.json::<HttpSnapshotResponse>().await {
-                        Ok(snapshot_resp) => {
-                            info!(
-                                "PRE-SYNC: HTTP received snapshot from {}: {} accounts, {} checkpoints",
-                                peer,
-                                snapshot_resp.accounts.len(),
-                                snapshot_resp.checkpoints.len()
-                            );
-                            
-                            return Some(SyncSnapshot {
-                                accounts: snapshot_resp.accounts,
-                                validators: snapshot_resp.validators,
-                                checkpoints: snapshot_resp.checkpoints,
-                                gas_price: snapshot_resp.gas_price,
-                                total_supply: snapshot_resp.total_supply,
-                                genesis_time: snapshot_resp.genesis_time,
-                                dag_transactions: snapshot_resp.dag_transactions,
-                                total_transactions: snapshot_resp.total_transactions,
-                                contracts: snapshot_resp.contracts,
-                                rewards_snapshot: snapshot_resp.rewards_snapshot,
-                                emission_snapshot: snapshot_resp.emission_snapshot,
-                                slashing_snapshot: snapshot_resp.slashing_snapshot,
-                                total_burned: snapshot_resp.total_burned,
-                                total_to_validators: snapshot_resp.total_to_validators,
-                                genesis_hash: snapshot_resp.genesis_hash,
-                                finalized_tx_hashes: snapshot_resp.finalized_tx_hashes,
-                                tx_checkpoint_heights: snapshot_resp.tx_checkpoint_heights,
-                                weight_scores: snapshot_resp.weight_scores,
-                            });
-                        }
-                        Err(e) => {
-                            warn!("PRE-SYNC: Failed to parse snapshot from {}: {}", peer, e);
-                        }
-                    }
-                }
-                Ok(response) => {
-                    warn!("PRE-SYNC: HTTP {} from {}: status {}", url, peer, response.status());
-                }
-                Err(e) => {
-                    warn!("PRE-SYNC: HTTP request to {} failed: {}", peer, e);
-                }
-            }
-        }
-        
-        if attempt < delays.len() - 1 {
-            info!("PRE-SYNC: Waiting {}s before retry...", delay);
-            tokio::time::sleep(std::time::Duration::from_secs(*delay)).await;
-        }
-    }
-    
-    None
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncSnapshot {
     pub accounts: HashMap<String, Account>,
     pub validators: HashMap<String, Validator>,
     pub checkpoints: Vec<Checkpoint>,
-    pub gas_price: f64,
-    pub total_supply: f64,
+    pub gas_price: u64,
+    pub total_supply: u64,
     pub genesis_time: u64,
     pub dag_transactions: Vec<SignedTransaction>,
     pub total_transactions: u64,
@@ -175,9 +62,9 @@ pub struct SyncSnapshot {
     #[serde(default)]
     pub slashing_snapshot: Option<crate::slashing::SlashingSnapshot>,
     #[serde(default)]
-    pub total_burned: f64,
+    pub total_burned: u64,
     #[serde(default)]
-    pub total_to_validators: f64,
+    pub total_to_validators: u64,
     #[serde(default)]
     pub genesis_hash: Option<String>,
     #[serde(default)]
@@ -198,8 +85,8 @@ pub struct DagNodeInfo {
     pub hash: String,
     pub from: String,
     pub to: String,
-    pub amount: f64,
-    pub fee: f64,
+    pub amount: u64,
+    pub fee: u64,
     pub nonce: u64,
     pub ts: u64,
     pub parents: Vec<String>,
@@ -219,9 +106,9 @@ pub struct DashboardStats {
     pub unfinalized_count: usize,
     pub total_transactions: u64,
     pub tips: Vec<String>,
-    pub gas_price: f64,
-    pub total_burned: f64,
-    pub avg_gas: f64,
+    pub gas_price: u64,
+    pub total_burned: u64,
+    pub avg_gas: u64,
     pub latest_checkpoint_id: Option<String>,
 }
 
@@ -232,12 +119,12 @@ pub struct StateInner {
     pub validators: HashMap<String, Validator>,
     pub checkpoints: Vec<Checkpoint>,
     pub contracts: HashMap<String, crate::contracts::ContractState>,
-    pub current_gas_price: f64,
-    pub total_supply: f64,
+    pub current_gas_price: u64,
+    pub total_supply: u64,
     pub genesis_time: u64,
     pub genesis_hash: Option<String>,
-    pub total_burned: f64,
-    pub total_to_validators: f64,
+    pub total_burned: u64,
+    pub total_to_validators: u64,
     pub txs_this_period: u64,
     pub period_start_ms: u64,
     pub total_transactions: u64,
@@ -254,6 +141,7 @@ pub struct StateInner {
     pub finalized_tx_history: VecDeque<(u64, u64)>,
     pub has_synced_from_network: bool,
     pub weight_trie: Option<WeightTrie>,
+    pub partition_state: partition::PartitionState,
 }
 
 #[derive(Clone)]
@@ -291,10 +179,10 @@ impl NodeState {
         let loaded_from_persistence = persisted_snapshot.is_some();
 
         let inner =
-            if let Some((accounts, validators, checkpoints, gas_price, supply, genesis, dag_entries)) =
+            if let Some((accounts, validators, checkpoints, gas_price, supply, genesis, dag_entries, persisted_total_tx)) =
                 persisted_snapshot
             {
-                let tx_count = dag_entries.len() as u64;
+                let tx_count = persisted_total_tx.unwrap_or(dag_entries.len() as u64);
                 let checkpoint_count = checkpoints.len() as u64;
                 info!(
                     "Restored from snapshot: {} accounts, {} txs, {} checkpoints",
@@ -351,6 +239,9 @@ impl NodeState {
                             }
                         }),
                         received_at_ms: Some(entry.tx.tx.timestamp),
+            partition_epoch: None,
+            provisional_finality: false,
+                        rolled_back: false,
                     };
                     let _ = dag.add_node(node);
                 }
@@ -396,8 +287,8 @@ impl NodeState {
                     total_supply: supply,
                     genesis_time: genesis,
                     genesis_hash: stored_genesis_hash,
-                    total_burned: 0.0,
-                    total_to_validators: 0.0,
+                    total_burned: 0,
+                    total_to_validators: 0,
                     txs_this_period: 0,
                     period_start_ms: now_ms,
                     total_transactions: tx_count,
@@ -421,6 +312,7 @@ impl NodeState {
                         }
                         Some(wt)
                     },
+                    partition_state: partition::PartitionState::default(),
                 }
             } else {
                 if let Some(snapshot) = presync::try_presync_from_peers(&config.p2p.bootstrap_peers, config.is_genesis_node).await {
@@ -462,6 +354,9 @@ impl NodeState {
                             finalized: is_finalized,
                             checkpoint_height,
                             received_at_ms: Some(tx.tx.timestamp),
+            partition_epoch: None,
+            provisional_finality: false,
+                            rolled_back: false,
                         };
                         let _ = dag.add_node(node);
                     }
@@ -508,6 +403,7 @@ impl NodeState {
                         finalized_tx_history: VecDeque::new(),
                         has_synced_from_network: true,
                         weight_trie: Some(WeightTrie::new()),
+                        partition_state: partition::PartitionState::default(),
                     };
                     
                     let emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
@@ -564,7 +460,7 @@ impl NodeState {
                     .as_secs();
 
                 let mut accounts = HashMap::new();
-                let faucet_balance = 1_000_000.0;
+                let faucet_balance: u64 = 100_000_000_000_000;
                 accounts.insert(
                     "faucet".to_string(),
                     Account {
@@ -572,13 +468,18 @@ impl NodeState {
                         balance: faucet_balance,
                         nonce: 0,
                         first_seen: genesis_time,
-                        staked: 0.0,
-                        unbonding: 0.0,
+                        staked: 0,
+                        unbonding: 0,
                         unbonding_release: None,
                         latest_balance_proof: None,
+                        partition_violations: 0,
+                        reputation_penalty: 0.0,
+                        penalty_decay_checkpoint: None,
+                        partition_budget: None,
+                        partition_budget_spent: 0,
                     },
                 );
-                info!("Faucet account initialized with {} RKU", faucet_balance);
+                info!("Faucet account initialized with {} micro-RKU ({} RKU)", faucet_balance, faucet_balance / 100_000_000);
 
                 let mut dag = Dag::new(config.max_dag_nodes);
                 let genesis_data = format!("genesis:{}", genesis_time);
@@ -593,7 +494,7 @@ impl NodeState {
                         parents: vec![],
                         kind: None,
                         gas_limit: None,
-                        gas_price: Some(0.0),
+                        gas_price: Some(0),
                         data: None,
                         signature: Some("genesis-signature".to_string()),
                         memo: None,
@@ -611,6 +512,9 @@ impl NodeState {
                     finalized: true,
                     checkpoint_height: Some(0),
                     received_at_ms: Some(genesis_time * 1000),
+            partition_epoch: None,
+            provisional_finality: false,
+                    rolled_back: false,
                 };
                 let _ = dag.add_node(genesis_node);
                 info!(
@@ -649,6 +553,10 @@ impl NodeState {
                     signer_bitmap: None,
                     finalized_tx_hashes: vec![genesis_hash.clone()],
                     weight_trie_root: String::new(),
+            provisional: false,
+            partition_epoch: None,
+            visible_stake_pct: None,
+                    merge_report_hash: None,
                 };
                 
                 info!("Genesis hash created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
@@ -665,8 +573,8 @@ impl NodeState {
                     total_supply: config.tokenomics.genesis_allocation,
                     genesis_time,
                     genesis_hash: Some(genesis_hash),
-                    total_burned: 0.0,
-                    total_to_validators: 0.0,
+                    total_burned: 0,
+                    total_to_validators: 0,
                     txs_this_period: 0,
                     period_start_ms: now_ms,
                     total_transactions: 1,
@@ -683,6 +591,7 @@ impl NodeState {
                     finalized_tx_history: VecDeque::new(),
                     has_synced_from_network: false,
                     weight_trie: Some(WeightTrie::new()),
+                    partition_state: partition::PartitionState::default(),
                 }
             };
 

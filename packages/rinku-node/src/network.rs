@@ -102,7 +102,7 @@ pub struct CheckpointVoteResponse {
     /// Base64-encoded BLS public key
     pub bls_public_key: String,
     /// Validator's stake weight
-    pub stake: f64,
+    pub stake: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,15 +141,15 @@ pub struct DeltaData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountData {
     pub address: String,
-    pub balance: f64,
+    pub balance: u64,
     pub nonce: u64,
-    pub stake: f64,
+    pub stake: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidatorData {
     pub address: String,
-    pub stake: f64,
+    pub stake: u64,
     pub bls_public_key: String,
     pub status: String,
 }
@@ -175,14 +175,14 @@ pub struct TransactionData {
     pub hash: String,
     pub from: String,
     pub to: String,
-    pub amount: f64,
+    pub amount: u64,
     pub nonce: u64,
     pub timestamp: u64,
     pub signature: String,
     #[serde(default)]
     pub parents: Vec<String>,
     #[serde(default)]
-    pub gas_price: f64,
+    pub gas_price: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -306,6 +306,7 @@ pub struct HandshakeConfig {
     pub network_id: String,
     pub required_chain_id: Option<String>,
     pub required_network_id: Option<String>,
+    pub validator_address: Option<String>,
 }
 
 impl Default for HandshakeConfig {
@@ -316,6 +317,7 @@ impl Default for HandshakeConfig {
             network_id: "mainnet".to_string(),
             required_chain_id: None,
             required_network_id: None,
+            validator_address: None,
         }
     }
 }
@@ -448,7 +450,7 @@ impl NetworkService {
                 yamux::Config::default,
             )?
             .with_behaviour(|_| behaviour)?
-            .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+            .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
             .build();
 
         let topic = IdentTopic::new(PROTOCOL_TOPIC);
@@ -475,11 +477,11 @@ impl NetworkService {
 
         let handle = NetworkHandle {
             outbound_tx,
-            message_rx,
+            message_rx: Some(message_rx),
             peers: peers.clone(),
             local_peer_id: local_peer_id.to_string(),
             sync_request_tx,
-            sync_incoming_rx,
+            sync_incoming_rx: Some(sync_incoming_rx),
             command_tx,
             stats: stats.clone(),
         };
@@ -739,7 +741,7 @@ impl NetworkService {
                 });
 
                 // Proactively initiate handshake
-                let handshake = self.create_handshake(0, None);
+                let handshake = self.create_handshake(0, self.handshake_config.validator_address.clone());
                 let request_id = self.swarm.behaviour_mut()
                     .request_response
                     .send_request(&peer_id, SyncRequest::Handshake(handshake));
@@ -802,7 +804,8 @@ impl NetworkService {
                                     entry.handshake_info = Some(info.clone());
                                     entry.score = entry.score.saturating_add(10);
                                     self.persist_peer_score_sync(&peer, entry.score);
-                                    let response = SyncResponse::Handshake(self.create_handshake(0, None));
+                                    info!("Handshake from {}: their validator_address={:?}, responding with ours={:?}", peer, info.validator_address, self.handshake_config.validator_address);
+                                    let response = SyncResponse::Handshake(self.create_handshake(0, self.handshake_config.validator_address.clone()));
                                     let _ = self.swarm.behaviour_mut().request_response.send_response(
                                         channel,
                                         response
@@ -850,6 +853,7 @@ impl NetworkService {
                         debug!("Received sync response for {:?}", request_id);
                         if let Some(pending) = self.pending_requests.remove(&request_id) {
                             if let SyncResponse::Handshake(info) = &response {
+                                info!("Handshake response from {}: validator_address={:?}", pending.peer_id, info.validator_address);
                                 match self.validate_handshake(info) {
                                     Ok(_) => {
                                         let mut peers = self.peers.write().await;
@@ -933,9 +937,10 @@ impl NetworkService {
                         debug!("Published message to network");
                     }
                     Err(e) => {
-                        // Duplicate messages are normal in gossipsub - don't spam logs
                         if format!("{:?}", e).contains("Duplicate") {
                             trace!("Message already published (duplicate)");
+                        } else if format!("{:?}", e).contains("InsufficientPeers") {
+                            trace!("No peers available to publish message");
                         } else {
                             warn!("Failed to publish message: {:?}", e);
                         }
@@ -1316,13 +1321,13 @@ pub enum NetworkCommand {
 
 pub struct NetworkHandle {
     outbound_tx: mpsc::Sender<GossipMessage>,
-    pub message_rx: mpsc::Receiver<GossipMessage>,
+    pub message_rx: Option<mpsc::Receiver<GossipMessage>>,
     peers: Arc<RwLock<HashMap<PeerId, PeerStats>>>,
     local_peer_id: String,
     /// Channel for sending sync requests
     sync_request_tx: mpsc::Sender<(PeerId, SyncRequest, oneshot::Sender<SyncResponse>)>,
     /// Channel for receiving incoming sync requests (to be handled by application)
-    pub sync_incoming_rx: mpsc::Receiver<IncomingSyncRequest>,
+    pub sync_incoming_rx: Option<mpsc::Receiver<IncomingSyncRequest>>,
     /// Channel for sending commands to the network service
     command_tx: mpsc::Sender<NetworkCommand>,
     /// Stats tracking
@@ -1382,6 +1387,25 @@ impl NetworkHandle {
             .collect()
     }
 
+    /// Take the gossip message receiver out of this handle.
+    /// Must be called before wrapping in Arc<Mutex> so the receiver can be
+    /// used with async .recv() without holding the mutex.
+    pub fn take_message_rx(&mut self) -> Option<mpsc::Receiver<GossipMessage>> {
+        self.message_rx.take()
+    }
+
+    /// Take the sync request receiver out of this handle.
+    /// Must be called before wrapping in Arc<Mutex> so the receiver can be
+    /// used with async .recv() without holding the mutex.
+    pub fn take_sync_incoming_rx(&mut self) -> Option<mpsc::Receiver<IncomingSyncRequest>> {
+        self.sync_incoming_rx.take()
+    }
+
+    /// Clone the command sender for sending sync responses without the mutex.
+    pub fn response_sender(&self) -> mpsc::Sender<NetworkCommand> {
+        self.command_tx.clone()
+    }
+
     /// Send a sync response for an incoming request
     pub fn send_sync_response(&self, channel: ResponseChannel<SyncResponse>, response: SyncResponse) {
         let _ = self.command_tx.try_send(NetworkCommand::SendSyncResponse(channel, response));
@@ -1389,16 +1413,21 @@ impl NetworkHandle {
 
     /// Send a sync request to a specific peer and wait for response
     pub async fn sync_request(&self, peer_id: &str, request: SyncRequest) -> Result<SyncResponse> {
+        let rx = self.send_sync_request(peer_id, request).await?;
+        let response = rx.await
+            .map_err(|_| anyhow::anyhow!("Sync request cancelled"))?;
+        Ok(response)
+    }
+
+    /// Send a sync request and return the response receiver without awaiting it.
+    /// This allows callers to drop any locks before awaiting the response,
+    /// preventing mutex serialization when sending multiple parallel requests.
+    pub async fn send_sync_request(&self, peer_id: &str, request: SyncRequest) -> Result<oneshot::Receiver<SyncResponse>> {
         let peer_id: PeerId = peer_id.parse()
             .map_err(|e| anyhow::anyhow!("Invalid peer ID: {}", e))?;
-        
         let (response_tx, response_rx) = oneshot::channel();
         self.sync_request_tx.send((peer_id, request, response_tx)).await?;
-        
-        let response = response_rx.await
-            .map_err(|_| anyhow::anyhow!("Sync request cancelled"))?;
-        
-        Ok(response)
+        Ok(response_rx)
     }
 
     /// Request a snapshot from a peer

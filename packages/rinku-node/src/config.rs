@@ -154,9 +154,6 @@ pub struct NodeConfig {
     pub public_url: Option<String>,
     pub p2p: P2pConfig,
     pub is_genesis_node: bool,
-    pub relay_mode: bool,
-    pub relay_min_stake: f64,
-    pub relay_fee_percent: f64,
 }
 
 impl NodeConfig {
@@ -252,17 +249,6 @@ impl NodeConfig {
                         .map(|p| p.trim().is_empty())
                         .unwrap_or(true)
                 }),
-            relay_mode: env::var("RELAY_MODE")
-                .map(|v| v == "true" || v == "1")
-                .unwrap_or(false),
-            relay_min_stake: env::var("RELAY_MIN_STAKE")
-                .ok()
-                .and_then(|n| n.parse().ok())
-                .unwrap_or(100.0),
-            relay_fee_percent: env::var("RELAY_FEE_PERCENT")
-                .ok()
-                .and_then(|n| n.parse().ok())
-                .unwrap_or(0.005),
         }
     }
 }

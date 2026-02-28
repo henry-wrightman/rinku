@@ -9,8 +9,8 @@ use tracing::{debug, info, warn};
 #[derive(Debug, Clone)]
 pub struct CheckpointVerificationResult {
     pub valid: bool,
-    pub verified_stake: f64,
-    pub total_stake: f64,
+    pub verified_stake: u64,
+    pub total_stake: u64,
     pub quorum_reached: bool,
     pub error: Option<String>,
 }
@@ -54,17 +54,17 @@ impl TrustVerifier {
         checkpoint: &Checkpoint,
         validators: &HashMap<String, Validator>,
     ) -> CheckpointVerificationResult {
-        let mut verified_stake = 0.0;
-        let mut total_stake: f64 = validators.values().map(|v| v.stake).sum();
+        let mut verified_stake: u64 = 0;
+        let mut total_stake: u64 = validators.values().map(|v| v.stake).sum();
 
         for genesis in &self.config.genesis_validators {
             if !validators.contains_key(&genesis.address) {
-                total_stake += 1000.0;
+                total_stake += 1000;
             }
         }
 
-        if total_stake == 0.0 {
-            total_stake = 1.0;
+        if total_stake == 0 {
+            total_stake = 1;
         }
 
         if checkpoint.height == 0 || checkpoint.height == 1 {
@@ -80,7 +80,7 @@ impl TrustVerifier {
         if checkpoint.validator_signatures.is_empty() {
             return CheckpointVerificationResult {
                 valid: false,
-                verified_stake: 0.0,
+                verified_stake: 0,
                 total_stake,
                 quorum_reached: false,
                 error: Some("No signatures on checkpoint".to_string()),
@@ -126,9 +126,9 @@ impl TrustVerifier {
                             .iter()
                             .any(|g| g.address == *validator_addr)
                         {
-                            1000.0
+                            1000
                         } else {
-                            0.0
+                            0
                         }
                     });
 
@@ -149,11 +149,11 @@ impl TrustVerifier {
         if missing_keys > 0 || invalid_sigs > 0 {
             debug!(
                 "Checkpoint {} verification: {} missing keys, {} invalid sigs, {:.2}% stake verified",
-                checkpoint.height, missing_keys, invalid_sigs, (verified_stake / total_stake) * 100.0
+                checkpoint.height, missing_keys, invalid_sigs, (verified_stake as f64 / total_stake as f64) * 100.0
             );
         }
 
-        let quorum_reached = (verified_stake / total_stake) >= self.config.checkpoint_quorum_threshold;
+        let quorum_reached = (verified_stake as f64 / total_stake as f64) >= self.config.checkpoint_quorum_threshold;
 
         CheckpointVerificationResult {
             valid: quorum_reached,
@@ -165,7 +165,7 @@ impl TrustVerifier {
             } else {
                 Some(format!(
                     "Quorum not reached: {:.2}% < {:.2}%",
-                    (verified_stake / total_stake) * 100.0,
+                    (verified_stake as f64 / total_stake as f64) * 100.0,
                     self.config.checkpoint_quorum_threshold * 100.0
                 ))
             },
@@ -259,6 +259,10 @@ mod tests {
             signer_bitmap: None,
             finalized_tx_hashes: vec![],
             weight_trie_root: String::new(),
+            provisional: false,
+            partition_epoch: None,
+            visible_stake_pct: None,
+            merge_report_hash: None,
         }
     }
 
@@ -351,7 +355,7 @@ mod tests {
         let mut validators = HashMap::new();
         validators.insert("onchain_val".to_string(), Validator {
             address: "onchain_val".to_string(),
-            stake: 1000.0,
+            stake: 1000,
             first_stake_time: 0,
             bls_public_key: Some("0102030405".to_string()),
             missed_checkpoints: 0,

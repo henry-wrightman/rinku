@@ -20,7 +20,7 @@ use crate::consensus::ConsensusService;
 use crate::dag_pruning::{DagPruningService, PruningConfig};
 use crate::leader_election::{LeaderElectionService, LeaderElectionConfig};
 #[cfg(feature = "p2p")]
-use crate::network::{CheckpointVoteRequest, CheckpointVoteResponse, NetworkHandle, SyncRequest, SyncResponse};
+use crate::network::{CheckpointData, CheckpointVoteRequest, CheckpointVoteResponse, NetworkHandle, SyncRequest, SyncResponse};
 use crate::slashing::SlashingService;
 use crate::state::NodeState;
 use crate::trust::TrustVerifier;
@@ -48,7 +48,7 @@ pub struct CheckpointService {
     #[cfg(feature = "p2p")]
     network_handle: Option<Arc<tokio::sync::Mutex<NetworkHandle>>>,
     /// Our validator's stake (for quorum calculation)
-    our_stake: f64,
+    our_stake: u64,
     /// Leader election service for checkpoint creation
     leader_election: Option<LeaderElectionService>,
     /// Our public URL for leader election
@@ -57,6 +57,7 @@ pub struct CheckpointService {
     mainnet_mode: bool,
     /// GossipService for immediate checkpoint broadcast
     gossip_service: Option<Arc<crate::gossip::GossipService>>,
+    event_bus: Option<Arc<crate::events::EventBus>>,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
@@ -91,16 +92,22 @@ impl CheckpointService {
             slashing_service: None,
             #[cfg(feature = "p2p")]
             network_handle: None,
-            our_stake: 1000.0, // Default stake, should be set from validator identity
+            our_stake: 10_000_000_000, // Default stake in micro-units (100 RKU)
             leader_election: None,
             local_url: None,
             mainnet_mode,
             gossip_service: None,
+            event_bus: None,
         }
     }
     
     pub fn with_gossip_service(mut self, gossip: Arc<crate::gossip::GossipService>) -> Self {
         self.gossip_service = Some(gossip);
+        self
+    }
+
+    pub fn with_event_bus(mut self, event_bus: Arc<crate::events::EventBus>) -> Self {
+        self.event_bus = Some(event_bus);
         self
     }
 
@@ -132,7 +139,7 @@ impl CheckpointService {
     }
     
     /// Set our validator's stake for quorum calculation
-    pub fn with_stake(mut self, stake: f64) -> Self {
+    pub fn with_stake(mut self, stake: u64) -> Self {
         self.our_stake = stake;
         self
     }
@@ -270,7 +277,7 @@ impl CheckpointService {
                     let validator_sig = ValidatorSignature {
                         validator: self.validator_address.clone(),
                         signature: URL_SAFE_NO_PAD.encode(&signature),
-                        weight: 1.0,
+                        weight: 1,
                         bls_public_key: Some(self.bls_public_key_base64()),
                     };
                     
@@ -288,133 +295,163 @@ impl CheckpointService {
         }
     }
 
-    /// Check if any peer has a checkpoint at the given height
+    /// Check if any peer has a checkpoint at the given height via P2P delta sync
     /// If found, returns the peer's checkpoint to adopt instead of creating our own
     async fn fetch_peer_checkpoint(&self, height: u64) -> Option<Checkpoint> {
-        if self.peers.is_empty() {
-            return None;
-        }
+        #[cfg(feature = "p2p")]
+        {
+            let network_handle = self.network_handle.as_ref()?;
+            let handle = network_handle.lock().await;
+            let peers = handle.get_connected_peers().await;
+            drop(handle);
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .ok()?;
+            let from_cp = if height > 0 { height - 1 } else { 0 };
 
-        for peer in &self.peers {
-            let url = format!("{}/api/checkpoints/{}", peer.trim_end_matches('/'), height);
-            
-            match client.get(&url).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    match resp.json::<Checkpoint>().await {
-                        Ok(checkpoint) => {
-                            info!(
-                                "Found peer checkpoint at height {} from {}: {}",
-                                height, peer, &checkpoint.hash[..16.min(checkpoint.hash.len())]
-                            );
-                            return Some(checkpoint);
+            for peer in &peers {
+                let peer_id = peer.peer_id.clone();
+                let result = {
+                    let handle = network_handle.lock().await;
+                    handle.request_delta(&peer_id, from_cp).await
+                };
+                match result {
+                    Ok(SyncResponse::Delta(delta)) => {
+                        for cp_data in &delta.new_checkpoints {
+                            if cp_data.height == height {
+                                let checkpoint = self.checkpoint_data_to_checkpoint(cp_data, &delta.new_checkpoints);
+                                info!(
+                                    "Found peer checkpoint at height {} from p2p peer {}: {}",
+                                    height, &peer_id[..16.min(peer_id.len())],
+                                    &checkpoint.hash[..16.min(checkpoint.hash.len())]
+                                );
+                                return Some(checkpoint);
+                            }
                         }
-                        Err(e) => {
-                            debug!("Failed to parse checkpoint from {}: {}", peer, e);
-                        }
+                        debug!("P2P peer {} had no checkpoint at height {} in delta", &peer_id[..16.min(peer_id.len())], height);
                     }
-                }
-                Ok(resp) => {
-                    debug!("Peer {} has no checkpoint at height {} (status: {})", peer, height, resp.status());
-                }
-                Err(e) => {
-                    debug!("Failed to reach peer {} for checkpoint {}: {}", peer, height, e);
+                    Ok(_) => {
+                        debug!("P2P peer {} returned unexpected response for delta", &peer_id[..16.min(peer_id.len())]);
+                    }
+                    Err(e) => {
+                        debug!("Failed to request delta from p2p peer {}: {}", &peer_id[..16.min(peer_id.len())], e);
+                    }
                 }
             }
         }
-
         None
     }
 
-    /// Sync missing transactions from peers before checkpoint
-    async fn sync_missing_transactions(&self, target_height: u64) -> Result<()> {
-        if self.peers.is_empty() {
-            return Err(anyhow::anyhow!("No peers available"));
+    #[cfg(feature = "p2p")]
+    fn checkpoint_data_to_checkpoint(&self, cp_data: &CheckpointData, all_cps: &[CheckpointData]) -> Checkpoint {
+        let previous_hash = all_cps.iter()
+            .find(|c| c.height + 1 == cp_data.height)
+            .and_then(|c| c.hash.clone());
+
+        Checkpoint {
+            height: cp_data.height,
+            hash: cp_data.hash.clone().unwrap_or_else(|| rinku_core::sha256_hex(&format!("cp:{}", cp_data.height))),
+            previous_hash: previous_hash.or_else(|| cp_data.previous_hash.clone()),
+            tx_merkle_root: cp_data.merkle_root.clone(),
+            state_root: cp_data.merkle_root.clone(),
+            receipt_root: String::new(),
+            tip_count: 0,
+            timestamp: cp_data.timestamp,
+            validator_signatures: Vec::new(),
+            aggregated_signature: cp_data.signature.clone(),
+            signer_bitmap: None,
+            finalized_tx_hashes: Vec::new(),
+            weight_trie_root: String::new(),
+            provisional: false,
+            partition_epoch: None,
+            visible_stake_pct: None,
+            merge_report_hash: None,
         }
+    }
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()?;
+    /// Sync missing transactions from peers via P2P delta sync
+    async fn sync_missing_transactions(&self, target_height: u64) -> Result<()> {
+        #[cfg(feature = "p2p")]
+        {
+            let network_handle = self.network_handle.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No P2P network handle available"))?;
 
-        // Get our current checkpoint height
-        // CRITICAL: Use actual checkpoint height, NOT len() which breaks after pruning
-        let from_checkpoint = {
-            let state = self.state.inner.read().await;
-            state.checkpoints.last().map(|cp| cp.height).unwrap_or(0)
-        };
+            let from_checkpoint = {
+                let state = self.state.inner.read().await;
+                state.checkpoints.last().map(|cp| cp.height).unwrap_or(0)
+            };
 
-        for peer in &self.peers {
-            // Use delta sync to get transactions since last checkpoint
-            let url = format!(
-                "{}/api/sync/delta?from_checkpoint={}&limit=500",
-                peer.trim_end_matches('/'),
-                from_checkpoint
-            );
-            
-            match client.get(&url).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    // Try to parse as paginated response first
-                    if let Ok(text) = resp.text().await {
-                        use rinku_core::types::SignedTransaction;
-                        
-                        // Parse JSON and extract transactions
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                            let txs: Vec<SignedTransaction> = if json.is_array() {
-                                serde_json::from_value(json).unwrap_or_default()
-                            } else if let Some(txs_val) = json.get("transactions") {
-                                serde_json::from_value(txs_val.clone()).unwrap_or_default()
-                            } else {
-                                vec![]
-                            };
-                            
-                            if !txs.is_empty() {
-                                let mut added = 0;
-                                
-                                for tx in txs {
-                                    let mut state = self.state.inner.write().await;
-                                    if !state.dag.contains(&tx.hash) {
-                                        use rinku_core::types::DagNode;
-                                        let parents = tx.tx.parents.clone();
-                                        let now_ms = std::time::SystemTime::now()
-                                            .duration_since(std::time::UNIX_EPOCH)
-                                            .unwrap_or_default()
-                                            .as_millis() as u64;
-                                        let node = DagNode {
-                                            hash: tx.hash.clone(),
-                                            parents,
-                                            children: vec![],
-                                            weight: 1.0,
-                                            finalized: false,
-                                            checkpoint_height: None,
-                                            tx,
-                                            received_at_ms: Some(now_ms),
-                                        };
-                                        if state.dag.add_node(node).is_ok() {
-                                            added += 1;
-                                        }
-                                    }
+            let handle = network_handle.lock().await;
+            let peers = handle.get_connected_peers().await;
+            drop(handle);
+
+            for peer in &peers {
+                let peer_id = peer.peer_id.clone();
+                let result = {
+                    let handle = network_handle.lock().await;
+                    handle.request_delta(&peer_id, from_checkpoint).await
+                };
+                match result {
+                    Ok(SyncResponse::Delta(delta)) => {
+                        let mut added = 0;
+                        for tx_data in &delta.transactions {
+                            let mut state = self.state.inner.write().await;
+                            if !state.dag.contains(&tx_data.hash) {
+                                use rinku_core::types::{DagNode, Transaction};
+                                let now_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64;
+                                let tx = SignedTransaction {
+                                    tx: Transaction {
+                                        from: tx_data.from.clone(),
+                                        to: tx_data.to.clone(),
+                                        amount: tx_data.amount,
+                                        nonce: tx_data.nonce,
+                                        timestamp: tx_data.timestamp,
+                                        parents: tx_data.parents.clone(),
+                                        kind: None,
+                                        gas_limit: None,
+                                        gas_price: Some(tx_data.gas_price),
+                                        data: None,
+                                        signature: Some(tx_data.signature.clone()),
+                                        memo: tx_data.memo.clone(),
+                                        references: tx_data.references.clone(),
+                                    },
+                                    hash: tx_data.hash.clone(),
+                                    signature: tx_data.signature.clone(),
+                                };
+                                let node = DagNode {
+                                    hash: tx_data.hash.clone(),
+                                    parents: tx_data.parents.clone(),
+                                    children: vec![],
+                                    weight: 1.0,
+                                    finalized: false,
+                                    checkpoint_height: None,
+                                    tx,
+                                    received_at_ms: Some(now_ms),
+                                    partition_epoch: None,
+                                    provisional_finality: false,
+                                    rolled_back: false,
+                                };
+                                if state.dag.add_node(node).is_ok() {
+                                    added += 1;
                                 }
-                                
-                                if added > 0 {
-                                    debug!(
-                                        "Fork prevention: synced {} new transactions from peer for checkpoint {}",
-                                        added, target_height
-                                    );
-                                }
-                                return Ok(());
                             }
                         }
+
+                        if added > 0 {
+                            debug!(
+                                "Fork prevention: synced {} new transactions from p2p peer for checkpoint {}",
+                                added, target_height
+                            );
+                            return Ok(());
+                        }
                     }
-                }
-                Ok(_) => {
-                    debug!("Peer {} returned non-success for delta sync", peer);
-                }
-                Err(e) => {
-                    debug!("Failed to sync from peer {}: {}", peer, e);
+                    Ok(_) => {
+                        debug!("P2P peer {} returned unexpected response for delta", &peer_id[..16.min(peer_id.len())]);
+                    }
+                    Err(e) => {
+                        debug!("Failed to sync delta from p2p peer {}: {}", &peer_id[..16.min(peer_id.len())], e);
+                    }
                 }
             }
         }
@@ -552,7 +589,7 @@ impl CheckpointService {
         if !distributions.is_empty() {
             debug!(
                 "Distributed {:.6} RKU to {} validators (adopted checkpoint)",
-                checkpoint_reward,
+                rinku_core::types::from_micro_units(checkpoint_reward),
                 distributions.len()
             );
         }
@@ -588,6 +625,7 @@ impl CheckpointService {
         for hash in unfinalized_hashes {
             let _ = state.dag.mark_finalized(hash, height);
         }
+        state.total_transactions += unfinalized_hashes.len() as u64;
 
         drop(state);
 
@@ -596,7 +634,7 @@ impl CheckpointService {
             &checkpoint_hash[..16.min(checkpoint_hash.len())],
             height,
             unfinalized_hashes.len(),
-            checkpoint_reward
+            rinku_core::types::from_micro_units(checkpoint_reward)
         );
         
         // Execute finalized transactions - skip those already executed on fast-path
@@ -645,209 +683,180 @@ impl CheckpointService {
     /// This replaces accounts, checkpoints, and recent DAG atomically using the
     /// validated snapshot sync system.
     async fn recover_checkpoint_chain(&self) -> Result<bool> {
-        if self.peers.is_empty() {
-            return Err(anyhow::anyhow!("No peers available for chain recovery"));
-        }
+        #[cfg(feature = "p2p")]
+        {
+            let network_handle = self.network_handle.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("No P2P network handle available for chain recovery"))?;
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
+            let handle = network_handle.lock().await;
+            let peers = handle.get_connected_peers().await;
+            drop(handle);
 
-        for peer in &self.peers {
-            // Request a full snapshot sync from the peer
-            // This uses the existing validated sync system
-            let url = format!("{}/api/sync/snapshot", peer.trim_end_matches('/'));
-            
-            info!(
-                "[ForkRecovery] Requesting full snapshot sync from peer {}",
-                peer
-            );
-            
-            match client.get(&url).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    // Parse the snapshot response
-                    #[derive(serde::Deserialize)]
-                    struct SnapshotResponse {
-                        accounts: std::collections::HashMap<String, rinku_core::types::Account>,
-                        checkpoints: Vec<Checkpoint>,
-                        validators: std::collections::HashMap<String, rinku_core::types::Validator>,
-                        #[serde(default)]
-                        dag_transactions: Vec<rinku_core::types::SignedTransaction>,
-                        gas_price: Option<f64>,
-                        total_supply: Option<f64>,
-                        genesis_time: Option<u64>,
-                    }
-                    
-                    match resp.json::<SnapshotResponse>().await {
-                        Ok(snapshot) => {
-                            // Verify checkpoint chain linkage first
-                            let mut linkage_valid = true;
-                            for i in 1..snapshot.checkpoints.len() {
-                                let expected_prev = &snapshot.checkpoints[i - 1].hash;
-                                if snapshot.checkpoints[i].previous_hash.as_deref() != Some(expected_prev) {
-                                    warn!(
-                                        "[ForkRecovery] Peer snapshot has invalid checkpoint chain at height {}",
-                                        snapshot.checkpoints[i].height
-                                    );
-                                    linkage_valid = false;
-                                    break;
-                                }
-                            }
-                            
-                            if !linkage_valid {
-                                continue;  // Try next peer
-                            }
+            if peers.is_empty() {
+                return Err(anyhow::anyhow!("No P2P peers available for chain recovery"));
+            }
 
-                            // Verify checkpoint hashes are correctly computed
-                            let mut hash_valid = true;
-                            for checkpoint in &snapshot.checkpoints {
-                                let expected_hash = Self::compute_checkpoint_hash(
-                                    checkpoint.height,
-                                    &checkpoint.tx_merkle_root,
-                                    &checkpoint.state_root,
-                                    &checkpoint.receipt_root,
-                                    checkpoint.tip_count,
-                                    checkpoint.timestamp,
+            for peer in &peers {
+                let peer_id = peer.peer_id.clone();
+                let peer_id_short = &peer_id[..16.min(peer_id.len())];
+                info!("[ForkRecovery] Requesting full snapshot sync from p2p peer {}", peer_id_short);
+
+                let result = {
+                    let handle = network_handle.lock().await;
+                    handle.request_snapshot(&peer_id).await
+                };
+                match result {
+                    Ok(SyncResponse::Snapshot(snapshot_data)) => {
+                        use crate::state::presync::convert_snapshot_data_to_sync_snapshot;
+                        let sync_snapshot = convert_snapshot_data_to_sync_snapshot(snapshot_data);
+
+                        let mut linkage_valid = true;
+                        for i in 1..sync_snapshot.checkpoints.len() {
+                            let expected_prev = &sync_snapshot.checkpoints[i - 1].hash;
+                            if sync_snapshot.checkpoints[i].previous_hash.as_deref() != Some(expected_prev) {
+                                warn!(
+                                    "[ForkRecovery] Peer snapshot has invalid checkpoint chain at height {}",
+                                    sync_snapshot.checkpoints[i].height
                                 );
-                                let expected_hash_hex = hex::encode(&expected_hash);
-                                
-                                if checkpoint.hash != expected_hash_hex {
-                                    warn!(
-                                        "[ForkRecovery] Peer checkpoint hash mismatch at height {}",
-                                        checkpoint.height
-                                    );
-                                    hash_valid = false;
-                                    break;
-                                }
+                                linkage_valid = false;
+                                break;
                             }
+                        }
 
-                            if !hash_valid {
+                        if !linkage_valid {
+                            continue;
+                        }
+
+                        let mut hash_valid = true;
+                        for checkpoint in &sync_snapshot.checkpoints {
+                            let expected_hash = Self::compute_checkpoint_hash(
+                                checkpoint.height,
+                                &checkpoint.tx_merkle_root,
+                                &checkpoint.state_root,
+                                &checkpoint.receipt_root,
+                                checkpoint.tip_count,
+                                checkpoint.timestamp,
+                            );
+                            let expected_hash_hex = hex::encode(&expected_hash);
+
+                            if checkpoint.hash != expected_hash_hex {
+                                warn!(
+                                    "[ForkRecovery] Peer checkpoint hash mismatch at height {}",
+                                    checkpoint.height
+                                );
+                                hash_valid = false;
+                                break;
+                            }
+                        }
+
+                        if !hash_valid {
+                            continue;
+                        }
+
+                        if self.trust_verifier.has_genesis_validators() {
+                            if let Err(e) = self.trust_verifier.verify_checkpoint_chain(
+                                &sync_snapshot.checkpoints,
+                                &sync_snapshot.validators,
+                            ) {
+                                warn!("[ForkRecovery] Stake-weighted verification failed: {}", e);
                                 continue;
                             }
-
-                            // Use stake-weighted BLS signature verification
-                            // The trust verifier validates against genesis validators and on-chain validator registry
-                            if self.trust_verifier.has_genesis_validators() {
-                                if let Err(e) = self.trust_verifier.verify_checkpoint_chain(
-                                    &snapshot.checkpoints,
-                                    &snapshot.validators,
-                                ) {
-                                    warn!("[ForkRecovery] Stake-weighted verification failed: {}", e);
+                            info!(
+                                "[ForkRecovery] Verified {} checkpoints with stake-weighted BLS signatures",
+                                sync_snapshot.checkpoints.len()
+                            );
+                        } else {
+                            let mut format_valid = true;
+                            for checkpoint in &sync_snapshot.checkpoints {
+                                if checkpoint.validator_signatures.is_empty() && checkpoint.height > 1 {
                                     continue;
                                 }
-                                info!(
-                                    "[ForkRecovery] Verified {} checkpoints with stake-weighted BLS signatures",
-                                    snapshot.checkpoints.len()
-                                );
-                            } else {
-                                // No genesis validators configured - use format validation only (testnet mode)
-                                let mut format_valid = true;
-                                for checkpoint in &snapshot.checkpoints {
-                                    if checkpoint.validator_signatures.is_empty() && checkpoint.height > 1 {
-                                        continue; // Allow unsigned early checkpoints
-                                    }
-                                    for sig in &checkpoint.validator_signatures {
-                                        if let Ok(sig_bytes) = URL_SAFE_NO_PAD.decode(&sig.signature) {
-                                            if sig_bytes.len() < 96 || blst::min_pk::Signature::from_bytes(&sig_bytes).is_err() {
-                                                warn!(
-                                                    "[ForkRecovery] Invalid BLS signature format at height {}",
-                                                    checkpoint.height
-                                                );
-                                                format_valid = false;
-                                                break;
-                                            }
+                                for sig in &checkpoint.validator_signatures {
+                                    if let Ok(sig_bytes) = URL_SAFE_NO_PAD.decode(&sig.signature) {
+                                        if sig_bytes.len() < 96 || blst::min_pk::Signature::from_bytes(&sig_bytes).is_err() {
+                                            warn!(
+                                                "[ForkRecovery] Invalid BLS signature format at height {}",
+                                                checkpoint.height
+                                            );
+                                            format_valid = false;
+                                            break;
                                         }
-                                    }
-                                    if !format_valid {
-                                        break;
                                     }
                                 }
                                 if !format_valid {
-                                    continue;
-                                }
-                                warn!(
-                                    "[ForkRecovery] No genesis validators configured - using format validation only (TESTNET MODE)"
-                                );
-                            }
-
-                            let checkpoint_count = snapshot.checkpoints.len();
-                            let account_count = snapshot.accounts.len();
-                            let tx_count = snapshot.dag_transactions.len();
-                            let latest_height = snapshot.checkpoints.last().map(|c| c.height).unwrap_or(0);
-
-                            // Apply the validated snapshot atomically
-                            {
-                                let mut state = self.state.inner.write().await;
-                                
-                                // Clear and replace checkpoints
-                                state.checkpoints = snapshot.checkpoints;
-                                
-                                // Clear and replace accounts
-                                state.accounts.clear();
-                                for (fingerprint, account) in snapshot.accounts {
-                                    state.accounts.insert(fingerprint, account);
-                                }
-                                
-                                // Clear and replace validators
-                                state.validators.clear();
-                                for (addr, validator) in snapshot.validators {
-                                    state.validators.insert(addr, validator);
-                                }
-                                
-                                // Clear DAG and add transactions from snapshot
-                                // Note: This creates a new DAG, losing unfinalized local transactions
-                                // This is intentional - we're resetting to peer's state
-                                let max_nodes = state.dag.node_count().max(10000);
-                                state.dag = rinku_core::dag::Dag::new(max_nodes);
-                                
-                                for tx in snapshot.dag_transactions {
-                                    let parents = tx.tx.parents.clone();
-                                    let timestamp_ms = crate::config::normalize_timestamp_to_ms(tx.tx.timestamp);
-                                    let node = rinku_core::types::DagNode {
-                                        hash: tx.hash.clone(),
-                                        parents,
-                                        children: vec![],
-                                        weight: 1.0,
-                                        finalized: true, // All snapshot txs are finalized
-                                        checkpoint_height: Some(latest_height),
-                                        tx: tx.clone(),
-                                        received_at_ms: Some(timestamp_ms),
-                                    };
-                                    let _ = state.dag.add_node(node);
-                                }
-                                
-                                // Update monetary state from snapshot
-                                if let Some(gas_price) = snapshot.gas_price {
-                                    state.current_gas_price = gas_price;
-                                }
-                                if let Some(total_supply) = snapshot.total_supply {
-                                    state.total_supply = total_supply;
-                                }
-                                if let Some(genesis_time) = snapshot.genesis_time {
-                                    state.genesis_time = genesis_time;
+                                    break;
                                 }
                             }
-
-                            info!(
-                                "[ForkRecovery] Applied snapshot from {}: {} checkpoints, {} accounts, {} txs (height: {})",
-                                peer, checkpoint_count, account_count, tx_count, latest_height
+                            if !format_valid {
+                                continue;
+                            }
+                            warn!(
+                                "[ForkRecovery] No genesis validators configured - using format validation only (TESTNET MODE)"
                             );
-
-                            // Reset failure counter
-                            self.consecutive_fork_failures.store(0, std::sync::atomic::Ordering::SeqCst);
-
-                            return Ok(true);
                         }
-                        Err(e) => {
-                            warn!("[ForkRecovery] Failed to parse snapshot from {}: {}", peer, e);
+
+                        let checkpoint_count = sync_snapshot.checkpoints.len();
+                        let account_count = sync_snapshot.accounts.len();
+                        let tx_count = sync_snapshot.dag_transactions.len();
+                        let latest_height = sync_snapshot.checkpoints.last().map(|c| c.height).unwrap_or(0);
+
+                        {
+                            let mut state = self.state.inner.write().await;
+
+                            state.checkpoints = sync_snapshot.checkpoints;
+
+                            state.accounts.clear();
+                            for (fingerprint, account) in sync_snapshot.accounts {
+                                state.accounts.insert(fingerprint, account);
+                            }
+
+                            state.validators.clear();
+                            for (addr, validator) in sync_snapshot.validators {
+                                state.validators.insert(addr, validator);
+                            }
+
+                            let max_nodes = state.dag.node_count().max(10000);
+                            state.dag = rinku_core::dag::Dag::new(max_nodes);
+
+                            for tx in sync_snapshot.dag_transactions {
+                                let parents = tx.tx.parents.clone();
+                                let timestamp_ms = crate::config::normalize_timestamp_to_ms(tx.tx.timestamp);
+                                let node = rinku_core::types::DagNode {
+                                    hash: tx.hash.clone(),
+                                    parents,
+                                    children: vec![],
+                                    weight: 1.0,
+                                    finalized: true,
+                                    checkpoint_height: Some(latest_height),
+                                    tx: tx.clone(),
+                                    received_at_ms: Some(timestamp_ms),
+                                    partition_epoch: None,
+                                    provisional_finality: false,
+                                    rolled_back: false,
+                                };
+                                let _ = state.dag.add_node(node);
+                            }
+
+                            state.current_gas_price = sync_snapshot.gas_price;
+                            state.total_supply = sync_snapshot.total_supply;
+                            state.genesis_time = sync_snapshot.genesis_time;
                         }
+
+                        info!(
+                            "[ForkRecovery] Applied snapshot from p2p peer {}: {} checkpoints, {} accounts, {} txs (height: {})",
+                            peer_id_short, checkpoint_count, account_count, tx_count, latest_height
+                        );
+
+                        self.consecutive_fork_failures.store(0, std::sync::atomic::Ordering::SeqCst);
+
+                        return Ok(true);
                     }
-                }
-                Ok(resp) => {
-                    debug!("[ForkRecovery] Peer {} returned status {} for snapshot", peer, resp.status());
-                }
-                Err(e) => {
-                    debug!("[ForkRecovery] Failed to reach peer {}: {}", peer, e);
+                    Ok(_) => {
+                        debug!("[ForkRecovery] P2P peer {} returned unexpected response for snapshot", peer_id_short);
+                    }
+                    Err(e) => {
+                        debug!("[ForkRecovery] Failed to reach p2p peer {}: {}", peer_id_short, e);
+                    }
                 }
             }
         }
@@ -1350,7 +1359,7 @@ impl CheckpointService {
         if !distributions.is_empty() {
             info!(
                 "Pre-distributed {:.6} RKU to {} validators before state root computation",
-                checkpoint_reward,
+                rinku_core::types::from_micro_units(checkpoint_reward),
                 distributions.len()
             );
         }
@@ -1399,7 +1408,7 @@ impl CheckpointService {
         let validator_sig = ValidatorSignature {
             validator: self.validator_address.clone(),
             signature: URL_SAFE_NO_PAD.encode(&signature),
-            weight: 1.0,
+            weight: 1,
             bls_public_key: Some(self.bls_public_key_base64()),
         };
 
@@ -1417,6 +1426,10 @@ impl CheckpointService {
             &unfinalized_txs,
         ).await;
         
+        // Check partition status for provisional checkpoint creation
+        let partition_info = self.state.get_partition_state().await;
+        let is_partitioned = partition_info.status == crate::state::partition::PartitionStatus::Partitioned;
+
         // Get total network stake for quorum check
         let total_network_stake = if let Some(ref identity) = self.validator_identity {
             let identity = identity.read().await;
@@ -1424,7 +1437,12 @@ impl CheckpointService {
         } else {
             self.our_stake
         };
-        let quorum_stake_needed = total_network_stake * QUORUM_STAKE_THRESHOLD;
+        let quorum_stake_needed = if is_partitioned {
+            let visible_stake = (total_network_stake as f64 * partition_info.visible_stake_pct) as u64;
+            (visible_stake as f64 * QUORUM_STAKE_THRESHOLD) as u64
+        } else {
+            (total_network_stake as f64 * QUORUM_STAKE_THRESHOLD) as u64
+        };
         let mut quorum_reached = total_stake >= quorum_stake_needed && all_signatures.len() > 1;
         if !quorum_reached && self.trust_verifier.has_genesis_validators() {
             let genesis_addrs = self.trust_verifier.genesis_validator_addresses();
@@ -1480,15 +1498,15 @@ impl CheckpointService {
                 
                 // 1. Add validator stakes
                 for (addr, v) in state.validators.iter() {
-                    if v.stake > 0.0 {
-                        stakes.insert(addr.clone(), (v.stake * 1_000_000.0) as u64);
+                    if v.stake > 0 {
+                        stakes.insert(addr.clone(), v.stake);
                     }
                 }
                 
                 // 2. Add account stakes (regular users who staked but aren't validators)
                 for (addr, account) in state.accounts.iter() {
-                    if account.staked > 0.0 {
-                        let stake_micro = (account.staked * 1_000_000.0) as u64;
+                    if account.staked > 0 {
+                        let stake_micro = account.staked;
                         // Use entry API to combine or add stake
                         stakes.entry(addr.clone())
                             .and_modify(|s| *s = (*s).max(stake_micro)) // Take max if both exist
@@ -1556,6 +1574,10 @@ impl CheckpointService {
             signer_bitmap: Some(signer_bitmap),
             finalized_tx_hashes: unfinalized_hashes.clone(),
             weight_trie_root,
+            provisional: is_partitioned,
+            partition_epoch: if is_partitioned { partition_info.current_epoch } else { None },
+            visible_stake_pct: if is_partitioned { Some(partition_info.visible_stake_pct) } else { None },
+            merge_report_hash: None,
         };
 
         // Process emissions and rewards for this checkpoint
@@ -1635,6 +1657,16 @@ impl CheckpointService {
 
         // Batch mark all as finalized (single operation instead of loop)
         let _finalized = state.dag.mark_finalized_batch(&unfinalized_hashes, height);
+        state.total_transactions += unfinalized_hashes.len() as u64;
+
+        if is_partitioned {
+            for hash in &unfinalized_hashes {
+                if let Some(node) = state.dag.get_node_mut(hash) {
+                    node.provisional_finality = true;
+                    node.partition_epoch = partition_info.current_epoch;
+                }
+            }
+        }
         
         // Release write lock before executing transactions
         drop(state);
@@ -1644,8 +1676,16 @@ impl CheckpointService {
             &checkpoint.hash[..16],
             height,
             unfinalized_hashes.len(),
-            checkpoint_reward
+            rinku_core::types::from_micro_units(checkpoint_reward)
         );
+        if let Some(ref eb) = self.event_bus {
+            eb.publish(crate::events::NodeEvent::CheckpointCreated {
+                hash: checkpoint.hash.clone(),
+                height,
+                txs_finalized: unfinalized_hashes.len(),
+                reward: rinku_core::types::from_micro_units(checkpoint_reward),
+            });
+        }
         
         // FINALITY-FIRST MODEL: Execute finalized transactions using TWO-PASS approach
         // This ensures simulation/execution parity for claim transactions:
@@ -1756,10 +1796,10 @@ impl CheckpointService {
         state_root: &str,
         finalized_tx_hashes: &[String],
         finalized_transactions: &[SignedTransaction],
-    ) -> (Vec<ValidatorSignature>, Vec<Vec<u8>>, f64) {
-        // Reduced from 10s to 3s - we request in parallel, so we don't need long waits
-        // If a peer can't respond in 3s, it's too slow to participate in this round
-        const QUORUM_TIMEOUT_MS: u64 = 3000;
+    ) -> (Vec<ValidatorSignature>, Vec<Vec<u8>>, u64) {
+        // Per-peer timeout for vote requests (truly parallel now that mutex is not held during await)
+        // 5s is generous for same-region VMs; slow peers won't block others
+        const QUORUM_TIMEOUT_MS: u64 = 5000;
         
         let mut signatures = vec![our_validator_sig];
         let mut raw_signatures = vec![our_signature];
@@ -1773,9 +1813,9 @@ impl CheckpointService {
             self.our_stake // Fallback: assume we're the only validator
         };
         
-        let quorum_stake_needed = total_network_stake * QUORUM_STAKE_THRESHOLD;
+        let quorum_stake_needed = (total_network_stake as f64 * QUORUM_STAKE_THRESHOLD) as u64;
         debug!(
-            "Quorum collection: need {:.0}/{:.0} stake ({:.1}%)",
+            "Quorum collection: need {}/{} stake ({:.1}%)",
             quorum_stake_needed, total_network_stake, QUORUM_STAKE_THRESHOLD * 100.0
         );
         
@@ -1886,7 +1926,7 @@ impl CheckpointService {
         validator_identity: Option<&Arc<RwLock<ValidatorIdentityService>>>,
         finalized_tx_hashes: &[String],
         finalized_transactions: &[SignedTransaction],
-    ) -> Option<(ValidatorSignature, Vec<u8>, f64)> {
+    ) -> Option<(ValidatorSignature, Vec<u8>, u64)> {
         // With custom 16MB CBOR codec, we can send many more embedded transactions
         // Average transaction is ~500 bytes, so 10,000 txs ≈ 5MB, well within 16MB limit
         const MAX_EMBEDDED_TXS: usize = 10_000;
@@ -1909,9 +1949,22 @@ impl CheckpointService {
             finalized_transactions: limited_transactions,
         });
         
-        let response = {
+        let response_rx = {
             let locked = network.lock().await;
-            locked.sync_request(peer_id, request).await
+            locked.send_sync_request(peer_id, request).await
+        };
+        let response: Result<SyncResponse, anyhow::Error> = match response_rx {
+            Ok(rx) => match rx.await {
+                Ok(r) => Ok(r),
+                Err(_) => {
+                    debug!("Vote request cancelled for peer {}", peer_id);
+                    return None;
+                }
+            },
+            Err(e) => {
+                debug!("Failed to send vote request to {}: {}", peer_id, e);
+                return None;
+            }
         };
         match response {
             Ok(SyncResponse::CheckpointVote(Some(vote))) => {
@@ -1942,7 +1995,7 @@ impl CheckpointService {
                                 );
                                 return None;
                             }
-                            let stake = identity.get_validator_stake(&vote.validator_address).unwrap_or(0.0);
+                            let stake = identity.get_validator_stake(&vote.validator_address).unwrap_or(0);
                             (known_pk, stake)
                         }
                         None => {

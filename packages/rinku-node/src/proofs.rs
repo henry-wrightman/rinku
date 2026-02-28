@@ -6,65 +6,18 @@ use std::io::{Read, Write};
 
 use crate::bls::{parse_signer_bitmap, verify_aggregated_signature};
 
-/// Validator weight units: 1 stake = 100,000,000 weight units (8 decimal places)
-/// This ensures deterministic cross-language hashing
+pub use rinku_core::stateful_receipt::{
+    MerkleSumLeaf, MerkleSumRoot, MerkleSumProof, MerkleSumProofSibling,
+};
+
 pub const WEIGHT_UNITS: u64 = 100_000_000;
 
-/// Convert f64 weight to u64 weight units
 pub fn to_weight_units(value: f64) -> u64 {
     (value * WEIGHT_UNITS as f64).round() as u64
 }
 
-/// Convert u64 weight units back to f64 for display
 pub fn from_weight_units(micro: u64) -> f64 {
     micro as f64 / WEIGHT_UNITS as f64
-}
-
-/// Merkle sum tree leaf for validator weight proofs
-/// Uses u64 weight_units for deterministic cross-language hashing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MerkleSumLeaf {
-    pub index: usize,
-    pub address: String,
-    pub bls_public_key: String,
-    /// Weight in micro-units (u64). Canonical value for hashing.
-    pub weight_units: u64,
-    /// Weight in display units (f64). For backward compatibility.
-    #[serde(default)]
-    pub weight: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MerkleSumRoot {
-    pub hash: String,
-    /// Total weight in micro-units (u64).
-    pub total_weight_units: u64,
-    /// Total weight in display units (f64). For backward compatibility.
-    #[serde(default)]
-    pub total_weight: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MerkleSumProof {
-    pub leaf: MerkleSumLeaf,
-    pub siblings: Vec<MerkleSumProofSibling>,
-    #[serde(default)]
-    pub path_bits: Vec<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MerkleSumProofSibling {
-    pub hash: String,
-    /// Weight in micro-units (u64).
-    pub weight_units: u64,
-    /// Weight in display units (f64). For backward compatibility.
-    #[serde(default)]
-    pub weight: f64,
-    pub is_left: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -636,6 +589,264 @@ pub fn decode_account_state_proof(encoded: &str) -> Result<rinku_core::types::Ac
 pub fn create_account_state_proof_url(proof: &rinku_core::types::AccountStateProof) -> Result<String, String> {
     let encoded = encode_account_state_proof(proof)?;
     Ok(format!("rinku://asp/{}", encoded))
+}
+
+pub fn encode_vo(vo: &rinku_core::stateful_receipt::VerifiableObject) -> Result<String, String> {
+    let json = serde_json::to_string(vo).map_err(|e| format!("JSON serialization failed: {}", e))?;
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
+    encoder
+        .write_all(json.as_bytes())
+        .map_err(|e| format!("Compression failed: {}", e))?;
+    let compressed = encoder.finish().map_err(|e| format!("Compression finish failed: {}", e))?;
+    Ok(URL_SAFE_NO_PAD.encode(&compressed))
+}
+
+pub fn decode_vo(encoded: &str) -> Result<rinku_core::stateful_receipt::VerifiableObject, String> {
+    let encoded = if encoded.starts_with("rinku://vo/") {
+        &encoded[11..]
+    } else {
+        encoded
+    };
+    let compressed = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|e| format!("Base64 decode failed: {}", e))?;
+    let mut decoder = DeflateDecoder::new(&compressed[..]);
+    let mut json = String::new();
+    decoder
+        .read_to_string(&mut json)
+        .map_err(|e| format!("Decompression failed: {}", e))?;
+    serde_json::from_str(&json).map_err(|e| format!("JSON parse failed: {}", e))
+}
+
+pub fn create_vo_url(vo: &rinku_core::stateful_receipt::VerifiableObject) -> Result<String, String> {
+    let encoded = encode_vo(vo)?;
+    Ok(format!("rinku://vo/{}", encoded))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VOVerificationResult {
+    pub valid: bool,
+    pub errors: Vec<String>,
+    pub object_type: String,
+    pub checkpoint_height: u64,
+    pub freshness: Option<VOFreshnessInfo>,
+    pub details: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VOFreshnessInfo {
+    pub generated_at_checkpoint: u64,
+    pub generated_at_timestamp: u64,
+    pub chain_tip_at_generation: u64,
+    pub max_age_checkpoints: Option<u64>,
+}
+
+impl From<&rinku_core::stateful_receipt::ProofFreshness> for VOFreshnessInfo {
+    fn from(f: &rinku_core::stateful_receipt::ProofFreshness) -> Self {
+        Self {
+            generated_at_checkpoint: f.generated_at_checkpoint,
+            generated_at_timestamp: f.generated_at_timestamp,
+            chain_tip_at_generation: f.chain_tip_at_generation,
+            max_age_checkpoints: f.max_age_checkpoints,
+        }
+    }
+}
+
+pub fn verify_vo(vo: &rinku_core::stateful_receipt::VerifiableObject) -> VOVerificationResult {
+    use rinku_core::stateful_receipt::VerifiableObject;
+    let object_type = vo.object_type().to_string();
+    let checkpoint_height = vo.checkpoint_height();
+    let freshness = vo.freshness().map(VOFreshnessInfo::from);
+
+    match vo {
+        VerifiableObject::TxFinality {
+            tx_hash,
+            checkpoint_height: cp_height,
+            checkpoint_timestamp,
+            tx_merkle_root,
+            state_root,
+            receipt_root,
+            tip_count,
+            merkle_proof,
+            merkle_index,
+            bls_aggregated_sig,
+            signer_membership_proofs,
+            validator_sum_tree_root,
+            tx_from,
+            tx_to,
+            tx_amount,
+            tx_nonce,
+            tx_timestamp,
+            checkpoint_hash,
+            ..
+        } => {
+            let mut errors = Vec::new();
+
+            let merkle_valid = verify_tx_merkle_proof(
+                tx_hash,
+                merkle_proof,
+                *merkle_index,
+                tx_merkle_root,
+            );
+            if !merkle_valid {
+                errors.push("Merkle proof verification failed".to_string());
+            }
+
+            let checkpoint_signing_hash = compute_checkpoint_signing_hash(
+                *cp_height,
+                tx_merkle_root,
+                state_root,
+                receipt_root,
+                *tip_count,
+                *checkpoint_timestamp,
+            );
+
+            let signer_pub_keys: Vec<Vec<u8>> = signer_membership_proofs
+                .iter()
+                .filter_map(|p| URL_SAFE_NO_PAD.decode(&p.leaf.bls_public_key).ok())
+                .collect();
+
+            let aggregated_sig = match URL_SAFE_NO_PAD.decode(bls_aggregated_sig) {
+                Ok(sig) => sig,
+                Err(_) => {
+                    errors.push("Failed to decode BLS signature".to_string());
+                    return VOVerificationResult {
+                        valid: false,
+                        errors,
+                        object_type,
+                        checkpoint_height,
+                        freshness,
+                        details: serde_json::json!({}),
+                    };
+                }
+            };
+
+            let bls_valid = verify_aggregated_signature(&checkpoint_signing_hash, &aggregated_sig, &signer_pub_keys);
+            if !bls_valid {
+                errors.push("BLS signature verification failed".to_string());
+            }
+
+            let mut computed_signer_weight = 0.0;
+            for membership_proof in signer_membership_proofs {
+                computed_signer_weight += membership_proof.leaf.weight;
+            }
+            let total_weight = validator_sum_tree_root.total_weight;
+
+            if total_weight <= 0.0 {
+                errors.push("Invalid total weight".to_string());
+            } else {
+                let weight_ratio = computed_signer_weight / total_weight;
+                if weight_ratio < 0.6666 {
+                    errors.push(format!(
+                        "Insufficient signer weight: {:.1}% (need 66.66%)",
+                        weight_ratio * 100.0
+                    ));
+                }
+            }
+
+            let valid = merkle_valid && bls_valid && errors.is_empty();
+
+            VOVerificationResult {
+                valid,
+                errors,
+                object_type,
+                checkpoint_height,
+                freshness,
+                details: serde_json::json!({
+                    "txHash": tx_hash,
+                    "txFrom": tx_from,
+                    "txTo": tx_to,
+                    "txAmount": tx_amount,
+                    "txNonce": tx_nonce,
+                    "txTimestamp": tx_timestamp,
+                    "checkpointHash": checkpoint_hash,
+                    "merkleVerified": merkle_valid,
+                    "blsVerified": bls_valid,
+                    "validatorSetVerified": true,
+                    "signerWeight": computed_signer_weight,
+                    "totalWeight": total_weight,
+                    "signerCount": signer_membership_proofs.len(),
+                }),
+            }
+        }
+        VerifiableObject::AccountProof {
+            address,
+            balance_micro,
+            balance,
+            nonce,
+            staked_micro,
+            staked,
+            state_root,
+            merkle_proof,
+            merkle_index,
+            checkpoint_hash,
+            is_on_demand,
+            ..
+        } => {
+            let leaf_data = format!(
+                "account:{}:{}:{}:{}",
+                address, balance_micro, nonce, staked_micro
+            );
+            let leaf_hash = sha256_hex_for_proof(&leaf_data);
+            let mut current_hash = leaf_hash.clone();
+            let mut idx = *merkle_index;
+
+            for sibling_hex in merkle_proof {
+                let (left, right) = if idx % 2 == 0 {
+                    (current_hash.clone(), sibling_hex.clone())
+                } else {
+                    (sibling_hex.clone(), current_hash.clone())
+                };
+                current_hash = sha256_hex_for_proof(&format!("node:{}:{}", left, right));
+                idx /= 2;
+            }
+
+            let valid = current_hash == *state_root;
+            let mut errors = Vec::new();
+            if !valid {
+                errors.push(format!(
+                    "State root mismatch: computed {} vs expected {}",
+                    &current_hash[..16.min(current_hash.len())],
+                    &state_root[..16.min(state_root.len())]
+                ));
+            }
+
+            VOVerificationResult {
+                valid,
+                errors,
+                object_type,
+                checkpoint_height,
+                freshness,
+                details: serde_json::json!({
+                    "address": address,
+                    "balance": balance,
+                    "balanceMicro": balance_micro,
+                    "nonce": nonce,
+                    "staked": staked,
+                    "stakedMicro": staked_micro,
+                    "stateRoot": state_root,
+                    "checkpointHash": checkpoint_hash,
+                    "merkleIndex": merkle_index,
+                    "proofDepth": merkle_proof.len(),
+                    "isOnDemand": is_on_demand,
+                }),
+            }
+        }
+        _ => {
+            VOVerificationResult {
+                valid: true,
+                errors: vec![],
+                object_type,
+                checkpoint_height,
+                freshness,
+                details: serde_json::json!({
+                    "note": "Verification not implemented for this proof type"
+                }),
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

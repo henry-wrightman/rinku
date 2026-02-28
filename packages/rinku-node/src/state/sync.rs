@@ -17,7 +17,22 @@ impl NodeState {
             .clone();
 
         let mut finalized_hashes: Vec<String> = if !checkpoint.finalized_tx_hashes.is_empty() {
-            checkpoint.finalized_tx_hashes.clone()
+            let mut hashes = checkpoint.finalized_tx_hashes.clone();
+            if !hashes.contains(&tx_hash.to_string()) {
+                let dag_hashes: Vec<String> = state
+                    .dag
+                    .get_all_nodes()
+                    .into_iter()
+                    .filter(|n| n.finalized && n.checkpoint_height == Some(checkpoint_height))
+                    .map(|n| n.hash.clone())
+                    .collect();
+                for h in dag_hashes {
+                    if !hashes.contains(&h) {
+                        hashes.push(h);
+                    }
+                }
+            }
+            hashes
         } else {
             state
                 .dag
@@ -29,12 +44,30 @@ impl NodeState {
         };
 
         if finalized_hashes.is_empty() {
+            tracing::warn!(
+                "No finalized hashes found for checkpoint {} when generating proof for {}",
+                checkpoint_height,
+                &tx_hash[..16.min(tx_hash.len())]
+            );
             return None;
         }
 
         finalized_hashes.sort();
 
-        let index = finalized_hashes.iter().position(|h| h == tx_hash)?;
+        let index = match finalized_hashes.iter().position(|h| h == tx_hash) {
+            Some(idx) => idx,
+            None => {
+                tracing::warn!(
+                    "Transaction {} not found in {} finalized hashes at checkpoint {} (first: {}, last: {})",
+                    &tx_hash[..16.min(tx_hash.len())],
+                    finalized_hashes.len(),
+                    checkpoint_height,
+                    &finalized_hashes.first().map(|h| &h[..16.min(h.len())]).unwrap_or(""),
+                    &finalized_hashes.last().map(|h| &h[..16.min(h.len())]).unwrap_or(""),
+                );
+                return None;
+            }
+        };
 
         let tree = MerkleTree::from_hex_leaves(&finalized_hashes).ok()?;
         let merkle_proof = tree.get_proof(index).ok()?;
@@ -226,11 +259,11 @@ impl NodeState {
                     merged_accounts.insert(fingerprint.clone(), peer_account.clone());
                     accounts_updated += 1;
                 } else if peer_account.nonce == local_account.nonce {
-                    let balance_diff = (peer_account.balance - local_account.balance).abs();
-                    let stake_diff = (peer_account.staked - local_account.staked).abs();
-                    if balance_diff > 0.0001 || stake_diff > 0.0001 {
+                    let balance_diff = peer_account.balance.abs_diff(local_account.balance);
+                    let stake_diff = peer_account.staked.abs_diff(local_account.staked);
+                    if balance_diff > 0 || stake_diff > 0 {
                         info!(
-                            "Balance fix for {}: local={:.6} peer={:.6} (nonce={})",
+                            "Balance fix for {}: local={} peer={} (nonce={})",
                             &fingerprint[..fingerprint.len().min(12)], local_account.balance, peer_account.balance, peer_account.nonce
                         );
                         merged_accounts.insert(fingerprint.clone(), peer_account.clone());
@@ -386,7 +419,7 @@ impl NodeState {
             .filter(|(addr, account)| {
                 *addr != "faucet"
                     && *addr != "genesis"
-                    && account.staked > 0.0
+                    && account.staked > 0
                     && account.nonce == 0
                     && !state.validators.contains_key(*addr)
             })
@@ -396,10 +429,10 @@ impl NodeState {
         for addr in &ghost_candidates {
             if let Some(account) = state.accounts.get_mut(addr) {
                 warn!(
-                    "Ghost validator cleanup: zeroing stale stake on {} (staked={:.4}, balance={:.4}, nonce=0, not in validator set)",
+                    "Ghost validator cleanup: zeroing stale stake on {} (staked={}, balance={}, nonce=0, not in validator set)",
                     &addr[..addr.len().min(16)], account.staked, account.balance
                 );
-                account.staked = 0.0;
+                account.staked = 0;
                 ghost_removed += 1;
             }
         }
@@ -409,8 +442,8 @@ impl NodeState {
             .filter(|(addr, account)| {
                 *addr != "faucet"
                     && *addr != "genesis"
-                    && account.balance < 0.001
-                    && account.staked == 0.0
+                    && account.balance == 0
+                    && account.staked == 0
                     && account.nonce == 0
                     && !state.validators.contains_key(*addr)
             })
@@ -465,7 +498,7 @@ impl NodeState {
             tx: rinku_core::types::Transaction {
                 from: "genesis".to_string(),
                 to: "genesis".to_string(),
-                amount: 0.0,
+                amount: 0,
                 nonce: 0,
                 timestamp: snapshot.genesis_time * 1000,
                 parents: vec![],
@@ -495,6 +528,9 @@ impl NodeState {
             finalized: true,
             checkpoint_height: Some(0),
             received_at_ms: Some(now_ms),
+            partition_epoch: None,
+            provisional_finality: false,
+            rolled_back: false,
         };
         let _ = state.dag.add_node(genesis_node);
 
@@ -502,12 +538,6 @@ impl NodeState {
             .dag_transactions
             .iter()
             .map(|tx| tx.hash.clone())
-            .collect();
-        
-        let finalized_hashes: std::collections::HashSet<String> = snapshot
-            .finalized_tx_hashes
-            .iter()
-            .cloned()
             .collect();
 
         let normalize_parent = |p: &str| -> String {
@@ -584,11 +614,20 @@ impl NodeState {
             .map(|tx| (tx.hash.clone(), tx))
             .collect();
 
+        let actually_finalized: std::collections::HashSet<String> = if !snapshot.finalized_tx_hashes.is_empty() {
+            snapshot.finalized_tx_hashes.into_iter().collect()
+        } else {
+            snapshot.checkpoints.iter()
+                .flat_map(|cp| cp.finalized_tx_hashes.iter().cloned())
+                .collect()
+        };
+
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
         let mut added = 0;
+        let mut unfinalized_carried = 0;
         for hash in sorted_hashes {
             let tx = match tx_lookup.get(&hash) {
                 Some(tx) => tx,
@@ -603,9 +642,17 @@ impl NodeState {
                 1.0
             };
 
-            let is_finalized = finalized_hashes.contains(&tx.hash);
-            
-            let checkpoint_height = snapshot.tx_checkpoint_heights.get(&tx.hash).copied();
+            let is_finalized = actually_finalized.contains(&hash);
+            let checkpoint_height = if is_finalized {
+                snapshot.tx_checkpoint_heights.get(&tx.hash).copied()
+                    .or(Some(peer_height))
+            } else {
+                None
+            };
+
+            if !is_finalized {
+                unfinalized_carried += 1;
+            }
             
             let node = rinku_core::types::DagNode {
                 hash: tx.hash.clone(),
@@ -616,11 +663,21 @@ impl NodeState {
                 finalized: is_finalized,
                 checkpoint_height,
                 received_at_ms: Some(tx.tx.timestamp),
+            partition_epoch: None,
+            provisional_finality: false,
+                rolled_back: false,
             };
 
             if state.dag.add_node(node).is_ok() {
                 added += 1;
             }
+        }
+
+        if unfinalized_carried > 0 {
+            info!(
+                "Sync carried {} unfinalized transactions (not yet checkpointed) for future finalization",
+                unfinalized_carried
+            );
         }
 
         let validator_count = state.validators.len();
@@ -633,7 +690,7 @@ impl NodeState {
             let mut rewards = self.rewards.write().await;
             rewards.merge_from(rewards_snap);
             
-            let stake_reconciliations: Vec<(String, f64, u64)> = rewards
+            let stake_reconciliations: Vec<(String, u64, u64)> = rewards
                 .get_all_stakes()
                 .iter()
                 .map(|pos| (pos.staker.clone(), pos.amount, pos.staked_at))
@@ -645,10 +702,10 @@ impl NodeState {
                 let mut reconciled_count = 0;
                 for (staker, amount, staked_at) in &stake_reconciliations {
                     if let Some(account) = state.accounts.get_mut(staker) {
-                        let diff = (account.staked - amount).abs();
-                        if diff > 0.0001 {
+                        let diff = account.staked.abs_diff(*amount);
+                        if diff > 0 {
                             info!(
-                                "Reconciling account.staked for {}: {} -> {} (diff: {:.4})",
+                                "Reconciling account.staked for {}: {} -> {} (diff: {})",
                                 &staker[..staker.len().min(12)],
                                 account.staked,
                                 amount,
@@ -668,9 +725,9 @@ impl NodeState {
         if let Some(emission_snap) = emission_to_apply {
             let mut emission = self.emission.write().await;
             let (emitted_delta, burned_delta) = emission.merge_from(emission_snap);
-            if emitted_delta > 0.0 || burned_delta > 0.0 {
+            if emitted_delta > 0 || burned_delta > 0 {
                 info!(
-                    "Merged emission snapshot: +{:.6} emitted, +{:.6} burned",
+                    "Merged emission snapshot: +{} emitted, +{} burned",
                     emitted_delta, burned_delta
                 );
             }

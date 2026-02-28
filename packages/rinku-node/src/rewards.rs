@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use rinku_core::types::{micro_serde, from_micro_units};
 
 pub const WITNESS_TTL_MS: u64 = 3_600_000;
 pub const QUEUE_COMPACT_THRESHOLD: usize = 10_000;
-pub const MAX_WITNESSED_ENTRIES: usize = 20_000;  // Hard cap to prevent memory leak
-pub const MAX_LIFETIME_ENTRIES: usize = 10_000;   // Cap on tracked addresses
-pub const MAX_PENDING_ENTRIES: usize = 10_000;    // Cap on pending reward addresses
+pub const MAX_WITNESSED_ENTRIES: usize = 20_000;
+pub const MAX_LIFETIME_ENTRIES: usize = 10_000;
+pub const MAX_PENDING_ENTRIES: usize = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,8 +14,10 @@ pub struct RewardConfig {
     pub tip_reward_percent: f64,
     pub stake_reward_percent: f64,
     pub witness_reward_percent: f64,
-    pub min_stake_amount: f64,
-    pub min_stake_for_rewards: f64,
+    #[serde(with = "micro_serde")]
+    pub min_stake_amount: u64,
+    #[serde(with = "micro_serde")]
+    pub min_stake_for_rewards: u64,
     pub unstake_cooldown_ms: u64,
 }
 
@@ -24,8 +27,8 @@ impl Default for RewardConfig {
             tip_reward_percent: 0.01,
             stake_reward_percent: 0.005,
             witness_reward_percent: 0.002,
-            min_stake_amount: 100.0,
-            min_stake_for_rewards: 100.0,
+            min_stake_amount: 10_000_000_000,
+            min_stake_for_rewards: 10_000_000_000,
             unstake_cooldown_ms: 24 * 60 * 60 * 1000,
         }
     }
@@ -35,7 +38,8 @@ impl Default for RewardConfig {
 #[serde(rename_all = "camelCase")]
 pub struct StakePosition {
     pub staker: String,
-    pub amount: f64,
+    #[serde(with = "micro_serde")]
+    pub amount: u64,
     pub staked_at: u64,
     pub last_reward_at: Option<u64>,
 }
@@ -45,7 +49,8 @@ pub struct StakePosition {
 pub struct StakingStatus {
     pub address: String,
     pub position: Option<StakePosition>,
-    pub stake_rewards_total: f64,
+    #[serde(with = "micro_serde")]
+    pub stake_rewards_total: u64,
     pub can_unstake: bool,
     pub cooldown_remaining_ms: u64,
 }
@@ -59,15 +64,14 @@ pub enum Reward {
     Stake(StakeReward),
     #[serde(rename = "witness")]
     Witness(WitnessReward),
-    #[serde(rename = "relay")]
-    Relay(RelayReward),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TipReward {
     pub recipient: String,
-    pub amount: f64,
+    #[serde(with = "micro_serde")]
+    pub amount: u64,
     pub tx_url: String,
     pub tip_url: String,
     pub timestamp: u64,
@@ -77,7 +81,8 @@ pub struct TipReward {
 #[serde(rename_all = "camelCase")]
 pub struct StakeReward {
     pub recipient: String,
-    pub amount: f64,
+    #[serde(with = "micro_serde")]
+    pub amount: u64,
     pub tx_url: String,
     pub timestamp: u64,
 }
@@ -86,7 +91,8 @@ pub struct StakeReward {
 #[serde(rename_all = "camelCase")]
 pub struct WitnessReward {
     pub recipient: String,
-    pub amount: f64,
+    #[serde(with = "micro_serde")]
+    pub amount: u64,
     pub referenced_tx_url: String,
     pub referencing_tx_url: String,
     pub timestamp: u64,
@@ -94,24 +100,18 @@ pub struct WitnessReward {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelayReward {
-    pub recipient: String,
-    pub amount: f64,
-    pub tx_hash: String,
-    pub intent_hash: String,
-    pub timestamp: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct RewardsSummary {
     pub address: String,
-    pub tip_rewards: f64,
-    pub stake_rewards: f64,
-    pub witness_rewards: f64,
-    pub relay_rewards: f64,
-    pub total_rewards: f64,
-    pub pending_rewards: f64,
+    #[serde(with = "micro_serde")]
+    pub tip_rewards: u64,
+    #[serde(with = "micro_serde")]
+    pub stake_rewards: u64,
+    #[serde(with = "micro_serde")]
+    pub witness_rewards: u64,
+    #[serde(with = "micro_serde")]
+    pub total_rewards: u64,
+    #[serde(with = "micro_serde")]
+    pub pending_rewards: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,11 +124,12 @@ struct WitnessedEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct LifetimeRewards {
-    pub tip_rewards: f64,
-    pub stake_rewards: f64,
-    pub witness_rewards: f64,
-    #[serde(default)]
-    pub relay_rewards: f64,
+    #[serde(with = "micro_serde")]
+    pub tip_rewards: u64,
+    #[serde(with = "micro_serde")]
+    pub stake_rewards: u64,
+    #[serde(with = "micro_serde")]
+    pub witness_rewards: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,25 +137,24 @@ pub struct LifetimeRewards {
 pub struct RewardsSnapshot {
     pub rewards: Vec<(String, Vec<Reward>)>,
     pub stakes: Vec<(String, StakePosition)>,
-    pub pending_rewards: Vec<(String, f64)>,
+    #[serde(default)]
+    pub pending_rewards: Vec<(String, u64)>,
     pub witnessed_txs: Vec<(String, u64)>,
     pub witnessed_queue: Vec<WitnessedEntry>,
     pub config: RewardConfig,
     #[serde(default)]
     pub lifetime_rewards: Vec<(String, LifetimeRewards)>,
-    /// Tracks total claimed rewards per address (used in merge to prevent double-claims)
     #[serde(default)]
-    pub claimed_rewards: Vec<(String, f64)>,
+    pub claimed_rewards: Vec<(String, u64)>,
 }
 
 pub struct RewardsService {
     config: RewardConfig,
     rewards: HashMap<String, Vec<Reward>>,
     stakes: HashMap<String, StakePosition>,
-    pending_rewards: HashMap<String, f64>,
+    pending_rewards: HashMap<String, u64>,
     lifetime_rewards: HashMap<String, LifetimeRewards>,
-    /// Tracks total claimed rewards per address (used in merge to prevent double-claims)
-    claimed_rewards: HashMap<String, f64>,
+    claimed_rewards: HashMap<String, u64>,
     witnessed_txs: HashMap<String, u64>,
     witnessed_queue: Vec<WitnessedEntry>,
     witnessed_queue_head: usize,
@@ -179,21 +179,21 @@ impl RewardsService {
         &self.config
     }
 
-    pub fn calculate_tip_reward(&self, tx_amount: f64) -> f64 {
-        tx_amount * self.config.tip_reward_percent
+    pub fn calculate_tip_reward(&self, tx_amount: u64) -> u64 {
+        (tx_amount as f64 * self.config.tip_reward_percent).round() as u64
     }
 
-    pub fn calculate_stake_reward(&self, stake_amount: f64, tx_amount: f64) -> f64 {
+    pub fn calculate_stake_reward(&self, stake_amount: u64, tx_amount: u64) -> u64 {
         let total_staked = self.get_total_staked();
-        if total_staked <= 0.0 {
-            return 0.0;
+        if total_staked == 0 {
+            return 0;
         }
-        let stake_share = stake_amount / total_staked;
-        tx_amount * self.config.stake_reward_percent * stake_share
+        let stake_share = stake_amount as f64 / total_staked as f64;
+        (tx_amount as f64 * self.config.stake_reward_percent * stake_share).round() as u64
     }
 
-    pub fn calculate_witness_reward(&self, tx_amount: f64) -> f64 {
-        tx_amount * self.config.witness_reward_percent
+    pub fn calculate_witness_reward(&self, tx_amount: u64) -> u64 {
+        (tx_amount as f64 * self.config.witness_reward_percent).round() as u64
     }
 
     pub fn process_tip_reward(
@@ -201,10 +201,10 @@ impl RewardsService {
         tx_url: &str,
         tip_url: &str,
         recipient: &str,
-        tx_amount: f64,
+        tx_amount: u64,
     ) -> Option<TipReward> {
         let amount = self.calculate_tip_reward(tx_amount);
-        if amount <= 0.0 {
+        if amount == 0 {
             return None;
         }
 
@@ -220,7 +220,7 @@ impl RewardsService {
         Some(reward)
     }
 
-    pub fn process_stake_rewards(&mut self, tx_url: &str, tx_amount: f64) -> Vec<StakeReward> {
+    pub fn process_stake_rewards(&mut self, tx_url: &str, tx_amount: u64) -> Vec<StakeReward> {
         let mut rewards = Vec::new();
         let validators = self.get_active_validators_data();
 
@@ -232,7 +232,7 @@ impl RewardsService {
 
         for (staker, stake_amount) in validators {
             let amount = self.calculate_stake_reward(stake_amount, tx_amount);
-            if amount <= 0.0 {
+            if amount == 0 {
                 continue;
             }
 
@@ -258,9 +258,8 @@ impl RewardsService {
         referencing_tx_url: &str,
         referenced_tx_url: &str,
         recipient: &str,
-        tx_amount: f64,
+        tx_amount: u64,
     ) -> Option<WitnessReward> {
-        // Use short key: just last 16 chars of each hash to save memory
         let ref_short = referencing_tx_url.chars().rev().take(16).collect::<String>();
         let parent_short = referenced_tx_url.chars().rev().take(16).collect::<String>();
         let key = format!("{}:{}", ref_short, parent_short);
@@ -270,13 +269,12 @@ impl RewardsService {
         }
 
         let amount = self.calculate_witness_reward(tx_amount);
-        if amount <= 0.0 {
+        if amount == 0 {
             return None;
         }
 
-        // Enforce hard cap - evict oldest entries if at limit
         if self.witnessed_txs.len() >= MAX_WITNESSED_ENTRIES {
-            self.force_prune_witnessed(MAX_WITNESSED_ENTRIES / 4);  // Remove 25%
+            self.force_prune_witnessed(MAX_WITNESSED_ENTRIES / 4);
         }
 
         let now = current_time_ms();
@@ -295,7 +293,6 @@ impl RewardsService {
         Some(reward)
     }
     
-    /// Force prune oldest witnessed entries to stay under memory cap
     fn force_prune_witnessed(&mut self, count: usize) {
         let mut pruned = 0;
         while pruned < count && self.witnessed_queue_head < self.witnessed_queue.len() {
@@ -305,18 +302,17 @@ impl RewardsService {
             pruned += 1;
         }
         
-        // Compact the queue if needed
         if self.witnessed_queue_head >= QUEUE_COMPACT_THRESHOLD {
             self.witnessed_queue = self.witnessed_queue[self.witnessed_queue_head..].to_vec();
             self.witnessed_queue_head = 0;
         }
     }
 
-    pub fn stake(&mut self, staker: &str, amount: f64) -> Result<StakePosition, String> {
+    pub fn stake(&mut self, staker: &str, amount: u64) -> Result<StakePosition, String> {
         if amount < self.config.min_stake_amount {
             return Err(format!(
-                "Minimum stake amount is {}",
-                self.config.min_stake_amount
+                "Minimum stake amount is {} RKU",
+                from_micro_units(self.config.min_stake_amount)
             ));
         }
 
@@ -339,7 +335,7 @@ impl RewardsService {
         Ok(position)
     }
 
-    pub fn unstake(&mut self, staker: &str) -> Result<f64, String> {
+    pub fn unstake(&mut self, staker: &str) -> Result<u64, String> {
         let position = self
             .stakes
             .get(staker)
@@ -367,7 +363,7 @@ impl RewardsService {
         self.stakes.get(staker)
     }
 
-    pub fn update_stake(&mut self, staker: &str, new_amount: f64) {
+    pub fn update_stake(&mut self, staker: &str, new_amount: u64) {
         if let Some(stake) = self.stakes.get_mut(staker) {
             stake.amount = new_amount;
         }
@@ -380,7 +376,7 @@ impl RewardsService {
     pub fn get_staking_status(&self, address: &str) -> StakingStatus {
         let position = self.stakes.get(address).cloned();
         let rewards = self.rewards.get(address).map(|r| r.as_slice()).unwrap_or(&[]);
-        let stake_rewards_total: f64 = rewards
+        let stake_rewards_total: u64 = rewards
             .iter()
             .filter_map(|r| match r {
                 Reward::Stake(sr) => Some(sr.amount),
@@ -410,7 +406,7 @@ impl RewardsService {
     }
 
     pub fn get_rewards_summary(&self, address: &str) -> RewardsSummary {
-        let pending = self.pending_rewards.get(address).copied().unwrap_or(0.0);
+        let pending = self.pending_rewards.get(address).copied().unwrap_or(0);
         let lifetime = self.lifetime_rewards.get(address).cloned().unwrap_or_default();
 
         RewardsSummary {
@@ -418,8 +414,7 @@ impl RewardsService {
             tip_rewards: lifetime.tip_rewards,
             stake_rewards: lifetime.stake_rewards,
             witness_rewards: lifetime.witness_rewards,
-            relay_rewards: lifetime.relay_rewards,
-            total_rewards: lifetime.tip_rewards + lifetime.stake_rewards + lifetime.witness_rewards + lifetime.relay_rewards,
+            total_rewards: lifetime.tip_rewards + lifetime.stake_rewards + lifetime.witness_rewards,
             pending_rewards: pending,
         }
     }
@@ -431,7 +426,7 @@ impl RewardsService {
             .collect()
     }
 
-    fn get_active_validators_data(&self) -> Vec<(String, f64)> {
+    fn get_active_validators_data(&self) -> Vec<(String, u64)> {
         self.stakes
             .values()
             .filter(|s| s.amount >= self.config.min_stake_amount)
@@ -439,7 +434,7 @@ impl RewardsService {
             .collect()
     }
 
-    pub fn get_total_staked(&self) -> f64 {
+    pub fn get_total_staked(&self) -> u64 {
         self.stakes.values().map(|s| s.amount).sum()
     }
     
@@ -447,80 +442,62 @@ impl RewardsService {
         self.stakes.values().collect()
     }
 
-    pub fn get_pending_rewards(&self, address: &str) -> f64 {
-        self.pending_rewards.get(address).copied().unwrap_or(0.0)
+    pub fn get_pending_rewards(&self, address: &str) -> u64 {
+        self.pending_rewards.get(address).copied().unwrap_or(0)
     }
     
-    /// Get total claimed rewards for an address (lifetime)
-    pub fn get_claimed_total(&self, address: &str) -> f64 {
-        self.claimed_rewards.get(address).copied().unwrap_or(0.0)
+    pub fn get_claimed_total(&self, address: &str) -> u64 {
+        self.claimed_rewards.get(address).copied().unwrap_or(0)
     }
 
-    pub fn claim_rewards(&mut self, address: &str) -> f64 {
-        let pending = self.pending_rewards.get(address).copied().unwrap_or(0.0);
-        if pending > 0.0 {
-            self.pending_rewards.insert(address.to_string(), 0.0);
-            // Track total claimed for this address (used during sync merge)
-            let prev_claimed = self.claimed_rewards.get(address).copied().unwrap_or(0.0);
+    pub fn claim_rewards(&mut self, address: &str) -> u64 {
+        let pending = self.pending_rewards.get(address).copied().unwrap_or(0);
+        if pending > 0 {
+            self.pending_rewards.insert(address.to_string(), 0);
+            let prev_claimed = self.claimed_rewards.get(address).copied().unwrap_or(0);
             self.claimed_rewards.insert(address.to_string(), prev_claimed + pending);
         }
         pending
     }
     
-    /// Sync stake state from leader's authoritative v3 proof values
-    /// Called during state synchronization to ensure RewardsService matches leader's computed state
-    /// 
-    /// DETERMINISTIC SYNC: Uses authoritative values from leader's proof rather than inferring from balance changes
-    /// This ensures absolute consistency across all nodes for reward-related state.
-    /// 
-    /// Parameters:
-    /// - address: The account address
-    /// - pending_rewards: Authoritative pending rewards value from leader
-    /// - staked_at: Timestamp when stake was created
-    /// - last_reward_at: Timestamp of last reward distribution
-    /// - claimed_total: Total claimed rewards (lifetime)
-    /// - staked_amount: Current staked amount
     pub fn sync_from_leader_v3(
         &mut self,
         address: &str,
-        pending_rewards: f64,
+        pending_rewards: u64,
         staked_at: u64,
         last_reward_at: Option<u64>,
-        claimed_total: f64,
-        staked_amount: f64,
+        claimed_total: u64,
+        staked_amount: u64,
     ) {
         let addr = address.to_string();
         
-        // Sync pending_rewards directly from leader's authoritative value
-        let local_pending = self.pending_rewards.get(&addr).copied().unwrap_or(0.0);
-        if (local_pending - pending_rewards).abs() > 0.000001 {
+        let local_pending = self.pending_rewards.get(&addr).copied().unwrap_or(0);
+        if local_pending != pending_rewards {
             tracing::info!(
-                "REWARD SYNC for {}: pending_rewards {:.4} -> {:.4}",
+                "REWARD SYNC for {}: pending_rewards {} -> {}",
                 &address[..16.min(address.len())],
                 local_pending, pending_rewards
             );
             self.pending_rewards.insert(addr.clone(), pending_rewards);
         }
         
-        // Sync claimed_rewards total from leader
-        let local_claimed = self.claimed_rewards.get(&addr).copied().unwrap_or(0.0);
-        if (local_claimed - claimed_total).abs() > 0.000001 {
+        let local_claimed = self.claimed_rewards.get(&addr).copied().unwrap_or(0);
+        if local_claimed != claimed_total {
             tracing::info!(
-                "REWARD SYNC for {}: claimed_total {:.4} -> {:.4}",
+                "REWARD SYNC for {}: claimed_total {} -> {}",
                 &address[..16.min(address.len())],
                 local_claimed, claimed_total
             );
             self.claimed_rewards.insert(addr.clone(), claimed_total);
         }
         
-        // Sync stake position with authoritative values
         if let Some(stake) = self.stakes.get_mut(&addr) {
-            if (stake.amount - staked_amount).abs() > 0.000001 
+            if stake.amount != staked_amount 
                 || stake.staked_at != staked_at 
                 || stake.last_reward_at != last_reward_at 
             {
                 tracing::info!(
-                    "REWARD SYNC for {}: stake(amount={:.4}, staked_at={}, last_reward={:?}) -> (amount={:.4}, staked_at={}, last_reward={:?})",
+                    "REWARD SYNC for {}: stake(amount={}, staked_at={}, last_reward={:?}) -> (amount={}, staked_at={}, last_reward={:?})",
                     &address[..16.min(address.len())],
                     stake.amount, stake.staked_at, stake.last_reward_at,
                     staked_amount, staked_at, last_reward_at
@@ -529,10 +506,9 @@ impl RewardsService {
                 stake.staked_at = staked_at;
                 stake.last_reward_at = last_reward_at;
             }
-        } else if staked_amount > 0.0 {
-            // Create stake position from leader's authoritative state
+        } else if staked_amount > 0 {
             tracing::info!(
-                "REWARD SYNC: Creating stake for {} from leader: amount={:.4}, staked_at={}",
+                "REWARD SYNC: Creating stake for {} from leader: amount={}, staked_at={}",
                 &address[..16.min(address.len())],
                 staked_amount, staked_at
             );
@@ -545,11 +521,10 @@ impl RewardsService {
         }
     }
     
-    /// Legacy sync method for v2 proofs (deprecated, use sync_from_leader_v3)
     #[allow(dead_code)]
-    pub fn sync_stake_from_leader(&mut self, address: &str, staked_amount: f64, balance_increased: bool) {
+    pub fn sync_stake_from_leader(&mut self, address: &str, staked_amount: u64, balance_increased: bool) {
         if let Some(stake) = self.stakes.get_mut(address) {
-            if (stake.amount - staked_amount).abs() > 0.000001 {
+            if stake.amount != staked_amount {
                 tracing::info!(
                     "RewardsService sync for {}: staked {} -> {}",
                     &address[..16.min(address.len())],
@@ -558,10 +533,10 @@ impl RewardsService {
                 );
                 stake.amount = staked_amount;
             }
-        } else if staked_amount > 0.0 {
+        } else if staked_amount > 0 {
             let now = current_time_ms();
             tracing::info!(
-                "RewardsService: Creating stake from leader for {}: {} RKU",
+                "RewardsService: Creating stake from leader for {}: {} micro-RKU",
                 &address[..16.min(address.len())],
                 staked_amount
             );
@@ -573,20 +548,20 @@ impl RewardsService {
             });
         }
         
-        if balance_increased && self.pending_rewards.get(address).copied().unwrap_or(0.0) > 0.0 {
+        if balance_increased && self.pending_rewards.get(address).copied().unwrap_or(0) > 0 {
             tracing::info!(
                 "RewardsService: Resetting pending_rewards for {} (claim processed by leader)",
                 &address[..16.min(address.len())]
             );
-            self.pending_rewards.insert(address.to_string(), 0.0);
+            self.pending_rewards.insert(address.to_string(), 0);
         }
     }
 
-    pub fn distribute_checkpoint_rewards(&mut self, reward_amount: f64) -> Vec<(String, f64)> {
+    pub fn distribute_checkpoint_rewards(&mut self, reward_amount: u64) -> Vec<(String, u64)> {
         let now = current_time_ms();
         let min_stake_age_ms: u64 = 15_000;
         
-        let eligible_validators: Vec<(String, f64)> = self.stakes
+        let eligible_validators: Vec<(String, u64)> = self.stakes
             .values()
             .filter(|s| {
                 s.amount >= self.config.min_stake_amount
@@ -595,8 +570,8 @@ impl RewardsService {
             .map(|s| (s.staker.clone(), s.amount))
             .collect();
         
-        let total_eligible_stake: f64 = eligible_validators.iter().map(|(_, amt)| amt).sum();
-        if total_eligible_stake <= 0.0 {
+        let total_eligible_stake: u64 = eligible_validators.iter().map(|(_, amt)| amt).sum();
+        if total_eligible_stake == 0 {
             return vec![];
         }
 
@@ -604,8 +579,7 @@ impl RewardsService {
         let now = current_time_ms();
 
         for (staker, stake_amount) in eligible_validators {
-            let share = stake_amount / total_eligible_stake;
-            let reward_amt = reward_amount * share;
+            let reward_amt = ((reward_amount as u128 * stake_amount as u128) / total_eligible_stake as u128) as u64;
             
             let stake_reward = StakeReward {
                 recipient: staker.clone(),
@@ -620,38 +594,15 @@ impl RewardsService {
         distributions
     }
 
-    pub fn distribute_fee_to_validators(&mut self, fee_amount: f64) -> Vec<(String, f64)> {
+    pub fn distribute_fee_to_validators(&mut self, fee_amount: u64) -> Vec<(String, u64)> {
         self.distribute_checkpoint_rewards(fee_amount)
     }
 
     pub fn get_top_stakers(&self, limit: usize) -> Vec<&StakePosition> {
         let mut stakers: Vec<_> = self.stakes.values().collect();
-        stakers.sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap());
+        stakers.sort_by(|a, b| b.amount.cmp(&a.amount));
         stakers.truncate(limit);
         stakers
-    }
-
-    pub fn process_relay_reward(
-        &mut self,
-        relayer: &str,
-        relay_fee: f64,
-        tx_hash: &str,
-        intent_hash: &str,
-    ) -> Option<RelayReward> {
-        if relay_fee <= 0.0 {
-            return None;
-        }
-
-        let reward = RelayReward {
-            recipient: relayer.to_string(),
-            amount: relay_fee,
-            tx_hash: tx_hash.to_string(),
-            intent_hash: intent_hash.to_string(),
-            timestamp: current_time_ms(),
-        };
-
-        self.add_reward(relayer, Reward::Relay(reward.clone()));
-        Some(reward)
     }
 
     fn add_reward(&mut self, address: &str, reward: Reward) {
@@ -659,7 +610,6 @@ impl RewardsService {
             Reward::Tip(r) => r.amount,
             Reward::Stake(r) => r.amount,
             Reward::Witness(r) => r.amount,
-            Reward::Relay(r) => r.amount,
         };
 
         let lifetime = self.lifetime_rewards.entry(address.to_string()).or_default();
@@ -667,7 +617,6 @@ impl RewardsService {
             Reward::Tip(_) => lifetime.tip_rewards += amount,
             Reward::Stake(_) => lifetime.stake_rewards += amount,
             Reward::Witness(_) => lifetime.witness_rewards += amount,
-            Reward::Relay(_) => lifetime.relay_rewards += amount,
         }
 
         let rewards = self.rewards.entry(address.to_string()).or_default();
@@ -679,8 +628,8 @@ impl RewardsService {
         self.add_pending_reward(address, amount);
     }
 
-    fn add_pending_reward(&mut self, address: &str, amount: f64) {
-        let pending = self.pending_rewards.entry(address.to_string()).or_insert(0.0);
+    fn add_pending_reward(&mut self, address: &str, amount: u64) {
+        let pending = self.pending_rewards.entry(address.to_string()).or_insert(0);
         *pending += amount;
     }
 
@@ -689,7 +638,6 @@ impl RewardsService {
         let cutoff = now.saturating_sub(WITNESS_TTL_MS);
         let mut pruned = 0;
 
-        // Prune expired witnessed txs
         while self.witnessed_queue_head < self.witnessed_queue.len() {
             let oldest = &self.witnessed_queue[self.witnessed_queue_head];
             if oldest.ts >= cutoff {
@@ -707,10 +655,9 @@ impl RewardsService {
             self.witnessed_queue_head = 0;
         }
         
-        // Prune zero pending_rewards (memory optimization)
         let zero_pending: Vec<String> = self.pending_rewards
             .iter()
-            .filter(|(_, &v)| v < 0.0001)
+            .filter(|(_, &v)| v == 0)
             .map(|(k, _)| k.clone())
             .collect();
         for key in zero_pending {
@@ -718,7 +665,6 @@ impl RewardsService {
             pruned += 1;
         }
         
-        // Prune empty rewards lists
         let empty_rewards: Vec<String> = self.rewards
             .iter()
             .filter(|(_, v)| v.is_empty())
@@ -729,13 +675,11 @@ impl RewardsService {
             pruned += 1;
         }
         
-        // Cap lifetime_rewards to prevent memory growth from many unique addresses
         if self.lifetime_rewards.len() > MAX_LIFETIME_ENTRIES {
-            // Keep addresses with highest total rewards
             let mut sorted: Vec<_> = self.lifetime_rewards.iter()
                 .map(|(k, v)| (k.clone(), v.tip_rewards + v.stake_rewards + v.witness_rewards))
                 .collect();
-            sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            sorted.sort_by(|a, b| b.1.cmp(&a.1));
             let keep: std::collections::HashSet<String> = sorted.into_iter()
                 .take(MAX_LIFETIME_ENTRIES)
                 .map(|(k, _)| k)
@@ -750,12 +694,11 @@ impl RewardsService {
             pruned += to_remove.len();
         }
         
-        // Cap pending_rewards similarly
         if self.pending_rewards.len() > MAX_PENDING_ENTRIES {
             let mut sorted: Vec<_> = self.pending_rewards.iter()
                 .map(|(k, v)| (k.clone(), *v))
                 .collect();
-            sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            sorted.sort_by(|a, b| b.1.cmp(&a.1));
             let keep: std::collections::HashSet<String> = sorted.into_iter()
                 .take(MAX_PENDING_ENTRIES)
                 .map(|(k, _)| k)
@@ -830,15 +773,6 @@ impl RewardsService {
         service
     }
 
-    /// Merge rewards from a peer snapshot using claimed_rewards to compute correct pending.
-    /// 
-    /// The correct pending for each address is: lifetime_total - claimed_total
-    /// - lifetime_rewards: take MAX (higher = more rewards accumulated)
-    /// - claimed_rewards: take MAX (higher = more rewards claimed)
-    /// - pending_rewards: recompute as (lifetime - claimed) after merge
-    /// 
-    /// This prevents the bug where syncing from a behind node incorrectly lowers pending,
-    /// while still preventing double-claim exploits.
     pub fn merge_from(&mut self, snapshot: RewardsSnapshot) {
         use tracing::info;
         
@@ -846,7 +780,6 @@ impl RewardsService {
         let mut claimed_raised = 0;
         let mut pending_recomputed = 0;
         
-        // For lifetime_rewards: take MAXIMUM (higher = more accumulated)
         for (addr, peer_lifetime) in &snapshot.lifetime_rewards {
             let local_lifetime = self.lifetime_rewards.get(addr).cloned().unwrap_or_default();
             let peer_total = peer_lifetime.tip_rewards + peer_lifetime.stake_rewards + peer_lifetime.witness_rewards;
@@ -857,17 +790,14 @@ impl RewardsService {
             }
         }
         
-        // For claimed_rewards: take MAXIMUM (higher = more claimed, prevents double-claim)
         for (addr, peer_claimed) in &snapshot.claimed_rewards {
-            let local_claimed = self.claimed_rewards.get(addr).copied().unwrap_or(0.0);
+            let local_claimed = self.claimed_rewards.get(addr).copied().unwrap_or(0);
             if *peer_claimed > local_claimed {
                 self.claimed_rewards.insert(addr.clone(), *peer_claimed);
                 claimed_raised += 1;
             }
         }
         
-        // Recompute pending_rewards based on lifetime - claimed for all addresses
-        // This ensures pending is always correctly computed after merge
         let all_addresses: std::collections::HashSet<String> = self.lifetime_rewards.keys()
             .chain(self.claimed_rewards.keys())
             .chain(self.pending_rewards.keys())
@@ -877,28 +807,24 @@ impl RewardsService {
         for addr in &all_addresses {
             let lifetime = self.lifetime_rewards.get(addr).cloned().unwrap_or_default();
             let lifetime_total = lifetime.tip_rewards + lifetime.stake_rewards + lifetime.witness_rewards;
-            let claimed = self.claimed_rewards.get(addr).copied().unwrap_or(0.0);
-            let correct_pending = (lifetime_total - claimed).max(0.0);
+            let claimed = self.claimed_rewards.get(addr).copied().unwrap_or(0);
+            let correct_pending = lifetime_total.saturating_sub(claimed);
             
-            // Only update if different from current
-            let current_pending = self.pending_rewards.get(addr).copied().unwrap_or(0.0);
-            if (correct_pending - current_pending).abs() > 0.0001 {
+            let current_pending = self.pending_rewards.get(addr).copied().unwrap_or(0);
+            if correct_pending != current_pending {
                 self.pending_rewards.insert(addr.clone(), correct_pending);
                 pending_recomputed += 1;
             }
         }
         
-        // Merge rewards (take values we don't have locally)
         for (addr, peer_rewards) in snapshot.rewards {
             self.rewards.entry(addr).or_insert(peer_rewards);
         }
         
-        // Merge stakes (take peer version if we don't have it)
         for (addr, peer_stake) in snapshot.stakes {
             self.stakes.entry(addr).or_insert(peer_stake);
         }
         
-        // Merge witnessed txs (take newer timestamps)
         for (key, peer_ts) in snapshot.witnessed_txs {
             let local_ts = self.witnessed_txs.get(&key).copied().unwrap_or(0);
             if peer_ts > local_ts {
@@ -916,7 +842,8 @@ impl RewardsService {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RewardsStats {
-    pub total_staked: f64,
+    #[serde(with = "micro_serde")]
+    pub total_staked: u64,
     pub rewards_count: usize,
     pub stakes_count: usize,
     pub witnessed_count: usize,
@@ -933,17 +860,18 @@ fn current_time_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rinku_core::types::to_micro_units;
 
     #[test]
     fn test_stake_and_unstake() {
         let mut service = RewardsService::new(RewardConfig::default());
 
-        let result = service.stake("validator1", 1000.0);
+        let result = service.stake("validator1", to_micro_units(1000.0));
         assert!(result.is_ok());
 
         let stake = service.get_stake("validator1");
         assert!(stake.is_some());
-        assert_eq!(stake.unwrap().amount, 1000.0);
+        assert_eq!(stake.unwrap().amount, to_micro_units(1000.0));
 
         let unstake_result = service.unstake("validator1");
         assert!(unstake_result.is_err());
@@ -953,19 +881,19 @@ mod tests {
     fn test_tip_rewards() {
         let mut service = RewardsService::new(RewardConfig::default());
 
-        let reward = service.process_tip_reward("tx1", "tip1", "recipient1", 100.0);
+        let reward = service.process_tip_reward("tx1", "tip1", "recipient1", to_micro_units(100.0));
         assert!(reward.is_some());
-        assert_eq!(reward.unwrap().amount, 1.0);
+        assert_eq!(reward.unwrap().amount, to_micro_units(1.0));
     }
 
     #[test]
     fn test_witness_dedup() {
         let mut service = RewardsService::new(RewardConfig::default());
 
-        let first = service.process_witness_reward("tx1", "ref1", "recipient1", 100.0);
+        let first = service.process_witness_reward("tx1", "ref1", "recipient1", to_micro_units(100.0));
         assert!(first.is_some());
 
-        let second = service.process_witness_reward("tx1", "ref1", "recipient1", 100.0);
+        let second = service.process_witness_reward("tx1", "ref1", "recipient1", to_micro_units(100.0));
         assert!(second.is_none());
     }
 }

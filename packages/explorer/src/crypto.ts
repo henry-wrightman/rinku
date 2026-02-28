@@ -169,88 +169,6 @@ export async function createSignedTransaction(
   return { tx };
 }
 
-export interface RelayIntent {
-  from: string;
-  to: string;
-  amount: number;
-  nonce: number;
-  kind?: string;
-  memo?: string;
-  references?: string[];
-  data?: string;
-  maxGasPrice: number;
-  relayFee?: number;
-  expiryMs: number;
-  publicKey: string;
-  intentHash: string;
-  intentSignature: string;
-}
-
-export async function createRelayIntent(
-  keyPair: SerializedKeyPair,
-  payload: {
-    to: string;
-    amount: number;
-    nonce: number;
-    kind?: string;
-    memo?: string;
-    references?: string[];
-    data?: string;
-    maxGasPrice: number;
-    relayFee?: number;
-    expiryMs: number;
-  }
-): Promise<RelayIntent> {
-  const canonical: Record<string, unknown> = {};
-  canonical.amount = payload.amount;
-  if (payload.data) {
-    canonical.data = payload.data;
-  }
-  canonical.expiryMs = payload.expiryMs;
-  canonical.from = keyPair.fingerprint;
-  if (payload.kind) {
-    canonical.kind = payload.kind;
-  }
-  canonical.maxGasPrice = payload.maxGasPrice;
-  if (payload.relayFee !== undefined && payload.relayFee > 0) {
-    canonical.relayFee = payload.relayFee;
-  }
-  if (payload.memo && payload.memo.trim()) {
-    canonical.memo = payload.memo.slice(0, 1024);
-  }
-  canonical.nonce = payload.nonce;
-  if (payload.references && payload.references.length > 0) {
-    canonical.references = payload.references.slice(0, 4).filter(r => r.trim());
-  }
-  canonical.to = payload.to;
-
-  const sortedKeys = Object.keys(canonical).sort();
-  const sorted: Record<string, unknown> = {};
-  for (const key of sortedKeys) {
-    sorted[key] = canonical[key];
-  }
-  const canonicalJson = JSON.stringify(sorted);
-  const intentHash = await sha256Hex(canonicalJson);
-  const intentSignature = await signMessage(keyPair.privateKey, canonicalJson);
-
-  return {
-    from: keyPair.fingerprint,
-    to: payload.to,
-    amount: payload.amount,
-    nonce: payload.nonce,
-    kind: payload.kind,
-    memo: payload.memo,
-    references: payload.references,
-    data: payload.data,
-    maxGasPrice: payload.maxGasPrice,
-    relayFee: payload.relayFee,
-    expiryMs: payload.expiryMs,
-    publicKey: keyPair.publicKey,
-    intentHash,
-    intentSignature,
-  };
-}
-
 export function validateSerializedKey(data: string): boolean {
   try {
     const parsed = JSON.parse(data);
@@ -274,4 +192,171 @@ export function getFingerprint(data: string): string | null {
   } catch {
     return null;
   }
+}
+
+export interface MerkleMultiProof {
+  leafHashes: string[];
+  leafIndices: number[];
+  helperHashes: string[];
+  helperIndices: [number, number][];
+  numLeaves: number;
+  root: string;
+}
+
+export interface ProofFreshness {
+  generatedAtCheckpoint: number;
+  generatedAtTimestamp: number;
+  chainTipAtGeneration: number;
+  maxAgeCheckpoints: number | null;
+}
+
+export interface BatchProofData {
+  type: 'batch_proof';
+  finality: {
+    checkpointHeight: number;
+    checkpointHash: string;
+    checkpointTimestamp: number;
+    stateRoot: string;
+    receiptRoot: string;
+    blsAggregatedSig: string | null;
+    blsSignerBitmap: string | null;
+  };
+  txHashes: string[];
+  multiproof: MerkleMultiProof;
+  receipts: unknown[] | null;
+  chainId: string | null;
+  freshness: ProofFreshness | null;
+}
+
+export interface StateWitnessEntry {
+  key: string;
+  value: unknown | null;
+  proofKey: string;
+  proofSiblings: string[];
+}
+
+export interface StateWitnessData {
+  type: 'state_witness';
+  contractId: string | null;
+  entries: StateWitnessEntry[];
+  stateRoot: string;
+  checkpointHeight: number;
+  checkpointHash: string;
+  blsAggregatedSig: string | null;
+  blsSignerBitmap: string | null;
+  chainId: string | null;
+  freshness: ProofFreshness | null;
+}
+
+async function sha256Bytes(data: Uint8Array): Promise<Uint8Array> {
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data.buffer as ArrayBuffer);
+  return new Uint8Array(hashBuffer);
+}
+
+export async function verifyMerkleMultiProof(proof: MerkleMultiProof): Promise<boolean> {
+  if (proof.leafHashes.length !== proof.leafIndices.length) return false;
+  if (proof.helperHashes.length !== proof.helperIndices.length) return false;
+  if (proof.numLeaves === 0) return false;
+
+  const known = new Map<string, Uint8Array>();
+
+  for (let i = 0; i < proof.leafHashes.length; i++) {
+    const bytes = hexToBytes(proof.leafHashes[i]);
+    if (bytes.length !== 32) return false;
+    known.set(`${0},${proof.leafIndices[i]}`, bytes);
+  }
+
+  for (let i = 0; i < proof.helperHashes.length; i++) {
+    const bytes = hexToBytes(proof.helperHashes[i]);
+    if (bytes.length !== 32) return false;
+    const [layer, pos] = proof.helperIndices[i];
+    known.set(`${layer},${pos}`, bytes);
+  }
+
+  const layerSizes: number[] = [];
+  let size = proof.numLeaves;
+  while (size > 1) {
+    layerSizes.push(size);
+    size = Math.ceil(size / 2);
+  }
+  layerSizes.push(1);
+
+  const numLayers = layerSizes.length;
+
+  for (let layerIdx = 0; layerIdx < numLayers - 1; layerIdx++) {
+    const layerSize = layerSizes[layerIdx];
+    const positions: number[] = [];
+    for (const [key] of known) {
+      const parts = key.split(',');
+      if (parseInt(parts[0]) === layerIdx) {
+        positions.push(parseInt(parts[1]));
+      }
+    }
+
+    const processed = new Set<number>();
+    for (const pos of positions) {
+      const leftPos = pos % 2 === 0 ? pos : pos - 1;
+      if (processed.has(leftPos)) continue;
+      processed.add(leftPos);
+
+      const rightPos = leftPos + 1 < layerSize ? leftPos + 1 : leftPos;
+
+      const left = known.get(`${layerIdx},${leftPos}`);
+      const right = known.get(`${layerIdx},${rightPos}`);
+
+      if (left && right) {
+        const combined = new Uint8Array(64);
+        combined.set(left, 0);
+        combined.set(right, 32);
+        const parent = await sha256Bytes(combined);
+        known.set(`${layerIdx + 1},${Math.floor(leftPos / 2)}`, parent);
+      }
+    }
+  }
+
+  const computedRoot = known.get(`${numLayers - 1},0`);
+  if (!computedRoot) return false;
+  return bytesToHex(computedRoot) === proof.root;
+}
+
+export async function verifyBatchProof(proof: BatchProofData): Promise<{
+  valid: boolean;
+  multiproofValid: boolean;
+  txCount: number;
+  inclusionResults: { hash: string; included: boolean }[];
+}> {
+  const multiproofValid = await verifyMerkleMultiProof(proof.multiproof);
+
+  const inclusionResults = proof.txHashes.map(hash => {
+    const included = proof.multiproof.leafHashes.some(lh => {
+      return proof.multiproof.leafIndices.some((_, i) => proof.multiproof.leafHashes[i] === lh) && lh === hash;
+    }) || proof.multiproof.leafHashes.includes(hash);
+    return { hash, included };
+  });
+
+  return {
+    valid: multiproofValid,
+    multiproofValid,
+    txCount: proof.txHashes.length,
+    inclusionResults,
+  };
+}
+
+export function verifyStateWitness(witness: StateWitnessData): {
+  valid: boolean;
+  entryCount: number;
+  entriesWithProof: number;
+} {
+  let entriesWithProof = 0;
+  for (const entry of witness.entries) {
+    if (entry.proofSiblings.length > 0) {
+      entriesWithProof++;
+    }
+  }
+
+  return {
+    valid: entriesWithProof > 0 || witness.entries.length > 0,
+    entryCount: witness.entries.length,
+    entriesWithProof,
+  };
 }

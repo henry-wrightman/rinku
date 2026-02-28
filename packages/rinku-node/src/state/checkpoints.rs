@@ -216,6 +216,11 @@ impl NodeState {
         // Release state lock before executing transactions
         drop(state);
         
+        // DETERMINISTIC ORDERING: Sort transactions by hash before execution
+        // to ensure all nodes apply balance changes in identical order,
+        // preventing floating-point rounding divergence across nodes.
+        txs_to_execute.sort_by(|a, b| a.hash.cmp(&b.hash));
+        
         // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
         // Skip core execution for transactions already executed on fast-path
         let empty_set = std::collections::HashSet::new();
@@ -446,6 +451,11 @@ impl NodeState {
         
         // Release state lock before executing transactions
         drop(state);
+        
+        // DETERMINISTIC ORDERING: Sort transactions by hash before execution
+        // to ensure all nodes apply balance changes in identical order,
+        // preventing floating-point rounding divergence across nodes.
+        txs_to_execute.sort_by(|a, b| a.hash.cmp(&b.hash));
         
         // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
         // Skip core execution for transactions already executed on fast-path

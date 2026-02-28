@@ -218,7 +218,7 @@ impl TxGenerator {
         TestTransaction {
             from: self.from_address.clone(),
             to: self.to_address.clone(),
-            amount: 0.001,
+            amount: 100_000,
             nonce,
             gas_limit: 21000,
         }
@@ -233,7 +233,7 @@ impl TxGenerator {
 pub struct TestTransaction {
     pub from: String,
     pub to: String,
-    pub amount: f64,
+    pub amount: u64,
     pub nonce: u64,
     pub gas_limit: u64,
 }

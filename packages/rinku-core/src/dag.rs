@@ -641,7 +641,7 @@ mod tests {
         let tx = Transaction {
             from: "sender".to_string(),
             to: "receiver".to_string(),
-            amount: 1.0,
+            amount: 1,
             nonce: 0,
             timestamp: 1000,
             parents: parents.clone(),
@@ -669,6 +669,9 @@ mod tests {
             finalized: false,
             checkpoint_height: None,
             received_at_ms: Some(0),
+            partition_epoch: None,
+            provisional_finality: false,
+            rolled_back: false,
         }
     }
 

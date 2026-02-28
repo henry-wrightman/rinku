@@ -1,6 +1,50 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod micro_serde {
+    use super::MICRO_UNITS;
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let rku = *value as f64 / MICRO_UNITS as f64;
+        serializer.serialize_f64(rku)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let rku = f64::deserialize(deserializer)?;
+        Ok((rku * MICRO_UNITS as f64).round() as u64)
+    }
+}
+
+pub mod micro_serde_option {
+    use super::MICRO_UNITS;
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &Option<u64>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(v) => serializer.serialize_f64(*v as f64 / MICRO_UNITS as f64),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt: Option<f64> = Option::deserialize(deserializer)?;
+        Ok(opt.map(|v| (v * MICRO_UNITS as f64).round() as u64))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransactionKind {
@@ -14,7 +58,58 @@ pub enum TransactionKind {
     Reward,
     #[serde(alias = "dataOnly")]
     DataOnly,
-    Relay,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PartitionSafety {
+    Safe,
+    BoundedSpend,
+    CpOnly,
+}
+
+impl TransactionKind {
+    pub fn partition_safety(&self) -> PartitionSafety {
+        match self {
+            TransactionKind::DataOnly => PartitionSafety::Safe,
+            TransactionKind::Consolidation => PartitionSafety::Safe,
+            TransactionKind::Reward => PartitionSafety::Safe,
+
+            TransactionKind::Transfer => PartitionSafety::BoundedSpend,
+            TransactionKind::Contract => PartitionSafety::BoundedSpend,
+
+            TransactionKind::Stake => PartitionSafety::CpOnly,
+            TransactionKind::Unstake => PartitionSafety::CpOnly,
+            TransactionKind::ClaimRewards => PartitionSafety::CpOnly,
+        }
+    }
+
+    pub fn is_partition_safe(&self) -> bool {
+        self.partition_safety() == PartitionSafety::Safe
+    }
+
+    pub fn allowed_during_partition(&self, partition_budget_remaining: Option<u64>, tx_cost: u64) -> bool {
+        match self.partition_safety() {
+            PartitionSafety::Safe => true,
+            PartitionSafety::BoundedSpend => {
+                match partition_budget_remaining {
+                    Some(budget) => tx_cost <= budget,
+                    None => true,
+                }
+            }
+            PartitionSafety::CpOnly => false,
+        }
+    }
+}
+
+impl std::fmt::Display for PartitionSafety {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PartitionSafety::Safe => write!(f, "safe"),
+            PartitionSafety::BoundedSpend => write!(f, "bounded_spend"),
+            PartitionSafety::CpOnly => write!(f, "cp_only"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,7 +132,8 @@ impl Default for FastPathStatus {
 pub struct FastPathAck {
     pub tx_hash: String,
     pub validator_address: String,
-    pub validator_stake: f64,
+    #[serde(with = "micro_serde")]
+    pub validator_stake: u64,
     pub bls_signature: Option<String>,
     pub timestamp_ms: u64,
 }
@@ -48,8 +144,10 @@ pub struct FastPathFinality {
     pub tx_hash: String,
     pub status: FastPathStatus,
     pub acks: Vec<FastPathAck>,
-    pub total_stake_acked: f64,
-    pub quorum_stake_required: f64,
+    #[serde(with = "micro_serde")]
+    pub total_stake_acked: u64,
+    #[serde(with = "micro_serde")]
+    pub quorum_stake_required: u64,
     pub registered_at_ms: u64,
     pub confirmed_at_ms: Option<u64>,
     pub checkpoint_height: Option<u64>,
@@ -66,7 +164,8 @@ impl FastPathFinality {
 pub struct Transaction {
     pub from: String,
     pub to: String,
-    pub amount: f64,
+    #[serde(with = "micro_serde")]
+    pub amount: u64,
     pub nonce: u64,
     pub timestamp: u64,
     pub parents: Vec<String>,
@@ -74,8 +173,8 @@ pub struct Transaction {
     pub kind: Option<TransactionKind>,
     #[serde(default)]
     pub gas_limit: Option<u64>,
-    #[serde(default)]
-    pub gas_price: Option<f64>,
+    #[serde(default, with = "micro_serde_option")]
+    pub gas_price: Option<u64>,
     #[serde(default)]
     pub data: Option<String>,
     #[serde(
@@ -84,10 +183,8 @@ pub struct Transaction {
         skip_serializing_if = "Option::is_none"
     )]
     pub signature: Option<String>,
-    /// Optional memo/message content (max 256 bytes for messaging apps)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memo: Option<String>,
-    /// Optional references to other transaction hashes (for threading/chaining messages)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub references: Option<Vec<String>>,
 }
@@ -111,7 +208,7 @@ impl Transaction {
     }
     
     pub fn is_data_only(&self) -> bool {
-        self.amount == 0.0 && 
+        self.amount == 0 && 
         (self.memo.is_some() || self.references.is_some()) &&
         !matches!(self.kind, Some(TransactionKind::Stake) | 
                             Some(TransactionKind::Unstake) | 
@@ -273,30 +370,46 @@ pub struct AccountStateProof {
 #[serde(rename_all = "camelCase")]
 pub struct Account {
     pub address: String,
-    pub balance: f64,
+    #[serde(with = "micro_serde")]
+    pub balance: u64,
     pub nonce: u64,
     pub first_seen: u64,
-    #[serde(default)]
-    pub staked: f64,
-    #[serde(default)]
-    pub unbonding: f64,
+    #[serde(default, with = "micro_serde")]
+    pub staked: u64,
+    #[serde(default, with = "micro_serde")]
+    pub unbonding: u64,
     #[serde(default)]
     pub unbonding_release: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_balance_proof: Option<AccountStateProof>,
+    #[serde(default)]
+    pub partition_violations: u32,
+    #[serde(default)]
+    pub reputation_penalty: f64,
+    #[serde(default)]
+    pub penalty_decay_checkpoint: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "micro_serde_option")]
+    pub partition_budget: Option<u64>,
+    #[serde(default, with = "micro_serde")]
+    pub partition_budget_spent: u64,
 }
 
 impl Account {
     pub fn new(address: String, timestamp: u64) -> Self {
         Self {
             address,
-            balance: 0.0,
+            balance: 0,
             nonce: 0,
             first_seen: timestamp,
-            staked: 0.0,
-            unbonding: 0.0,
+            staked: 0,
+            unbonding: 0,
             unbonding_release: None,
             latest_balance_proof: None,
+            partition_violations: 0,
+            reputation_penalty: 0.0,
+            penalty_decay_checkpoint: None,
+            partition_budget: None,
+            partition_budget_spent: 0,
         }
     }
 }
@@ -319,10 +432,16 @@ pub struct Checkpoint {
     pub signer_bitmap: Option<Vec<u8>>,
     #[serde(default)]
     pub finalized_tx_hashes: Vec<String>,
-    /// Merkle root of the transaction weight trie (for offline weight proof verification)
-    /// Empty string if no weight attestations exist for this checkpoint
     #[serde(default)]
     pub weight_trie_root: String,
+    #[serde(default)]
+    pub provisional: bool,
+    #[serde(default)]
+    pub partition_epoch: Option<u64>,
+    #[serde(default)]
+    pub visible_stake_pct: Option<f64>,
+    #[serde(default)]
+    pub merge_report_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -330,7 +449,8 @@ pub struct Checkpoint {
 pub struct ValidatorSignature {
     pub validator: String,
     pub signature: String,
-    pub weight: f64,
+    #[serde(with = "micro_serde")]
+    pub weight: u64,
     #[serde(default)]
     pub bls_public_key: Option<String>,
 }
@@ -339,7 +459,8 @@ pub struct ValidatorSignature {
 #[serde(rename_all = "camelCase")]
 pub struct Validator {
     pub address: String,
-    pub stake: f64,
+    #[serde(with = "micro_serde")]
+    pub stake: u64,
     pub first_stake_time: u64,
     #[serde(default)]
     pub bls_public_key: Option<String>,
@@ -360,6 +481,12 @@ pub struct DagNode {
     pub checkpoint_height: Option<u64>,
     #[serde(default)]
     pub received_at_ms: Option<u64>,
+    #[serde(default)]
+    pub partition_epoch: Option<u64>,
+    #[serde(default)]
+    pub provisional_finality: bool,
+    #[serde(default)]
+    pub rolled_back: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -389,8 +516,10 @@ pub struct CompactProof {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GasConfig {
-    pub min_gas_price: f64,
-    pub max_gas_price: f64,
+    #[serde(with = "micro_serde")]
+    pub min_gas_price: u64,
+    #[serde(with = "micro_serde")]
+    pub max_gas_price: u64,
     pub target_txs_per_period: u32,
     pub adjustment_factor: f64,
     pub period_duration_ms: u64,
@@ -399,10 +528,10 @@ pub struct GasConfig {
 impl Default for GasConfig {
     fn default() -> Self {
         Self {
-            min_gas_price: 0.001,
-            max_gas_price: 10.0,         // Match TypeScript GAS_MAX_FEE
-            target_txs_per_period: 3000, // 20 TPS × 15s period
-            adjustment_factor: 0.125,    // 12.5% max change per period
+            min_gas_price: 100_000,
+            max_gas_price: 1_000_000_000,
+            target_txs_per_period: 150,
+            adjustment_factor: 0.125,
             period_duration_ms: 15000,
         }
     }
@@ -411,22 +540,26 @@ impl Default for GasConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenomicsConfig {
-    pub max_supply: f64,
-    pub genesis_allocation: f64,
+    #[serde(with = "micro_serde")]
+    pub max_supply: u64,
+    #[serde(with = "micro_serde")]
+    pub genesis_allocation: u64,
     pub halving_interval: u64,
-    pub initial_emission: f64,
-    pub min_emission: f64,
+    #[serde(with = "micro_serde")]
+    pub initial_emission: u64,
+    #[serde(with = "micro_serde")]
+    pub min_emission: u64,
     pub validator_floor: f64,
 }
 
 impl Default for TokenomicsConfig {
     fn default() -> Self {
         Self {
-            max_supply: 30_000_000.0,
-            genesis_allocation: 6_000_000.0,
+            max_supply: 3_000_000_000_000_000,
+            genesis_allocation: 600_000_000_000_000,
             halving_interval: 3_150_000,
-            initial_emission: 3.934,
-            min_emission: 0.123,
+            initial_emission: 393_241_100,
+            min_emission: 12_288_700,
             validator_floor: 0.7,
         }
     }
@@ -620,73 +753,3 @@ pub struct WeightTrieLeaf {
     pub attestation_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RelayIntent {
-    pub from: String,
-    pub to: String,
-    pub amount: f64,
-    pub nonce: u64,
-    pub kind: Option<TransactionKind>,
-    #[serde(default)]
-    pub memo: Option<String>,
-    #[serde(default)]
-    pub references: Option<Vec<String>>,
-    #[serde(default)]
-    pub data: Option<String>,
-    pub max_gas_price: f64,
-    #[serde(default)]
-    pub relay_fee: Option<f64>,
-    pub expiry_ms: u64,
-    pub public_key: String,
-    pub intent_hash: String,
-    pub intent_signature: String,
-}
-
-impl RelayIntent {
-    fn js_compatible_number(v: f64) -> serde_json::Value {
-        if v.fract() == 0.0 && v.abs() < (i64::MAX as f64) {
-            serde_json::Value::Number(serde_json::Number::from(v as i64))
-        } else {
-            serde_json::json!(v)
-        }
-    }
-
-    pub fn canonical_fields(&self) -> String {
-        let mut obj = serde_json::Map::new();
-        obj.insert("amount".into(), Self::js_compatible_number(self.amount));
-        if let Some(ref data) = self.data {
-            obj.insert("data".into(), serde_json::Value::String(data.clone()));
-        }
-        obj.insert("expiryMs".into(), serde_json::json!(self.expiry_ms));
-        obj.insert("from".into(), serde_json::Value::String(self.from.clone()));
-        if let Some(ref kind) = self.kind {
-            obj.insert("kind".into(), serde_json::to_value(kind).unwrap_or_default());
-        }
-        obj.insert("maxGasPrice".into(), Self::js_compatible_number(self.max_gas_price));
-        if let Some(ref memo) = self.memo {
-            if !memo.trim().is_empty() {
-                obj.insert("memo".into(), serde_json::Value::String(memo.clone()));
-            }
-        }
-        if let Some(relay_fee) = self.relay_fee {
-            if relay_fee > 0.0 {
-                obj.insert("relayFee".into(), Self::js_compatible_number(relay_fee));
-            }
-        }
-        obj.insert("nonce".into(), serde_json::json!(self.nonce));
-        if let Some(ref refs) = self.references {
-            obj.insert("references".into(), serde_json::to_value(refs).unwrap_or_default());
-        }
-        obj.insert("to".into(), serde_json::Value::String(self.to.clone()));
-        serde_json::to_string(&obj).unwrap_or_default()
-    }
-
-    pub fn is_expired(&self) -> bool {
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        now_ms > self.expiry_ms
-    }
-}

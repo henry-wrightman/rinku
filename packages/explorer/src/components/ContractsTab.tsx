@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useRinku } from "../context/WalletContext";
 import { API_URL } from "../config";
+import { useWebSocketContext } from "../context/WebSocketContext";
+import { StateWitnessPanel } from "./StateWitnessPanel";
 
 const NODE_URL = API_URL;
 
@@ -94,11 +96,26 @@ export function ContractsTab() {
     }
   };
 
+  const { status: wsStatus, lastEvent } = useWebSocketContext();
+  const lastContractRef = useRef(lastEvent);
+
   useEffect(() => {
     fetchContracts();
+  }, []);
+
+  useEffect(() => {
+    if (!lastEvent || lastEvent === lastContractRef.current) return;
+    lastContractRef.current = lastEvent;
+    if (lastEvent.type === 'CheckpointCreated' || lastEvent.type === 'FastPathExecuted') {
+      fetchContracts();
+    }
+  }, [lastEvent]);
+
+  useEffect(() => {
+    if (wsStatus === 'connected') return;
     const interval = setInterval(fetchContracts, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [wsStatus]);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -726,6 +743,8 @@ export function ContractsTab() {
               )}
             </div>
           )}
+
+          <StateWitnessPanel contractId={selectedContract.contractId} />
         </>
       )}
     </div>

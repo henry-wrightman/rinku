@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
+use rinku_core::types::{micro_serde, from_micro_units};
 
 pub const UNBONDING_PERIOD_MS: u64 = 14 * 24 * 60 * 60 * 1000;
 pub const SLASH_DOUBLE_SIGN_PERCENT: f64 = 0.15;
@@ -46,7 +47,8 @@ pub struct SlashEvent {
     pub id: String,
     pub validator: String,
     pub reason: SlashReason,
-    pub amount: f64,
+    #[serde(with = "micro_serde")]
+    pub amount: u64,
     pub percent_slashed: f64,
     pub checkpoint_height: u64,
     pub timestamp: u64,
@@ -57,7 +59,8 @@ pub struct SlashEvent {
 #[serde(rename_all = "camelCase")]
 pub struct UnbondingEntry {
     pub validator: String,
-    pub amount: f64,
+    #[serde(with = "micro_serde")]
+    pub amount: u64,
     pub started_at: u64,
     pub available_at: u64,
     pub slashable: bool,
@@ -88,7 +91,7 @@ pub struct SlashingService {
     unbonding_queue: Vec<UnbondingEntry>,
     liveness_failures: HashMap<String, LivenessRecord>,
     double_sign_evidence: Vec<DoubleSignEvidence>,
-    total_slashed: f64,
+    total_slashed: u64,
     next_slash_id: u64,
 }
 
@@ -99,7 +102,7 @@ impl SlashingService {
             slash_events: Vec::new(),
             unbonding_queue: Vec::new(),
             liveness_failures: HashMap::new(),
-            total_slashed: 0.0,
+            total_slashed: 0,
             next_slash_id: 1,
         }
     }
@@ -114,17 +117,17 @@ impl SlashingService {
     pub fn slash(
         &mut self,
         validator: &str,
-        stake_amount: f64,
+        stake_amount: u64,
         reason: SlashReason,
         checkpoint_height: u64,
         details: Option<String>,
     ) -> Option<SlashEvent> {
-        if stake_amount <= 0.0 {
+        if stake_amount == 0 {
             return None;
         }
 
         let percent = reason.percent();
-        let amount = stake_amount * percent;
+        let amount = (stake_amount as f64 * percent).round() as u64;
         let now = Self::current_time_ms();
 
         let event = SlashEvent {
@@ -147,7 +150,7 @@ impl SlashingService {
         }
 
         warn!(
-            "Slashed {} for {:?}: {} RKU ({}%)",
+            "Slashed {} for {:?}: {} micro-RKU ({}%)",
             validator,
             reason,
             amount,
@@ -161,7 +164,7 @@ impl SlashingService {
         &mut self,
         validator: &str,
         checkpoint_height: u64,
-        stake_amount: f64,
+        stake_amount: u64,
     ) -> Option<SlashEvent> {
         let now = Self::current_time_ms();
 
@@ -248,7 +251,7 @@ impl SlashingService {
         self.double_sign_evidence.last().cloned()
     }
 
-    pub fn process_double_sign_evidence(&mut self, stake_amount: f64) -> Vec<SlashEvent> {
+    pub fn process_double_sign_evidence(&mut self, stake_amount: u64) -> Vec<SlashEvent> {
         let mut events = Vec::new();
         let now = Self::current_time_ms();
 
@@ -303,7 +306,7 @@ impl SlashingService {
             .collect()
     }
 
-    pub fn start_unbonding(&mut self, validator: &str, amount: f64) -> UnbondingEntry {
+    pub fn start_unbonding(&mut self, validator: &str, amount: u64) -> UnbondingEntry {
         let now = Self::current_time_ms();
 
         let entry = UnbondingEntry {
@@ -330,16 +333,16 @@ impl SlashingService {
         ready
     }
 
-    pub fn slash_unbonding_stake(&mut self, validator: &str, percent: f64) -> f64 {
-        let mut slashed = 0.0;
+    pub fn slash_unbonding_stake(&mut self, validator: &str, percent: f64) -> u64 {
+        let mut slashed = 0u64;
         for entry in &mut self.unbonding_queue {
             if entry.validator == validator && entry.slashable {
-                let slash_amount = entry.amount * percent;
-                entry.amount -= slash_amount;
+                let slash_amount = (entry.amount as f64 * percent).round() as u64;
+                entry.amount = entry.amount.saturating_sub(slash_amount);
                 slashed += slash_amount;
             }
         }
-        self.unbonding_queue.retain(|e| e.amount > 0.0);
+        self.unbonding_queue.retain(|e| e.amount > 0);
         self.total_slashed += slashed;
         slashed
     }
@@ -370,7 +373,7 @@ impl SlashingService {
             .collect()
     }
 
-    pub fn get_total_slashed(&self) -> f64 {
+    pub fn get_total_slashed(&self) -> u64 {
         self.total_slashed
     }
 
@@ -409,24 +412,15 @@ impl SlashingService {
         }
     }
 
-    /// Merge slashing state from peer snapshot.
-    /// Prevents rollback exploits by preserving local state:
-    /// - slash_events: merge by ID, keeping existing events
-    /// - unbonding_queue: merge by validator+amount, keep local unbonding entries
-    /// - liveness_failures: take maximum failure counts
-    /// - total_slashed: take maximum
-    /// Returns summary for logging.
     pub fn merge_from(&mut self, snapshot: SlashingSnapshot) -> SlashingMergeResult {
         let mut events_added = 0;
         let mut unbonding_added = 0;
         let mut liveness_updated = 0;
         
-        // Merge slash events by ID - preserve existing, add new
         let existing_ids: std::collections::HashSet<_> = 
             self.slash_events.iter().map(|e| e.id.clone()).collect();
         for event in snapshot.slash_events {
             if !existing_ids.contains(&event.id) {
-                // Update next_slash_id if needed
                 if let Some(id_num) = event.id.strip_prefix("slash_").and_then(|s| s.parse::<u64>().ok()) {
                     self.next_slash_id = self.next_slash_id.max(id_num + 1);
                 }
@@ -435,7 +429,6 @@ impl SlashingService {
             }
         }
         
-        // Merge unbonding queue - preserve local entries, add new ones
         let existing_unbonding: std::collections::HashSet<_> = self.unbonding_queue
             .iter()
             .map(|e| (e.validator.clone(), e.started_at))
@@ -447,7 +440,6 @@ impl SlashingService {
             }
         }
         
-        // Merge liveness failures - take maximum count
         let peer_failures: std::collections::HashMap<String, LivenessInfo> = 
             snapshot.liveness_failures.into_iter().collect();
         for (validator, peer_info) in peer_failures {
@@ -469,7 +461,6 @@ impl SlashingService {
             }
         }
         
-        // Take maximum total_slashed
         let old_total = self.total_slashed;
         self.total_slashed = self.total_slashed.max(snapshot.total_slashed);
         let total_slashed_delta = self.total_slashed - old_total;
@@ -494,7 +485,7 @@ pub struct SlashingMergeResult {
     pub events_added: usize,
     pub unbonding_added: usize,
     pub liveness_updated: usize,
-    pub total_slashed_delta: f64,
+    pub total_slashed_delta: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -509,23 +500,25 @@ pub struct LivenessInfo {
 pub struct SlashingSnapshot {
     pub slash_events: Vec<SlashEvent>,
     pub unbonding_queue: Vec<UnbondingEntry>,
-    pub total_slashed: f64,
+    #[serde(with = "micro_serde")]
+    pub total_slashed: u64,
     pub liveness_failures: Vec<(String, LivenessInfo)>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rinku_core::types::to_micro_units;
 
     #[test]
     fn test_slash_event() {
         let mut service = SlashingService::new();
-        let event = service.slash("validator1", 1000.0, SlashReason::DoubleSign, 100, None);
+        let event = service.slash("validator1", to_micro_units(1000.0), SlashReason::DoubleSign, 100, None);
         
         assert!(event.is_some());
         let event = event.unwrap();
         assert_eq!(event.validator, "validator1");
-        assert_eq!(event.amount, 150.0);
+        assert_eq!(event.amount, to_micro_units(150.0));
         assert_eq!(event.percent_slashed, 15.0);
     }
 
@@ -533,13 +526,13 @@ mod tests {
     fn test_liveness_tracking() {
         let mut service = SlashingService::new();
         
-        let result1 = service.record_liveness_failure("v1", 1, 1000.0);
+        let result1 = service.record_liveness_failure("v1", 1, to_micro_units(1000.0));
         assert!(result1.is_none());
         
-        let result2 = service.record_liveness_failure("v1", 2, 1000.0);
+        let result2 = service.record_liveness_failure("v1", 2, to_micro_units(1000.0));
         assert!(result2.is_none());
         
-        let result3 = service.record_liveness_failure("v1", 3, 1000.0);
+        let result3 = service.record_liveness_failure("v1", 3, to_micro_units(1000.0));
         assert!(result3.is_some());
     }
 
@@ -557,7 +550,7 @@ mod tests {
     #[test]
     fn test_unbonding_queue() {
         let mut service = SlashingService::new();
-        service.start_unbonding("v1", 500.0);
+        service.start_unbonding("v1", to_micro_units(500.0));
         
         assert_eq!(service.get_unbonding_queue().len(), 1);
         assert_eq!(service.get_unbonding_for_validator("v1").len(), 1);
@@ -637,12 +630,12 @@ mod tests {
             None,
         );
         
-        let events = service.process_double_sign_evidence(1000.0);
+        let events = service.process_double_sign_evidence(to_micro_units(1000.0));
         
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].validator, "validator1");
         assert_eq!(events[0].reason, SlashReason::DoubleSign);
-        assert_eq!(events[0].amount, 150.0);
+        assert_eq!(events[0].amount, to_micro_units(150.0));
         assert_eq!(service.get_pending_evidence().len(), 0);
     }
 }

@@ -26,10 +26,10 @@ const TPS_MEDIUM: f64 = 50.0;
 const TPS_LOW: f64 = 10.0;
 
 /// Minimum tips to trigger anchor creation
-/// Set to 2 to avoid unnecessary consolidation when idle (only consolidate when
-/// there are actually multiple tips to merge). The previous value of 1 caused
-/// spam consolidation txs when the network was idle with just 1 tip.
-const MIN_TIPS_FOR_ANCHOR: usize = 2;
+/// Set to 3 to avoid premature consolidation on low-activity chains. A value of 2
+/// caused unnecessary consolidation when only 1 user transaction existed alongside
+/// the genesis tx, creating redundant self-transfers.
+const MIN_TIPS_FOR_ANCHOR: usize = 3;
 
 pub struct TipConsolidator {
     state: NodeState,
@@ -172,13 +172,13 @@ impl TipConsolidator {
         let inner_tx = Transaction {
             from: validator_address.clone(),
             to: validator_address.clone(), // Self-transfer
-            amount: 0.0,                   // Zero value
+            amount: 0,                     // Zero value
             nonce,
             timestamp: now,
             parents: tip_urls,
             kind: Some(TransactionKind::Consolidation),
             gas_limit: None,
-            gas_price: Some(0.0),             // System transaction, no gas
+            gas_price: Some(0),                // System transaction, no gas
             data: Some("anchor".to_string()), // Mark as anchor
             signature: None,
             memo: None,

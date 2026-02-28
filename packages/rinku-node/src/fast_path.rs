@@ -27,7 +27,7 @@ impl Default for FastPathConfig {
 pub struct FastPathServiceInner {
     pending_txs: HashMap<String, FastPathFinality>,
     confirmed_txs: HashMap<String, FastPathFinality>,
-    total_validator_stake: f64,
+    total_validator_stake: u64,
     config: FastPathConfig,
 }
 
@@ -49,13 +49,13 @@ impl FastPathService {
             inner: Arc::new(RwLock::new(FastPathServiceInner {
                 pending_txs: HashMap::new(),
                 confirmed_txs: HashMap::new(),
-                total_validator_stake: 0.0,
+                total_validator_stake: 0,
                 config,
             })),
         }
     }
 
-    pub async fn update_total_stake(&self, total_stake: f64) {
+    pub async fn update_total_stake(&self, total_stake: u64) {
         let mut inner = self.inner.write().await;
         inner.total_validator_stake = total_stake;
     }
@@ -77,7 +77,7 @@ impl FastPathService {
                 .or_else(|| inner.confirmed_txs.get(&tx.hash).cloned());
         }
 
-        let quorum_required = inner.total_validator_stake * inner.config.quorum_threshold;
+        let quorum_required = (inner.total_validator_stake as f64 * inner.config.quorum_threshold) as u64;
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -87,7 +87,7 @@ impl FastPathService {
             tx_hash: tx.hash.clone(),
             status: FastPathStatus::Pending,
             acks: Vec::new(),
-            total_stake_acked: 0.0,
+            total_stake_acked: 0,
             quorum_stake_required: quorum_required,
             registered_at_ms: now_ms,
             confirmed_at_ms: None,
@@ -97,7 +97,7 @@ impl FastPathService {
         inner.pending_txs.insert(tx.hash.clone(), finality.clone());
         
         info!(
-            "Registered fast-path tx {} (quorum required: {:.2})",
+            "Registered fast-path tx {} (quorum required: {})",
             &tx.hash[..16.min(tx.hash.len())],
             quorum_required
         );
@@ -130,7 +130,7 @@ impl FastPathService {
                 );
 
                 info!(
-                    "Fast-path tx {} CONFIRMED with {:.2}/{:.2} stake ({} acks)",
+                    "Fast-path tx {} CONFIRMED with {}/{} stake ({} acks)",
                     &ack.tx_hash[..16.min(ack.tx_hash.len())],
                     finality.total_stake_acked,
                     finality.quorum_stake_required,
@@ -290,7 +290,7 @@ pub struct FastPathStats {
     pub enabled: bool,
     pub pending_count: usize,
     pub confirmed_count: usize,
-    pub total_validator_stake: f64,
+    pub total_validator_stake: u64,
     pub quorum_threshold: f64,
     pub avg_confirmation_ms: Option<u64>,
 }
@@ -300,7 +300,7 @@ pub struct FastPathStats {
 pub struct FastPathBroadcast {
     pub tx: SignedTransaction,
     pub sender_validator: String,
-    pub sender_stake: f64,
+    pub sender_stake: u64,
     pub timestamp_ms: u64,
 }
 
@@ -309,7 +309,7 @@ pub struct FastPathBroadcast {
 pub struct FastPathAckMessage {
     pub tx_hash: String,
     pub validator_address: String,
-    pub validator_stake: f64,
+    pub validator_stake: u64,
     pub bls_signature: Option<String>,
     pub timestamp_ms: u64,
 }
@@ -331,7 +331,7 @@ mod tests {
     use super::*;
     use rinku_core::types::{Transaction, TransactionKind};
 
-    fn create_test_tx(amount: f64, memo: Option<String>) -> SignedTransaction {
+    fn create_test_tx(amount: u64, memo: Option<String>) -> SignedTransaction {
         SignedTransaction {
             tx: Transaction {
                 from: "test_sender".to_string(),
@@ -340,9 +340,9 @@ mod tests {
                 nonce: 1,
                 timestamp: 1000,
                 parents: vec![],
-                kind: if amount == 0.0 { Some(TransactionKind::DataOnly) } else { Some(TransactionKind::Transfer) },
+                kind: if amount == 0 { Some(TransactionKind::DataOnly) } else { Some(TransactionKind::Transfer) },
                 gas_limit: Some(21000),
-                gas_price: Some(0.001),
+                gas_price: Some(100_000),
                 data: None,
                 signature: None,
                 memo,
@@ -355,28 +355,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_fast_path_eligibility() {
-        let data_only_tx = create_test_tx(0.0, Some("Hello world".to_string()));
+        let data_only_tx = create_test_tx(0, Some("Hello world".to_string()));
         assert!(data_only_tx.is_fast_path_eligible());
 
-        let transfer_tx = create_test_tx(10.0, None);
+        let transfer_tx = create_test_tx(1_000_000_000, None);
         assert!(transfer_tx.is_fast_path_eligible());
     }
 
     #[tokio::test]
     async fn test_fast_path_quorum() {
         let service = FastPathService::new(FastPathConfig::default());
-        service.update_total_stake(1000.0).await;
+        service.update_total_stake(100_000_000_000).await;
 
-        let tx = create_test_tx(0.0, Some("Test message".to_string()));
+        let tx = create_test_tx(0, Some("Test message".to_string()));
         let finality = service.register_fast_path_tx(&tx).await.unwrap();
         
         assert_eq!(finality.status, FastPathStatus::Pending);
-        assert!(finality.quorum_stake_required > 0.0);
+        assert!(finality.quorum_stake_required > 0);
 
         let ack1 = FastPathAck {
             tx_hash: tx.hash.clone(),
             validator_address: "validator1".to_string(),
-            validator_stake: 400.0,
+            validator_stake: 40_000_000_000,
             bls_signature: None,
             timestamp_ms: 1000,
         };
@@ -386,7 +386,7 @@ mod tests {
         let ack2 = FastPathAck {
             tx_hash: tx.hash.clone(),
             validator_address: "validator2".to_string(),
-            validator_stake: 400.0,
+            validator_stake: 40_000_000_000,
             bls_signature: None,
             timestamp_ms: 1001,
         };

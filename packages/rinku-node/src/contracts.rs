@@ -1305,8 +1305,21 @@ impl ContractService {
     }
 
     pub fn create_verifiable_object_from_receipt(receipt: &StatefulReceipt) -> Result<String> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let freshness = rinku_core::stateful_receipt::ProofFreshness::new(
+            receipt.finality.checkpoint_height,
+            now_ms,
+            receipt.finality.checkpoint_height,
+            None,
+        );
+
         let vo = VerifiableObject::ContractOutput {
             receipt: receipt.clone(),
+            freshness: Some(freshness),
         };
         let encoded = encode_to_url(&vo).map_err(|e| anyhow!("Encoding failed: {}", e))?;
         Ok(create_verifiable_object_url(&encoded))

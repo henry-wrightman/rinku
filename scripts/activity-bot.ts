@@ -6,12 +6,12 @@ const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3001";
 const RELAYER_NODE_URL = process.env.RINKU_RELAYER_URL || NODE_URL;
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "5000"); // Reduced from 2000 for higher throughput
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "1000");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "500"); // Reduced from 2000 for higher throughput
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "100");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "6");
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "8");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "2");
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "50");
 const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.3");
 const NONCE_WAIT_TIMEOUT_MS = parseInt(
   process.env.NONCE_WAIT_TIMEOUT_MS || "6000",
@@ -1541,14 +1541,14 @@ async function main() {
     await claimRewards();
   }, REWARDS_INTERVAL_MS);
 
-  setInterval(async () => {
-    await doRelayTransaction();
-  }, RELAY_INTERVAL_MS);
+  // setInterval(async () => {
+  //   await doRelayTransaction();
+  // }, RELAY_INTERVAL_MS);
 
   setInterval(printStats, 60000);
   setInterval(checkTipCount, 30000);
   setInterval(doConsolidation, CONSOLIDATION_INTERVAL_MS);
-  setInterval(checkRelayPool, 120000);
+  // setInterval(checkRelayPool, 120000);
 
   // Check wallet balances and refill if needed every 15s
   setInterval(async () => {

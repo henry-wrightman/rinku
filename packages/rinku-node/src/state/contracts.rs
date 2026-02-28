@@ -48,9 +48,9 @@ impl NodeState {
 
     /// Reconcile account.staked values with rewards stake positions
     /// This fixes any divergence between the two data stores
-    pub async fn reconcile_stakes(&self) -> (usize, Vec<(String, f64, f64)>) {
+    pub async fn reconcile_stakes(&self) -> (usize, Vec<(String, u64, u64)>) {
         let rewards = self.rewards.read().await;
-        let stake_positions: Vec<(String, f64)> = rewards
+        let stake_positions: Vec<(String, u64)> = rewards
             .get_all_stakes()
             .iter()
             .map(|pos| (pos.staker.clone(), pos.amount))
@@ -59,14 +59,14 @@ impl NodeState {
         
         let mut state = self.inner.write().await;
         let mut reconciled_count = 0;
-        let mut changes: Vec<(String, f64, f64)> = Vec::new();
+        let mut changes: Vec<(String, u64, u64)> = Vec::new();
         
         for (staker, rewards_amount) in &stake_positions {
             if let Some(account) = state.accounts.get_mut(staker) {
-                let diff = (account.staked - rewards_amount).abs();
-                if diff > 0.0001 {
+                let diff = account.staked.abs_diff(*rewards_amount);
+                if diff > 0 {
                     info!(
-                        "RECONCILE: account.staked for {}: {} -> {} (diff: {:.4})",
+                        "RECONCILE: account.staked for {}: {} -> {} (diff: {})",
                         &staker[..staker.len().min(16)],
                         account.staked,
                         rewards_amount,
@@ -130,5 +130,34 @@ impl NodeState {
         }
         
         count
+    }
+
+    pub async fn get_contract_storage_value(
+        &self,
+        contract_id: &str,
+        key: &str,
+    ) -> Option<serde_json::Value> {
+        let state = self.inner.read().await;
+        state.contracts
+            .get(contract_id)
+            .and_then(|c| c.state.get(key).cloned())
+    }
+
+    pub async fn get_contract_storage_proof(
+        &self,
+        contract_id: &str,
+        key: &str,
+    ) -> Option<crate::sparse_merkle_trie::MerkleProof> {
+        use crate::contract_storage::ContractStorageManager;
+
+        let state = self.inner.read().await;
+        let contract = state.contracts.get(contract_id)?;
+
+        let mut mgr = ContractStorageManager::new();
+        for (k, v) in &contract.state {
+            let _ = mgr.write_key(contract_id, k, v, None);
+        }
+
+        mgr.prove_key(contract_id, key, None).ok()
     }
 }

@@ -61,7 +61,6 @@ chrono = { workspace = true }
 
 # Utilities
 num_cpus = { workspace = true }
-reqwest = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
 blst = { workspace = true }

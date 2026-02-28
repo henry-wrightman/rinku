@@ -18,16 +18,20 @@ mod dag_pruning;
 #[cfg(feature = "wasm")]
 mod wasm_runtime;
 mod emission;
+mod events;
+mod websocket;
 mod fast_path;
 mod fork_remediation;
 mod gas;
 mod gossip;
 mod leader_election;
 mod mempool_cleanup;
+mod merge;
+mod partition_detector;
+
 #[cfg(feature = "p2p")]
 mod network;
 mod proofs;
-mod relay;
 mod storage;
 mod rewards;
 mod slashing;
@@ -578,7 +582,7 @@ async fn main() -> Result<()> {
 
     // Start libp2p NetworkService for production P2P (before GossipService so we can pass the handle)
     #[cfg(feature = "p2p")]
-    let network_handle = if config.p2p.enabled {
+    let (network_handle, p2p_message_rx, p2p_sync_rx, p2p_response_tx) = if config.p2p.enabled {
         let network_config = NetworkConfig {
             listen_addr: config.p2p.listen_addr.clone(),
             bootstrap_peers: config.p2p.bootstrap_peers.clone(),
@@ -587,11 +591,15 @@ async fn main() -> Result<()> {
         };
         
         match NetworkService::new(network_config) {
-            Ok((mut network_service, handle)) => {
+            Ok((mut network_service, mut handle)) => {
+                let p2p_message_rx = handle.take_message_rx();
+                let p2p_sync_rx = handle.take_sync_incoming_rx();
+                let p2p_response_tx = Some(handle.response_sender());
                 let shared_handle = Arc::new(tokio::sync::Mutex::new(handle));
                 let mut handshake_config = HandshakeConfig::default();
                 handshake_config.chain_id = config.chain_id.clone();
                 handshake_config.network_id = config.network_id.clone();
+                handshake_config.validator_address = validator_address.clone();
                 if config.mainnet_mode {
                     handshake_config.required_chain_id = Some(config.chain_id.clone());
                     handshake_config.required_network_id = Some(config.network_id.clone());
@@ -602,7 +610,6 @@ async fn main() -> Result<()> {
                 info!("P2P network started with peer ID: {}", peer_id);
                 info!("P2P listening on: {}", config.p2p.listen_addr);
                 
-                // Store peer info for bootstrap endpoint
                 state.set_peer_info(peer_id.to_string(), config.p2p.listen_addr.clone()).await;
                 
                 if !config.p2p.bootstrap_peers.is_empty() {
@@ -618,16 +625,16 @@ async fn main() -> Result<()> {
                     }
                 });
                 
-                Some(shared_handle)
+                (Some(shared_handle), p2p_message_rx, p2p_sync_rx, p2p_response_tx)
             }
             Err(e) => {
                 warn!("Failed to start P2P network: {}", e);
-                None
+                (None, None, None, None)
             }
         }
     } else {
         info!("P2P networking disabled (using HTTP gossip only)");
-        None
+        (None, None, None, None)
     };
 
     #[cfg(feature = "p2p")]
@@ -651,22 +658,33 @@ async fn main() -> Result<()> {
             service.set_validator_identity(vi.clone());
         }
         
-        // Wire up the libp2p network handle if available
         #[cfg(feature = "p2p")]
         if let Some(ref handle) = network_handle {
             service.set_network_handle(handle.clone());
-            info!("GossipService connected to libp2p network");
+            service.set_p2p_channels(p2p_message_rx, p2p_sync_rx, p2p_response_tx);
+            info!("GossipService connected to libp2p network (lock-free channels)");
         }
         
-        Some(std::sync::Arc::new(service))
+        Some(service)
     } else {
         None
     };
     
+    let mut gossip_service = gossip_service;
+    let event_bus = Arc::new(events::EventBus::new(1024));
+    info!("Event bus initialized (capacity: 1024)");
+
+    if let Some(ref mut gs) = gossip_service {
+        gs.set_event_bus(event_bus.clone());
+    }
+
+    let gossip_service = gossip_service.map(|gs| std::sync::Arc::new(gs));
+
     // Wire up GossipService to CheckpointService for immediate checkpoint broadcast
     if let Some(ref gs) = gossip_service {
         checkpoint_service = checkpoint_service.with_gossip_service(gs.clone());
     }
+    checkpoint_service = checkpoint_service.with_event_bus(event_bus.clone());
 
     let checkpoint_handle = tokio::spawn(async move {
         if let Err(e) = checkpoint_service.start().await {
@@ -712,6 +730,21 @@ async fn main() -> Result<()> {
     });
     info!("Mempool cleanup service started (TTL: 120s, interval: 30s)");
 
+    let partition_detector = partition_detector::PartitionDetector::new(
+        state.clone(),
+        partition_detector::PartitionDetectorConfig::default(),
+    );
+    let partition_detector = if let Some(ref gs) = gossip_service {
+        partition_detector.with_gossip_service(gs.clone())
+    } else {
+        partition_detector
+    };
+    let partition_detector = partition_detector.with_event_bus(event_bus.clone());
+    tokio::spawn(async move {
+        partition_detector.start().await;
+    });
+    info!("Partition detector started");
+
     // Periodic snapshot saving (every 60 seconds)
     let snapshot_state = state.clone();
     let snapshot_handle = tokio::spawn(async move {
@@ -729,7 +762,7 @@ async fn main() -> Result<()> {
 
     let static_dir = config.static_dir.as_ref().map(std::path::PathBuf::from);
     info!("STATIC_DIR config: {:?}", config.static_dir);
-    let api_handle = api::start_api_server(state.clone(), gossip_service.clone(), config.api_port, static_dir).await?;
+    let api_handle = api::start_api_server(state.clone(), gossip_service.clone(), config.api_port, static_dir, event_bus.clone()).await?;
 
     info!("Rinku Node running on port {}", config.api_port);
     info!("API available at http://0.0.0.0:{}/api", config.api_port);
