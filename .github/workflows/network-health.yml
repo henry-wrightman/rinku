@@ -1,0 +1,66 @@
+name: Network Health
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # every 15 minutes
+  workflow_dispatch:         # allow manual trigger
+
+jobs:
+  health-check:
+    name: Testnet Node Health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check genesis node
+        run: |
+          response=$(curl --silent --fail --max-time 10 https://rinku-genesis.fly.dev/api/health)
+          echo "Genesis: $response"
+          echo "$response" | grep -q '"status":"ok"'
+
+      - name: Check validator-1
+        run: |
+          response=$(curl --silent --fail --max-time 10 https://rinku-validator-1.fly.dev/api/health)
+          echo "Validator-1: $response"
+          echo "$response" | grep -q '"status":"ok"'
+
+      - name: Check validator-2
+        run: |
+          response=$(curl --silent --fail --max-time 10 https://rinku-validator-2.fly.dev/api/health)
+          echo "Validator-2: $response"
+          echo "$response" | grep -q '"status":"ok"'
+
+      - name: Verify checkpoint consensus
+        run: |
+          genesis_height=$(curl --silent --fail --max-time 10 https://rinku-genesis.fly.dev/api/network/stats | python3 -c "import sys,json; print(json.load(sys.stdin)['checkpointCount'])")
+          val1_height=$(curl --silent --fail --max-time 10 https://rinku-validator-1.fly.dev/api/network/stats | python3 -c "import sys,json; print(json.load(sys.stdin)['checkpointCount'])")
+          val2_height=$(curl --silent --fail --max-time 10 https://rinku-validator-2.fly.dev/api/network/stats | python3 -c "import sys,json; print(json.load(sys.stdin)['checkpointCount'])")
+
+          echo "Checkpoint heights — genesis: $genesis_height, val-1: $val1_height, val-2: $val2_height"
+
+          # Allow up to 2 checkpoint lag between nodes
+          max_diff=2
+          diff1=$(( genesis_height - val1_height ))
+          diff2=$(( genesis_height - val2_height ))
+          abs_diff1=${diff1#-}
+          abs_diff2=${diff2#-}
+
+          if [ "$abs_diff1" -gt "$max_diff" ] || [ "$abs_diff2" -gt "$max_diff" ]; then
+            echo "❌ Checkpoint height divergence exceeds threshold"
+            exit 1
+          fi
+
+          echo "✅ All nodes in consensus (spread: val1=${diff1}, val2=${diff2})"
+
+      - name: Verify protocol version consistency
+        run: |
+          genesis_ver=$(curl --silent --fail --max-time 10 https://rinku-genesis.fly.dev/api/version | python3 -c "import sys,json; print(json.load(sys.stdin)['protocolVersion'])")
+          val1_ver=$(curl --silent --fail --max-time 10 https://rinku-validator-1.fly.dev/api/version | python3 -c "import sys,json; print(json.load(sys.stdin)['protocolVersion'])")
+          val2_ver=$(curl --silent --fail --max-time 10 https://rinku-validator-2.fly.dev/api/version | python3 -c "import sys,json; print(json.load(sys.stdin)['protocolVersion'])")
+
+          echo "Protocol versions — genesis: $genesis_ver, val-1: $val1_ver, val-2: $val2_ver"
+
+          if [ "$genesis_ver" != "$val1_ver" ] || [ "$genesis_ver" != "$val2_ver" ]; then
+            echo "❌ Protocol version mismatch across nodes"
+            exit 1
+          fi
+
+          echo "✅ All nodes running protocol v$genesis_ver"

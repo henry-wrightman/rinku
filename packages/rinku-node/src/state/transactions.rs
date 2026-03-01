@@ -343,11 +343,6 @@ impl NodeState {
         }
 
         state.dag.add_node(node)?;
-        
-        state.finalized_tx_history.push_back((now_ms, 1));
-        while state.finalized_tx_history.len() > 300 {
-            state.finalized_tx_history.pop_front();
-        }
 
         state.txs_this_period += 1;
 

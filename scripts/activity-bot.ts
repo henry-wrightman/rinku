@@ -11,7 +11,7 @@ const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3001";
 const RELAYER_NODE_URL = process.env.RINKU_RELAYER_URL || NODE_URL;
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "8000");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "500");
 const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "15");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;

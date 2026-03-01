@@ -1,6 +1,20 @@
-# Rinku - URL-Native Distributed Ledger
+# Rinku - DAG-Based Distributed Ledger For Mesh-Native Systems
 
-A URL-native distributed ledger leveraging DAG-based consensus and weight-based Sybil resistance. The core innovation is embedding the entire ledger state within cryptographically-linked URLs, enabling trustless verification without traditional node infrastructure.
+[![Rust CI](https://github.com/rinku-ledger/rinku/actions/workflows/rust.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/rust.yml)
+[![Node.js CI](https://github.com/rinku-ledger/rinku/actions/workflows/node.js.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/node.js.yml)
+[![Network Health](https://github.com/rinku-ledger/rinku/actions/workflows/network-health.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/network-health.yml)
+[![Protocol](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fversion&query=%24.protocolVersion&label=protocol&color=blue&cacheSeconds=300)](https://rinkuchan.com)
+[![Checkpoints](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fnetwork%2Fstats&query=%24.checkpointCount&label=checkpoints&color=blue&cacheSeconds=60)](https://rinkuchan.com)
+[![Finality](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fnetwork%2Fstats&query=%24.finalityRatio&label=finality&color=brightgreen&suffix=%25&cacheSeconds=60)](https://rinkuchan.com)
+
+**Testnet nodes:**
+[![Genesis](https://img.shields.io/website?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fhealth&label=genesis&up_message=online&down_message=offline&up_color=brightgreen&down_color=red)](https://rinku-genesis.fly.dev/api/health)
+[![Validator-1](https://img.shields.io/website?url=https%3A%2F%2Frinku-validator-1.fly.dev%2Fapi%2Fhealth&label=validator-1&up_message=online&down_message=offline&up_color=brightgreen&down_color=red)](https://rinku-validator-1.fly.dev/api/health)
+[![Validator-2](https://img.shields.io/website?url=https%3A%2F%2Frinku-validator-2.fly.dev%2Fapi%2Fhealth&label=validator-2&up_message=online&down_message=offline&up_color=brightgreen&down_color=red)](https://rinku-validator-2.fly.dev/api/health)
+
+---
+
+A DAG-based distributed ledger with tunable consistency, designed for mesh-native and partition-prone environments. Delivers CP-like checkpoint finality during normal operation, provisional availability during partitions, and deterministic merge reconciliation when connectivity is restored. Self-contained VerifiableObject proofs enable offline verification without RPC infrastructure.
 
 ## Quick Start
 
