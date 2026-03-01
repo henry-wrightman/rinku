@@ -1,16 +1,23 @@
 import { Wallet } from "@rinku/wallet";
+import {
+  sign,
+  hash,
+  deserializeKeyPair,
+  arrayToHex as coreArrayToHex,
+} from "@rinku/core";
 
 const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
 const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3001";
+const RELAYER_NODE_URL = process.env.RINKU_RELAYER_URL || NODE_URL;
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
-const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "500"); // Reduced from 2000 for higher throughput
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "1000");
+const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "8000");
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "15");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "6");
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "8");
-const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.3");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "3");
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "4");
+const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.25");
 const NONCE_WAIT_TIMEOUT_MS = parseInt(
   process.env.NONCE_WAIT_TIMEOUT_MS || "6000",
 );
@@ -19,8 +26,9 @@ const CONTRACT_INTERVAL_MS = parseInt(
 );
 const STAKING_INTERVAL_MS = parseInt(process.env.STAKING_INTERVAL || "180000");
 const REWARDS_INTERVAL_MS = parseInt(process.env.REWARDS_INTERVAL || "300000");
+const RELAY_INTERVAL_MS = parseInt(process.env.RELAY_INTERVAL || "3000");
 const CONSOLIDATION_INTERVAL_MS = parseInt(
-  process.env.CONSOLIDATION_INTERVAL || "10000",
+  process.env.CONSOLIDATION_INTERVAL || "15000",
 );
 const TIP_CONSOLIDATION_THRESHOLD = parseInt(
   process.env.TIP_CONSOLIDATION_THRESHOLD || "10",
@@ -28,6 +36,8 @@ const TIP_CONSOLIDATION_THRESHOLD = parseInt(
 const CONSOLIDATION_TIP_COUNT = parseInt(
   process.env.CONSOLIDATION_TIP_COUNT || "12",
 );
+const MEMORY_LIMIT_MB = parseInt(process.env.MEMORY_LIMIT_MB || "200");
+const BALANCE_CACHE_MS = parseInt(process.env.BALANCE_CACHE_MS || "30000");
 
 // Gas-aware throttling - pause when gas gets too high
 const GAS_THROTTLE_THRESHOLD = parseFloat(
@@ -190,6 +200,8 @@ interface BotWallet {
   lastFaucetHit: number;
   isStaking: boolean;
   hasContract: boolean;
+  cachedBalance: number;
+  lastBalanceFetch: number;
 }
 
 interface DeployedContract {
@@ -208,10 +220,53 @@ let totalStakes = 0;
 let totalRewardsClaimed = 0;
 let totalBatchTransactions = 0;
 let totalConsolidations = 0;
+let totalRelayIntents = 0;
+let totalRelaySuccesses = 0;
 let errors = 0;
 let pendingOperations = 0;
-let maxPendingOps = 50; // Increased from 5 for higher throughput
+let maxPendingOps = 20;
 const MAX_CONTRACTS = 3;
+
+async function getCachedBalance(bw: BotWallet): Promise<number> {
+  const now = Date.now();
+  if (now - bw.lastBalanceFetch < BALANCE_CACHE_MS && bw.cachedBalance >= 0) {
+    return bw.cachedBalance;
+  }
+  try {
+    const balance = await bw.wallet.getBalance();
+    bw.cachedBalance = balance;
+    bw.lastBalanceFetch = now;
+    return balance;
+  } catch {
+    return bw.cachedBalance;
+  }
+}
+
+function invalidateBalanceCache(bw: BotWallet): void {
+  bw.lastBalanceFetch = 0;
+}
+
+function cleanupNonceMaps(): void {
+  const activeFingerprints = new Set(wallets.map((w) => w.fingerprint));
+  for (const key of localNonces.keys()) {
+    if (!activeFingerprints.has(key)) {
+      localNonces.delete(key);
+      lastNonceSync.delete(key);
+    }
+  }
+}
+
+function checkMemoryPressure(): boolean {
+  const memUsage = process.memoryUsage();
+  const heapMB = memUsage.heapUsed / 1024 / 1024;
+  return heapMB > MEMORY_LIMIT_MB;
+}
+
+function forceGC(): void {
+  if (typeof globalThis.gc === "function") {
+    globalThis.gc();
+  }
+}
 
 let currentGasPrice = 0.01;
 const GAS_PRICE_CACHE_MS = 5000;
@@ -321,6 +376,8 @@ async function createNewWallet(): Promise<void> {
         lastFaucetHit: Date.now(),
         isStaking: false,
         hasContract: false,
+        cachedBalance: 100,
+        lastBalanceFetch: Date.now(),
       });
       totalFaucetHits++;
       log(
@@ -339,11 +396,7 @@ async function getAverageWalletBalance(): Promise<number> {
   if (wallets.length === 0) return 0;
   let total = 0;
   for (const w of wallets) {
-    try {
-      total += await w.wallet.getBalance();
-    } catch {
-      // Skip failed balance checks
-    }
+    total += await getCachedBalance(w);
   }
   return total / wallets.length;
 }
@@ -534,15 +587,16 @@ async function doConcurrentTransactions(): Promise<void> {
       const amount = Math.floor(Math.random() * 5) + 1;
 
       txPromises.push(
-        sender.wallet
-          .getBalance()
+        getCachedBalance(sender)
           .then(async (balance) => {
             const needed = amount + gasPrice + 5;
             if (balance < needed) {
               skippedDueToBalance++;
               return false;
             }
-            return doSingleTransaction(sender, recipient, amount, gasPrice);
+            const result = await doSingleTransaction(sender, recipient, amount, gasPrice);
+            if (result) invalidateBalanceCache(sender);
+            return result;
           })
           .catch(() => false)
           .finally(() => unlockSender(sender.fingerprint)),
@@ -615,8 +669,7 @@ async function doBatchTransactions(): Promise<void> {
           sender.fingerprint,
         );
 
-        // Get balance from cached state (initializeNonceTracking may have just refreshed)
-        const balance = await sender.wallet.getBalance();
+        const balance = await getCachedBalance(sender);
         const needed = amount + gasPrice + 5;
         if (balance < needed) {
           skippedDueToBalance++;
@@ -724,6 +777,9 @@ async function doBatchTransactions(): Promise<void> {
   }
 }
 
+const COUNTER_WASM_BASE64 =
+  "AGFzbQEAAAABKwdgAn9/AX9gBH9/f38Bf2ACf38AYAABf2AAAX5gAn9/AX5gBX9/f39+AX8CuQQbBXJpbmt1DHN0b3JhZ2VfcmVhZAAABXJpbmt1EHN0b3JhZ2VfcmVhZF9sZW4AAAVyaW5rdQ1zdG9yYWdlX3dyaXRlAAEFcmlua3UOc3RvcmFnZV9kZWxldGUAAAVyaW5rdQtzdG9yYWdlX2hhcwAABXJpbmt1A2xvZwACBXJpbmt1CmVtaXRfZXZlbnQAAQVyaW5rdQpnZXRfY2FsbGVyAAMFcmlua3UOZ2V0X2NhbGxlcl9sZW4AAwVyaW5rdRBnZXRfYmxvY2tfaGVpZ2h0AAQFcmlua3UNZ2V0X3RpbWVzdGFtcAAEBXJpbmt1D2dldF9jb250cmFjdF9pZAADBXJpbmt1E2dldF9jb250cmFjdF9pZF9sZW4AAwVyaW5rdQlnZXRfaW5wdXQAAwVyaW5rdQ1nZXRfaW5wdXRfbGVuAAMFcmlua3UGc2hhMjU2AAAFcmlua3UJa2VjY2FrMjU2AAAFcmlua3UPc2V0X3JldHVybl9kYXRhAAIFcmlua3UJc2V0X2Vycm9yAAIFcmlua3UTZ2V0X3JldHVybl9kYXRhX2xlbgADBXJpbmt1C2dldF9iYWxhbmNlAAUFcmlua3UKZ2V0X3N0YWtlZAAFBXJpbmt1D2dldF9hY2NvdW50X2FnZQAFBXJpbmt1CWdldF9ub25jZQAFBXJpbmt1CHRyYW5zZmVyAAYFcmlua3UNZW1pdF92aWV3X2tleQABBXJpbmt1DWdldF9nYXNfcHJpY2UABAMFBAMDAwMFAwEAAgc1BQZtZW1vcnkCAARpbml0ABsJaW5jcmVtZW50ABwJZGVjcmVtZW50AB0JZ2V0X2NvdW50AB4K5gIEQQBBgIAEQQVBiIAEQQEQAhpBkIAEQRkQBUGAgQRBC0GwgQRBCxAGGkHYgQRBBUGIgARBARAZGkHAgQRBDhARQQALcwECf0GAgARBBRABGkGAgARBBRAAIQAgAC0AAEEwayEBIAFBAWohAUGIggQgAUEwajoAAEGAgARBBUGIggRBARACGkGwgARBFBAFQZCBBEELQcCBBEEOEAYaQdiBBEEFQYiCBEEBEBkaQcCBBEEOEBFBAAuEAQECf0GAgARBBRABGkGAgARBBRAAIQAgAC0AAEEwayEBIAFFBEBB4IEEQRoQEkEBDwsgAUEBayEBQYiCBCABQTBqOgAAQYCABEEFQYiCBEEBEAIaQciABEEUEAVBoIEEQQtBwIEEQQ4QBhpB2IEEQQVBiIIEQQEQGRpBwIEEQQ4QEUEACygBAn9BgIAEQQUQASEBQYCABEEFEAAhAEHggARBExAFIAAgARARQQALC5ECDQBBgIAECwVjb3VudABBiIAECwEwAEGQgAQLGWNvdW50ZXI6IGluaXRpYWxpemVkIHRvIDAAQbCABAsUY291bnRlcjogaW5jcmVtZW50ZWQAQciABAsUY291bnRlcjogZGVjcmVtZW50ZWQAQeCABAsTY291bnRlcjogcmVhZCBjb3VudABBgIEECwtpbml0aWFsaXplZABBkIEECwtpbmNyZW1lbnRlZABBoIEECwtkZWNyZW1lbnRlZABBsIEECwt7ImNvdW50IjowfQBBwIEECw97InN0YXR1cyI6Im9rIn0AQdiBBAsFY291bnQAQeCBBAsbY2Fubm90IGRlY3JlbWVudCBiZWxvdyB6ZXJv";
+
 async function deployContract(): Promise<void> {
   if (wallets.length < 3) return;
   if (pendingOperations >= maxPendingOps) return;
@@ -735,41 +791,92 @@ async function deployContract(): Promise<void> {
   pendingOperations++;
   try {
     const creator = pickRandom(eligible);
-    const balance = await creator.wallet.getBalance();
+    const balance = await getCachedBalance(creator);
     if (balance < 50) {
       return;
     }
 
-    const wasmBase64 = btoa("mock-token-contract-v1");
+    const previewRes = await fetchWithTimeout(
+      `${NODE_URL}/api/contracts/deploy`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creator: creator.fingerprint,
+          wasmBase64: COUNTER_WASM_BASE64,
+          initState: {},
+        }),
+      },
+    );
 
-    const res = await fetchWithTimeout(`${NODE_URL}/api/contracts/deploy`, {
+    if (!previewRes.ok) {
+      const errData = await previewRes.json().catch(() => ({}));
+      log(
+        `Contract deploy preview failed: ${JSON.stringify(errData).slice(0, 60)}`,
+      );
+      errors++;
+      return;
+    }
+
+    const previewData = (await previewRes.json()) as { contractId: string };
+    const contractId = previewData.contractId;
+
+    const deployData = JSON.stringify({
+      action: "deploy",
+      wasmBase64: COUNTER_WASM_BASE64,
+      initState: {},
+    });
+
+    const nonce = await initializeNonceTracking(
+      creator.wallet,
+      creator.fingerprint,
+    );
+    const parents = await getTipParents();
+    const signedTx = await creator.wallet.createSignedTransactionWithOptions({
+      to: contractId,
+      amount: 0,
+      fee: currentGasPrice,
+      kind: "contract",
+      data: deployData,
+      tipUrls: parents,
+      nonce,
+      skipRefresh: true,
+    });
+
+    const publicKey = await creator.wallet.getPublicKey();
+    const res = await fetchWithTimeout(`${NODE_URL}/api/tx`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        creator: creator.fingerprint,
-        wasmBase64,
-        initState: { balances: {}, totalSupply: 0 },
-      }),
+      body: JSON.stringify({ tx: signedTx, publicKey: Array.from(publicKey) }),
     });
 
     if (res.ok) {
-      const data = (await res.json()) as { contractId: string };
+      incrementLocalNonce(creator.fingerprint);
       deployedContracts.push({
-        contractId: data.contractId,
+        contractId,
         ownerFingerprint: creator.fingerprint,
         deployedAt: Date.now(),
       });
       creator.hasContract = true;
       totalContractDeploys++;
       log(
-        `Contract deployed: ${data.contractId.slice(0, 16)}... by ${creator.fingerprint.slice(0, 12)}`,
+        `Contract deployed: ${contractId.slice(0, 16)}... by ${creator.fingerprint.slice(0, 12)}`,
       );
     } else {
-      const errData = await res.json().catch(() => ({}));
-      log(`Contract deploy failed: ${JSON.stringify(errData).slice(0, 50)}`);
+      const errData = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      const errMsg = errData.error || "";
+      if (errMsg.toLowerCase().includes("nonce")) {
+        if (!updateNonceFromError(creator.fingerprint, errMsg)) {
+          await invalidateAndResyncNonce(creator.wallet, creator.fingerprint);
+        }
+      }
+      log(`Contract deploy tx failed: ${errMsg.slice(0, 60)}`);
       errors++;
     }
   } catch (err: any) {
+    log(`Contract deploy error: ${err.message}`);
     errors++;
   } finally {
     pendingOperations--;
@@ -786,35 +893,25 @@ async function callContract(): Promise<void> {
     const contract = pickRandom(deployedContracts);
     const caller = pickRandom(wallets);
 
-    const balance = await caller.wallet.getBalance();
+    const balance = await getCachedBalance(caller);
     if (balance < 10) return;
 
     const action = Math.random();
     let entrypoint: string;
-    let input: object;
+    let input: Record<string, unknown>;
 
-    if (action < 0.4) {
-      entrypoint = "mint";
-      input = {
-        to: caller.fingerprint,
-        amount: Math.floor(Math.random() * 50) + 10,
-      };
-    } else if (action < 0.7) {
-      entrypoint = "transfer";
-      const recipient = pickRandom(
-        wallets.filter((w) => w.fingerprint !== caller.fingerprint),
-      );
-      input = {
-        from: caller.fingerprint,
-        to: recipient?.fingerprint || caller.fingerprint,
-        amount: Math.floor(Math.random() * 10) + 1,
-      };
+    if (action < 0.5) {
+      entrypoint = "increment";
+      input = { amount: Math.floor(Math.random() * 5) + 1 };
+    } else if (action < 0.8) {
+      entrypoint = "decrement";
+      input = { amount: 1 };
     } else {
-      entrypoint = "get_balance";
-      input = { address: caller.fingerprint };
+      entrypoint = "get_count";
+      input = {};
     }
 
-    const res = await fetchWithTimeout(
+    const dryRunRes = await fetchWithTimeout(
       `${NODE_URL}/api/contracts/${contract.contractId}/call`,
       {
         method: "POST",
@@ -827,16 +924,86 @@ async function callContract(): Promise<void> {
       },
     );
 
+    if (!dryRunRes.ok) {
+      if (entrypoint !== "get_count") {
+        const errData = await dryRunRes.json().catch(() => ({}));
+        log(
+          `Contract dry-run failed: ${entrypoint}() - ${JSON.stringify(errData).slice(0, 50)}`,
+        );
+      }
+      return;
+    }
+
+    const dryRunData = (await dryRunRes.json()) as {
+      success: boolean;
+      returnData?: string;
+      error?: string;
+    };
+
+    if (!dryRunData.success) {
+      if (entrypoint !== "get_count") {
+        log(
+          `Contract dry-run rejected: ${entrypoint}() - ${dryRunData.error || "unknown"}`,
+        );
+      }
+      return;
+    }
+
+    if (entrypoint === "get_count") {
+      totalContractCalls++;
+      log(
+        `Contract query: get_count() on ${contract.contractId.slice(0, 12)}... -> ${dryRunData.returnData || "?"}`,
+      );
+      return;
+    }
+
+    const callData = JSON.stringify({
+      action: "call",
+      contractId: contract.contractId,
+      entrypoint,
+      input,
+    });
+
+    const nonce = await initializeNonceTracking(
+      caller.wallet,
+      caller.fingerprint,
+    );
+    const parents = await getTipParents();
+    const signedTx = await caller.wallet.createSignedTransactionWithOptions({
+      to: contract.contractId,
+      amount: 0,
+      fee: currentGasPrice,
+      kind: "contract",
+      data: callData,
+      tipUrls: parents,
+      nonce,
+      skipRefresh: true,
+    });
+
+    const publicKey = await caller.wallet.getPublicKey();
+    const res = await fetchWithTimeout(`${NODE_URL}/api/tx`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tx: signedTx, publicKey: Array.from(publicKey) }),
+    });
+
     if (res.ok) {
+      incrementLocalNonce(caller.fingerprint);
       totalContractCalls++;
       log(
         `Contract call: ${entrypoint}() on ${contract.contractId.slice(0, 12)}...`,
       );
     } else {
-      const errData = await res.json().catch(() => ({}));
-      if (entrypoint !== "get_balance") {
-        log(`Contract call failed: ${JSON.stringify(errData).slice(0, 40)}`);
+      const errData = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      const errMsg = errData.error || "";
+      if (errMsg.toLowerCase().includes("nonce")) {
+        if (!updateNonceFromError(caller.fingerprint, errMsg)) {
+          await invalidateAndResyncNonce(caller.wallet, caller.fingerprint);
+        }
       }
+      log(`Contract call tx failed: ${errMsg.slice(0, 60)}`);
     }
   } catch (err: any) {
     log(`Contract call error: ${err.message}`);
@@ -856,7 +1023,7 @@ async function doStaking(): Promise<void> {
   pendingOperations++;
   try {
     const staker = pickRandom(nonStakers);
-    const balance = await staker.wallet.getBalance();
+    const balance = await getCachedBalance(staker);
 
     if (balance < 200) return;
 
@@ -978,6 +1145,361 @@ async function claimRewards(): Promise<void> {
   }
 }
 
+interface RelayIntent {
+  from: string;
+  to: string;
+  amount: number;
+  nonce: number;
+  kind?: string;
+  memo?: string;
+  maxGasPrice: number;
+  relayFee?: number;
+  expiryMs: number;
+  publicKey: string;
+  intentHash: string;
+  intentSignature: string;
+}
+
+async function createRelayIntent(
+  wallet: Wallet,
+  fingerprint: string,
+  payload: {
+    to: string;
+    amount: number;
+    nonce: number;
+    kind?: string;
+    memo?: string;
+    references?: string[];
+    data?: string;
+    maxGasPrice: number;
+    relayFee?: number;
+    expiryMs: number;
+  },
+): Promise<RelayIntent> {
+  const canonical: Record<string, unknown> = {};
+  canonical.amount = payload.amount;
+  if (payload.data) {
+    canonical.data = payload.data;
+  }
+  canonical.expiryMs = payload.expiryMs;
+  canonical.from = fingerprint;
+  if (payload.kind) {
+    canonical.kind = payload.kind;
+  }
+  canonical.maxGasPrice = payload.maxGasPrice;
+  if (payload.memo && payload.memo.trim()) {
+    canonical.memo = payload.memo.slice(0, 1024);
+  }
+  if (payload.relayFee !== undefined && payload.relayFee > 0) {
+    canonical.relayFee = payload.relayFee;
+  }
+  canonical.nonce = payload.nonce;
+  if (payload.references && payload.references.length > 0) {
+    canonical.references = payload.references
+      .slice(0, 4)
+      .filter((r) => r.trim());
+  }
+  canonical.to = payload.to;
+
+  const sortedKeys = Object.keys(canonical).sort();
+  const sorted: Record<string, unknown> = {};
+  for (const key of sortedKeys) {
+    sorted[key] = canonical[key];
+  }
+  const canonicalJson = JSON.stringify(sorted);
+  const intentHash = await hash(canonicalJson);
+
+  const keyPair = deserializeKeyPair(wallet.export());
+  const intentSignature = await sign(canonicalJson, keyPair.privateKey);
+  const publicKeyHex = coreArrayToHex(keyPair.publicKey);
+
+  return {
+    from: fingerprint,
+    to: payload.to,
+    amount: payload.amount,
+    nonce: payload.nonce,
+    kind: payload.kind,
+    memo: payload.memo,
+    maxGasPrice: payload.maxGasPrice,
+    relayFee: payload.relayFee,
+    expiryMs: payload.expiryMs,
+    publicKey: publicKeyHex,
+    intentHash,
+    intentSignature,
+  };
+}
+
+let cachedRelayerNodeUrl: string | null = null;
+let relayerDiscoveryFailures = 0;
+
+async function discoverRelayerNodeUrl(): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(`${NODE_URL}/api/relay/pool`, {}, 5000);
+    if (res.ok) {
+      const data = (await res.json()) as {
+        relayers?: Array<{
+          address: string;
+          nodeUrl: string;
+          isHealthy: boolean;
+        }>;
+      };
+      const healthy = (data.relayers || []).filter(
+        (r) => r.isHealthy && r.nodeUrl,
+      );
+      if (healthy.length > 0) {
+        const chosen = healthy[0];
+        if (!relayerAddress) {
+          relayerAddress = chosen.address;
+        }
+        cachedRelayerNodeUrl = chosen.nodeUrl;
+        relayerDiscoveryFailures = 0;
+        return chosen.nodeUrl;
+      }
+    }
+  } catch {}
+  relayerDiscoveryFailures++;
+  return null;
+}
+
+async function doRelayTransaction(): Promise<void> {
+  if (wallets.length < 2) return;
+  if (pendingOperations >= maxPendingOps) return;
+  if (gasThrottled) return;
+
+  pendingOperations++;
+  try {
+    let relayerNodeUrl = cachedRelayerNodeUrl;
+    if (!relayerNodeUrl || relayerDiscoveryFailures > 0) {
+      relayerNodeUrl = await discoverRelayerNodeUrl();
+    }
+    if (!relayerNodeUrl) {
+      relayerNodeUrl = RELAYER_NODE_URL;
+      log(
+        `Relay: no healthy relayer in pool, falling back to ${relayerNodeUrl}`,
+      );
+    }
+
+    const availableSenders = wallets.filter(
+      (w) => !globalLockedSenders.has(w.fingerprint),
+    );
+    if (availableSenders.length < 2) return;
+
+    const sender = pickRandom(availableSenders);
+    if (!lockSender(sender.fingerprint)) return;
+
+    try {
+      const balance = await getCachedBalance(sender);
+      const relayFee = 0.5;
+      const amount = Math.floor(Math.random() * 3) + 1;
+      const needed = amount + relayFee + 5;
+
+      if (balance < needed) {
+        log(
+          `Relay skip: ${sender.fingerprint.slice(0, 12)}... insufficient balance (${balance.toFixed(2)} < ${needed.toFixed(2)})`,
+        );
+        return;
+      }
+
+      const recipients = wallets.filter(
+        (w) => w.fingerprint !== sender.fingerprint,
+      );
+      if (recipients.length === 0) return;
+      const recipient = pickRandom(recipients);
+
+      const nonce = await initializeNonceTracking(
+        sender.wallet,
+        sender.fingerprint,
+      );
+
+      const expiryMs = Date.now() + 120000;
+      const maxGasPrice = Math.max(currentGasPrice * 5, 10);
+
+      const intent = await createRelayIntent(
+        sender.wallet,
+        sender.fingerprint,
+        {
+          to: recipient.fingerprint,
+          amount,
+          nonce,
+          maxGasPrice,
+          relayFee,
+          expiryMs,
+        },
+      );
+
+      totalRelayIntents++;
+
+      const parents = await getTipParents();
+      const res = await fetchWithTimeout(
+        `${relayerNodeUrl}/api/tx/auto-relay`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            intent,
+            parents,
+          }),
+        },
+      );
+
+      if (res.ok) {
+        const result = (await res.json()) as {
+          success: boolean;
+          hash: string;
+          intentHash: string;
+          relayer: string;
+        };
+        if (result.success) {
+          incrementLocalNonce(sender.fingerprint);
+          totalRelaySuccesses++;
+          totalTransactions++;
+          log(
+            `Relay TX: ${sender.fingerprint.slice(0, 12)}... -> ${recipient.fingerprint.slice(0, 12)}... (${amount} RKU, fee=${relayFee}) relayer=${result.relayer.slice(0, 12)}... tx=${result.hash.slice(0, 12)}...`,
+          );
+        } else {
+          log(`Relay TX submitted but not successful`);
+          errors++;
+        }
+      } else {
+        const errData = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          relayer?: string;
+        };
+        const errMsg = errData.error || `status ${res.status}`;
+        if (errMsg.toLowerCase().includes("insufficient balance")) {
+          log(
+            `Relay TX failed: relayer ${errData.relayer?.slice(0, 16) || "?"} out of funds at ${relayerNodeUrl}, requesting top-up...`,
+          );
+          cachedRelayerNodeUrl = null;
+          await fundRelayer();
+        } else if (errMsg.toLowerCase().includes("nonce")) {
+          if (updateNonceFromError(sender.fingerprint, errMsg)) {
+          } else {
+            await invalidateAndResyncNonce(sender.wallet, sender.fingerprint);
+          }
+        } else {
+          log(`Relay TX failed: ${errMsg.slice(0, 80)}`);
+        }
+        errors++;
+      }
+    } finally {
+      unlockSender(sender.fingerprint);
+    }
+  } catch (err: any) {
+    log(`Relay TX error: ${err.message?.slice(0, 60)}`);
+    errors++;
+  } finally {
+    pendingOperations--;
+  }
+}
+
+let relayerAddress: string | null = null;
+let lastRelayerFundTime = 0;
+const RELAYER_FUND_COOLDOWN_MS = 65000;
+
+async function fundRelayer(): Promise<boolean> {
+  const now = Date.now();
+  if (now - lastRelayerFundTime < RELAYER_FUND_COOLDOWN_MS) {
+    return false;
+  }
+
+  let address = relayerAddress;
+  if (!address) {
+    try {
+      const res = await fetchWithTimeout(
+        `${NODE_URL}/api/relay/pool`,
+        {},
+        3000,
+      );
+      if (res.ok) {
+        const data = (await res.json()) as {
+          relayers?: Array<{ address: string }>;
+        };
+        if (data.relayers && data.relayers.length > 0) {
+          address = data.relayers[0].address;
+          relayerAddress = address;
+        }
+      }
+    } catch {}
+  }
+
+  if (!address) {
+    try {
+      const res = await fetchWithTimeout(`${NODE_URL}/api/node/info`, {}, 3000);
+      if (res.ok) {
+        const data = (await res.json()) as { validatorAddress?: string };
+        if (data.validatorAddress) {
+          address = data.validatorAddress;
+          relayerAddress = address;
+        }
+      }
+    } catch {}
+  }
+
+  if (!address) {
+    log(`Cannot fund relayer: address unknown`);
+    return false;
+  }
+
+  try {
+    const faucetRes = await fetchWithTimeout(`${FAUCET_URL}/api/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    });
+    lastRelayerFundTime = Date.now();
+    if (faucetRes.ok) {
+      log(`Funded relayer ${address.slice(0, 12)}... via faucet (100 RKU)`);
+      return true;
+    } else {
+      const err = await faucetRes.text().catch(() => "");
+      log(`Relayer funding failed: ${err.slice(0, 80)}`);
+      return false;
+    }
+  } catch (e: any) {
+    log(`Relayer funding error: ${e.message?.slice(0, 60)}`);
+    return false;
+  }
+}
+
+async function checkRelayPool(): Promise<void> {
+  try {
+    const res = await fetchWithTimeout(`${NODE_URL}/api/relay/pool`, {}, 3000);
+    if (res.ok) {
+      const data = (await res.json()) as {
+        relayers?: Array<{
+          address: string;
+          feeRate: number;
+          relaysCompleted: number;
+        }>;
+      };
+      const relayers = (data.relayers || []) as Array<{
+        address: string;
+        feeRate: number;
+        relaysCompleted: number;
+        nodeUrl?: string;
+        isHealthy?: boolean;
+      }>;
+      if (relayers.length > 0) {
+        const healthyWithUrl = relayers.filter(
+          (r) => r.isHealthy !== false && r.nodeUrl,
+        );
+        if (healthyWithUrl.length > 0 && !cachedRelayerNodeUrl) {
+          cachedRelayerNodeUrl = healthyWithUrl[0].nodeUrl!;
+        }
+        if (!relayerAddress && relayers[0].address) {
+          relayerAddress = relayers[0].address;
+        }
+        log(
+          `Relay pool: ${relayers.length} relayer(s) - ${relayers.map((r) => `${r.address.slice(0, 12)}...(${r.relaysCompleted} relays)`).join(", ")}`,
+        );
+      } else {
+        log(`Relay pool: empty (no relayers registered)`);
+      }
+    }
+  } catch {}
+}
+
 function log(msg: string): void {
   const time = new Date().toLocaleTimeString();
   console.log(`[${time}] ${msg}`);
@@ -986,14 +1508,21 @@ function log(msg: string): void {
 function printStats(): void {
   const memUsage = process.memoryUsage();
   const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+  const rssMB = Math.round(memUsage.rss / 1024 / 1024);
   const stakingWallets = wallets.filter((w) => w.isStaking).length;
   const contractOwners = wallets.filter((w) => w.hasContract).length;
 
   console.log("\n" + "=".repeat(55));
-  console.log("RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION");
+  console.log("RINKU ACTIVITY BOT - STATUS");
   console.log("=".repeat(55));
   console.log(
+    `  Memory: heap=${heapMB} MB, rss=${rssMB} MB (limit: ${MEMORY_LIMIT_MB} MB)`,
+  );
+  console.log(
     `  Wallets: ${wallets.length}/${MAX_WALLETS} (${stakingWallets} staking, ${contractOwners} w/contracts)`,
+  );
+  console.log(
+    `  Maps: nonces=${localNonces.size}, locks=${globalLockedSenders.size}`,
   );
   console.log(
     `  Transactions: ${totalTransactions} (${totalBatchTransactions} batch, ${totalConsolidations} consolidations) | Faucet: ${totalFaucetHits}`,
@@ -1007,22 +1536,18 @@ function printStats(): void {
   console.log(
     `  Errors: ${errors} | Pending: ${pendingOperations}/${maxPendingOps} | Skipped (low bal): ${skippedDueToBalance}`,
   );
-  console.log(
-    `  Heap: ${heapMB} MB | Concurrent TX: ${CONCURRENT_TX_COUNT} | Locked: ${globalLockedSenders.size}`,
-  );
   console.log(`  Gas Price: ${currentGasPrice.toFixed(4)}`);
 
-  // Show average balance async
   getAverageWalletBalance().then((avg) => {
     const needed = currentGasPrice + 10;
-    const status = avg >= needed * 2 ? "✓" : avg >= needed ? "⚠" : "✗";
+    const status = avg >= needed * 2 ? "OK" : avg >= needed ? "LOW" : "CRITICAL";
     console.log(
-      `  Avg Balance: ${avg.toFixed(2)} (need ~${needed.toFixed(2)} per tx) ${status}`,
+      `  Avg Balance: ${avg.toFixed(2)} (need ~${needed.toFixed(2)} per tx) [${status}]`,
     );
     console.log("=".repeat(55) + "\n");
   });
 
-  skippedDueToBalance = 0; // Reset after display
+  skippedDueToBalance = 0;
 }
 
 async function checkTipCount(): Promise<void> {
@@ -1070,11 +1595,11 @@ async function doConsolidation(): Promise<void> {
       if (!lockSender(sender.fingerprint)) continue;
 
       try {
-        const state = await sender.wallet.refresh();
+        const balance = await getCachedBalance(sender);
         const fee = gasPrice * 1.2;
         const minBalance = 0.001 + fee;
 
-        if (state.balance < minBalance) {
+        if (balance < minBalance) {
           unlockSender(sender.fingerprint);
           continue;
         }
@@ -1113,7 +1638,7 @@ async function doConsolidation(): Promise<void> {
 
 async function main() {
   console.log("=".repeat(55));
-  console.log("RINKU ACTIVITY BOT - ENHANCED TESTNET SIMULATION");
+  console.log("RINKU ACTIVITY BOT - LONG-RUNNING TESTNET SIMULATION");
   console.log("=".repeat(55));
   console.log(`Node: ${NODE_URL}`);
   console.log(`Faucet: ${FAUCET_URL}`);
@@ -1123,6 +1648,8 @@ async function main() {
   console.log(`Staking interval: ${STAKING_INTERVAL_MS / 1000}s`);
   console.log(`Rewards interval: ${REWARDS_INTERVAL_MS / 1000}s`);
   console.log(`Max wallets: ${MAX_WALLETS}`);
+  console.log(`Memory limit: ${MEMORY_LIMIT_MB} MB`);
+  console.log(`Balance cache: ${BALANCE_CACHE_MS / 1000}s`);
   console.log(
     `Batch TX: ${BATCH_TX_COUNT} per batch, ${Math.round(BATCH_TX_CHANCE * 100)}% chance`,
   );
@@ -1171,17 +1698,38 @@ async function main() {
     await claimRewards();
   }, REWARDS_INTERVAL_MS);
 
+  // setInterval(async () => {
+  //   await doRelayTransaction();
+  // }, RELAY_INTERVAL_MS);
+
   setInterval(printStats, 60000);
   setInterval(checkTipCount, 30000);
   setInterval(doConsolidation, CONSOLIDATION_INTERVAL_MS);
 
-  // Check wallet balances and refill if needed every 15s
   setInterval(async () => {
     await doAggressiveFaucetRefill();
-  }, 15000);
+  }, 30000);
 
-  log("Enhanced bot running!");
+  setInterval(() => {
+    cleanupNonceMaps();
+    if (checkMemoryPressure()) {
+      const memMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+      log(`Memory pressure detected: ${memMB} MB > ${MEMORY_LIMIT_MB} MB limit`);
+      while (wallets.length > 5) {
+        const removed = wallets.pop()!;
+        localNonces.delete(removed.fingerprint);
+        lastNonceSync.delete(removed.fingerprint);
+        globalLockedSenders.delete(removed.fingerprint);
+      }
+      forceGC();
+      log(`Evicted wallets down to ${wallets.length}, GC requested`);
+    }
+    forceGC();
+  }, 120000);
+
+  log("Long-running bot started!");
   log("Features: Concurrent TX, Contracts, Staking, Rewards");
+  log(`Memory-safe mode: ${MAX_WALLETS} max wallets, ${MEMORY_LIMIT_MB} MB limit`);
   log("Press Ctrl+C to stop.");
 }
 

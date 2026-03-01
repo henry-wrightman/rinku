@@ -17,7 +17,7 @@ export function AccountsTab({ accounts }: AccountsTabProps) {
     return <div className="empty">no accounts yet</div>;
   }
 
-  const sortedAccounts = [...accounts].sort((a, b) => b.balance - a.balance);
+  const sortedAccounts = [...accounts].sort((a, b) => (b.balance + (b.staked || 0)) - (a.balance + (a.staked || 0)));
   const pageAccounts = sortedAccounts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
@@ -27,6 +27,7 @@ export function AccountsTab({ accounts }: AccountsTabProps) {
           <tr>
             <th>address</th>
             <th>balance</th>
+            <th>staked</th>
             <th>nonce</th>
           </tr>
         </thead>
@@ -42,6 +43,7 @@ export function AccountsTab({ accounts }: AccountsTabProps) {
                 </Link>
               </td>
               <td className="amount">{account.balance.toLocaleString()}</td>
+              <td className="amount">{(account.staked || 0).toLocaleString()}</td>
               <td>{account.nonce}</td>
             </tr>
           ))}

@@ -7,85 +7,69 @@ import { Pagination } from "./Pagination";
 const getApiBaseUrl = () => {
   const envApiUrl = import.meta.env.VITE_API_URL;
 
-  // If VITE_API_URL is set and not localhost, use it directly
   if (
     envApiUrl &&
     !envApiUrl.includes("127.0.0.1") &&
     !envApiUrl.includes("localhost")
   ) {
-    console.log("Using VITE_API_URL:", envApiUrl);
     return `${envApiUrl}/api`;
   }
   return "/api";
 };
 const NODE_URL = getApiBaseUrl();
 
-const formatTxKind = (
-  kind?: TransactionKind,
-): { label: string; color: string } => {
+const KIND_COLORS: Record<string, string> = {
+  stake: "#a3be8c",
+  unstake: "#ebcb8b",
+  claim_rewards: "#b48ead",
+  contract: "#88c0d0",
+  consolidation: "#81a1c1",
+  reward: "#b48ead",
+  transfer: "#d8dee9",
+};
+
+const kindColor = (kind?: TransactionKind) =>
+  KIND_COLORS[kind || "transfer"] || "#d8dee9";
+const kindLabel = (kind?: TransactionKind) => {
   switch (kind) {
     case "stake":
-      return { label: "stake", color: "#a3be8c" };
+      return "STK";
     case "unstake":
-      return { label: "unstake", color: "#ebcb8b" };
+      return "USK";
     case "claim_rewards":
-      return { label: "claim", color: "#b48ead" };
+      return "CLM";
     case "contract":
-      return { label: "contract", color: "#88c0d0" };
+      return "CTR";
     case "consolidation":
-      return { label: "consolidate", color: "#81a1c1" };
+      return "CON";
     case "reward":
-      return { label: "reward", color: "#b48ead" };
+      return "RWD";
     default:
-      return { label: "transfer", color: "#d8dee9" };
+      return "TXF";
   }
 };
 
-const getTrustScoreColor = (score: number): string => {
-  if (score < 30) return "#bf616a";
-  if (score < 70) return "#ebcb8b";
-  return "#a3be8c";
-};
-
-const TrustScoreBadge = ({
-  score,
-  count,
-}: {
-  score?: number;
-  count?: number;
-}) => {
-  if (score === undefined || count === undefined || count === 0) {
-    return null;
+const statusInfo = (node: DAGNode) => {
+  const fp = node.fast_path_status;
+  if (fp === "confirmed" || fp === "executed" || fp === "finalized") {
+    const ms = node.fast_path_finality_ms
+      ? `${node.fast_path_finality_ms}ms`
+      : "";
+    if (node.finalized)
+      return {
+        text: `confirmed${ms ? ` ${ms}` : ""} + finalized`,
+        color: "#a3be8c",
+        cls: "st-final",
+      };
+    return {
+      text: `confirmed${ms ? ` ${ms}` : ""}`,
+      color: "#a3be8c",
+      cls: "st-confirmed",
+    };
   }
-
-  const color = getTrustScoreColor(score);
-
-  return (
-    <span
-      className="trust-badge"
-      style={{
-        position: "absolute",
-        top: 8,
-        right: 8,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        padding: "3px 8px",
-        borderRadius: 4,
-        backgroundColor: `${color}22`,
-        border: `1px solid ${color}44`,
-        fontSize: 12,
-        fontWeight: 500,
-        color,
-      }}
-      title={`Trust score: ${score}/100 (${count} attestation${count !== 1 ? "s" : ""})`}
-    >
-      <span style={{ fontSize: 11 }}>
-        {score >= 70 ? "+" : score < 30 ? "-" : "~"}
-      </span>
-      {score}
-    </span>
-  );
+  if (node.finalized)
+    return { text: "finalized", color: "#a3be8c", cls: "st-final" };
+  return { text: "pending", color: "#ebcb8b", cls: "st-pending" };
 };
 
 interface ProofState {
@@ -118,6 +102,7 @@ export function DAGTab({
   const [proofStates, setProofStates] = useState<Record<string, ProofState>>(
     {},
   );
+  const [expandedHash, setExpandedHash] = useState<string | null>(null);
   const prevHashesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -189,96 +174,142 @@ export function DAGTab({
     return <div className="empty">no transactions yet</div>;
   }
 
-  return (
-    <div className="section">
-      {nodes.map((node) => (
-        <div
-          key={node.hash}
-          className={`dag-node ${newHashes.has(node.hash) ? "new-tx" : ""}`}
-          style={{ position: "relative" }}
-        >
-          <TrustScoreBadge
-            score={node.trust_score}
-            count={node.attestation_count}
-          />
-          <div className="hash">
-            <span className={newHashes.has(node.hash) ? "typewriter" : ""}>
-              {truncate(node.hash, 12)}
-            </span>
-          </div>
-          <div className="amount">
-            {node.amount.toLocaleString()} RKU
-            {node.fee > 0 && (
-              <span className="fee"> (+{node.fee?.toFixed(5)} fee)</span>
-            )}
-          </div>
-          <div className="meta">
-            <span
-              className="tx-kind-label"
-              style={{ color: formatTxKind(node.kind).color }}
-            >
-              {formatTxKind(node.kind).label}
-            </span>
-            {" · "}
-            {node.from === "genesis"
-              ? "genesis"
-              : truncate(node.from, 6)} → {truncate(node.to, 6)} ·{" "}
-            {timeAgo(node.ts)} · refs {node.parentCount} parent(s) ·{" "}
-            <span
-              style={{
-                color:
-                  node.fast_path_status === "confirmed" ||
-                  node.fast_path_status === "executed" ||
-                  node.fast_path_status === "finalized"
-                    ? "#a3be8c"
-                    : node.finalized
+  const GROUP_ORDER: (TransactionKind | "transfer")[] = [
+    "transfer",
+    "consolidation",
+    "stake",
+    "unstake",
+    "claim_rewards",
+    "contract",
+    "reward",
+  ];
+
+  const GROUP_LABELS: Record<string, string> = {
+    transfer: "transfers",
+    consolidation: "consolidations",
+    stake: "stakes",
+    unstake: "unstakes",
+    claim_rewards: "claims",
+    contract: "contracts",
+    reward: "rewards",
+  };
+
+  const grouped = new Map<string, DAGNode[]>();
+  for (const node of nodes) {
+    const key = node.kind || "transfer";
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(node);
+  }
+
+  const knownKeys = new Set<string>(GROUP_ORDER);
+  const extraKeys = [...grouped.keys()].filter((k) => !knownKeys.has(k));
+
+  const sortedGroups = [
+    ...GROUP_ORDER.filter((k) => grouped.has(k)).map((k) => ({
+      kind: k,
+      label: GROUP_LABELS[k] || k,
+      nodes: grouped.get(k)!,
+      color: kindColor(k as TransactionKind),
+    })),
+    ...extraKeys.map((k) => ({
+      kind: k,
+      label: k,
+      nodes: grouped.get(k)!,
+      color: "#d8dee9",
+    })),
+  ].sort((a, b) => a.nodes.length - b.nodes.length);
+
+  const renderRow = (node: DAGNode) => {
+    const isNew = newHashes.has(node.hash);
+    const isExpanded = expandedHash === node.hash;
+    const st = statusInfo(node);
+    const kc = kindColor(node.kind);
+    const kl = kindLabel(node.kind);
+    const isConfirmed = st.cls !== "st-pending";
+
+    return (
+      <div
+        key={node.hash}
+        className={`tx-row ${isNew ? "tx-new" : ""} ${st.cls}`}
+        style={{ borderLeftColor: kc }}
+        onClick={() => setExpandedHash(isExpanded ? null : node.hash)}
+      >
+        <div className="tx-row-main">
+          <span className="tx-kind" style={{ color: kc }}>
+            {kl}
+          </span>
+          <span className="tx-hash">{truncate(node.hash, 10)}</span>
+          <span className="tx-amount">
+            {node.amount > 0 ? `${node.amount.toLocaleString()} RKU` : ""}
+          </span>
+          {node.fee > 0 && (
+            <span className="tx-fee">+{node.fee.toFixed(5)}</span>
+          )}
+          <span className="tx-route">
+            {node.from === "genesis" ? "genesis" : truncate(node.from, 5)}
+            <span className="arrow">{"\u2192"}</span>
+            {truncate(node.to, 5)}
+          </span>
+          <span className="tx-time">{timeAgo(node.ts)}</span>
+          <span className={`tx-status ${st.cls}`}>{st.text}</span>
+          {node.trust_score !== undefined &&
+            node.attestation_count !== undefined &&
+            node.attestation_count > 0 && (
+              <span
+                className="tx-trust"
+                style={{
+                  color:
+                    node.trust_score >= 70
                       ? "#a3be8c"
-                      : "#ebcb8b",
-              }}
-            >
-              {node.fast_path_status === "confirmed" ||
-              node.fast_path_status === "executed" ||
-              node.fast_path_status === "finalized"
-                ? `confirmed${node.fast_path_finality_ms ? ` (${node.fast_path_finality_ms}ms)` : ""}${node.finalized ? " + finalized" : ""}`
-                : node.finalized
-                  ? "finalized"
-                  : "pending"}
-            </span>
-          </div>
-          <div className="actions">
-            {/* <span
-              className="link"
-              onClick={() => {
-                const fullUrl = window.location.origin + node.url;
-                navigator.clipboard.writeText(fullUrl);
-              }}
-            >
-              copy url
-            </span> */}
-            <Link to={node.url} className="link">
-              view
-            </Link>{" "}
-            {(node.fast_path_status === "confirmed" ||
-              node.fast_path_status === "executed" ||
-              node.fast_path_status === "finalized") && (
-              <Link to={`?tab=thread&hash=${node.hash}`} className="rlink">
-                reply
-              </Link>
-            )}
-            {(node.fast_path_status === "confirmed" ||
-              node.fast_path_status === "executed" ||
-              node.fast_path_status === "finalized") && (
-              <Link
-                to={`/tx/h/${node.hash}#vote`}
-                className="link"
-                style={{ marginLeft: 8 }}
+                      : node.trust_score < 30
+                        ? "#bf616a"
+                        : "#ebcb8b",
+                }}
+                title={`Trust: ${node.trust_score}/100 (${node.attestation_count} votes)`}
               >
-                vote
-              </Link>
+                {node.trust_score >= 70
+                  ? "+"
+                  : node.trust_score < 30
+                    ? "-"
+                    : "~"}
+                {node.trust_score}
+              </span>
             )}
-            {node.finalized && (
-              <>
-                {" · "}
+        </div>
+
+        {isExpanded && (
+          <div className="tx-expanded" onClick={(e) => e.stopPropagation()}>
+            <div className="tx-detail-grid">
+              <span className="td-label">hash</span>
+              <span className="td-value mono">{node.hash}</span>
+              <span className="td-label">from</span>
+              <span className="td-value mono">{node.from}</span>
+              <span className="td-label">to</span>
+              <span className="td-value mono">{node.to}</span>
+              <span className="td-label">parents</span>
+              <span className="td-value">{node.parentCount}</span>
+              {node.memo && (
+                <>
+                  <span className="td-label">memo</span>
+                  <span className="td-value">{node.memo}</span>
+                </>
+              )}
+            </div>
+            <div className="tx-actions">
+              <Link to={node.url} className="link">
+                view
+              </Link>
+              {isConfirmed && (
+                <Link to={`?tab=thread&hash=${node.hash}`} className="rlink">
+                  reply
+                </Link>
+              )}
+              {isConfirmed && (
+                <Link to={`/tx/h/${node.hash}#vote`} className="link">
+                  vote
+                </Link>
+              )}
+              {node.finalized && (
                 <span
                   className="link"
                   style={{
@@ -298,9 +329,23 @@ export function DAGTab({
                         ? proofStates[node.hash].error
                         : "copy proof"}
                 </span>
-              </>
-            )}
+              )}
+            </div>
           </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="dag-feed">
+      {sortedGroups.map((g) => (
+        <div className="feed-group" key={g.kind}>
+          <div className="feed-group-header">
+            <span className="feed-dot" style={{ background: g.color }} />
+            {g.label} ({g.nodes.length})
+          </div>
+          {g.nodes.map(renderRow)}
         </div>
       ))}
 
@@ -312,7 +357,7 @@ export function DAGTab({
       />
 
       {merkleRoot && (
-        <div style={{ marginTop: 20, color: "#555", fontSize: 12 }}>
+        <div style={{ marginTop: 16, color: "#444", fontSize: 11 }}>
           merkle root: {truncate(merkleRoot, 16)}
         </div>
       )}

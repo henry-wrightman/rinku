@@ -1,0 +1,19 @@
+[package]
+name = "rinku-chat-contract"
+version = "0.1.0"
+edition = "2021"
+description = "IRC-like chat rooms smart contract for Rinku"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rinku-contract-sdk = { path = "../rinku-contract-sdk" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"

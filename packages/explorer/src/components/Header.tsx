@@ -1,8 +1,11 @@
+import type { ConnectionStatus } from "../hooks/useWebSocket";
+
 interface HeaderProps {
   connected: boolean;
   protocolVersion?: string;
   nodeVersion?: string;
   peersConnected?: number;
+  wsStatus?: ConnectionStatus;
 }
 
 export function Header({
@@ -10,7 +13,17 @@ export function Header({
   protocolVersion,
   nodeVersion,
   peersConnected,
+  wsStatus,
 }: HeaderProps) {
+  const wsState = wsStatus || (connected ? "connected" : "disconnected");
+  const wsLabel =
+    wsState === "connected"
+      ? "connected"
+      : wsState === "reconnecting"
+        ? "reconnecting"
+        : wsState === "connecting"
+          ? "connecting"
+          : "ws off";
   const COLOR_PALETTES = [
     [
       "#ff6b6b",
@@ -92,13 +105,12 @@ export function Header({
         : where the link is the proof
       </p>
       <div className="status-indicator">
+        <span className={`status-dot ws-${wsState}`}></span>
         <span
-          className={`status-dot ${connected ? "connected" : "disconnected"}`}
-        ></span>
-        <span
-          className={`status-text ${connected ? "connected" : "disconnected"}`}
+          className={`status-text-${wsState}`}
+          title={`WebSocket: ${wsState}`}
         >
-          {connected ? "connected" : "disconnected"}
+          {wsLabel}
         </span>
         <span className={`status-text`}>[testnet]</span>
         {protocolVersion && (

@@ -20,9 +20,9 @@ pub enum VerificationResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountProof {
     pub address: String,
-    pub balance: f64,
+    pub balance: u64,
     pub nonce: u64,
-    pub stake: f64,
+    pub stake: u64,
     /// Sibling hashes for merkle path
     pub siblings: Vec<ProofSibling>,
     /// Index in the leaf array
@@ -43,22 +43,13 @@ fn sha256_hex(data: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-/// Normalize f64 to fixed 8 decimal precision string for deterministic hashing
-/// This ensures identical hashes across nodes regardless of floating point representation
-fn normalize_f64(value: f64) -> String {
-    // Round to 8 decimal places and format consistently
-    let rounded = (value * 100_000_000.0).round() / 100_000_000.0;
-    format!("{:.8}", rounded)
-}
-
-/// Hash an account leaf with deterministic f64 formatting
 pub fn hash_account_leaf(account: &AccountData) -> String {
     let data = format!(
         "account:{}:{}:{}:{}",
         account.address,
-        normalize_f64(account.balance),
+        account.balance,
         account.nonce,
-        normalize_f64(account.stake)
+        account.stake
     );
     sha256_hex(&data)
 }
@@ -429,18 +420,18 @@ mod tests {
     use super::*;
     use rinku_core::merkle::MerkleTree;
 
-    fn make_account(addr: &str, balance: f64) -> AccountData {
+    fn make_account(addr: &str, balance: u64) -> AccountData {
         AccountData {
             address: addr.to_string(),
             balance,
             nonce: 1,
-            stake: 0.0,
+            stake: 0,
         }
     }
 
     #[test]
     fn test_build_merkle_root_single() {
-        let accounts = vec![make_account("a", 100.0)];
+        let accounts = vec![make_account("a", 100)];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let root = build_merkle_root(&hashes);
         assert!(!root.is_empty());
@@ -450,9 +441,9 @@ mod tests {
     #[test]
     fn test_build_merkle_root_multiple() {
         let accounts = vec![
-            make_account("a", 100.0),
-            make_account("b", 200.0),
-            make_account("c", 300.0),
+            make_account("a", 100),
+            make_account("b", 200),
+            make_account("c", 300),
         ];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let root = build_merkle_root(&hashes);
@@ -462,8 +453,8 @@ mod tests {
     #[test]
     fn test_verify_snapshot_valid() {
         let accounts = vec![
-            make_account("a", 100.0),
-            make_account("b", 200.0),
+            make_account("a", 100),
+            make_account("b", 200),
         ];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let merkle_root = build_merkle_root(&hashes);
@@ -482,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_verify_snapshot_invalid() {
-        let accounts = vec![make_account("a", 100.0)];
+        let accounts = vec![make_account("a", 100)];
         
         let snapshot = SnapshotData {
             accounts,
@@ -499,10 +490,10 @@ mod tests {
     #[test]
     fn test_generate_and_verify_account_proofs() {
         let accounts = vec![
-            make_account("a", 100.0),
-            make_account("b", 200.0),
-            make_account("c", 300.0),
-            make_account("d", 400.0),
+            make_account("a", 100),
+            make_account("b", 200),
+            make_account("c", 300),
+            make_account("d", 400),
         ];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let root = build_merkle_root(&hashes);
@@ -519,7 +510,7 @@ mod tests {
 
     #[test]
     fn test_sync_verifier() {
-        let accounts = vec![make_account("a", 100.0)];
+        let accounts = vec![make_account("a", 100)];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let merkle_root = build_merkle_root(&hashes);
         
@@ -540,8 +531,8 @@ mod tests {
     #[test]
     fn test_verify_snapshot_sorted_order() {
         let accounts = vec![
-            make_account("b", 200.0),
-            make_account("a", 100.0),
+            make_account("b", 200),
+            make_account("a", 100),
         ];
         let merkle_root = build_account_merkle_root_sorted(&accounts);
         
@@ -564,12 +555,12 @@ mod tests {
                 hash: "a1".repeat(32),
                 from: "genesis".to_string(),
                 to: "alice".to_string(),
-                amount: 1.0,
+                amount: 100_000_000,
                 nonce: 1,
                 timestamp: 1,
                 signature: "sig".to_string(),
                 parents: vec![],
-                gas_price: 0.0,
+                gas_price: 0,
                 memo: None,
                 references: None,
             },
@@ -577,12 +568,12 @@ mod tests {
                 hash: "b2".repeat(32),
                 from: "genesis".to_string(),
                 to: "bob".to_string(),
-                amount: 2.0,
+                amount: 200_000_000,
                 nonce: 2,
                 timestamp: 2,
                 signature: "sig".to_string(),
                 parents: vec![],
-                gas_price: 0.0,
+                gas_price: 0,
                 memo: None,
                 references: None,
             },

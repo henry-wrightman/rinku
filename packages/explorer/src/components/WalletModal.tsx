@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { serializeKeyPair, type SerializedKeyPair } from "../crypto";
+import {
+  serializeKeyPair,
+  type SerializedKeyPair,
+} from "../crypto";
 import { useRinku } from "../context/WalletContext";
 import { API_URL } from "../config";
 
@@ -260,7 +263,17 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
     <div className="wallet-modal-overlay">
       <div className="wallet-modal" ref={modalRef}>
         <div className="wallet-modal-header">
-          <h3>wallet</h3>
+          <div className="value-with-copy">
+            <h3>wallet</h3>
+            {keyPair && (
+              <button
+                className="copy-btn disconnect"
+                onClick={handleDisconnect}
+              >
+                disconnect
+              </button>
+            )}
+          </div>
           <button className="close-btn" onClick={onClose}>
             x
           </button>
@@ -346,12 +359,6 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                 onClick={() => copyToClipboard(serializeKeyPair(keyPair))}
               >
                 export key
-              </button>
-              <button
-                className="wallet-action-btn disconnect"
-                onClick={handleDisconnect}
-              >
-                disconnect
               </button>
             </div>
 

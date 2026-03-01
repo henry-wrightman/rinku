@@ -26,7 +26,7 @@ fn compute_test_checkpoint_hash(
 fn create_test_transaction(
     from: &str,
     to: &str,
-    amount: f64,
+    amount: u64,
     nonce: u64,
     parents: Vec<String>,
 ) -> SignedTransaction {
@@ -39,7 +39,7 @@ fn create_test_transaction(
         parents,
         kind: None,
         gas_limit: Some(21000),
-        gas_price: Some(0.001),
+        gas_price: Some(0),
         data: None,
         signature: None,
         memo: None,
@@ -65,6 +65,9 @@ fn create_dag_node(tx: SignedTransaction, weight: f64) -> DagNode {
         checkpoint_height: None,
         weight,
         received_at_ms: None,
+        partition_epoch: None,
+        provisional_finality: false,
+        rolled_back: false,
     }
 }
 
@@ -102,19 +105,28 @@ fn create_test_checkpoint(
         signer_bitmap: None,
         finalized_tx_hashes: vec![],
         weight_trie_root: "weight_trie_root".to_string(),
+        provisional: false,
+        partition_epoch: None,
+        visible_stake_pct: None,
+        merge_report_hash: None,
     }
 }
 
-fn create_test_account(address: &str, balance: f64, nonce: u64) -> Account {
+fn create_test_account(address: &str, balance: u64, nonce: u64) -> Account {
     Account {
         address: address.to_string(),
         balance,
         nonce,
         first_seen: 1700000000000,
-        staked: 0.0,
-        unbonding: 0.0,
+        staked: 0,
+        unbonding: 0,
         unbonding_release: None,
         latest_balance_proof: None,
+        partition_violations: 0,
+        reputation_penalty: 0.0,
+        penalty_decay_checkpoint: None,
+        partition_budget: None,
+        partition_budget_spent: 0,
     }
 }
 
@@ -124,7 +136,7 @@ struct SimulatedNode {
     accounts: HashMap<String, Account>,
     checkpoints: Vec<Checkpoint>,
     dag: Vec<SignedTransaction>,
-    total_supply: f64,
+    total_supply: u64,
 }
 
 impl SimulatedNode {
@@ -132,7 +144,7 @@ impl SimulatedNode {
         let mut accounts = HashMap::new();
         accounts.insert(
             "genesis".to_string(),
-            create_test_account("genesis", 1_000_000.0, 0),
+            create_test_account("genesis", 1_000_000, 0),
         );
 
         Self {
@@ -140,30 +152,30 @@ impl SimulatedNode {
             accounts,
             checkpoints: vec![],
             dag: vec![],
-            total_supply: 1_000_000.0,
+            total_supply: 1_000_000,
         }
     }
 
     fn add_transaction(&mut self, tx: SignedTransaction) {
-        let fee = tx.tx.gas_price.unwrap_or(0.001) * tx.tx.gas_limit.unwrap_or(21000) as f64;
+        let fee = tx.tx.gas_price.unwrap_or(100_000) * tx.tx.gas_limit.unwrap_or(21000);
         let from_balance = self
             .accounts
             .get(&tx.tx.from)
             .map(|a| a.balance)
-            .unwrap_or(0.0);
+            .unwrap_or(0);
 
         if from_balance >= tx.tx.amount + fee {
             let from_acc = self
                 .accounts
                 .entry(tx.tx.from.clone())
-                .or_insert(create_test_account(&tx.tx.from, 0.0, 0));
+                .or_insert(create_test_account(&tx.tx.from, 0, 0));
             from_acc.balance -= tx.tx.amount + fee;
             from_acc.nonce = tx.tx.nonce;
 
             let to_acc = self
                 .accounts
                 .entry(tx.tx.to.clone())
-                .or_insert(create_test_account(&tx.tx.to, 0.0, 0));
+                .or_insert(create_test_account(&tx.tx.to, 0, 0));
             to_acc.balance += tx.tx.amount;
 
             self.dag.push(tx);
@@ -184,8 +196,8 @@ impl SimulatedNode {
         self.checkpoints.last().map(|c| c.tx_merkle_root.clone())
     }
 
-    fn get_account_balance(&self, address: &str) -> f64 {
-        self.accounts.get(address).map(|a| a.balance).unwrap_or(0.0)
+    fn get_account_balance(&self, address: &str) -> u64 {
+        self.accounts.get(address).map(|a| a.balance).unwrap_or(0)
     }
 }
 
@@ -197,7 +209,7 @@ mod fork_detection_tests {
         let mut node1 = SimulatedNode::new("node1");
         let mut node2 = SimulatedNode::new("node2");
 
-        let tx = create_test_transaction("genesis", "alice", 100.0, 1, vec![]);
+        let tx = create_test_transaction("genesis", "alice", 100, 1, vec![]);
         node1.add_transaction(tx.clone());
         node2.add_transaction(tx);
 
@@ -222,8 +234,8 @@ mod fork_detection_tests {
         let mut node1 = SimulatedNode::new("node1");
         let mut node2 = SimulatedNode::new("node2");
 
-        let tx1 = create_test_transaction("genesis", "alice", 100.0, 1, vec![]);
-        let tx2 = create_test_transaction("genesis", "bob", 100.0, 1, vec![]);
+        let tx1 = create_test_transaction("genesis", "alice", 100, 1, vec![]);
+        let tx2 = create_test_transaction("genesis", "bob", 100, 1, vec![]);
 
         node1.add_transaction(tx1);
         node2.add_transaction(tx2);
@@ -243,14 +255,14 @@ mod fork_detection_tests {
         let mut node1 = SimulatedNode::new("node1");
         let mut node2 = SimulatedNode::new("node2");
 
-        let tx1 = create_test_transaction("genesis", "alice", 100.0, 1, vec![]);
+        let tx1 = create_test_transaction("genesis", "alice", 100, 1, vec![]);
         node1.add_transaction(tx1.clone());
         node2.add_transaction(tx1);
         node1.create_checkpoint();
         node2.create_checkpoint();
 
-        let tx2_node1 = create_test_transaction("genesis", "bob", 50.0, 2, vec![]);
-        let tx2_node2 = create_test_transaction("genesis", "charlie", 50.0, 2, vec![]);
+        let tx2_node1 = create_test_transaction("genesis", "bob", 50, 2, vec![]);
+        let tx2_node2 = create_test_transaction("genesis", "charlie", 50, 2, vec![]);
 
         node1.add_transaction(tx2_node1);
         node2.add_transaction(tx2_node2);
@@ -276,7 +288,7 @@ mod fork_detection_tests {
         let mut node1 = SimulatedNode::new("node1");
         let mut node2 = SimulatedNode::new("node2");
 
-        let tx = create_test_transaction("genesis", "alice", 100.0, 1, vec![]);
+        let tx = create_test_transaction("genesis", "alice", 100, 1, vec![]);
         node1.add_transaction(tx.clone());
         node2.add_transaction(tx);
 
@@ -287,9 +299,9 @@ mod fork_detection_tests {
 
         for i in 2..=4 {
             let tx_node1 =
-                create_test_transaction("genesis", "bob", 10.0 * i as f64, i as u64, vec![]);
+                create_test_transaction("genesis", "bob", 10 * i as u64, i as u64, vec![]);
             let tx_node2 =
-                create_test_transaction("genesis", "charlie", 10.0 * i as f64, i as u64, vec![]);
+                create_test_transaction("genesis", "charlie", 10 * i as u64, i as u64, vec![]);
 
             node1.add_transaction(tx_node1);
             node2.add_transaction(tx_node2);
@@ -324,15 +336,15 @@ mod snapshot_sync_tests {
         node.add_transaction(create_test_transaction(
             "genesis",
             "alice",
-            100.0,
+            100,
             1,
             vec![],
         ));
-        node.add_transaction(create_test_transaction("genesis", "bob", 200.0, 2, vec![]));
+        node.add_transaction(create_test_transaction("genesis", "bob", 200, 2, vec![]));
         node.add_transaction(create_test_transaction(
             "genesis",
             "charlie",
-            300.0,
+            300,
             3,
             vec![],
         ));
@@ -355,11 +367,11 @@ mod snapshot_sync_tests {
         source_node.add_transaction(create_test_transaction(
             "genesis",
             "alice",
-            100.0,
+            100,
             1,
             vec![],
         ));
-        source_node.add_transaction(create_test_transaction("genesis", "bob", 200.0, 2, vec![]));
+        source_node.add_transaction(create_test_transaction("genesis", "bob", 200, 2, vec![]));
         source_node.create_checkpoint();
 
         let mut new_node = SimulatedNode::new("new");
@@ -388,7 +400,7 @@ mod snapshot_sync_tests {
             source_node.add_transaction(create_test_transaction(
                 "genesis",
                 &format!("user{}", i % 10),
-                1.0,
+                1,
                 i,
                 vec![],
             ));
@@ -430,7 +442,7 @@ mod snapshot_sync_tests {
             source_node.add_transaction(create_test_transaction(
                 "genesis",
                 "alice",
-                10.0,
+                10,
                 round,
                 vec![],
             ));
@@ -460,7 +472,7 @@ mod checkpoint_adoption_tests {
         let mut node1 = SimulatedNode::new("node1");
         let mut node2 = SimulatedNode::new("node2");
 
-        let tx = create_test_transaction("genesis", "alice", 100.0, 1, vec![]);
+        let tx = create_test_transaction("genesis", "alice", 100, 1, vec![]);
         node1.add_transaction(tx.clone());
         node2.add_transaction(tx);
 
@@ -494,11 +506,11 @@ mod checkpoint_adoption_tests {
         node1.add_transaction(create_test_transaction(
             "genesis",
             "alice",
-            100.0,
+            100,
             1,
             vec![],
         ));
-        node2.add_transaction(create_test_transaction("genesis", "bob", 100.0, 1, vec![]));
+        node2.add_transaction(create_test_transaction("genesis", "bob", 100, 1, vec![]));
 
         let peer_checkpoint = node1.create_checkpoint();
 
@@ -520,13 +532,13 @@ mod checkpoint_adoption_tests {
         node.add_transaction(create_test_transaction(
             "genesis",
             "alice",
-            100.0,
+            100,
             1,
             vec![],
         ));
         let cp1 = node.create_checkpoint();
 
-        node.add_transaction(create_test_transaction("genesis", "bob", 50.0, 2, vec![]));
+        node.add_transaction(create_test_transaction("genesis", "bob", 50, 2, vec![]));
         let cp2 = node.create_checkpoint();
 
         let valid_chain = cp2.previous_hash == Some(cp1.hash.clone());
@@ -546,6 +558,10 @@ mod checkpoint_adoption_tests {
             signer_bitmap: None,
             finalized_tx_hashes: vec![],
             weight_trie_root: "weight_trie_root".to_string(),
+            provisional: false,
+            partition_epoch: None,
+            visible_stake_pct: None,
+            merge_report_hash: None,
         };
 
         let can_adopt_orphan = orphan_checkpoint.previous_hash == Some(cp1.hash.clone());
@@ -598,18 +614,18 @@ mod fork_resolution_tests {
     fn test_dag_structure_and_tips() {
         let mut dag = Dag::new(1000);
 
-        let genesis = create_test_transaction("genesis", "alice", 100.0, 0, vec![]);
+        let genesis = create_test_transaction("genesis", "alice", 100, 0, vec![]);
         let genesis_node = create_dag_node(genesis.clone(), 1.0);
         dag.add_node(genesis_node).unwrap();
 
         assert_eq!(dag.tip_count(), 1, "Should have 1 tip after genesis");
 
-        let branch_a = create_test_transaction("alice", "bob", 50.0, 1, vec![genesis.hash.clone()]);
+        let branch_a = create_test_transaction("alice", "bob", 50, 1, vec![genesis.hash.clone()]);
         let branch_a_node = create_dag_node(branch_a.clone(), 1.0);
         dag.add_node(branch_a_node).unwrap();
 
         let branch_b =
-            create_test_transaction("alice", "charlie", 50.0, 1, vec![genesis.hash.clone()]);
+            create_test_transaction("alice", "charlie", 50, 1, vec![genesis.hash.clone()]);
         let branch_b_node = create_dag_node(branch_b.clone(), 1.0);
         dag.add_node(branch_b_node).unwrap();
 
@@ -624,8 +640,8 @@ mod fork_resolution_tests {
 
     #[test]
     fn test_conflicting_nonces_detected() {
-        let tx1 = create_test_transaction("alice", "bob", 50.0, 5, vec![]);
-        let tx2 = create_test_transaction("alice", "charlie", 50.0, 5, vec![]);
+        let tx1 = create_test_transaction("alice", "bob", 50, 5, vec![]);
+        let tx2 = create_test_transaction("alice", "charlie", 50, 5, vec![]);
 
         let has_conflict = tx1.tx.from == tx2.tx.from && tx1.tx.nonce == tx2.tx.nonce;
 
@@ -698,14 +714,14 @@ mod delta_sync_tests {
         let mut source_node = SimulatedNode::new("source");
         let mut stale_node = SimulatedNode::new("stale");
 
-        let common_tx = create_test_transaction("genesis", "alice", 100.0, 1, vec![]);
+        let common_tx = create_test_transaction("genesis", "alice", 100, 1, vec![]);
         source_node.add_transaction(common_tx.clone());
         stale_node.add_transaction(common_tx);
         source_node.create_checkpoint();
         stale_node.create_checkpoint();
 
-        let new_tx1 = create_test_transaction("genesis", "bob", 50.0, 2, vec![]);
-        let new_tx2 = create_test_transaction("genesis", "charlie", 75.0, 3, vec![]);
+        let new_tx1 = create_test_transaction("genesis", "bob", 50, 2, vec![]);
+        let new_tx2 = create_test_transaction("genesis", "charlie", 75, 3, vec![]);
         source_node.add_transaction(new_tx1.clone());
         source_node.add_transaction(new_tx2.clone());
         source_node.create_checkpoint();
@@ -745,7 +761,7 @@ mod delta_sync_tests {
             source_node.add_transaction(create_test_transaction(
                 "genesis",
                 &format!("user{}", i),
-                1.0,
+                1,
                 i,
                 vec![],
             ));
@@ -796,7 +812,7 @@ mod network_partition_tests {
         let mut node_partition_a = SimulatedNode::new("partition_a");
         let mut node_partition_b = SimulatedNode::new("partition_b");
 
-        let common_tx = create_test_transaction("genesis", "alice", 100.0, 1, vec![]);
+        let common_tx = create_test_transaction("genesis", "alice", 100, 1, vec![]);
         node_partition_a.add_transaction(common_tx.clone());
         node_partition_b.add_transaction(common_tx);
         node_partition_a.create_checkpoint();
@@ -810,9 +826,9 @@ mod network_partition_tests {
 
         for i in 2..=5 {
             let tx_a =
-                create_test_transaction("genesis", &format!("user_a_{}", i), 10.0, i, vec![]);
+                create_test_transaction("genesis", &format!("user_a_{}", i), 10, i, vec![]);
             let tx_b =
-                create_test_transaction("genesis", &format!("user_b_{}", i), 10.0, i, vec![]);
+                create_test_transaction("genesis", &format!("user_b_{}", i), 10, i, vec![]);
 
             node_partition_a.add_transaction(tx_a);
             node_partition_b.add_transaction(tx_b);
@@ -838,14 +854,14 @@ mod network_partition_tests {
     fn test_partition_heal_requires_fork_resolution() {
         let mut nodes = vec![SimulatedNode::new("node1"), SimulatedNode::new("node2")];
 
-        let common_tx = create_test_transaction("genesis", "alice", 100.0, 1, vec![]);
+        let common_tx = create_test_transaction("genesis", "alice", 100, 1, vec![]);
         for node in &mut nodes {
             node.add_transaction(common_tx.clone());
             node.create_checkpoint();
         }
 
-        let partition_tx_0 = create_test_transaction("genesis", "bob", 50.0, 2, vec![]);
-        let partition_tx_1 = create_test_transaction("genesis", "charlie", 75.0, 2, vec![]);
+        let partition_tx_0 = create_test_transaction("genesis", "bob", 50, 2, vec![]);
+        let partition_tx_1 = create_test_transaction("genesis", "charlie", 75, 2, vec![]);
 
         nodes[0].add_transaction(partition_tx_0);
         nodes[1].add_transaction(partition_tx_1);

@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
+import { useWebSocketContext } from "./context/WebSocketContext";
 import { PageHeader } from "./components/PageHeader";
 import type { TransactionKind } from "@rinku/core";
 
@@ -85,72 +86,91 @@ function AccountPage() {
   const [proofLoading, setProofLoading] = useState(false);
   const [proofCopied, setProofCopied] = useState(false);
 
-  useEffect(() => {
+  const fetchAccountData = useCallback(async () => {
     if (!address) {
       setError("No address provided");
       setLoading(false);
       return;
     }
+    try {
+      const [accountRes, dagRes, stakingRes, rewardsRes] = await Promise.all([
+        fetch(`${NODE_URL}/api/account/${address}`),
+        fetch(`${NODE_URL}/api/dag`),
+        fetch(`${NODE_URL}/api/staking/${address}`),
+        fetch(`${NODE_URL}/api/rewards/${address}`),
+      ]);
 
-    const fetchAccountData = async () => {
-      try {
-        const [accountRes, dagRes, stakingRes, rewardsRes] = await Promise.all([
-          fetch(`${NODE_URL}/api/account/${address}`),
-          fetch(`${NODE_URL}/api/dag`),
-          fetch(`${NODE_URL}/api/staking/${address}`),
-          fetch(`${NODE_URL}/api/rewards/${address}`),
-        ]);
-
-        if (!accountRes.ok) {
-          setError("Account not found");
-          setLoading(false);
-          return;
-        }
-
-        const accountData = await accountRes.json();
-        setAccount(accountData);
-
-        const dagData = await dagRes.json();
-        const accountTxs = (dagData.nodes || [])
-          .filter(
-            (node: any) =>
-              node && (node.from === address || node.to === address),
-          )
-          .map((node: any) => ({
-            hash: node.hash,
-            from: node.from,
-            to: node.to,
-            amount: node.amount,
-            nonce: node.nonce,
-            ts: node.ts,
-            url: node.url,
-            kind: node.kind,
-          }))
-          .sort((a: Transaction, b: Transaction) => b.ts - a.ts);
-
-        setTransactions(accountTxs);
-
-        if (stakingRes.ok) {
-          const stakingData = await stakingRes.json();
-          setStaking(stakingData);
-        }
-
-        if (rewardsRes.ok) {
-          const rewardsData = await rewardsRes.json();
-          setRewards(rewardsData);
-        }
-      } catch (e) {
-        console.error("Failed to fetch account:", e);
-        setError("Failed to load account");
-      } finally {
+      if (!accountRes.ok) {
+        setError("Account not found");
         setLoading(false);
+        return;
       }
-    };
 
+      const accountData = await accountRes.json();
+      setAccount(accountData);
+
+      const dagData = await dagRes.json();
+      const accountTxs = (dagData.nodes || [])
+        .filter(
+          (node: any) =>
+            node && (node.from === address || node.to === address),
+        )
+        .map((node: any) => ({
+          hash: node.hash,
+          from: node.from,
+          to: node.to,
+          amount: node.amount,
+          nonce: node.nonce,
+          ts: node.ts,
+          url: node.url,
+          kind: node.kind,
+        }))
+        .sort((a: Transaction, b: Transaction) => b.ts - a.ts);
+
+      setTransactions(accountTxs);
+
+      if (stakingRes.ok) {
+        const stakingData = await stakingRes.json();
+        setStaking(stakingData);
+      }
+
+      if (rewardsRes.ok) {
+        const rewardsData = await rewardsRes.json();
+        setRewards(rewardsData);
+      }
+    } catch (e) {
+      console.error("Failed to fetch account:", e);
+      setError("Failed to load account");
+    } finally {
+      setLoading(false);
+    }
+  }, [address]);
+
+  useEffect(() => {
     fetchAccountData();
+  }, [fetchAccountData]);
+
+  const { status: wsStatus, lastEvent } = useWebSocketContext();
+  const lastEventRef = useRef(lastEvent);
+
+  useEffect(() => {
+    if (!lastEvent || lastEvent === lastEventRef.current) return;
+    lastEventRef.current = lastEvent;
+    if (lastEvent.type === 'AccountUpdated') {
+      const data = lastEvent.data as { address: string };
+      if (data.address === address) {
+        fetchAccountData();
+      }
+    } else if (lastEvent.type === 'FastPathExecuted' || lastEvent.type === 'CheckpointCreated') {
+      fetchAccountData();
+    }
+  }, [lastEvent, address]);
+
+  useEffect(() => {
+    if (wsStatus === 'connected') return;
     const interval = setInterval(fetchAccountData, 5000);
     return () => clearInterval(interval);
-  }, [address]);
+  }, [wsStatus, address]);
 
   const formatTime = (ts: number) => {
     return new Date(ts).toLocaleString();

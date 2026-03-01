@@ -6,7 +6,7 @@ use tracing::{debug, info, warn};
 pub struct ValidatorInfo {
     pub address: String,
     pub public_url: Option<String>,
-    pub stake: f64,
+    pub stake: u64,
     pub bls_public_key: Option<Vec<u8>>,
 }
 
@@ -45,8 +45,8 @@ impl LeaderElection {
 
         let randomness = self.compute_randomness(checkpoint_height, previous_checkpoint_hash);
         
-        let total_stake: f64 = validators.iter().map(|v| v.stake.max(1.0)).sum();
-        if total_stake <= 0.0 {
+        let total_stake: u64 = validators.iter().map(|v| v.stake.max(1)).sum();
+        if total_stake == 0 {
             warn!("Total stake is zero, cannot elect leader");
             return None;
         }
@@ -55,12 +55,12 @@ impl LeaderElection {
         sorted_validators.sort_by(|a, b| a.address.cmp(&b.address));
 
         let random_value = self.randomness_to_f64(&randomness);
-        let target = random_value * total_stake;
+        let target = random_value * total_stake as f64;
 
-        let mut cumulative = 0.0;
+        let mut cumulative = 0u64;
         for validator in &sorted_validators {
-            cumulative += validator.stake.max(1.0);
-            if cumulative >= target {
+            cumulative += validator.stake.max(1);
+            if cumulative as f64 >= target {
                 let is_local = validator.address == self.local_address 
                     || validator.public_url.as_ref() == self.local_url.as_ref();
                 
@@ -443,13 +443,13 @@ mod tests {
             ValidatorInfo {
                 address: "high_stake".to_string(),
                 public_url: None,
-                stake: 1000.0,
+                stake: 100_000_000_000,
                 bls_public_key: None,
             },
             ValidatorInfo {
                 address: "low_stake".to_string(),
                 public_url: None,
-                stake: 1.0,
+                stake: 100_000_000,
                 bls_public_key: None,
             },
         ];

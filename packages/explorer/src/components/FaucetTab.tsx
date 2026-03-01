@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { API_URL } from "../config";
 import { useRinku } from "../context/WalletContext";
+import { useWebSocketContext } from "../context/WebSocketContext";
 
 interface FaucetStats {
   rateLimitEntries: number;
@@ -41,11 +42,26 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
     }
   };
 
+  const { status: wsStatus, lastEvent } = useWebSocketContext();
+  const lastFaucetRef = useRef(lastEvent);
+
   useEffect(() => {
     fetchStats();
+  }, []);
+
+  useEffect(() => {
+    if (!lastEvent || lastEvent === lastFaucetRef.current) return;
+    lastFaucetRef.current = lastEvent;
+    if (lastEvent.type === 'NewTransaction' || lastEvent.type === 'FastPathExecuted') {
+      fetchStats();
+    }
+  }, [lastEvent]);
+
+  useEffect(() => {
+    if (wsStatus === 'connected') return;
     const interval = setInterval(fetchStats, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [wsStatus]);
 
   const requestFaucet = async () => {
     if (!address) {

@@ -13,3 +13,6 @@ export { WalletModal } from "./WalletModal";
 export { ThreadTab } from "./ThreadTab";
 export { AnimatedNumber } from "./AnimatedNumber";
 export { ChatTab } from "./ChatTab";
+export { ChatRoomsTab } from "./ChatRoomsTab";
+export { BatchProofPanel } from "./BatchProofPanel";
+export { StateWitnessPanel } from "./StateWitnessPanel";

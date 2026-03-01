@@ -33,6 +33,8 @@ pub const TABLE_REWARDS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("r
 pub const TABLE_EMISSION: TableDefinition<&[u8], &[u8]> = TableDefinition::new("emission");
 pub const TABLE_WEIGHTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("weights");
 
+pub const STORAGE_SCHEMA_VERSION: u32 = 1;
+
 pub struct RedbStorage {
     db: Arc<RwLock<Database>>,
     #[allow(dead_code)]
@@ -63,10 +65,67 @@ impl RedbStorage {
 
         info!("Opened redb database at {}", db_path);
 
-        Ok(Self {
+        let storage = Self {
             db: Arc::new(RwLock::new(db)),
             data_dir: data_dir.to_string(),
-        })
+        };
+
+        storage.check_storage_version()?;
+
+        Ok(storage)
+    }
+
+    fn check_storage_version(&self) -> Result<()> {
+        let db = self.db.read().unwrap();
+        let read_txn = db.begin_read()?;
+        let stored_version: Option<u32> = {
+            let table = read_txn.open_table(TABLE_METADATA)?;
+            match table.get(b"storage_schema_version".as_slice())? {
+                Some(data) => serde_json::from_slice(data.value()).ok(),
+                None => None,
+            }
+        };
+
+        match stored_version {
+            None => {
+                info!("No storage schema version found (fresh or pre-versioning database), setting to v{}", STORAGE_SCHEMA_VERSION);
+                drop(read_txn);
+                let write_txn = db.begin_write()?;
+                {
+                    let mut table = write_txn.open_table(TABLE_METADATA)?;
+                    table.insert(
+                        b"storage_schema_version".as_slice(),
+                        serde_json::to_vec(&STORAGE_SCHEMA_VERSION)?.as_slice(),
+                    )?;
+                }
+                write_txn.commit()?;
+            }
+            Some(v) if v > STORAGE_SCHEMA_VERSION => {
+                anyhow::bail!(
+                    "Storage schema version {} is newer than this binary supports (v{}). Refusing to start — upgrade the node binary or restore from a compatible backup.",
+                    v, STORAGE_SCHEMA_VERSION
+                );
+            }
+            Some(v) if v < STORAGE_SCHEMA_VERSION => {
+                info!("Migrating storage schema from v{} to v{}", v, STORAGE_SCHEMA_VERSION);
+                drop(read_txn);
+                let write_txn = db.begin_write()?;
+                {
+                    let mut table = write_txn.open_table(TABLE_METADATA)?;
+                    table.insert(
+                        b"storage_schema_version".as_slice(),
+                        serde_json::to_vec(&STORAGE_SCHEMA_VERSION)?.as_slice(),
+                    )?;
+                }
+                write_txn.commit()?;
+                info!("Storage schema migration complete");
+            }
+            Some(v) => {
+                info!("Storage schema version: v{}", v);
+            }
+        }
+
+        Ok(())
     }
 
     fn db_read(&self) -> std::sync::RwLockReadGuard<'_, Database> {
@@ -379,10 +438,11 @@ impl RedbStorage {
         accounts: &HashMap<String, Account>,
         validators: &HashMap<String, Validator>,
         checkpoints: &[Checkpoint],
-        gas_price: f64,
-        total_supply: f64,
+        gas_price: u64,
+        total_supply: u64,
         genesis_time: u64,
         dag_entries: &[DagSnapshotEntry],
+        total_transactions: u64,
     ) -> Result<()> {
         let db = self.db_read();
         let write_txn = db.begin_write()?;
@@ -425,6 +485,10 @@ impl RedbStorage {
             table.insert(b"gas_price".as_slice(), serde_json::to_vec(&gas_price)?.as_slice())?;
             table.insert(b"total_supply".as_slice(), serde_json::to_vec(&total_supply)?.as_slice())?;
             table.insert(b"genesis_time".as_slice(), serde_json::to_vec(&genesis_time)?.as_slice())?;
+            table.insert(b"total_transactions".as_slice(), serde_json::to_vec(&total_transactions)?.as_slice())?;
+            table.insert(b"storage_schema_version".as_slice(), serde_json::to_vec(&STORAGE_SCHEMA_VERSION)?.as_slice())?;
+            table.insert(b"last_node_version".as_slice(), serde_json::to_vec(&crate::versioning::NODE_VERSION)?.as_slice())?;
+            table.insert(b"last_protocol_version".as_slice(), serde_json::to_vec(&crate::versioning::PROTOCOL_VERSION)?.as_slice())?;
         }
         
         write_txn.commit()?;
@@ -445,16 +509,17 @@ impl RedbStorage {
             HashMap<String, Account>,
             HashMap<String, Validator>,
             Vec<Checkpoint>,
-            f64,
-            f64,
+            u64,
+            u64,
             u64,
             Vec<DagSnapshotEntry>,
+            Option<u64>,
         )>,
     > {
         let db = self.db_read();
         let read_txn = db.begin_read()?;
         
-        let gas_price: f64 = {
+        let gas_price: u64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"gas_price".as_slice())? {
                 Some(data) => serde_json::from_slice(data.value())?,
@@ -465,7 +530,7 @@ impl RedbStorage {
             }
         };
         
-        let total_supply: f64 = {
+        let total_supply: u64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"total_supply".as_slice())? {
                 Some(data) => serde_json::from_slice(data.value())?,
@@ -478,6 +543,14 @@ impl RedbStorage {
             match table.get(b"genesis_time".as_slice())? {
                 Some(data) => serde_json::from_slice(data.value())?,
                 None => return Ok(None),
+            }
+        };
+        
+        let persisted_total_transactions: Option<u64> = {
+            let table = read_txn.open_table(TABLE_METADATA)?;
+            match table.get(b"total_transactions".as_slice())? {
+                Some(data) => serde_json::from_slice(data.value()).ok(),
+                None => None,
             }
         };
         
@@ -553,6 +626,7 @@ impl RedbStorage {
             total_supply,
             genesis_time,
             dag_entries,
+            persisted_total_transactions,
         )))
     }
 

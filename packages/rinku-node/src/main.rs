@@ -18,22 +18,24 @@ mod dag_pruning;
 #[cfg(feature = "wasm")]
 mod wasm_runtime;
 mod emission;
+mod events;
+mod websocket;
 mod fast_path;
 mod fork_remediation;
 mod gas;
 mod gossip;
 mod leader_election;
 mod mempool_cleanup;
+mod merge;
+mod partition_detector;
+
 #[cfg(feature = "p2p")]
 mod network;
-mod persistence;
 mod proofs;
-mod relay;
 mod storage;
 mod rewards;
 mod slashing;
 mod state;
-mod state_trie;
 mod sync_verification;
 mod tip_consolidator;
 mod trust;
@@ -191,7 +193,11 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    info!("Starting Rinku Node v0.1.0");
+    info!("╔══════════════════════════════════════════════╗");
+    info!("║           Rinku Node Starting                ║");
+    info!("║  Node version:     {}                    ║", versioning::NODE_VERSION);
+    info!("║  Protocol version: {}                    ║", versioning::PROTOCOL_VERSION);
+    info!("╚══════════════════════════════════════════════╝");
     info!("Process PID: {}", std::process::id());
 
     let config = NodeConfig::from_env();
@@ -270,13 +276,43 @@ async fn main() -> Result<()> {
         );
     }
 
+    // FRESH_START: Wipe persistent storage to force a clean genesis
+    let fresh_start = std::env::var("FRESH_START")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    
     // Check if data directory exists and log contents
     let data_path = std::path::Path::new(&config.data_dir);
-    if data_path.exists() {
+    if fresh_start && data_path.exists() {
+        warn!("FRESH_START=true: Wiping data directory {}", config.data_dir);
+        let redb_path = data_path.join("redb.db");
+        if redb_path.exists() {
+            if let Err(e) = std::fs::remove_file(&redb_path) {
+                warn!("Could not remove redb.db: {}", e);
+            } else {
+                info!("Removed redb.db for fresh start");
+            }
+        }
+        let vi_path = data_path.join("validator-identity");
+        if vi_path.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&vi_path) {
+                warn!("Could not remove validator-identity dir: {}", e);
+            } else {
+                info!("Removed validator-identity dir for fresh start");
+            }
+        }
+        let sled_path = data_path.join("sled-db");
+        if sled_path.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&sled_path) {
+                warn!("Could not remove sled-db dir: {}", e);
+            } else {
+                info!("Removed sled-db dir for fresh start");
+            }
+        }
+    } else if data_path.exists() {
         info!("Data directory exists, checking for stale locks...");
         let sled_path = data_path.join("sled-db");
         if sled_path.exists() {
-            // Try to remove any stale lock files
             let lock_path = sled_path.join("lock");
             if lock_path.exists() {
                 info!("Found lock file, attempting to remove stale lock...");
@@ -293,7 +329,7 @@ async fn main() -> Result<()> {
     }
 
     info!("Initializing node state...");
-    let state = state::NodeState::new(config.clone()).await?;
+    let mut state = state::NodeState::new(config.clone()).await?;
 
     let key_password = std::env::var("VALIDATOR_KEY_PASSWORD").unwrap_or_else(|_| "dev-password".to_string());
     let key_path = std::env::var("VALIDATOR_KEY_PATH").ok();
@@ -338,12 +374,6 @@ async fn main() -> Result<()> {
 
     let slashing_service = Arc::new(RwLock::new(SlashingService::new()));
     info!("Slashing service initialized");
-    
-    let consensus_service = Arc::new(RwLock::new(
-        ConsensusService::new(state.clone())
-            .with_slashing_service(slashing_service.clone())
-    ));
-    info!("Consensus service initialized with slashing integration");
 
     let validator_identity_path = format!("{}/validator-identity", config.data_dir);
     let validator_identity = match ValidatorIdentityService::new(&validator_identity_path) {
@@ -358,8 +388,9 @@ async fn main() -> Result<()> {
     };
 
     // CRITICAL: When GENESIS_VALIDATORS is set, it becomes the authoritative source
-    // of truth for the validator set. Both registries must be replaced to prevent
-    // stale validators from persisting across restarts/redeployments.
+    // of truth for the validator registry (used for consensus verification and leader election).
+    // Only the genesis node creates validator accounts/stakes - validator nodes trust
+    // that accounts were inherited via PRE-SYNC from the genesis node.
     if !config.trust.genesis_validators.is_empty() {
         let genesis_seed: Vec<(String, Vec<u8>)> = config
             .trust
@@ -368,8 +399,9 @@ async fn main() -> Result<()> {
             .map(|v| (v.address.clone(), v.bls_public_key.clone()))
             .collect();
         
-        // Replace state.validators first (used for checkpoint signature verification)
-        state.replace_validators_with_genesis(&genesis_seed).await;
+        // Replace state.validators (used for checkpoint signature verification)
+        // Only genesis node creates accounts; validators just set the registry
+        state.replace_validators_with_genesis(&genesis_seed, config.is_genesis_node).await;
         
         // Replace ValidatorIdentityService.active_validators (used for leader election)
         if let Some(ref vi) = validator_identity {
@@ -377,11 +409,131 @@ async fn main() -> Result<()> {
             vi_guard.seed_genesis_validators(&genesis_seed);
         }
         
+        let genesis_addresses: std::collections::HashSet<String> = genesis_seed.iter().map(|(a, _)| a.clone()).collect();
+        
+        {
+            use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
+            let mut rewards = state.rewards.write().await;
+            if config.is_genesis_node {
+                let existing_stakes: Vec<String> = rewards.get_all_stakes().iter().map(|s| s.staker.clone()).collect();
+                let mut removed = 0;
+                for staker in &existing_stakes {
+                    if !genesis_addresses.contains(staker) {
+                        rewards.remove_stake(staker);
+                        removed += 1;
+                    }
+                }
+                if removed > 0 {
+                    info!("Removed {} stale stake(s) from rewards service (not in genesis set)", removed);
+                }
+            }
+            let mut registered = 0;
+            for (address, _) in &genesis_seed {
+                if rewards.get_stake(address).is_none() {
+                    if let Ok(_) = rewards.stake(address, GENESIS_VALIDATOR_STAKE) {
+                        registered += 1;
+                    }
+                }
+            }
+            if registered > 0 {
+                info!(
+                    "Registered {} genesis validator stake(s) in rewards service ({} RKU each)",
+                    registered, GENESIS_VALIDATOR_STAKE / 100_000_000
+                );
+            }
+        }
+        
         info!(
-            "Seeded {} genesis validator(s) into validator registry",
-            genesis_seed.len()
+            "Seeded {} genesis validator(s) into validator registry (is_genesis={})",
+            genesis_seed.len(), config.is_genesis_node
         );
+        
+        // Startup guard for validator nodes: verify all genesis validator accounts
+        // exist in the loaded state. Behavior depends on how state was obtained:
+        // - Loaded from persisted storage: ABORT (data is corrupt/incomplete, needs resync)
+        // - Fresh PRE-SYNC: WARN only (GENESIS_VALIDATORS may be temporarily mismatched
+        //   during deploy step 8→10 transition, will self-resolve on next restart)
+        if !config.is_genesis_node {
+            let missing: Vec<String> = {
+                let st = state.inner.read().await;
+                genesis_seed.iter()
+                    .filter(|(addr, _)| !st.accounts.contains_key(addr))
+                    .map(|(addr, _)| addr[..16.min(addr.len())].to_string())
+                    .collect()
+            };
+            if !missing.is_empty() {
+                if state.loaded_from_persistence {
+                    warn!(
+                        "STARTUP GUARD: {} genesis validator account(s) missing from persisted state: [{}]. \
+                         Auto-wiping database to trigger fresh PRE-SYNC.",
+                        missing.len(),
+                        missing.join(", ")
+                    );
+                    let db_path = format!("{}/redb.db", config.data_dir);
+                    match std::fs::remove_file(&db_path) {
+                        Ok(_) => {
+                            info!("Removed stale database, re-initializing state via PRE-SYNC...");
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            info!("No database file to remove, proceeding with fresh PRE-SYNC...");
+                        }
+                        Err(e) => {
+                            return Err(anyhow::anyhow!(
+                                "STARTUP GUARD: Failed to remove stale database at {}: {}. \
+                                 Cannot auto-heal. Manually delete the data directory and restart.",
+                                db_path, e
+                            ));
+                        }
+                    }
+                    drop(state);
+                    let fresh_state = state::NodeState::new(config.clone()).await?;
+                    state = fresh_state;
+                    state.replace_validators_with_genesis(&genesis_seed, config.is_genesis_node).await;
+                    if let Some(ref vi) = validator_identity {
+                        let mut vi_guard = vi.write().await;
+                        vi_guard.seed_genesis_validators(&genesis_seed);
+                    }
+                    {
+                        use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
+                        let mut rewards = state.rewards.write().await;
+                        for (address, _) in &genesis_seed {
+                            if rewards.get_stake(address).is_none() {
+                                let _ = rewards.stake(address, GENESIS_VALIDATOR_STAKE);
+                            }
+                        }
+                    }
+                    info!(
+                        "STARTUP GUARD: Auto-healed via fresh PRE-SYNC (wiped stale persisted state)"
+                    );
+                } else {
+                    warn!(
+                        "STARTUP GUARD: {} genesis validator account(s) missing after PRE-SYNC: [{}]. \
+                         This is expected during fresh deploys if GENESIS_VALIDATORS hasn't been updated yet. \
+                         The node will continue but may not participate in consensus until config is corrected.",
+                        missing.len(),
+                        missing.join(", ")
+                    );
+                }
+            }
+        }
+        // Clean up ghost accounts on ALL nodes (not just genesis)
+        state.cleanup_stale_accounts(&genesis_addresses).await;
+    } else {
+        let empty_set = std::collections::HashSet::new();
+        state.cleanup_stale_accounts(&empty_set).await;
     }
+    
+    // Sync stakes to accounts AFTER genesis validator replacement
+    // Only on genesis node - validators inherit synced state via PRE-SYNC
+    if config.is_genesis_node {
+        state.sync_stakes_to_accounts().await;
+    }
+
+    let consensus_service = Arc::new(RwLock::new(
+        ConsensusService::new(state.clone())
+            .with_slashing_service(slashing_service.clone())
+    ));
+    info!("Consensus service initialized with slashing integration");
 
     let mut checkpoint_service = CheckpointService::new(
         state.clone(),
@@ -440,7 +592,7 @@ async fn main() -> Result<()> {
 
     // Start libp2p NetworkService for production P2P (before GossipService so we can pass the handle)
     #[cfg(feature = "p2p")]
-    let network_handle = if config.p2p.enabled {
+    let (network_handle, p2p_message_rx, p2p_sync_rx, p2p_response_tx) = if config.p2p.enabled {
         let network_config = NetworkConfig {
             listen_addr: config.p2p.listen_addr.clone(),
             bootstrap_peers: config.p2p.bootstrap_peers.clone(),
@@ -449,11 +601,15 @@ async fn main() -> Result<()> {
         };
         
         match NetworkService::new(network_config) {
-            Ok((mut network_service, handle)) => {
+            Ok((mut network_service, mut handle)) => {
+                let p2p_message_rx = handle.take_message_rx();
+                let p2p_sync_rx = handle.take_sync_incoming_rx();
+                let p2p_response_tx = Some(handle.response_sender());
                 let shared_handle = Arc::new(tokio::sync::Mutex::new(handle));
                 let mut handshake_config = HandshakeConfig::default();
                 handshake_config.chain_id = config.chain_id.clone();
                 handshake_config.network_id = config.network_id.clone();
+                handshake_config.validator_address = validator_address.clone();
                 if config.mainnet_mode {
                     handshake_config.required_chain_id = Some(config.chain_id.clone());
                     handshake_config.required_network_id = Some(config.network_id.clone());
@@ -464,7 +620,6 @@ async fn main() -> Result<()> {
                 info!("P2P network started with peer ID: {}", peer_id);
                 info!("P2P listening on: {}", config.p2p.listen_addr);
                 
-                // Store peer info for bootstrap endpoint
                 state.set_peer_info(peer_id.to_string(), config.p2p.listen_addr.clone()).await;
                 
                 if !config.p2p.bootstrap_peers.is_empty() {
@@ -480,16 +635,16 @@ async fn main() -> Result<()> {
                     }
                 });
                 
-                Some(shared_handle)
+                (Some(shared_handle), p2p_message_rx, p2p_sync_rx, p2p_response_tx)
             }
             Err(e) => {
                 warn!("Failed to start P2P network: {}", e);
-                None
+                (None, None, None, None)
             }
         }
     } else {
         info!("P2P networking disabled (using HTTP gossip only)");
-        None
+        (None, None, None, None)
     };
 
     #[cfg(feature = "p2p")]
@@ -513,22 +668,33 @@ async fn main() -> Result<()> {
             service.set_validator_identity(vi.clone());
         }
         
-        // Wire up the libp2p network handle if available
         #[cfg(feature = "p2p")]
         if let Some(ref handle) = network_handle {
             service.set_network_handle(handle.clone());
-            info!("GossipService connected to libp2p network");
+            service.set_p2p_channels(p2p_message_rx, p2p_sync_rx, p2p_response_tx);
+            info!("GossipService connected to libp2p network (lock-free channels)");
         }
         
-        Some(std::sync::Arc::new(service))
+        Some(service)
     } else {
         None
     };
     
+    let mut gossip_service = gossip_service;
+    let event_bus = Arc::new(events::EventBus::new(1024));
+    info!("Event bus initialized (capacity: 1024)");
+
+    if let Some(ref mut gs) = gossip_service {
+        gs.set_event_bus(event_bus.clone());
+    }
+
+    let gossip_service = gossip_service.map(|gs| std::sync::Arc::new(gs));
+
     // Wire up GossipService to CheckpointService for immediate checkpoint broadcast
     if let Some(ref gs) = gossip_service {
         checkpoint_service = checkpoint_service.with_gossip_service(gs.clone());
     }
+    checkpoint_service = checkpoint_service.with_event_bus(event_bus.clone());
 
     let checkpoint_handle = tokio::spawn(async move {
         if let Err(e) = checkpoint_service.start().await {
@@ -574,6 +740,21 @@ async fn main() -> Result<()> {
     });
     info!("Mempool cleanup service started (TTL: 120s, interval: 30s)");
 
+    let partition_detector = partition_detector::PartitionDetector::new(
+        state.clone(),
+        partition_detector::PartitionDetectorConfig::default(),
+    );
+    let partition_detector = if let Some(ref gs) = gossip_service {
+        partition_detector.with_gossip_service(gs.clone())
+    } else {
+        partition_detector
+    };
+    let partition_detector = partition_detector.with_event_bus(event_bus.clone());
+    tokio::spawn(async move {
+        partition_detector.start().await;
+    });
+    info!("Partition detector started");
+
     // Periodic snapshot saving (every 60 seconds)
     let snapshot_state = state.clone();
     let snapshot_handle = tokio::spawn(async move {
@@ -591,7 +772,7 @@ async fn main() -> Result<()> {
 
     let static_dir = config.static_dir.as_ref().map(std::path::PathBuf::from);
     info!("STATIC_DIR config: {:?}", config.static_dir);
-    let api_handle = api::start_api_server(state.clone(), gossip_service.clone(), config.api_port, static_dir).await?;
+    let api_handle = api::start_api_server(state.clone(), gossip_service.clone(), config.api_port, static_dir, event_bus.clone()).await?;
 
     info!("Rinku Node running on port {}", config.api_port);
     info!("API available at http://0.0.0.0:{}/api", config.api_port);

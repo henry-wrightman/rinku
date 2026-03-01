@@ -2,6 +2,7 @@ export interface Account {
   fingerprint: string;
   balance: number;
   nonce: number;
+  staked: number;
   firstTxTimestamp: number;
 }
 

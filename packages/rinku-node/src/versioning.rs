@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub const PROTOCOL_VERSION: &str = "1.0.0";
+pub const NODE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const ACTIVATION_THRESHOLD: f64 = 0.75;
 pub const UPGRADE_EXPIRY_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 
@@ -248,11 +249,11 @@ impl VersioningService {
         VersioningService {
             version_info: VersionInfo {
                 protocol_version: PROTOCOL_VERSION.to_string(),
-                node_version: env!("CARGO_PKG_VERSION").to_string(),
+                node_version: NODE_VERSION.to_string(),
                 chain_id: chain_id.to_string(),
                 network_id: network_id.to_string(),
                 features,
-                min_compatible_version: "1.0.0".to_string(),
+                min_compatible_version: PROTOCOL_VERSION.to_string(),
                 activation_height: 0,
             },
             proposals: Vec::new(),

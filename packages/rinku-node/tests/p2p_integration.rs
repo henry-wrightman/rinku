@@ -71,6 +71,7 @@ mod p2p_tests {
             network_id: "testnet".to_string(),
             required_chain_id: Some("rinku-testnet".to_string()),
             required_network_id: Some("testnet".to_string()),
+            validator_address: None,
         };
 
         assert_eq!(config.required_chain_id, Some("rinku-testnet".to_string()));
@@ -153,21 +154,21 @@ mod p2p_tests {
     // Sync Verification Tests
     // ============================================
 
-    fn make_test_account(addr: &str, balance: f64, nonce: u64) -> AccountData {
+    fn make_test_account(addr: &str, balance: u64, nonce: u64) -> AccountData {
         AccountData {
             address: addr.to_string(),
             balance,
             nonce,
-            stake: 0.0,
+            stake: 0,
         }
     }
 
     #[test]
     fn test_sync_verification_valid_snapshot() {
         let accounts = vec![
-            make_test_account("alice", 1000.0, 5),
-            make_test_account("bob", 500.0, 3),
-            make_test_account("charlie", 250.0, 1),
+            make_test_account("alice", 1000, 5),
+            make_test_account("bob", 500, 3),
+            make_test_account("charlie", 250, 1),
         ];
 
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
@@ -188,8 +189,8 @@ mod p2p_tests {
     #[test]
     fn test_sync_verification_tampered_snapshot() {
         let accounts = vec![
-            make_test_account("alice", 1000.0, 5),
-            make_test_account("bob", 500.0, 3),
+            make_test_account("alice", 1000, 5),
+            make_test_account("bob", 500, 3),
         ];
 
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
@@ -197,7 +198,7 @@ mod p2p_tests {
 
         // Tamper with an account after computing root
         let mut tampered_accounts = accounts.clone();
-        tampered_accounts[0].balance = 9999.0; // Changed!
+        tampered_accounts[0].balance = 9999; // Changed!
 
         let snapshot = SnapshotData {
             accounts: tampered_accounts,
@@ -213,7 +214,7 @@ mod p2p_tests {
 
     #[test]
     fn test_sync_verifier_strict_mode() {
-        let accounts = vec![make_test_account("alice", 1000.0, 5)];
+        let accounts = vec![make_test_account("alice", 1000, 5)];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let merkle_root = build_merkle_root(&hashes);
 
@@ -246,10 +247,10 @@ mod p2p_tests {
     #[test]
     fn test_account_merkle_proofs_full_cycle() {
         let accounts = vec![
-            make_test_account("alice", 1000.0, 5),
-            make_test_account("bob", 500.0, 3),
-            make_test_account("charlie", 250.0, 1),
-            make_test_account("dave", 100.0, 0),
+            make_test_account("alice", 1000, 5),
+            make_test_account("bob", 500, 3),
+            make_test_account("charlie", 250, 1),
+            make_test_account("dave", 100, 0),
         ];
 
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
@@ -274,8 +275,8 @@ mod p2p_tests {
     #[test]
     fn test_merkle_proof_tamper_detection() {
         let accounts = vec![
-            make_test_account("alice", 1000.0, 5),
-            make_test_account("bob", 500.0, 3),
+            make_test_account("alice", 1000, 5),
+            make_test_account("bob", 500, 3),
         ];
 
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
@@ -284,7 +285,7 @@ mod p2p_tests {
         let mut proofs = generate_account_proofs(&accounts);
 
         // Tamper with the proof
-        proofs[0].balance = 9999.0;
+        proofs[0].balance = 9999;
 
         let result = verify_account_proof(&proofs[0], &root);
         assert!(matches!(result, VerificationResult::Invalid(_)));
@@ -401,7 +402,7 @@ mod p2p_tests {
     #[test]
     fn test_sync_verification_summary() {
         let accounts = vec![
-            make_test_account("alice", 1000.0, 5),
+            make_test_account("alice", 1000, 5),
         ];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let merkle_root = build_merkle_root(&hashes);

@@ -317,6 +317,8 @@ interface TransactionNode {
   sig: string;
   url: string;
   weight: number;
+  kind?: string;
+  data?: string;
   memo?: string;
   references?: string[];
   finalized?: boolean;
@@ -389,6 +391,9 @@ function HashTransactionPage() {
           sig: txData.sig,
           url: data.url || `/tx/h/${txData.hash}`,
           weight: data.weight ?? txData.weight ?? 0,
+          kind: txData.kind,
+          data: txData.data,
+          memo: txData.memo,
           finalized: data.finalized ?? !!txData.finality,
           finality: data.finality || txData.finality,
         });
@@ -640,6 +645,28 @@ function HashTransactionPage() {
             <span className="label">hash</span>
             <span className="value mono">{truncate(tx.hash, 24)}</span>
           </div>
+          {tx.kind && (
+            <div className="meta-row">
+              <span className="label">type</span>
+              <span
+                className="value"
+                style={{
+                  color:
+                    tx.kind === "contract"
+                      ? "#88c0d0"
+                      : tx.kind === "stake"
+                        ? "#a3be8c"
+                        : tx.kind === "unstake"
+                          ? "#ebcb8b"
+                          : tx.kind === "claim_rewards"
+                            ? "#b48ead"
+                            : "#d8dee9",
+                }}
+              >
+                {tx.kind === "claim_rewards" ? "claim rewards" : tx.kind}
+              </span>
+            </div>
+          )}
           <div className="meta-row">
             <span className="label">timestamp</span>
             <span className="value">{formatTime(tx.ts)}</span>
@@ -680,8 +707,13 @@ function HashTransactionPage() {
           )}
           <div className="meta-row">
             <span className="label">signature</span>
-            <span className="value mono" style={{ opacity: tx.sig && tx.sig !== "sig" ? 1 : 0.5 }}>
-              {tx.sig && tx.sig !== "sig" ? truncate(tx.sig, 24) : "(system tx)"}
+            <span
+              className="value mono"
+              style={{ opacity: tx.sig && tx.sig !== "sig" ? 1 : 0.5 }}
+            >
+              {tx.sig && tx.sig !== "sig"
+                ? truncate(tx.sig, 24)
+                : "(system tx)"}
             </span>
           </div>
           {tx.finality && (
@@ -695,6 +727,122 @@ function HashTransactionPage() {
             </>
           )}
         </div>
+
+        {tx.data &&
+          (() => {
+            let parsed: any = null;
+            try {
+              parsed = JSON.parse(tx.data);
+            } catch {}
+            return (
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: 16,
+                  background: "rgba(136, 192, 208, 0.05)",
+                  border: "1px solid rgba(136, 192, 208, 0.2)",
+                  borderRadius: 0,
+                }}
+              >
+                <h3
+                  style={{
+                    margin: "0 0 12px 0",
+                    color: "#88c0d0",
+                    fontSize: 14,
+                  }}
+                >
+                  transaction data
+                </h3>
+                {parsed ? (
+                  <div
+                    style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                  >
+                    {parsed.action && (
+                      <div className="meta-row">
+                        <span className="label">action</span>
+                        <span className="value" style={{ color: "#88c0d0" }}>
+                          {parsed.action}
+                        </span>
+                      </div>
+                    )}
+                    {parsed.contractId && (
+                      <div className="meta-row">
+                        <span className="label">contract</span>
+                        <Link
+                          to={`/account/${parsed.contractId}`}
+                          className="value mono"
+                          style={{ color: "#88c0d0", textDecoration: "none" }}
+                        >
+                          {parsed.contractId}
+                        </Link>
+                      </div>
+                    )}
+                    {parsed.entrypoint && (
+                      <div className="meta-row">
+                        <span className="label">entrypoint</span>
+                        <span
+                          className="value mono"
+                          style={{ color: "#a3be8c" }}
+                        >
+                          {parsed.entrypoint}()
+                        </span>
+                      </div>
+                    )}
+                    {parsed.input && (
+                      <div style={{ marginTop: 4 }}>
+                        <span
+                          className="label"
+                          style={{
+                            display: "block",
+                            marginBottom: 6,
+                            fontSize: 12,
+                            color: "#81a1c1",
+                          }}
+                        >
+                          input
+                        </span>
+                        <pre
+                          style={{
+                            margin: 0,
+                            padding: 12,
+                            background: "rgba(46, 52, 64, 0.8)",
+                            border: "1px solid rgba(76, 86, 106, 0.4)",
+                            borderRadius: 0,
+                            fontSize: 12,
+                            color: "#d8dee9",
+                            overflow: "auto",
+                            maxHeight: 200,
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-all",
+                          }}
+                        >
+                          {JSON.stringify(parsed.input, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: 12,
+                      background: "rgba(46, 52, 64, 0.8)",
+                      border: "1px solid rgba(76, 86, 106, 0.4)",
+                      borderRadius: 0,
+                      fontSize: 12,
+                      color: "#d8dee9",
+                      overflow: "auto",
+                      maxHeight: 200,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-all",
+                    }}
+                  >
+                    {tx.data}
+                  </pre>
+                )}
+              </div>
+            );
+          })()}
 
         {/* Trust Score & Vote Section */}
         <TrustAndVoteSection
@@ -753,10 +901,6 @@ function HashTransactionPage() {
                     {proofData.proofSizeBytes?.toLocaleString()} bytes
                   </span>
                 </div>
-                <p className="proof-description">
-                  this proof is completely self-contained. anyone can verify
-                  this transaction offline using only the url above.
-                </p>
               </>
             ) : proofData?.error ? (
               <div style={{ color: "#bf616a", opacity: 0.8 }}>

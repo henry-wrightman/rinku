@@ -1,9 +1,10 @@
 pub use rinku_core::types::GasConfig;
+use rinku_core::types::{MICRO_UNITS, from_micro_units, to_micro_units};
 use std::collections::VecDeque;
 
 pub struct GasService {
     config: GasConfig,
-    current_price: f64,
+    current_price: u64,
     tx_counts: VecDeque<(u64, u32)>,
 }
 
@@ -16,7 +17,7 @@ impl GasService {
         }
     }
 
-    pub fn current_price(&self) -> f64 {
+    pub fn current_price(&self) -> u64 {
         self.current_price
     }
 
@@ -49,27 +50,30 @@ impl GasService {
         let target = self.config.target_txs_per_period;
         let adjustment = self.config.adjustment_factor;
 
-        let new_price = if recent_tx_count > target {
-            self.current_price * (1.0 + adjustment)
+        let price_f64 = from_micro_units(self.current_price);
+        let new_price_f64 = if recent_tx_count > target {
+            price_f64 * (1.0 + adjustment)
         } else if recent_tx_count < target {
-            self.current_price * (1.0 - adjustment)
+            price_f64 * (1.0 - adjustment)
         } else {
-            self.current_price
+            price_f64
         };
 
+        let new_price = to_micro_units(new_price_f64);
         self.current_price = new_price
             .max(self.config.min_gas_price)
             .min(self.config.max_gas_price);
     }
 
-    pub fn calculate_fee(&self, gas_limit: u64) -> f64 {
-        self.current_price * gas_limit as f64
+    pub fn calculate_fee(&self, gas_limit: u64) -> u64 {
+        (self.current_price as u128 * gas_limit as u128 / MICRO_UNITS as u128) as u64
     }
 
-    pub fn calculate_burn_amount(&self, fee: f64, supply_ratio: f64) -> f64 {
-        let burn_ratio = (1.0 - self.config.min_gas_price) * supply_ratio;
+    pub fn calculate_burn_amount(&self, fee: u64, supply_ratio: f64) -> u64 {
+        let min_price_ratio = from_micro_units(self.config.min_gas_price);
+        let burn_ratio = (1.0 - min_price_ratio) * supply_ratio;
         let capped_burn = burn_ratio.min(0.3);
-        fee * capped_burn
+        (fee as f64 * capped_burn).round() as u64
     }
 }
 
@@ -97,13 +101,13 @@ mod tests {
     #[test]
     fn test_gas_price_decrease() {
         let mut service = GasService::new(GasConfig {
-            min_gas_price: 1.0,
+            min_gas_price: to_micro_units(1.0),
             ..Default::default()
         });
 
         service.record_transaction(1000);
         service.update_price();
 
-        assert!(service.current_price() <= 1.0);
+        assert!(service.current_price() <= to_micro_units(1.0));
     }
 }
