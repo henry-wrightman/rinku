@@ -9,6 +9,7 @@ use tracing::{info, warn};
 use crate::bls::generate_bls_keypair;
 
 pub const MIN_VALIDATOR_STAKE: u64 = 10_000_000_000;
+pub const GENESIS_VALIDATOR_STAKE: u64 = 5_000_000_000_000;
 pub const ACTIVATION_DELAY_EPOCHS: u64 = 2;
 pub const EXIT_DELAY_EPOCHS: u64 = 4;
 pub const EPOCH_LENGTH_MS: u64 = 60_000;
@@ -500,12 +501,12 @@ impl ValidatorIdentityService {
                 address: address.clone(),
                 bls_public_key_hex: hex::encode(bls_public_key),
                 bls_public_key: bls_public_key.clone(),
-                stake: MIN_VALIDATOR_STAKE,
+                stake: GENESIS_VALIDATOR_STAKE,
                 status: ValidatorStatus::Active,
                 activation_epoch: self.state.current_epoch,
                 exit_epoch: None,
                 slashed: false,
-                effective_stake: MIN_VALIDATOR_STAKE,
+                effective_stake: GENESIS_VALIDATOR_STAKE,
                 missed_checkpoints: 0,
                 last_checkpoint_signed: 0,
             };

@@ -180,6 +180,7 @@ export class Wallet {
     amount: number;
     fee?: number;
     kind?: TransactionKind;
+    data?: string;
     tipUrls?: string[];
     nonce?: number;
     skipRefresh?: boolean;
@@ -216,6 +217,7 @@ export class Wallet {
         fee: actualFee,
         nonce: nonceToUse,
         tipUrls,
+        data: options.data,
         kind: options.kind,
       },
     );

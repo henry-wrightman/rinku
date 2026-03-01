@@ -24,8 +24,16 @@ use tracing::{debug, info, trace, warn};
 
 use crate::gossip::GossipMessage;
 
-const PROTOCOL_TOPIC: &str = "rinku/1.0.0";
-const SYNC_PROTOCOL: &str = "/rinku/sync/1.0.0";
+fn protocol_topic() -> String {
+    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    format!("rinku/{}", major)
+}
+
+fn sync_protocol_id() -> String {
+    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    format!("/rinku/sync/{}", major)
+}
+
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
 const MESH_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(10);
 const MIN_MESH_PEERS: usize = 1;
@@ -280,10 +288,10 @@ impl Default for DoSConfig {
     fn default() -> Self {
         Self {
             max_connections: 50,
-            rate_limit_tokens_per_second: 100,  // Increased 10x for testnet activity bots
-            max_rate_limit_tokens: 1000,         // Increased 10x burst capacity
-            ban_duration_secs: 30,               // Reduced ban time for testnet
-            min_protocol_version: "1.0.0".to_string(),
+            rate_limit_tokens_per_second: 100,
+            max_rate_limit_tokens: 1000,
+            ban_duration_secs: 30,
+            min_protocol_version: crate::versioning::PROTOCOL_VERSION.to_string(),
         }
     }
 }
@@ -312,7 +320,7 @@ pub struct HandshakeConfig {
 impl Default for HandshakeConfig {
     fn default() -> Self {
         Self {
-            protocol_version: "1.0.0".to_string(),
+            protocol_version: crate::versioning::PROTOCOL_VERSION.to_string(),
             chain_id: "rinku-mainnet".to_string(),
             network_id: "mainnet".to_string(),
             required_chain_id: None,
@@ -417,7 +425,8 @@ impl NetworkService {
         // Request-response protocol for sync operations
         // Use custom CBOR codec with 16MB limits to support checkpoint votes with many transactions
         // This allows up to ~30,000 transactions per checkpoint (at ~500 bytes each)
-        let sync_protocol = StreamProtocol::new(SYNC_PROTOCOL);
+        let sync_protocol = StreamProtocol::try_from_owned(sync_protocol_id())
+            .expect("valid sync protocol string");
         let cbor_codec: CborCodec<SyncRequest, SyncResponse> = CborCodec::new(
             16 * 1024 * 1024,  // 16 MB max request size
             16 * 1024 * 1024,  // 16 MB max response size
@@ -431,8 +440,8 @@ impl NetworkService {
 
         // Identify protocol for peer info exchange
         let identify = identify::Behaviour::new(
-            identify::Config::new("/rinku/1.0.0".to_string(), local_key.public())
-                .with_agent_version(format!("rinku-node/{}", env!("CARGO_PKG_VERSION"))),
+            identify::Config::new(format!("/rinku/{}", crate::versioning::PROTOCOL_VERSION), local_key.public())
+                .with_agent_version(format!("rinku-node/{}", crate::versioning::NODE_VERSION)),
         );
 
         let behaviour = RinkuBehaviour { 
@@ -453,7 +462,7 @@ impl NetworkService {
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
             .build();
 
-        let topic = IdentTopic::new(PROTOCOL_TOPIC);
+        let topic = IdentTopic::new(protocol_topic());
 
         let (message_tx, message_rx) = mpsc::channel(1000);
         let (outbound_tx, outbound_rx) = mpsc::channel(1000);

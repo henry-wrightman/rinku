@@ -104,7 +104,10 @@ impl Dag {
             }
         }
 
-        let total_parents = parents.iter().filter(|p| !p.is_empty() && *p != &hash).count();
+        let total_parents = parents
+            .iter()
+            .filter(|p| !p.is_empty() && *p != &hash)
+            .count();
 
         let is_finalized = node.finalized;
         let node_idx = self.graph.add_node(node);
@@ -170,46 +173,44 @@ impl Dag {
     /// - Returns at most MAX_SAMPLED_TIPS tips
     /// - Prefers tips with higher node weight (sender's account weight = Sybil resistance)
     /// - If fewer tips than MAX_SAMPLED_TIPS, returns all tips
-    /// 
+    ///
     /// Weight selection: Uses the tip node's inherent weight (from sender's account),
     /// not cumulative descendant weight (which is always 0 for tips since tips have no children).
     pub fn get_sampled_tips(&self) -> Vec<String> {
         let all_tips: Vec<String> = self.tips.iter().cloned().collect();
-        
+
         // If we have fewer tips than the max, return all of them
         if all_tips.len() <= MAX_SAMPLED_TIPS {
             return all_tips;
         }
-        
+
         // Get node weights for all tips (sender's account weight = Sybil resistance)
         // Higher weight = sender has more stake/age = more trustworthy
         let mut weighted_tips: Vec<(String, f64)> = all_tips
             .iter()
-            .filter_map(|tip| {
-                self.get_node(tip).map(|node| (tip.clone(), node.weight))
-            })
+            .filter_map(|tip| self.get_node(tip).map(|node| (tip.clone(), node.weight)))
             .collect();
-        
+
         // Sort by weight descending (higher weight = more trustworthy sender)
         weighted_tips.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        
+
         // Take top half by weight, randomly sample from rest for diversity
         let guaranteed_count = MAX_SAMPLED_TIPS / 2;
         let random_count = MAX_SAMPLED_TIPS - guaranteed_count;
-        
+
         let mut result: Vec<String> = weighted_tips
             .iter()
             .take(guaranteed_count)
             .map(|(tip, _)| tip.clone())
             .collect();
-        
+
         // Randomly sample from remaining tips for DAG diversity
         let remaining: Vec<String> = weighted_tips
             .iter()
             .skip(guaranteed_count)
             .map(|(tip, _)| tip.clone())
             .collect();
-        
+
         if !remaining.is_empty() {
             let mut rng = thread_rng();
             let sample_size = random_count.min(remaining.len());
@@ -217,7 +218,7 @@ impl Dag {
             shuffled.shuffle(&mut rng);
             result.extend(shuffled.into_iter().take(sample_size));
         }
-        
+
         result
     }
 
@@ -290,12 +291,12 @@ impl Dag {
     pub fn get_all_nodes(&self) -> Vec<&DagNode> {
         self.graph.node_weights().collect()
     }
-    
+
     /// Get immutable iterator over all nodes
     pub fn nodes(&self) -> impl Iterator<Item = &DagNode> {
         self.graph.node_weights()
     }
-    
+
     /// Get mutable iterator over all nodes (used for recalculating weights)
     pub fn nodes_mut(&mut self) -> impl Iterator<Item = &mut DagNode> {
         self.graph.node_weights_mut()
@@ -312,17 +313,17 @@ impl Dag {
     /// Returns (nodes_processed, tips_count, dangling_parents) for logging.
     pub fn rebuild_tips(&mut self) -> (usize, usize, usize) {
         let all_hashes: Vec<String> = self.hash_to_index.keys().cloned().collect();
-        
+
         // Clear all existing graph edges
         self.graph.clear_edges();
-        
+
         // Clear existing children vectors
         for hash in &all_hashes {
             if let Some(node) = self.get_node_mut(hash) {
                 node.children.clear();
             }
         }
-        
+
         // Rebuild graph edges and children by iterating all nodes
         let mut dangling_parents = 0usize;
         for hash in &all_hashes {
@@ -337,13 +338,13 @@ impl Dag {
                 };
                 (node.parents.clone(), idx)
             };
-            
+
             for parent_hash in parents {
                 if !parent_hash.is_empty() && parent_hash != *hash {
                     if let Some(&parent_idx) = self.hash_to_index.get(&parent_hash) {
                         // Rebuild graph edge (parent -> child)
                         self.graph.add_edge(parent_idx, node_idx, ());
-                        
+
                         // Rebuild children vector
                         if let Some(parent_node) = self.get_node_mut(&parent_hash) {
                             if !parent_node.children.contains(hash) {
@@ -357,7 +358,7 @@ impl Dag {
                 }
             }
         }
-        
+
         // Rebuild tips: nodes with no children are tips
         self.tips.clear();
         for hash in &all_hashes {
@@ -367,7 +368,7 @@ impl Dag {
                 }
             }
         }
-        
+
         (all_hashes.len(), self.tips.len(), dangling_parents)
     }
 
@@ -382,7 +383,7 @@ impl Dag {
             .filter_map(|hash| self.get_node(hash))
             .collect()
     }
-    
+
     /// Get count of unfinalized transactions (O(1))
     pub fn unfinalized_count(&self) -> usize {
         self.unfinalized.len()
@@ -431,17 +432,17 @@ impl Dag {
     fn prune_oldest(&mut self) -> Result<(), DagError> {
         let target_size = self.max_nodes * 3 / 4;
         let current_size = self.graph.node_count();
-        
+
         // CRITICAL FIX: If we're severely over limit (2x max_nodes), also prune unfinalized txs
         // This prevents OOM from accumulated unfinalized transactions during sync issues
         let severe_overload = current_size > self.max_nodes * 2;
-        
+
         // Get current timestamp for age-based pruning of unfinalized txs
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        
+
         // Safety threshold: only prune unfinalized txs older than 10 minutes
         // This ensures they've had ample time to be finalized and makes pruning deterministic
         const UNFINALIZED_PRUNE_AGE_MS: u64 = 10 * 60 * 1000; // 10 minutes
@@ -469,13 +470,13 @@ impl Dag {
             .take(to_remove_count)
             .map(|(idx, _)| idx)
             .collect();
-        
+
         // If we're severely overloaded and couldn't prune enough finalized txs,
         // start pruning OLD unfinalized transactions too (except current tips)
         // Age threshold ensures deterministic pruning across nodes
         if severe_overload && to_remove.len() < to_remove_count {
             let remaining_to_remove = to_remove_count - to_remove.len();
-            
+
             // Collect OLD unfinalized transactions sorted by timestamp (oldest first)
             let mut unfinalized_with_time: Vec<(NodeIndex, u64)> = self
                 .graph
@@ -484,8 +485,10 @@ impl Dag {
                     self.graph.node_weight(idx).and_then(|node| {
                         // Only prune unfinalized txs that are old enough (deterministic threshold)
                         let tx_age_ms = now_ms.saturating_sub(node.tx.tx.timestamp);
-                        if !node.finalized && !self.tips.contains(&node.hash) 
-                           && tx_age_ms > UNFINALIZED_PRUNE_AGE_MS {
+                        if !node.finalized
+                            && !self.tips.contains(&node.hash)
+                            && tx_age_ms > UNFINALIZED_PRUNE_AGE_MS
+                        {
                             Some((idx, node.tx.tx.timestamp))
                         } else {
                             None
@@ -493,15 +496,15 @@ impl Dag {
                     })
                 })
                 .collect();
-            
+
             unfinalized_with_time.sort_by_key(|(_, ts)| *ts);
-            
+
             let additional: Vec<NodeIndex> = unfinalized_with_time
                 .into_iter()
                 .take(remaining_to_remove)
                 .map(|(idx, _)| idx)
                 .collect();
-            
+
             to_remove.extend(additional);
         }
 
@@ -556,7 +559,8 @@ impl Dag {
         self.tips.remove(hash);
         self.unfinalized.remove(hash);
 
-        let parent_hashes: Vec<String> = self.graph
+        let parent_hashes: Vec<String> = self
+            .graph
             .node_weight(idx)
             .map(|n| n.parents.clone())
             .unwrap_or_default();
@@ -573,15 +577,15 @@ impl Dag {
         }
 
         let removed = self.graph.remove_node(idx);
-        
+
         self.rebuild_index();
-        
+
         removed
     }
 
     pub fn prune_branch(&mut self, root_hash: &str) -> Vec<DagNode> {
         let descendants = self.get_descendants(root_hash, usize::MAX);
-        
+
         let mut to_remove: Vec<String> = descendants;
         to_remove.push(root_hash.to_string());
 
@@ -619,7 +623,8 @@ impl Dag {
     }
 
     pub fn find_common_ancestor(&self, hash_a: &str, hash_b: &str) -> Option<String> {
-        let ancestors_a: HashSet<String> = self.get_ancestors(hash_a, usize::MAX).into_iter().collect();
+        let ancestors_a: HashSet<String> =
+            self.get_ancestors(hash_a, usize::MAX).into_iter().collect();
         let ancestors_b = self.get_ancestors(hash_b, usize::MAX);
 
         for ancestor in ancestors_b {
@@ -635,7 +640,7 @@ impl Dag {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Transaction, SignedTransaction};
+    use crate::types::{SignedTransaction, Transaction};
 
     fn make_tx(hash: &str, parents: Vec<String>) -> DagNode {
         let tx = Transaction {
@@ -753,8 +758,10 @@ mod tests {
         let mut dag = Dag::new(100);
 
         dag.add_node(make_tx("root", vec![])).unwrap();
-        dag.add_node(make_tx("a", vec!["root".to_string()])).unwrap();
-        dag.add_node(make_tx("b", vec!["root".to_string()])).unwrap();
+        dag.add_node(make_tx("a", vec!["root".to_string()]))
+            .unwrap();
+        dag.add_node(make_tx("b", vec!["root".to_string()]))
+            .unwrap();
         dag.add_node(make_tx("a1", vec!["a".to_string()])).unwrap();
         dag.add_node(make_tx("a2", vec!["a".to_string()])).unwrap();
 
@@ -775,7 +782,8 @@ mod tests {
         let mut dag = Dag::new(100);
 
         dag.add_node(make_tx("root", vec![])).unwrap();
-        dag.add_node(make_tx("a", vec!["root".to_string()])).unwrap();
+        dag.add_node(make_tx("a", vec!["root".to_string()]))
+            .unwrap();
         dag.add_node(make_tx("a1", vec!["a".to_string()])).unwrap();
         dag.add_node(make_tx("a2", vec!["a1".to_string()])).unwrap();
 
@@ -788,7 +796,7 @@ mod tests {
         assert_eq!(dag.node_count(), 4);
 
         let removed = dag.prune_branch("a");
-        
+
         assert_eq!(removed.len(), 2);
         assert!(dag.contains("root"));
         assert!(!dag.contains("a"));
@@ -820,8 +828,10 @@ mod tests {
         let mut dag = Dag::new(100);
 
         dag.add_node(make_tx("root", vec![])).unwrap();
-        dag.add_node(make_tx("a", vec!["root".to_string()])).unwrap();
-        dag.add_node(make_tx("b", vec!["root".to_string()])).unwrap();
+        dag.add_node(make_tx("a", vec!["root".to_string()]))
+            .unwrap();
+        dag.add_node(make_tx("b", vec!["root".to_string()]))
+            .unwrap();
         dag.add_node(make_tx("a1", vec!["a".to_string()])).unwrap();
         dag.add_node(make_tx("b1", vec!["b".to_string()])).unwrap();
 
@@ -835,10 +845,10 @@ mod tests {
 
         dag.add_node(make_tx("root", vec![])).unwrap();
 
-        let result = dag.add_node(make_tx("child", vec![
-            "root".to_string(),
-            "missing_parent".to_string(),
-        ]));
+        let result = dag.add_node(make_tx(
+            "child",
+            vec!["root".to_string(), "missing_parent".to_string()],
+        ));
         assert!(result.is_ok());
 
         assert!(dag.contains("child"));
@@ -855,11 +865,16 @@ mod tests {
 
         dag.add_node(make_tx("root", vec![])).unwrap();
 
-        let (linked, total) = dag.add_node_with_stats(make_tx("child", vec![
-            "root".to_string(),
-            "missing1".to_string(),
-            "missing2".to_string(),
-        ])).unwrap();
+        let (linked, total) = dag
+            .add_node_with_stats(make_tx(
+                "child",
+                vec![
+                    "root".to_string(),
+                    "missing1".to_string(),
+                    "missing2".to_string(),
+                ],
+            ))
+            .unwrap();
 
         assert_eq!(linked, 1);
         assert_eq!(total, 3);
@@ -871,7 +886,7 @@ mod tests {
 
         let result = dag.add_node(make_tx("self_ref", vec!["self_ref".to_string()]));
         assert!(result.is_err());
-        
+
         match result {
             Err(DagError::CycleDetected) => {}
             _ => panic!("Expected CycleDetected error"),

@@ -457,6 +457,8 @@ struct SyncStatusResponse {
     uptime_seconds: u64,
     is_syncing: bool,
     faucet_balance: f64,
+    node_version: String,
+    protocol_version: String,
 }
 
 #[derive(Serialize)]
@@ -472,7 +474,8 @@ struct NodeStatusResponse {
     validators: usize,
     total_stake: f64,
     uptime_seconds: u64,
-    version: String,
+    node_version: String,
+    protocol_version: String,
 }
 
 #[derive(Deserialize)]
@@ -593,7 +596,7 @@ struct SnapshotSyncResponse {
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::versioning::NODE_VERSION.to_string(),
     })
 }
 
@@ -625,6 +628,8 @@ async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusRespo
         uptime_seconds,
         is_syncing: false,
         faucet_balance: from_micro_units(faucet_balance),
+        node_version: crate::versioning::NODE_VERSION.to_string(),
+        protocol_version: crate::versioning::PROTOCOL_VERSION.to_string(),
     })
 }
 
@@ -688,7 +693,8 @@ async fn get_node_status(State(state): State<NodeState>) -> Json<NodeStatusRespo
         validators,
         total_stake: from_micro_units(total_stake),
         uptime_seconds,
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        node_version: crate::versioning::NODE_VERSION.to_string(),
+        protocol_version: crate::versioning::PROTOCOL_VERSION.to_string(),
     })
 }
 
@@ -3778,6 +3784,7 @@ async fn post_reconcile_stakes(
 struct StakingAddressResponse {
     address: String,
     staked_amount: f64,
+    is_validator: bool,
     staked_at: Option<u64>,
     can_unstake: bool,
     cooldown_remaining_ms: u64,
@@ -3790,10 +3797,12 @@ async fn get_staking_address(
 ) -> Json<StakingAddressResponse> {
     let rewards = state.rewards.read().await;
     let status = rewards.get_staking_status(&address);
+    let is_validator = state.is_validator(&address).await;
     
     Json(StakingAddressResponse {
         address: status.address,
         staked_amount: from_micro_units(status.position.as_ref().map(|p| p.amount).unwrap_or(0)),
+        is_validator,
         staked_at: status.position.as_ref().map(|p| p.staked_at),
         can_unstake: status.can_unstake,
         cooldown_remaining_ms: status.cooldown_remaining_ms,
@@ -4052,8 +4061,8 @@ async fn call_contract(
 async fn get_version(State(state): State<NodeState>) -> Json<VersionResponse> {
     let (chain_id, network_id) = state.get_chain_info().await;
     Json(VersionResponse {
-        protocol_version: "1.0.0".to_string(),
-        node_version: env!("CARGO_PKG_VERSION").to_string(),
+        protocol_version: crate::versioning::PROTOCOL_VERSION.to_string(),
+        node_version: crate::versioning::NODE_VERSION.to_string(),
         chain_id,
         network_id,
         features: vec![

@@ -88,6 +88,84 @@ a:hover, .rlink:hover {
   color: #888;
 }
 
+.stats-ticker {
+  margin-bottom: 16px;
+  border: 1px solid #2a2a2a;
+  background: #111115;
+}
+
+.ticker-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.ticker-row.secondary {
+  border-top: 1px solid #1e1e24;
+}
+
+.ticker-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 6px 14px;
+  border-right: 1px solid #1e1e24;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.ticker-cell:last-child {
+  border-right: none;
+}
+
+.tv {
+  font-size: 15px;
+  font-weight: 600;
+  color: #a3be8c;
+  line-height: 1;
+}
+
+.tv.accent {
+  color: #a3be8c;
+}
+
+.tv.dim {
+  color: #7a8a6a;
+}
+
+.tv.cyan {
+  color: #88c0d0;
+}
+
+.tl {
+  font-size: 10px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sep {
+  display: inline-block;
+  width: 1px;
+  height: 10px;
+  background: #2a2a2a;
+  margin: 0 6px;
+  vertical-align: middle;
+}
+
+@media (max-width: 700px) {
+  .ticker-cell {
+    padding: 5px 8px;
+    gap: 3px;
+  }
+  .tv {
+    font-size: 13px;
+  }
+  .tl {
+    font-size: 8px;
+  }
+}
+
 .stats {
   display: flex;
   flex-wrap: wrap;
@@ -209,6 +287,210 @@ a:hover, .rlink:hover {
   margin-right: 12px;
   cursor: pointer;
   text-decoration: underline;
+}
+
+.dag-feed {
+  margin-bottom: 30px;
+}
+
+.feed-group {
+  margin-bottom: 12px;
+}
+
+.feed-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #555;
+  padding: 4px 0;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.feed-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.pending-dot {
+  background: #ebcb8b;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.confirmed-dot {
+  background: #a3be8c;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(235, 203, 139, 0.4); }
+  50% { opacity: 0.6; box-shadow: 0 0 4px 2px rgba(235, 203, 139, 0.2); }
+}
+
+.tx-row {
+  display: flex;
+  flex-direction: column;
+  border-left: 3px solid #333;
+  padding: 0;
+  margin-bottom: 1px;
+  background: #0d0d10;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.tx-row:hover {
+  background: #14141a;
+}
+
+.tx-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  min-height: 28px;
+  flex-wrap: wrap;
+}
+
+.tx-kind {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  min-width: 28px;
+  text-align: center;
+}
+
+.tx-hash {
+  color: #b48ead;
+  font-size: 12px;
+  min-width: 90px;
+}
+
+.tx-amount {
+  color: #a3be8c;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 70px;
+}
+
+.tx-fee {
+  color: #ebcb8b;
+  font-size: 10px;
+}
+
+.tx-route {
+  color: #555;
+  font-size: 11px;
+}
+
+.tx-route .arrow {
+  color: #444;
+  margin: 0 3px;
+}
+
+.tx-time {
+  color: #444;
+  font-size: 10px;
+  margin-left: auto;
+}
+
+.tx-status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border: 1px solid;
+}
+
+.tx-status.st-confirmed {
+  color: #a3be8c;
+  border-color: #3a4a30;
+  background: rgba(163, 190, 140, 0.06);
+}
+
+.tx-status.st-final {
+  color: #a3be8c;
+  border-color: #3a4a30;
+  background: rgba(163, 190, 140, 0.1);
+}
+
+.tx-status.st-pending {
+  color: #ebcb8b;
+  border-color: #4a4330;
+  background: rgba(235, 203, 139, 0.06);
+}
+
+.tx-trust {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.tx-row.tx-new {
+  border-left-color: #39ff14 !important;
+  animation: tx-flash 0.6s ease-out 3;
+  background: rgba(57, 255, 20, 0.04);
+}
+
+@keyframes tx-flash {
+  0%, 100% { background: rgba(57, 255, 20, 0.04); }
+  50% { background: rgba(57, 255, 20, 0.12); }
+}
+
+.tx-expanded {
+  padding: 8px 10px 8px 32px;
+  border-top: 1px solid #1a1a1e;
+  background: #0a0a0e;
+}
+
+.tx-detail-grid {
+  display: grid;
+  grid-template-columns: 50px 1fr;
+  gap: 2px 10px;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.td-label {
+  color: #444;
+}
+
+.td-value {
+  color: #888;
+  word-break: break-all;
+}
+
+.td-value.mono {
+  font-size: 10px;
+}
+
+.tx-actions {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.tx-actions .link,
+.tx-actions .rlink {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@media (max-width: 700px) {
+  .tx-row-main {
+    gap: 6px;
+    padding: 4px 6px;
+  }
+  .tx-hash {
+    min-width: 70px;
+  }
+  .tx-amount {
+    min-width: 50px;
+  }
+  .tx-route {
+    display: none;
+  }
 }
 
 table {
@@ -345,13 +627,13 @@ input[type="text"]::placeholder {
   border-color: #b48ead;
 }
 
-.tx-amount {
+.tx-detail .tx-amount {
   font-size: 32px;
   color: #a3be8c;
   margin-bottom: 20px;
 }
 
-.tx-amount .unit {
+.tx-detail .tx-amount .unit {
   font-size: 14px;
   color: #666;
 }
@@ -556,24 +838,6 @@ input[type="text"]::placeholder {
   background: #ff3131;
 }
 
-.status-dot.ws-connected {
-  background: #6bcb77;
-  animation: blink 1.5s steps(1) infinite;
-}
-
-.status-dot.ws-reconnecting {
-  background: #4d96ff;
-  animation: blink 1.2s steps(1) infinite;
-}
-
-.status-dot.ws-connecting {
-  background: #ffd93d;
-}
-
-.status-dot.ws-disconnected {
-  background: #ff6b6b;
-}
-
 .status-text {
   font-size: 11px;
   color: #666;
@@ -589,20 +853,42 @@ input[type="text"]::placeholder {
   color: #ff3131;
 }
 
-.status-text.ws-connected {
+.status-dot.ws-connected {
+  background: #6bcb77;
+  animation: blink 1.5s steps(1) infinite;
+}
+
+.status-text-connected {
   color: #6bcb77;
+  font-size: 11px;
 }
 
-.status-text.ws-reconnecting {
-  color: #4d96ff;
-}
-
-.status-text.ws-connecting {
+.status-text-connecting {
   color: #ffd93d;
+  font-size: 11px;
 }
 
-.status-text.ws-disconnected {
-  color: #ff6b6b;
+.status-text-disconnected {
+  color: #ff3131;
+  font-size: 11px;
+}
+
+.status-text-reconnecting {
+  color: #4d96ff;
+  font-size: 11px;
+}
+
+.status-dot.ws-reconnecting {
+  background: #4d96ff;
+  animation: blink 1.2s steps(1) infinite;
+}
+
+.status-dot.ws-connecting {
+  background: #ffd93d;
+}
+
+.status-dot.ws-disconnected {
+  background: #ff6b6b;
 }
 
 @keyframes blink {
@@ -726,6 +1012,104 @@ body.light .nav span.active {
 }
 
 body.light .nav span:hover:not(.active) {
+  color: #5e6b82;
+}
+
+body.light .stats-ticker {
+  background: #f5f7fa;
+  border-color: #d8dee9;
+}
+
+body.light .ticker-row.secondary {
+  border-top-color: #e5e9f0;
+}
+
+body.light .ticker-cell {
+  border-right-color: #e5e9f0;
+}
+
+body.light .tv {
+  color: #4c946c;
+}
+
+body.light .tv.dim {
+  color: #6a8a5a;
+}
+
+body.light .tv.cyan {
+  color: #5a8fa8;
+}
+
+body.light .tl {
+  color: #9aa5b8;
+}
+
+body.light .sep {
+  background: #d8dee9;
+}
+
+body.light .feed-group-header {
+  color: #9aa5b8;
+  border-bottom-color: #e5e9f0;
+}
+
+body.light .tx-row {
+  background: #ffffff;
+  border-left-color: #d8dee9;
+}
+
+body.light .tx-row:hover {
+  background: #f5f7fa;
+}
+
+body.light .tx-hash {
+  color: #8b5a8b;
+}
+
+body.light .tx-amount {
+  color: #4c946c;
+}
+
+body.light .tx-fee {
+  color: #bf8c30;
+}
+
+body.light .tx-route {
+  color: #9aa5b8;
+}
+
+body.light .tx-time {
+  color: #b0b8c8;
+}
+
+body.light .tx-status.st-confirmed,
+body.light .tx-status.st-final {
+  color: #4c946c;
+  border-color: #b5d5c0;
+  background: rgba(76, 148, 108, 0.06);
+}
+
+body.light .tx-status.st-pending {
+  color: #bf8c30;
+  border-color: #e0c890;
+  background: rgba(191, 140, 48, 0.06);
+}
+
+body.light .tx-row.tx-new {
+  border-left-color: #4c946c !important;
+  background: rgba(76, 148, 108, 0.04);
+}
+
+body.light .tx-expanded {
+  background: #f8f9fb;
+  border-top-color: #e5e9f0;
+}
+
+body.light .td-label {
+  color: #9aa5b8;
+}
+
+body.light .td-value {
   color: #5e6b82;
 }
 
@@ -1196,11 +1580,11 @@ body.light .tx-header h2 {
   color: #2e3440;
 }
 
-body.light .tx-amount {
+body.light .tx-detail .tx-amount {
   color: #4c946c;
 }
 
-body.light .tx-amount .unit {
+body.light .tx-detail .tx-amount .unit {
   color: #7b88a1;
 }
 
@@ -3468,7 +3852,7 @@ body.light .tx-history-item {
   background: #f8f9fa;
 }
 
-body.light .tx-amount {
+body.light .tx-detail .tx-amount {
   color: #2e3440;
 }
 

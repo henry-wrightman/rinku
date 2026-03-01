@@ -90,11 +90,9 @@ impl PartitionDetector {
             ps.status
         };
 
-        let checkpoint_stalled = self.is_checkpoint_stalled(now).await;
-
         match current_status {
             PartitionStatus::Normal => {
-                if visible_stake_pct < self.config.stake_visibility_threshold || checkpoint_stalled {
+                if visible_stake_pct < self.config.stake_visibility_threshold {
                     self.state.transition_to_suspected().await;
                     self.recovery_started_at = None;
                     if let Some(ref bus) = self.event_bus {
@@ -110,7 +108,7 @@ impl PartitionDetector {
                 }
             }
             PartitionStatus::Suspected => {
-                if visible_stake_pct >= self.config.stake_visibility_threshold && !checkpoint_stalled {
+                if visible_stake_pct >= self.config.stake_visibility_threshold {
                     self.state.transition_to_normal().await;
                     self.recovery_started_at = None;
                 } else {
@@ -230,17 +228,4 @@ impl PartitionDetector {
         }
     }
 
-    async fn is_checkpoint_stalled(&self, now: u64) -> bool {
-        let state = self.state.inner.read().await;
-        let stall_threshold = self.config.checkpoint_interval_ms * self.config.checkpoint_stall_multiplier;
-
-        if state.last_checkpoint_time_ms == 0 {
-            return false;
-        }
-
-        let has_unfinalized = state.dag.unfinalized_count() > 0;
-        let time_since_last = now.saturating_sub(state.last_checkpoint_time_ms);
-
-        has_unfinalized && time_since_last > stall_threshold
-    }
 }

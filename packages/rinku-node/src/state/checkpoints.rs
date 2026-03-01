@@ -64,7 +64,7 @@ impl NodeState {
     /// 1. Validator signatures meet quorum threshold
     /// 2. The checkpoint merkle roots match expected state
     /// For now in testnet mode, we trust the checkpoint if prev_hash links correctly.
-    pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint, fast_path_executed: Option<&std::collections::HashSet<String>>) -> anyhow::Result<()> {
+    pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint, _fast_path_executed: Option<&std::collections::HashSet<String>>) -> anyhow::Result<()> {
         use rinku_core::merkle::MerkleTree;
         
         let mut state = self.inner.write().await;
@@ -221,20 +221,8 @@ impl NodeState {
         // preventing floating-point rounding divergence across nodes.
         txs_to_execute.sort_by(|a, b| a.hash.cmp(&b.hash));
         
-        // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
-        // Skip core execution for transactions already executed on fast-path
-        let empty_set = std::collections::HashSet::new();
-        let fp_set = fast_path_executed.unwrap_or(&empty_set);
         for tx in &txs_to_execute {
-            if fp_set.contains(&tx.hash) {
-                tracing::debug!(
-                    "apply_checkpoint: skipping core execution for fast-path-executed tx {}",
-                    &tx.hash[..16.min(tx.hash.len())]
-                );
-                self.execute_finalized_transaction_rewards(tx).await;
-            } else {
-                self.execute_finalized_transaction(tx).await;
-            }
+            self.execute_finalized_transaction(tx).await;
         }
         
         Ok(())
@@ -251,7 +239,7 @@ impl NodeState {
         &self, 
         checkpoint: Checkpoint,
         finalized_tx_hashes: Vec<String>,
-        fast_path_executed: &std::collections::HashSet<String>,
+        _fast_path_executed: &std::collections::HashSet<String>,
     ) -> Result<usize> {
         let mut state = self.inner.write().await;
         
@@ -457,18 +445,8 @@ impl NodeState {
         // preventing floating-point rounding divergence across nodes.
         txs_to_execute.sort_by(|a, b| a.hash.cmp(&b.hash));
         
-        // FINALITY-FIRST MODEL: Execute finalized transactions (state changes happen here)
-        // Skip core execution for transactions already executed on fast-path
         for tx in &txs_to_execute {
-            if fast_path_executed.contains(&tx.hash) {
-                tracing::debug!(
-                    "Follower checkpoint: skipping core execution for fast-path-executed tx {}",
-                    &tx.hash[..16.min(tx.hash.len())]
-                );
-                self.execute_finalized_transaction_rewards(tx).await;
-            } else {
-                self.execute_finalized_transaction(tx).await;
-            }
+            self.execute_finalized_transaction(tx).await;
         }
         
         // FOLLOWER NODES DO NOT GENERATE PROOFS

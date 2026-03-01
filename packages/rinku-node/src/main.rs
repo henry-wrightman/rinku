@@ -193,7 +193,11 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    info!("Starting Rinku Node v0.1.0");
+    info!("╔══════════════════════════════════════════════╗");
+    info!("║           Rinku Node Starting                ║");
+    info!("║  Node version:     {}                    ║", versioning::NODE_VERSION);
+    info!("║  Protocol version: {}                    ║", versioning::PROTOCOL_VERSION);
+    info!("╚══════════════════════════════════════════════╝");
     info!("Process PID: {}", std::process::id());
 
     let config = NodeConfig::from_env();
@@ -407,12 +411,10 @@ async fn main() -> Result<()> {
         
         let genesis_addresses: std::collections::HashSet<String> = genesis_seed.iter().map(|(a, _)| a.clone()).collect();
         
-        // Only genesis node manages stakes in the rewards service.
-        // Validator nodes inherit stakes via PRE-SYNC snapshot.
-        if config.is_genesis_node {
-            {
-                use crate::validator_identity::MIN_VALIDATOR_STAKE;
-                let mut rewards = state.rewards.write().await;
+        {
+            use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
+            let mut rewards = state.rewards.write().await;
+            if config.is_genesis_node {
                 let existing_stakes: Vec<String> = rewards.get_all_stakes().iter().map(|s| s.staker.clone()).collect();
                 let mut removed = 0;
                 for staker in &existing_stakes {
@@ -424,22 +426,21 @@ async fn main() -> Result<()> {
                 if removed > 0 {
                     info!("Removed {} stale stake(s) from rewards service (not in genesis set)", removed);
                 }
-                let mut registered = 0;
-                for (address, _) in &genesis_seed {
-                    if rewards.get_stake(address).is_none() {
-                        if let Ok(_) = rewards.stake(address, MIN_VALIDATOR_STAKE) {
-                            registered += 1;
-                        }
+            }
+            let mut registered = 0;
+            for (address, _) in &genesis_seed {
+                if rewards.get_stake(address).is_none() {
+                    if let Ok(_) = rewards.stake(address, GENESIS_VALIDATOR_STAKE) {
+                        registered += 1;
                     }
                 }
-                if registered > 0 {
-                    info!(
-                        "Registered {} genesis validator stake(s) in rewards service ({} RKU each)",
-                        registered, MIN_VALIDATOR_STAKE
-                    );
-                }
             }
-            
+            if registered > 0 {
+                info!(
+                    "Registered {} genesis validator stake(s) in rewards service ({} RKU each)",
+                    registered, GENESIS_VALIDATOR_STAKE / 100_000_000
+                );
+            }
         }
         
         info!(
@@ -491,6 +492,15 @@ async fn main() -> Result<()> {
                     if let Some(ref vi) = validator_identity {
                         let mut vi_guard = vi.write().await;
                         vi_guard.seed_genesis_validators(&genesis_seed);
+                    }
+                    {
+                        use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
+                        let mut rewards = state.rewards.write().await;
+                        for (address, _) in &genesis_seed {
+                            if rewards.get_stake(address).is_none() {
+                                let _ = rewards.stake(address, GENESIS_VALIDATOR_STAKE);
+                            }
+                        }
                     }
                     info!(
                         "STARTUP GUARD: Auto-healed via fresh PRE-SYNC (wiped stale persisted state)"

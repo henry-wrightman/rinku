@@ -119,7 +119,10 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
             builder.with_behaviour(|_| {
                 request_response::Behaviour::with_codec(
                     cbor_codec,
-                    [(StreamProtocol::new("/rinku/sync/1.0.0"), ProtocolSupport::Full)],
+                    [(StreamProtocol::try_from_owned({
+                        let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+                        format!("/rinku/sync/{}", major)
+                    }).expect("valid sync protocol"), ProtocolSupport::Full)],
                     request_response::Config::default()
                         .with_request_timeout(Duration::from_secs(30)),
                 )
@@ -180,7 +183,7 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
                                 let chain_id = env::var("CHAIN_ID").unwrap_or_else(|_| "rinku-mainnet".to_string());
                                 let network_id = env::var("NETWORK_ID").unwrap_or_else(|_| "mainnet".to_string());
                                 let handshake = PeerHandshake {
-                                    protocol_version: "1.0.0".to_string(),
+                                    protocol_version: crate::versioning::PROTOCOL_VERSION.to_string(),
                                     chain_id,
                                     network_id,
                                     node_id: local_peer_id.to_string(),

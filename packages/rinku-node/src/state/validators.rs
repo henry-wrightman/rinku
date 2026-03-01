@@ -35,7 +35,7 @@ impl NodeState {
     /// is the authoritative source of accounts). Validator nodes only update the registry
     /// and trust that accounts were inherited via PRE-SYNC from the genesis node.
     pub async fn replace_validators_with_genesis(&self, genesis_validators: &[(String, Vec<u8>)], is_genesis_node: bool) {
-        use crate::validator_identity::MIN_VALIDATOR_STAKE;
+        use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
         
         let mut state = self.inner.write().await;
         let old_count = state.validators.len();
@@ -50,7 +50,7 @@ impl NodeState {
         for (address, bls_public_key) in genesis_validators {
             let validator = Validator {
                 address: address.clone(),
-                stake: MIN_VALIDATOR_STAKE,
+                stake: GENESIS_VALIDATOR_STAKE,
                 first_stake_time: now_secs * 1000,
                 bls_public_key: Some(hex::encode(bls_public_key)),
                 missed_checkpoints: 0,
@@ -60,19 +60,19 @@ impl NodeState {
             if is_genesis_node {
                 if !state.accounts.contains_key(address) {
                     let mut account = Account::new(address.clone(), now_secs);
-                    account.staked = MIN_VALIDATOR_STAKE;
+                    account.staked = GENESIS_VALIDATOR_STAKE;
                     state.accounts.insert(address.clone(), account);
                     info!(
-                        "Genesis validator account created: {} (staked: {} RKU)",
-                        &address[..16.min(address.len())], MIN_VALIDATOR_STAKE
+                        "Genesis validator account created: {} (staked: {} µRKU / {} RKU)",
+                        &address[..16.min(address.len())], GENESIS_VALIDATOR_STAKE, GENESIS_VALIDATOR_STAKE / 100_000_000
                     );
                 } else {
                     let account = state.accounts.get_mut(address).unwrap();
-                    if account.staked < MIN_VALIDATOR_STAKE {
-                        account.staked = MIN_VALIDATOR_STAKE;
+                    if account.staked < GENESIS_VALIDATOR_STAKE {
+                        account.staked = GENESIS_VALIDATOR_STAKE;
                         info!(
                             "Genesis validator account updated staked amount: {} -> {} RKU",
-                            &address[..16.min(address.len())], MIN_VALIDATOR_STAKE
+                            &address[..16.min(address.len())], GENESIS_VALIDATOR_STAKE / 100_000_000
                         );
                     }
                 }

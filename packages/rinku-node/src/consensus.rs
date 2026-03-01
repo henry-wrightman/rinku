@@ -50,7 +50,7 @@ impl Vote {
 #[derive(Debug, Clone)]
 pub struct ValidatorSnapshot {
     pub address: String,
-    pub voting_power: f64,
+    pub voting_power: u64,
     pub bls_public_key: Vec<u8>,
 }
 
@@ -59,21 +59,21 @@ pub struct VoteAccumulator {
     pub checkpoint_height: u64,
     pub checkpoint_hash: String,
     pub votes: HashMap<String, Vote>,
-    pub total_voting_power: f64,
-    pub accumulated_power: f64,
+    pub total_voting_power: u64,
+    pub accumulated_power: u64,
     pub signatures: Vec<Vec<u8>>,
     pub signer_indices: Vec<usize>,
     pub frozen_validators: Vec<ValidatorSnapshot>,
 }
 
 impl VoteAccumulator {
-    pub fn new(height: u64, hash: String, total_power: f64, validators: Vec<ValidatorSnapshot>) -> Self {
+    pub fn new(height: u64, hash: String, total_power: u64, validators: Vec<ValidatorSnapshot>) -> Self {
         Self {
             checkpoint_height: height,
             checkpoint_hash: hash,
             votes: HashMap::new(),
             total_voting_power: total_power,
-            accumulated_power: 0.0,
+            accumulated_power: 0,
             signatures: Vec::new(),
             signer_indices: Vec::new(),
             frozen_validators: validators,
@@ -88,13 +88,13 @@ impl VoteAccumulator {
         self.frozen_validators.iter().find(|v| v.address == address)
     }
 
-    pub fn reduce_validator_power(&mut self, address: &str, reduction_ratio: f64) -> Option<f64> {
+    pub fn reduce_validator_power(&mut self, address: &str, reduction_ratio: f64) -> Option<u64> {
         if let Some(validator) = self.frozen_validators.iter_mut().find(|v| v.address == address) {
-            let reduction = validator.voting_power * reduction_ratio;
-            validator.voting_power -= reduction;
-            self.total_voting_power -= reduction;
+            let reduction = (validator.voting_power as f64 * reduction_ratio) as u64;
+            validator.voting_power = validator.voting_power.saturating_sub(reduction);
+            self.total_voting_power = self.total_voting_power.saturating_sub(reduction);
             if let Some(_vote) = self.votes.get(address) {
-                self.accumulated_power -= reduction;
+                self.accumulated_power = self.accumulated_power.saturating_sub(reduction);
             }
             Some(reduction)
         } else {
@@ -111,13 +111,13 @@ impl VoteAccumulator {
     }
 
     pub fn voting_power_ratio(&self) -> f64 {
-        if self.total_voting_power <= 0.0 {
+        if self.total_voting_power == 0 {
             return 0.0;
         }
-        self.accumulated_power / self.total_voting_power
+        self.accumulated_power as f64 / self.total_voting_power as f64
     }
 
-    pub fn add_vote(&mut self, vote: Vote, voting_power: f64, signer_index: usize) -> bool {
+    pub fn add_vote(&mut self, vote: Vote, voting_power: u64, signer_index: usize) -> bool {
         if self.votes.contains_key(&vote.validator) {
             return false;
         }
@@ -139,16 +139,16 @@ pub struct FinalityProof {
     pub checkpoint_hash: String,
     pub aggregated_signature: Vec<u8>,
     pub signer_bitmap: Vec<u8>,
-    pub total_stake_voted: f64,
-    pub total_stake: f64,
+    pub total_stake_voted: u64,
+    pub total_stake: u64,
     pub quorum_threshold: f64,
     pub timestamp: u64,
 }
 
 impl FinalityProof {
     pub fn is_valid(&self) -> bool {
-        let ratio = if self.total_stake > 0.0 {
-            self.total_stake_voted / self.total_stake
+        let ratio = if self.total_stake > 0 {
+            self.total_stake_voted as f64 / self.total_stake as f64
         } else {
             0.0
         };
@@ -159,8 +159,8 @@ impl FinalityProof {
 #[derive(Debug, Clone)]
 pub struct QuorumVerificationResult {
     pub valid: bool,
-    pub verified_stake: f64,
-    pub total_stake: f64,
+    pub verified_stake: u64,
+    pub total_stake: u64,
     pub quorum_reached: bool,
     pub error: Option<String>,
 }
@@ -229,12 +229,12 @@ impl ConsensusService {
                 .iter()
                 .map(|(addr, v)| ValidatorSnapshot {
                     address: addr.clone(),
-                    voting_power: v.effective_stake as f64,
+                    voting_power: v.effective_stake,
                     bls_public_key: v.bls_public_key.clone(),
                 })
                 .collect();
             validators.sort_by(|a, b| a.address.cmp(&b.address));
-            let total = vs_guard.total_active_stake() as f64;
+            let total = vs_guard.total_active_stake();
             (total, validators)
         } else {
             let state = self.state.inner.read().await;
@@ -242,18 +242,18 @@ impl ConsensusService {
                 .iter()
                 .map(|(addr, v)| ValidatorSnapshot {
                     address: addr.clone(),
-                    voting_power: v.stake as f64,
+                    voting_power: v.stake,
                     bls_public_key: v.bls_public_key.as_ref()
                         .and_then(|k| hex::decode(k).ok())
                         .unwrap_or_default(),
                 })
                 .collect();
             validators.sort_by(|a, b| a.address.cmp(&b.address));
-            let total: f64 = state.validators.values().map(|v| v.stake as f64).sum();
+            let total: u64 = state.validators.values().map(|v| v.stake).sum();
             (total, validators)
         };
 
-        if total_stake <= 0.0 {
+        if total_stake == 0 {
             return Err(anyhow!("No active validators with stake"));
         }
 
@@ -289,7 +289,7 @@ impl ConsensusService {
             let mut addrs: Vec<_> = validator_state.active_validators().keys().cloned().collect();
             addrs.sort();
             let idx = self.get_validator_index_deterministic(&vote.validator, &addrs);
-            (validator.effective_stake as f64, validator.bls_public_key.clone(), idx)
+            (validator.effective_stake, validator.bls_public_key.clone(), idx)
         } else {
             let state = self.state.inner.read().await;
             let validator = state.validators.get(&vote.validator)
@@ -300,7 +300,7 @@ impl ConsensusService {
             let mut addrs: Vec<_> = state.validators.keys().cloned().collect();
             addrs.sort();
             let idx = self.get_validator_index_deterministic(&vote.validator, &addrs);
-            (validator.stake as f64, pubkey, idx)
+            (validator.stake, pubkey, idx)
         };
 
         if bls_pubkey.is_empty() {
@@ -618,8 +618,8 @@ impl ConsensusService {
         if total_stake == 0 {
             return Ok(QuorumVerificationResult {
                 valid: false,
-                verified_stake: 0.0,
-                total_stake: 0.0,
+                verified_stake: 0,
+                total_stake: 0,
                 quorum_reached: false,
                 error: Some("No active validators".to_string()),
             });
@@ -645,8 +645,8 @@ impl ConsensusService {
 
         Ok(QuorumVerificationResult {
             valid: quorum_reached,
-            verified_stake: verified_stake as f64,
-            total_stake: total_stake as f64,
+            verified_stake,
+            total_stake,
             quorum_reached,
             error: if quorum_reached {
                 None
@@ -810,36 +810,36 @@ mod tests {
 
     #[test]
     fn test_vote_accumulator_quorum() {
-        let mut acc = VoteAccumulator::new(1, "hash123".to_string(), 1000.0, vec![]);
+        let mut acc = VoteAccumulator::new(1, "hash123".to_string(), 1000, vec![]);
 
         assert!(!acc.quorum_reached());
 
-        acc.add_vote(create_test_vote("v1", 1, "hash123"), 400.0, 0);
+        acc.add_vote(create_test_vote("v1", 1, "hash123"), 400, 0);
         assert!(!acc.quorum_reached());
 
-        acc.add_vote(create_test_vote("v2", 1, "hash123"), 300.0, 1);
+        acc.add_vote(create_test_vote("v2", 1, "hash123"), 300, 1);
         assert!(acc.quorum_reached());
         assert!((acc.voting_power_ratio() - 0.7).abs() < 0.001);
     }
 
     #[test]
     fn test_vote_accumulator_duplicate_rejection() {
-        let mut acc = VoteAccumulator::new(1, "hash123".to_string(), 1000.0, vec![]);
+        let mut acc = VoteAccumulator::new(1, "hash123".to_string(), 1000, vec![]);
 
-        assert!(acc.add_vote(create_test_vote("v1", 1, "hash123"), 400.0, 0));
-        assert!(!acc.add_vote(create_test_vote("v1", 1, "hash123"), 400.0, 0));
+        assert!(acc.add_vote(create_test_vote("v1", 1, "hash123"), 400, 0));
+        assert!(!acc.add_vote(create_test_vote("v1", 1, "hash123"), 400, 0));
         assert_eq!(acc.votes.len(), 1);
     }
 
     #[test]
     fn test_vote_accumulator_super_majority() {
-        let mut acc = VoteAccumulator::new(1, "hash123".to_string(), 1000.0, vec![]);
+        let mut acc = VoteAccumulator::new(1, "hash123".to_string(), 1000, vec![]);
 
-        acc.add_vote(create_test_vote("v1", 1, "hash123"), 400.0, 0);
-        acc.add_vote(create_test_vote("v2", 1, "hash123"), 300.0, 1);
+        acc.add_vote(create_test_vote("v1", 1, "hash123"), 400, 0);
+        acc.add_vote(create_test_vote("v2", 1, "hash123"), 300, 1);
         assert!(!acc.super_majority_reached());
 
-        acc.add_vote(create_test_vote("v3", 1, "hash123"), 100.0, 2);
+        acc.add_vote(create_test_vote("v3", 1, "hash123"), 100, 2);
         assert!(acc.super_majority_reached());
     }
 
@@ -850,8 +850,8 @@ mod tests {
             checkpoint_hash: "hash".to_string(),
             aggregated_signature: vec![],
             signer_bitmap: vec![],
-            total_stake_voted: 700.0,
-            total_stake: 1000.0,
+            total_stake_voted: 700,
+            total_stake: 1000,
             quorum_threshold: QUORUM_THRESHOLD,
             timestamp: 1000,
         };
@@ -862,8 +862,8 @@ mod tests {
             checkpoint_hash: "hash".to_string(),
             aggregated_signature: vec![],
             signer_bitmap: vec![],
-            total_stake_voted: 600.0,
-            total_stake: 1000.0,
+            total_stake_voted: 600,
+            total_stake: 1000,
             quorum_threshold: QUORUM_THRESHOLD,
             timestamp: 1000,
         };
@@ -918,14 +918,12 @@ mod tests {
 
     #[test]
     fn test_quorum_threshold_boundary() {
-        let mut acc = VoteAccumulator::new(1, "hash".to_string(), 1000.0, vec![]);
+        let mut acc = VoteAccumulator::new(1, "hash".to_string(), 10000, vec![]);
         
-        // 66.65% should not reach quorum (below 0.6666 threshold)
-        acc.add_vote(create_test_vote("v1", 1, "hash"), 666.5, 0);
+        acc.add_vote(create_test_vote("v1", 1, "hash"), 6665, 0);
         assert!(!acc.quorum_reached(), "66.65% should not reach quorum");
         
-        // 66.66% should reach quorum (at 0.6666 threshold)
-        acc.add_vote(create_test_vote("v2", 1, "hash"), 0.1, 1);
+        acc.add_vote(create_test_vote("v2", 1, "hash"), 1, 1);
         assert!(acc.quorum_reached(), "66.66% should reach quorum");
     }
 
@@ -1150,17 +1148,17 @@ mod tests {
         let validators = vec![
             ValidatorSnapshot {
                 address: "validator_c".to_string(),
-                voting_power: 100.0,
+                voting_power: 100,
                 bls_public_key: vec![1, 2, 3],
             },
             ValidatorSnapshot {
                 address: "validator_a".to_string(),
-                voting_power: 200.0,
+                voting_power: 200,
                 bls_public_key: vec![4, 5, 6],
             },
             ValidatorSnapshot {
                 address: "validator_b".to_string(),
-                voting_power: 150.0,
+                voting_power: 150,
                 bls_public_key: vec![7, 8, 9],
             },
         ];
@@ -1172,7 +1170,7 @@ mod tests {
         assert_eq!(sorted[1].address, "validator_b");
         assert_eq!(sorted[2].address, "validator_c");
 
-        let acc = VoteAccumulator::new(1, "hash".to_string(), 450.0, sorted);
+        let acc = VoteAccumulator::new(1, "hash".to_string(), 450, sorted);
 
         assert_eq!(acc.get_validator_index("validator_a"), Some(0));
         assert_eq!(acc.get_validator_index("validator_b"), Some(1));
@@ -1200,28 +1198,28 @@ mod tests {
         let validators = vec![
             ValidatorSnapshot {
                 address: "v1".to_string(),
-                voting_power: 100.0,
+                voting_power: 100,
                 bls_public_key: vec![1],
             },
             ValidatorSnapshot {
                 address: "v2".to_string(),
-                voting_power: 100.0,
+                voting_power: 100,
                 bls_public_key: vec![2],
             },
         ];
 
-        let mut acc = VoteAccumulator::new(1, "hash".to_string(), 200.0, validators);
+        let mut acc = VoteAccumulator::new(1, "hash".to_string(), 200, validators);
 
-        acc.add_vote(create_test_vote("v1", 1, "hash"), 100.0, 0);
-        assert_eq!(acc.accumulated_power, 100.0);
-        assert_eq!(acc.total_voting_power, 200.0);
+        acc.add_vote(create_test_vote("v1", 1, "hash"), 100, 0);
+        assert_eq!(acc.accumulated_power, 100);
+        assert_eq!(acc.total_voting_power, 200);
 
         let reduced = acc.reduce_validator_power("v1", 0.15);
         assert!(reduced.is_some());
-        assert!((reduced.unwrap() - 15.0).abs() < 0.001);
+        assert_eq!(reduced.unwrap(), 15);
 
-        assert!((acc.accumulated_power - 85.0).abs() < 0.001);
-        assert!((acc.total_voting_power - 185.0).abs() < 0.001);
+        assert_eq!(acc.accumulated_power, 85);
+        assert_eq!(acc.total_voting_power, 185);
     }
 
     #[test]

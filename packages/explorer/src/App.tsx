@@ -28,23 +28,11 @@ const NODE_URL = API_URL;
 const PAGE_SIZE = 20;
 
 export interface P2pStats {
-  httpPeers: HttpPeer[];
-  p2pPeers: P2pPeer[];
+  peers: Peer[];
+  peerCount: number;
 }
 
-export interface HttpPeer {
-  address: string;
-  node_id: string;
-  last_seen: number;
-  dag_size: number;
-  checkpoint_height: number;
-  latency_ms: number;
-  is_healthy: boolean;
-  consecutive_failures: number;
-  backoff_until: number;
-}
-
-export interface P2pPeer {
+export interface Peer {
   peer_id: string;
   connected_at: number;
   messages_received: number;
@@ -67,8 +55,20 @@ export interface HandshakeInfo {
   capabilities: string[];
 }
 
+export interface HandshakeInfo {
+  protocol_version: string;
+  chain_id: string;
+  network_id: string;
+  node_id: string;
+  checkpoint_height: number;
+  validator_address: any;
+  capabilities: string[];
+}
+
 interface NetworkStats {
   tps: number;
+  tpsShort: number;
+  tpsLong: number;
   totalTransactionsProcessed: number;
   finalizedCount: number;
   unfinalizedCount: number;
@@ -307,7 +307,7 @@ function App() {
   }, [lastEvent, page, fetchSummary, fetchPage]);
 
   useEffect(() => {
-    if (wsStatus === 'connected') return;
+    if (wsStatus === "connected") return;
     const interval = setInterval(() => {
       fetchSummary();
       fetchPage(page);
@@ -341,18 +341,7 @@ function App() {
         protocolVersion={versionInfo?.protocolVersion}
         nodeVersion={versionInfo?.nodeVersion}
         wsStatus={wsStatus}
-        peersConnected={
-          Array.from(
-            (peerStats?.p2pPeers || [])
-              .reduce((map: Map<string, any>, obj: any) => {
-                if (!map.has(obj.peer_id)) {
-                  map.set(obj.peer_id, obj);
-                }
-                return map;
-              }, new Map())
-              .values(),
-          ).length || 0
-        }
+        peersConnected={peerStats?.peerCount}
       />
 
       <div className="header-actions">
@@ -372,112 +361,61 @@ function App() {
 
       <WalletModal isOpen={walletOpen} onClose={() => setWalletOpen(false)} />
 
-      <div className="stats">
-        <div className="stat-item">
-          <span className="stat-value">
-            {/* <AnimatedNumber
-              value={networkStats?.totalTransactionsProcessed || 0}
-              formatShort={formatNumber}
-            /> */}
-            <span className="stat-value">
-              {formatNumber(networkStats?.totalTransactionsProcessed || 0)}
+      <div className="stats-ticker">
+        <div className="ticker-row">
+          <span className="ticker-cell" title={networkStats ? `10s: ${formatTps(networkStats.tpsShort)} · 60s: ${formatTps(networkStats.tpsLong)}` : ""}>
+            <span className="tv">{formatNumber(networkStats?.totalTransactionsProcessed || 0)}</span>
+            <span className="tl">tx</span>
+            <span className="sep" />
+            <span className="tv accent">{formatTps(networkStats?.tps || 0)}</span>
+            <span className="tl">tps</span>
+          </span>
+          <span className="ticker-cell">
+            <span className="tv">{((networkStats?.finalityRatio || 0) * 100).toFixed(0)}%</span>
+            <span className="tl">final</span>
+            <span className="sep" />
+            <span className="tv">{formatNumber(networkStats?.latestCheckpointHeight || 0)}</span>
+            <span className="tl">cp</span>
+          </span>
+          <span className="ticker-cell">
+            <span className="tv">{formatNumber(networkStats?.totalStaked || 0)}</span>
+            <span className="tl">staked</span>
+            <span className="sep" />
+            <span className="tv">{networkStats?.validatorCount || 0}</span>
+            <span className="tl">validators</span>
+          </span>
+          <span className="ticker-cell">
+            <span className="tv dim">{gasStats?.current?.toFixed(4) || "0.0100"}</span>
+            <span className="tl">gas</span>
+            <span className="sep" />
+            <span className="tv dim">{formatNumber(gasStats?.totalBurned || 0, 2)}</span>
+            <span className="tl">burned</span>
+          </span>
+        </div>
+        {finalityStats && (finalityStats.avgTimeToFinality > 0 || finalityStats.pendingCount > 0 || finalityStats.avgConfirmationMs != null) && (
+          <div className="ticker-row secondary">
+            <span className="ticker-cell">
+              <span className="tv cyan">{finalityStats.avgConfirmationMs != null ? `${finalityStats.avgConfirmationMs}ms` : "-"}</span>
+              <span className="tl">fast-path</span>
             </span>
-          </span>
-          <span className="stat-label">transactions</span>
-        </div>
-        {/* <div className="stat-item">
-          <span className="stat-value">{formatNumber(summary?.accountCount || accounts.length || 0)}</span>
-          <span className="stat-label">accounts</span>
-        </div> */}
-        <div className="stat-item">
-          <span className="stat-value">
-            {formatTps(networkStats?.tps || 0)}
-          </span>
-          <span className="stat-label">tps</span>
-        </div>
-        <div className="stat-item">
-          <span className="stat-value">
-            {((networkStats?.finalityRatio || 0) * 100).toFixed(0)}%
-          </span>
-          <span className="stat-label">finalized</span>
-        </div>
-        <div className="stat-item">
-          <span className="stat-value">
-            {/* <AnimatedNumber
-              value={networkStats?.latestCheckpointHeight || 0}
-              formatShort={formatNumber}
-            /> */}
-            <span className="stat-value">
-              {formatNumber(networkStats?.latestCheckpointHeight || 0)}
+            <span className="ticker-cell">
+              <span className="tv cyan">{(finalityStats.avgTimeToFinality / 1000).toFixed(1)}s</span>
+              <span className="tl">checkpoint</span>
             </span>
-          </span>
-          <span className="stat-label">checkpoint height</span>
-        </div>
-        <div className="stat-item">
-          <span className="stat-value">
-            {formatNumber(networkStats?.totalStaked || 0)}
-          </span>
-          <span className="stat-label">staked</span>
-        </div>
-        <div className="stat-item">
-          <span className="stat-value">
-            {networkStats?.validatorCount || 0}
-          </span>
-          <span className="stat-label">stakers</span>
-        </div>
-        <div className="stat-item">
-          <span className="stat-value">
-            {gasStats?.current?.toFixed(4) || "0.0100"}
-          </span>
-          <span className="stat-label">gas price</span>
-        </div>
-        <div className="stat-item">
-          <span className="stat-value">
-            {formatNumber(gasStats?.totalBurned || 0, 2)}
-          </span>
-          <span className="stat-label">burned</span>
-        </div>
-      </div>
-
-      {finalityStats &&
-        (finalityStats.avgTimeToFinality > 0 ||
-          finalityStats.pendingCount > 0 ||
-          finalityStats.avgConfirmationMs != null) && (
-          <div className="stats finality-stats">
-            <div className="stat-item">
-              <span className="stat-value">
-                {finalityStats.avgConfirmationMs != null
-                  ? `${finalityStats.avgConfirmationMs}ms`
-                  : "-"}
-              </span>
-              <span title="yup, that fast" className="stat-label">
-                avg fast-path finality
-              </span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-value">
-                {(finalityStats.avgTimeToFinality / 1000).toFixed(1)}s
-              </span>
-              <span className="stat-label">avg checkpoint</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-value">{finalityStats.pendingCount}</span>
-              <span className="stat-label">pending</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-value">
-                {finalityStats.checkpointsPerMinute.toFixed(1)}/min
-              </span>
-              <span className="stat-label">checkpoints</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-value">
-                {(finalityStats.lastCheckpointAge / 1000).toFixed(0)}s
-              </span>
-              <span className="stat-label">last checkpoint</span>
-            </div>
+            <span className="ticker-cell">
+              <span className="tv cyan">{finalityStats.pendingCount}</span>
+              <span className="tl">pending</span>
+            </span>
+            <span className="ticker-cell">
+              <span className="tv cyan">{finalityStats.checkpointsPerMinute.toFixed(1)}/min</span>
+              <span className="tl">cp rate</span>
+              <span className="sep" />
+              <span className="tv cyan">{(finalityStats.lastCheckpointAge / 1000).toFixed(0)}s</span>
+              <span className="tl">ago</span>
+            </span>
           </div>
         )}
+      </div>
 
       <SearchBar onResult={setSearchResult} />
 

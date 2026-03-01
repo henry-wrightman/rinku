@@ -287,7 +287,7 @@ impl NodeState {
         let genesis_validators = &self.config.trust.genesis_validators;
         
         if !genesis_validators.is_empty() && self.config.is_genesis_node {
-            use crate::validator_identity::MIN_VALIDATOR_STAKE;
+            use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
             let now_secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -307,7 +307,7 @@ impl NodeState {
                 } else {
                     Validator {
                         address: gv.address.clone(),
-                        stake: MIN_VALIDATOR_STAKE,
+                        stake: GENESIS_VALIDATOR_STAKE,
                         first_stake_time: now_secs * 1000,
                         bls_public_key: Some(hex::encode(&gv.bls_public_key)),
                         missed_checkpoints: 0,
@@ -330,7 +330,7 @@ impl NodeState {
             let mut new_validators = snapshot.validators.clone();
             
             if !genesis_validators.is_empty() {
-                use crate::validator_identity::MIN_VALIDATOR_STAKE;
+                use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
                 let now_secs = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -348,7 +348,7 @@ impl NodeState {
                         } else {
                             Validator {
                                 address: gv.address.clone(),
-                                stake: MIN_VALIDATOR_STAKE,
+                                stake: GENESIS_VALIDATOR_STAKE,
                                 first_stake_time: now_secs * 1000,
                                 bls_public_key: Some(hex::encode(&gv.bls_public_key)),
                                 missed_checkpoints: 0,

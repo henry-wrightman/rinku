@@ -16,6 +16,7 @@ export interface CreateTransactionOptions {
   tipUrls: string[];
   fee?: number;
   kind?: TransactionKind;
+  data?: string;
 }
 
 const DEFAULT_FEE = 0.01;
@@ -33,7 +34,8 @@ export async function createTransaction(
     tipUrls: options.tipUrls,
     sig: '',
     ts: Date.now(),
-    kind: options.kind
+    kind: options.kind,
+    data: options.data,
   };
 
   const txHash = await hashTransaction(tx);

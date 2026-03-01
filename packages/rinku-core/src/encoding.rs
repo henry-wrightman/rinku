@@ -128,7 +128,7 @@ mod tests {
             parents: vec!["parent1".to_string()],
             kind: None,
             gas_limit: Some(21000),
-            gas_price: Some(0.0001 as u64),
+            gas_price: Some(0.001 as u64),
             data: None,
             signature: None,
             memo: None,

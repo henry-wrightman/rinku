@@ -410,59 +410,63 @@ impl NodeState {
         checkpoint: &rinku_core::types::Checkpoint,
         tx_hash: &str,
     ) -> Option<rinku_core::types::AccountStateProof> {
-        let state = self.inner.read().await;
+        let (balance_micro, nonce, staked_micro, merkle_proof, merkle_index) = {
+            let state = self.inner.read().await;
+            
+            let account = state.accounts.get(address)?;
+            let bal = account.balance;
+            let n = account.nonce;
+            let stk = account.staked;
+            
+            tracing::info!(
+                "Generating proof for {}: balance={:.8}, nonce={}, staked={:.8} (checkpoint {}, state_root={})",
+                &address[..16.min(address.len())],
+                bal,
+                n,
+                stk,
+                checkpoint.height,
+                &checkpoint.state_root[..16.min(checkpoint.state_root.len())]
+            );
+            
+            let mut account_entries: Vec<_> = state.accounts.iter().collect();
+            account_entries.sort_by(|a, b| a.0.cmp(b.0));
+            
+            let idx = account_entries
+                .iter()
+                .position(|(addr, _)| *addr == address)?;
+            
+            let leaves: Vec<String> = account_entries
+                .iter()
+                .map(|(addr, acc)| {
+                    Self::hash_account_leaf_for_proof(addr, acc.balance, acc.nonce, acc.staked)
+                })
+                .collect();
+            
+            if leaves.is_empty() {
+                return None;
+            }
+            
+            let proof = Self::compute_merkle_proof_path_canonical(&leaves, idx);
+            (bal, n, stk, proof, idx)
+        };
         
-        // Get account data
-        let account = state.accounts.get(address)?;
-        
-        tracing::info!(
-            "Generating proof for {}: balance={:.8}, nonce={}, staked={:.8} (checkpoint {}, state_root={})",
-            &address[..16.min(address.len())],
-            account.balance,
-            account.nonce,
-            account.staked,
-            checkpoint.height,
-            &checkpoint.state_root[..16.min(checkpoint.state_root.len())]
-        );
-        
-        // Get sorted accounts for deterministic ordering (same as sync_verification)
-        let mut account_entries: Vec<_> = state.accounts.iter().collect();
-        account_entries.sort_by(|a, b| a.0.cmp(b.0));
-        
-        // Find the index of the target account
-        let merkle_index = account_entries
-            .iter()
-            .position(|(addr, _)| *addr == address)?;
-        
-        // Create leaf hashes using canonical format (matches sync_verification::hash_account_leaf)
-        let leaves: Vec<String> = account_entries
-            .iter()
-            .map(|(addr, acc)| {
-                Self::hash_account_leaf_for_proof(addr, acc.balance, acc.nonce, acc.staked)
-            })
-            .collect();
-        
-        if leaves.is_empty() {
-            return None;
-        }
-        
-        // Build merkle tree and collect proof path
-        let merkle_proof = Self::compute_merkle_proof_path_canonical(&leaves, merkle_index);
-        
-        // Get reward state from existing proof if available
-        let (pending_rewards, staked_at, last_reward_at, claimed_total) = 
-            account.latest_balance_proof.as_ref()
-                .map(|p| (p.pending_rewards_micro, p.staked_at, p.last_reward_at, p.claimed_rewards_total_micro))
-                .unwrap_or((0, 0, None, 0));
+        let rewards = self.rewards.read().await;
+        let pending_rewards = rewards.get_pending_rewards(address);
+        let stake_info = rewards.get_stake(address);
+        let (staked_at, last_reward_at) = stake_info
+            .map(|p| (p.staked_at, p.last_reward_at))
+            .unwrap_or((0, None));
+        let claimed_total = rewards.get_claimed_total(address);
+        drop(rewards);
         
         Some(rinku_core::types::AccountStateProof {
             version: 3,
             address: address.to_string(),
-            balance_micro: account.balance,
-            balance: rinku_core::types::from_micro_units(account.balance),
-            nonce: account.nonce,
-            staked_micro: account.staked,
-            staked: rinku_core::types::from_micro_units(account.staked),
+            balance_micro,
+            balance: rinku_core::types::from_micro_units(balance_micro),
+            nonce,
+            staked_micro,
+            staked: rinku_core::types::from_micro_units(staked_micro),
             pending_rewards_micro: pending_rewards,
             pending_rewards: rinku_core::types::from_micro_units(pending_rewards),
             staked_at,
@@ -489,25 +493,18 @@ impl NodeState {
         &self,
         address: &str,
     ) -> Option<rinku_core::types::AccountStateProof> {
-        // Single read lock to ensure atomicity of checkpoint and account data
         let state = self.inner.read().await;
         
-        // Get the latest checkpoint - this contains the BLS-signed state_root
         let checkpoint = state.checkpoints.last()?.clone();
-        
-        // Get account data (unchanged since last checkpoint finalization)
         let account = state.accounts.get(address)?.clone();
         
-        // Get sorted accounts for deterministic ordering (same order used during checkpoint)
         let mut account_entries: Vec<_> = state.accounts.iter().collect();
         account_entries.sort_by(|a, b| a.0.cmp(b.0));
         
-        // Find the index of the target account
         let merkle_index = account_entries
             .iter()
             .position(|(addr, _)| *addr == address)?;
         
-        // Create leaf hashes using canonical format
         let leaves: Vec<String> = account_entries
             .iter()
             .map(|(addr, acc)| {
@@ -519,10 +516,18 @@ impl NodeState {
             return None;
         }
         
-        // Build merkle proof path against the current account set
-        // Since account state only changes at checkpoint finalization,
-        // this proof should verify against the checkpoint's state_root
         let merkle_proof = Self::compute_merkle_proof_path_canonical(&leaves, merkle_index);
+        
+        drop(state);
+        
+        let rewards = self.rewards.read().await;
+        let pending_rewards = rewards.get_pending_rewards(address);
+        let stake_info = rewards.get_stake(address);
+        let (staked_at, last_reward_at) = stake_info
+            .map(|p| (p.staked_at, p.last_reward_at))
+            .unwrap_or((0, None));
+        let claimed_total = rewards.get_claimed_total(address);
+        drop(rewards);
         
         tracing::info!(
             "Generated proof for {} at checkpoint {}: balance={}, nonce={}, staked={}",
@@ -532,11 +537,6 @@ impl NodeState {
             account.nonce,
             account.staked
         );
-        
-        let (pending_rewards, staked_at, last_reward_at, claimed_total) = 
-            account.latest_balance_proof.as_ref()
-                .map(|p| (p.pending_rewards_micro, p.staked_at, p.last_reward_at, p.claimed_rewards_total_micro))
-                .unwrap_or((0, 0, None, 0));
         
         Some(rinku_core::types::AccountStateProof {
             version: 3,
@@ -555,13 +555,13 @@ impl NodeState {
             checkpoint_height: checkpoint.height,
             checkpoint_hash: checkpoint.hash.clone(),
             checkpoint_timestamp: checkpoint.timestamp,
-            state_root: checkpoint.state_root.clone(), // Use checkpoint's BLS-signed state_root
+            state_root: checkpoint.state_root.clone(),
             merkle_proof,
             merkle_index,
             bls_aggregated_sig: checkpoint.aggregated_signature.clone(),
             bls_signer_bitmap: checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b)),
-            tx_hash: "on-demand".to_string(), // No specific tx, generated on-demand
-            is_on_demand: false, // Uses checkpoint's actual BLS-signed state_root
+            tx_hash: "on-demand".to_string(),
+            is_on_demand: false,
         })
     }
     
@@ -664,42 +664,49 @@ impl NodeState {
                 let is_v3_proof = proof.version >= 3;
                 
                 if let Some(account) = state.accounts.get_mut(address) {
-                    // CONSENSUS FIX: Detect and fix balance divergence from leader's authoritative state
-                    // This can happen when reward calculations differ between leader and follower
-                    let balance_diff = account.balance.abs_diff(proof.balance_micro);
-                    let staked_diff = account.staked.abs_diff(proof.staked_micro);
-                    
-                    if balance_diff > 0 || staked_diff > 0 || account.nonce != proof.nonce {
-                        tracing::warn!(
-                            "STATE SYNC for {} at checkpoint {}: local(bal={}, nonce={}, stk={}) -> leader(bal={}, nonce={}, stk={})",
+                    if account.nonce > proof.nonce {
+                        tracing::debug!(
+                            "Skipping STATE SYNC for {} at checkpoint {}: local nonce {} > proof nonce {} (un-checkpointed txs)",
                             &address[..16.min(address.len())],
                             proof.checkpoint_height,
-                            account.balance, account.nonce, account.staked,
-                            proof.balance_micro, proof.nonce, proof.staked_micro
+                            account.nonce,
+                            proof.nonce
                         );
-                        account.balance = proof.balance_micro;
-                        account.nonce = proof.nonce;
-                        account.staked = proof.staked_micro;
-                        // Mark for RewardsService sync with authoritative v3 values
-                        if is_v3_proof {
-                            rewards_to_sync.push((
-                                address.clone(),
-                                proof.pending_rewards_micro,
-                                proof.staked_at,
-                                proof.last_reward_at,
-                                proof.claimed_rewards_total_micro,
-                                proof.staked_micro
-                            ));
-                        }
                     } else {
-                        tracing::info!(
-                            "Storing precomputed proof for {} at checkpoint {}: balance={}, nonce={}, staked={}",
-                            &address[..16.min(address.len())],
-                            proof.checkpoint_height,
-                            proof.balance_micro,
-                            proof.nonce,
-                            proof.staked_micro
-                        );
+                        let balance_diff = account.balance.abs_diff(proof.balance_micro);
+                        let staked_diff = account.staked.abs_diff(proof.staked_micro);
+                        
+                        if balance_diff > 0 || staked_diff > 0 || account.nonce != proof.nonce {
+                            tracing::warn!(
+                                "STATE SYNC for {} at checkpoint {}: local(bal={}, nonce={}, stk={}) -> leader(bal={}, nonce={}, stk={})",
+                                &address[..16.min(address.len())],
+                                proof.checkpoint_height,
+                                account.balance, account.nonce, account.staked,
+                                proof.balance_micro, proof.nonce, proof.staked_micro
+                            );
+                            account.balance = proof.balance_micro;
+                            account.nonce = proof.nonce;
+                            account.staked = proof.staked_micro;
+                            if is_v3_proof {
+                                rewards_to_sync.push((
+                                    address.clone(),
+                                    proof.pending_rewards_micro,
+                                    proof.staked_at,
+                                    proof.last_reward_at,
+                                    proof.claimed_rewards_total_micro,
+                                    proof.staked_micro
+                                ));
+                            }
+                        } else {
+                            tracing::info!(
+                                "Storing precomputed proof for {} at checkpoint {}: balance={}, nonce={}, staked={}",
+                                &address[..16.min(address.len())],
+                                proof.checkpoint_height,
+                                proof.balance_micro,
+                                proof.nonce,
+                                proof.staked_micro
+                            );
+                        }
                     }
                     account.latest_balance_proof = Some(proof.clone());
                 } else {

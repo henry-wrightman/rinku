@@ -251,6 +251,10 @@ impl CheckpointService {
     async fn sign_genesis_checkpoint(&self) {
         let mut state = self.state.inner.write().await;
         
+        let my_stake = state.validators.get(&self.validator_address)
+            .map(|v| v.stake)
+            .unwrap_or(0);
+        
         // Find genesis checkpoint (height 0)
         if let Some(genesis_cp) = state.checkpoints.iter_mut().find(|cp| cp.height == 0) {
             // Check if it already has valid signatures with BLS keys
@@ -277,7 +281,7 @@ impl CheckpointService {
                     let validator_sig = ValidatorSignature {
                         validator: self.validator_address.clone(),
                         signature: URL_SAFE_NO_PAD.encode(&signature),
-                        weight: 1,
+                        weight: my_stake,
                         bls_public_key: Some(self.bls_public_key_base64()),
                     };
                     
@@ -1405,10 +1409,11 @@ impl CheckpointService {
         let signature = bls_sign(&checkpoint_hash, &self.bls_private_key)
             .map_err(|e| anyhow::anyhow!("BLS signing failed: {}", e))?;
 
+        let my_stake = self.state.get_validator_stake(&self.validator_address).await.unwrap_or(0);
         let validator_sig = ValidatorSignature {
             validator: self.validator_address.clone(),
             signature: URL_SAFE_NO_PAD.encode(&signature),
-            weight: 1,
+            weight: my_stake,
             bls_public_key: Some(self.bls_public_key_base64()),
         };
 
@@ -1801,9 +1806,9 @@ impl CheckpointService {
         // 5s is generous for same-region VMs; slow peers won't block others
         const QUORUM_TIMEOUT_MS: u64 = 5000;
         
-        let mut signatures = vec![our_validator_sig];
+        let mut signatures = vec![our_validator_sig.clone()];
         let mut raw_signatures = vec![our_signature];
-        let mut total_stake_collected = self.our_stake;
+        let mut total_stake_collected = our_validator_sig.weight;
         
         // Get total network stake from validator identity if available
         let total_network_stake = if let Some(ref identity) = self.validator_identity {

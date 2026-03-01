@@ -1,4 +1,4 @@
-import type { ConnectionStatus } from '../hooks/useWebSocket';
+import type { ConnectionStatus } from "../hooks/useWebSocket";
 
 interface HeaderProps {
   connected: boolean;
@@ -15,11 +15,10 @@ export function Header({
   peersConnected,
   wsStatus,
 }: HeaderProps) {
-  const wsState =
-    wsStatus || (connected ? "connected" : "disconnected");
+  const wsState = wsStatus || (connected ? "connected" : "disconnected");
   const wsLabel =
     wsState === "connected"
-      ? "live"
+      ? "connected"
       : wsState === "reconnecting"
         ? "reconnecting"
         : wsState === "connecting"
@@ -107,7 +106,10 @@ export function Header({
       </p>
       <div className="status-indicator">
         <span className={`status-dot ws-${wsState}`}></span>
-        <span className={`status-text ws-${wsState}`} title={`WebSocket: ${wsState}`}>
+        <span
+          className={`status-text-${wsState}`}
+          title={`WebSocket: ${wsState}`}
+        >
           {wsLabel}
         </span>
         <span className={`status-text`}>[testnet]</span>

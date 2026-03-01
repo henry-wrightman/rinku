@@ -388,56 +388,38 @@ impl NodeState {
         {
             let state = self.inner.read().await;
 
-            {
-                if let Some(from_account) = state.accounts.get(&tx.tx.from) {
-                    let required = if is_stake_tx {
-                        tx.tx.amount + gas_fee
-                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                        gas_fee
-                    } else {
-                        tx.tx.amount + gas_fee
-                    };
-                    if from_account.balance < required {
-                        tracing::warn!(
-                            "FastPath execution rejected: {} insufficient balance ({:.8} < {:.8})",
-                            &tx.tx.from[..16.min(tx.tx.from.len())],
-                            from_account.balance,
-                            required
-                        );
-                        return FastPathExecResult::Rejected;
-                    }
-                    if tx.tx.nonce != from_account.nonce {
-                        if tx.tx.nonce < from_account.nonce {
-                            tracing::info!(
-                                "FastPath: {} nonce already past tx (tx={} < account={}) - tx was already applied via sync",
-                                &tx.tx.from[..16.min(tx.tx.from.len())],
-                                tx.tx.nonce,
-                                from_account.nonce
-                            );
-                            return FastPathExecResult::AlreadyApplied;
-                        }
-                        tracing::warn!(
-                            "FastPath execution rejected: {} nonce mismatch (tx={} vs account={})",
-                            &tx.tx.from[..16.min(tx.tx.from.len())],
-                            tx.tx.nonce,
-                            from_account.nonce
-                        );
-                        return FastPathExecResult::Rejected;
-                    }
+            if let Some(from_account) = state.accounts.get(&tx.tx.from) {
+                let required = if is_stake_tx {
+                    tx.tx.amount + gas_fee
+                } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                    gas_fee
                 } else {
+                    tx.tx.amount + gas_fee
+                };
+                if from_account.balance < required {
                     tracing::warn!(
-                        "FastPath execution rejected: account {} not found",
-                        &tx.tx.from[..16.min(tx.tx.from.len())]
+                        "FastPath execution rejected: {} insufficient balance ({} < {})",
+                        &tx.tx.from[..16.min(tx.tx.from.len())],
+                        from_account.balance,
+                        required
                     );
                     return FastPathExecResult::Rejected;
                 }
+                if tx.tx.nonce < from_account.nonce {
+                    return FastPathExecResult::AlreadyApplied;
+                }
+                if tx.tx.nonce > from_account.nonce {
+                    return FastPathExecResult::Rejected;
+                }
+            } else {
+                return FastPathExecResult::Rejected;
             }
         }
 
         self.execute_finalized_transaction_core(tx).await;
 
         tracing::info!(
-            "FastPath EXECUTED tx {} ({} -> {}, amount={:.8}, gas={:.8})",
+            "FastPath EXECUTED tx {} ({} -> {}, amount={}, gas={})",
             &tx.hash[..16.min(tx.hash.len())],
             &tx.tx.from[..16.min(tx.tx.from.len())],
             &tx.tx.to[..16.min(tx.tx.to.len())],
@@ -454,6 +436,10 @@ impl NodeState {
     }
     
     pub async fn execute_finalized_transaction_core(&self, tx: &SignedTransaction) {
+        if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+            return;
+        }
+
         let gas_fee = {
             let state = self.inner.read().await;
             tx.tx.gas_price.unwrap_or(state.current_gas_price)
@@ -470,6 +456,15 @@ impl NodeState {
 
             {
                 if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
+                    if tx.tx.nonce < from_account.nonce {
+                        tracing::debug!(
+                            "Skipping already-executed tx {} (tx_nonce={} < account_nonce={})",
+                            &tx.hash[..16.min(tx.hash.len())],
+                            tx.tx.nonce,
+                            from_account.nonce
+                        );
+                        return;
+                    }
                     let tx_cost = if is_stake_tx {
                         tx.tx.amount + gas_fee
                     } else if is_unstake_tx || is_claim_tx || is_contract_tx {
@@ -838,11 +833,10 @@ impl NodeState {
             return Ok(());
         }
         
-        for p in &normalized_parents {
-            if p != "genesis" && state.dag.get_node(p).is_none() {
-                anyhow::bail!("Parent {} not found for tx {}", p, &tx.hash);
-            }
-        }
+        let existing_parents: Vec<String> = normalized_parents
+            .into_iter()
+            .filter(|p| p == "genesis" || state.dag.get_node(p).is_some())
+            .collect();
 
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -852,7 +846,7 @@ impl NodeState {
         let node = rinku_core::types::DagNode {
             hash: tx.hash.clone(),
             tx: tx.clone(),
-            parents: normalized_parents,
+            parents: existing_parents,
             children: Vec::new(),
             weight: 1.0,
             finalized: false,
@@ -869,6 +863,28 @@ impl NodeState {
     
     pub async fn add_transaction_from_sync(&self, tx: SignedTransaction) -> Result<()> {
         self.add_transaction_dag_only(tx).await
+    }
+
+    pub async fn add_transaction_from_gossip(&self, tx: SignedTransaction) -> Result<TransactionResult> {
+        let is_system_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation))
+            || tx.signature.starts_with("anchor-")
+            || tx.tx.from == "faucet"
+            || tx.tx.from == "genesis";
+
+        if !is_system_tx {
+            let state = self.inner.read().await;
+            let confirmed_nonce = state.accounts.get(&tx.tx.from).map(|a| a.nonce).unwrap_or(0);
+
+            if tx.tx.nonce < confirmed_nonce {
+                return Err(anyhow::anyhow!(
+                    "Stale nonce: confirmed nonce is {}, got {}",
+                    confirmed_nonce, tx.tx.nonce
+                ));
+            }
+        }
+
+        self.add_transaction_dag_only(tx).await?;
+        Ok(TransactionResult::Accepted)
     }
     
     pub async fn set_tx_checkpoint_height(&self, hash: &str, height: u64) {
@@ -913,6 +929,29 @@ impl NodeState {
                 missed_checkpoints: 0,
             };
             state.validators.insert(validator_data.address, validator);
+        }
+        
+        let genesis_validators = &self.config.trust.genesis_validators;
+        if !genesis_validators.is_empty() {
+            use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
+            let mut augmented = 0;
+            for gv in genesis_validators {
+                if !state.validators.contains_key(&gv.address) {
+                    let validator = rinku_core::types::Validator {
+                        address: gv.address.clone(),
+                        stake: GENESIS_VALIDATOR_STAKE,
+                        first_stake_time: now_ms / 1000,
+                        bls_public_key: Some(hex::encode(&gv.bls_public_key)),
+                        missed_checkpoints: 0,
+                    };
+                    state.validators.insert(gv.address.clone(), validator);
+                    augmented += 1;
+                }
+            }
+            if augmented > 0 {
+                info!("P2P snapshot: augmented validator set with {} missing genesis validators (total: {})",
+                      augmented, state.validators.len());
+            }
         }
         
         for cp_data in snapshot.checkpoints {

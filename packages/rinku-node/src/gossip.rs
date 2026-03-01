@@ -199,7 +199,7 @@ use crate::network::{NetworkHandle, NetworkCommand, IncomingSyncRequest};
 use crate::slashing::DoubleSignEvidence;
 use crate::state::NodeState;
 use crate::trust::TrustVerifier;
-use crate::validator_identity::MIN_VALIDATOR_STAKE;
+use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -212,7 +212,7 @@ struct PeerSyncStatus {
     #[allow(dead_code)]
     merkle_root: Option<String>,
     #[serde(default)]
-    faucet_balance: f64,
+    faucet_balance: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -886,7 +886,7 @@ impl GossipService {
                         SyncRequest::Handshake(_handshake) => {
                             // Return our peer info
                             let our_handshake = PeerHandshake {
-                                protocol_version: "1.0.0".to_string(),
+                                protocol_version: crate::versioning::PROTOCOL_VERSION.to_string(),
                                 chain_id: "rinku-testnet".to_string(),
                                 network_id: "rinku".to_string(),
                                 node_id: self.state.get_node_id().await,
@@ -1016,12 +1016,14 @@ impl GossipService {
                                             Ok(hash_bytes) => {
                                                 match bls_sign(&hash_bytes, &signer.bls_private_key) {
                                                     Ok(signature) => {
+                                                        let actual_stake = self.state.get_validator_stake(&signer.validator_address).await
+                                                            .unwrap_or(GENESIS_VALIDATOR_STAKE);
                                                         let response = CheckpointVoteResponse {
                                                             validator_address: signer.validator_address.clone(),
                                                             signature: URL_SAFE_NO_PAD.encode(&signature),
                                                             signature_bytes: signature,
                                                             bls_public_key: URL_SAFE_NO_PAD.encode(&signer.bls_public_key),
-                                                            stake: MIN_VALIDATOR_STAKE,
+                                                            stake: actual_stake,
                                                         };
                                                         SyncResponse::CheckpointVote(Some(response))
                                                     }
@@ -1587,8 +1589,15 @@ impl GossipService {
                     self.state.set_tx_checkpoint_height(hash, *height).await;
                 }
                 
-                // ORDERING: Now apply checkpoints (after all txs are in place)
                 for cp_data in &delta.new_checkpoints {
+                    {
+                        let mut emission = self.state.emission.write().await;
+                        let reward = emission.get_checkpoint_reward(cp_data.height);
+                        emission.record_emission(reward);
+                        let mut rewards = self.state.rewards.write().await;
+                        rewards.distribute_checkpoint_rewards(reward);
+                    }
+
                     let checkpoint = rinku_core::types::Checkpoint {
                         height: cp_data.height,
                         tx_merkle_root: cp_data.merkle_root.clone(),
@@ -1711,7 +1720,7 @@ impl GossipService {
         let validator_address = self.checkpoint_vote_signer.as_ref().map(|s| s.validator_address.clone());
         
         let handshake = PeerHandshake {
-            protocol_version: "1.0.0".to_string(),
+            protocol_version: crate::versioning::PROTOCOL_VERSION.to_string(),
             chain_id: "rinku-testnet".to_string(),
             network_id: "testnet".to_string(),
             node_id,
@@ -1733,7 +1742,7 @@ impl GossipService {
                     tip_count: 0,
                     tips: Vec::new(),
                     merkle_root: None,
-                    faucet_balance: 0.0,
+                    faucet_balance: 0,
                 })
             }
             SyncResponse::Error { message } => {
@@ -1817,11 +1826,9 @@ impl GossipService {
                 };
 
                 if is_new {
-                    match self.state.add_transaction(tx.clone()).await {
+                    match self.state.add_transaction_from_gossip(tx.clone()).await {
                         Ok(TransactionResult::Accepted) => {
-                            // Only propagate fully accepted transactions
                             let mut inner = self.inner.write().await;
-                            // Limit pending_txs to prevent OOM under high load
                             if inner.pending_txs.len() < PENDING_TXS_MAX {
                                 inner.pending_txs.push(tx);
                             } else {
@@ -1830,7 +1837,6 @@ impl GossipService {
                             }
                         }
                         Ok(TransactionResult::Buffered) => {
-                            // Transaction was buffered for later - do NOT propagate
                             debug!("Gossiped tx {} buffered (future nonce), not propagating", hash);
                         }
                         Err(e) => {
@@ -2068,10 +2074,8 @@ impl GossipService {
                     if !inner.known_txs.contains(&hash) {
                         inner.known_txs.insert(hash.clone());
                         drop(inner);
-                        match self.state.add_transaction(tx).await {
-                            Ok(TransactionResult::Accepted) => {
-                                // Transaction fully processed
-                            }
+                        match self.state.add_transaction_from_gossip(tx).await {
+                            Ok(TransactionResult::Accepted) => {}
                             Ok(TransactionResult::Buffered) => {
                                 debug!("Synced tx {} buffered (future nonce)", hash);
                             }
@@ -2259,11 +2263,15 @@ impl GossipService {
                         }
                     }
                     
-                    // Apply the checkpoint with the finalized transaction hashes
-                    // Now we should have ALL transactions that the leader finalized
-                    // Clone hashes before move so we can use them for fast-path status upgrade later
+                    {
+                        let mut emission = self.state.emission.write().await;
+                        let reward = emission.get_checkpoint_reward(checkpoint.height);
+                        emission.record_emission(reward);
+                        let mut rewards = self.state.rewards.write().await;
+                        rewards.distribute_checkpoint_rewards(reward);
+                    }
+
                     let finalized_hashes_for_fastpath = finalized_tx_hashes.clone();
-                    // Get fast-path executed set to skip double-execution at checkpoint
                     let fp_executed_set = {
                         let inner = self.inner.read().await;
                         inner.fast_path_executed.clone()
@@ -2386,7 +2394,7 @@ impl GossipService {
                 };
 
                 if is_new {
-                    match self.state.add_transaction(tx.clone()).await {
+                    match self.state.add_transaction_from_gossip(tx.clone()).await {
                         Ok(TransactionResult::Accepted) | Ok(TransactionResult::Buffered) => {
                             let validators = self.state.get_validators_map().await;
                             let total_stake: u64 = validators.values().map(|v| v.stake).sum();
