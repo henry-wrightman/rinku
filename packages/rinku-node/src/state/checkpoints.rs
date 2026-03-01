@@ -216,6 +216,10 @@ impl NodeState {
         // Release state lock before executing transactions
         drop(state);
         
+        if finalized_count > 0 {
+            self.record_finalized_batch(finalized_count as u64).await;
+        }
+        
         // DETERMINISTIC ORDERING: Sort transactions by hash before execution
         // to ensure all nodes apply balance changes in identical order,
         // preventing floating-point rounding divergence across nodes.
@@ -434,11 +438,12 @@ impl NodeState {
         state.checkpoints.push(checkpoint_with_hashes);
         state.last_checkpoint_time_ms = now_ms;
         
-        // Suppress unused variable warning
-        let _ = finalized_count;
-        
         // Release state lock before executing transactions
         drop(state);
+        
+        if finalized_count > 0 {
+            self.record_finalized_batch(finalized_count as u64).await;
+        }
         
         // DETERMINISTIC ORDERING: Sort transactions by hash before execution
         // to ensure all nodes apply balance changes in identical order,

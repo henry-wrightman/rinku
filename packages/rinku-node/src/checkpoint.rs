@@ -629,9 +629,14 @@ impl CheckpointService {
         for hash in unfinalized_hashes {
             let _ = state.dag.mark_finalized(hash, height);
         }
-        state.total_transactions += unfinalized_hashes.len() as u64;
+        let finalized_count = unfinalized_hashes.len() as u64;
+        state.total_transactions += finalized_count;
 
         drop(state);
+
+        if finalized_count > 0 {
+            self.state.record_finalized_batch(finalized_count).await;
+        }
 
         info!(
             "Adopted peer checkpoint {} at height {} ({} txs finalized, {:.6} RKU emitted)",
@@ -1673,8 +1678,14 @@ impl CheckpointService {
             }
         }
         
+        let leader_finalized_count = unfinalized_hashes.len() as u64;
+        
         // Release write lock before executing transactions
         drop(state);
+
+        if leader_finalized_count > 0 {
+            self.state.record_finalized_batch(leader_finalized_count).await;
+        }
 
         info!(
             "Created checkpoint {} at height {} ({} txs finalized, {:.6} RKU emitted)",

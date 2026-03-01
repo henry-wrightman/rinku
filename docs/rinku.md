@@ -1,11 +1,14 @@
-# Rinku: A Distributed Ledger With Tunable Consistency
+# Rinku: A Distributed Ledger For Mesh-Native Systems 
+###### [rinkuchan.com](https://rinkuchan.com)
 
-[rinkuchan.com](https://rinkuchan.com)
----
 
 ## Abstract
 
-Rinku is a quasi URL-native, DAG-based distributed ledger with sub 1s transactional confirmations, dynamic partition tolerance and self-contained proofs. Unlike traditional blockchains that sacrifice availability during network partitions, rinku implements a tunable consistency model: CP-like strong finality during normal operation, with graceful degradation to provisional availability during partitions, followed by reconciliation that is deterministic and retains consistency. The protocol also introduces VerifiableObjects - portable, self-contained proof bundles encoded as URLs - enabling trustless state verification without relying on node-related infrastructure. A WASM-based smart contract runtime supports stateless dApps through proof-carrying contracts (BYOP - bring your own proof) and receipt-composable transactions. The native RKU token has a hard cap of 30 million units with checkpoint-based emission, weighted proof-of-stake rewards, and an adaptive fee burn mechanism.
+The next wave of distributed computing is not data centers - it is autonomous agents: drone swarms, robotic fleets, and mobile sensor networks operating on adhoc mesh infrastructure where connectivity is intermittent by design, not an exception case. Existing distributed ledgers are structurally insufficient for this environment; they halt when the network partitions, require persistent RPC infrastructure for state verification, or their smart contracts assume a synchronized, always-online world.
+
+Rinku is a DAG-based distributed ledger built around three primitives designed for exactly this environment. Tunable consistency allows the protocol to navigate the CAP tradeoff dynamically: delivering CP-like checkpoint finality when quorum is reachable, degrading gracefully to provisional availability during partitions, and deterministically reconciling state when connectivity is restored - ensuring that a swarm of robots on a local mesh can transact continuously and settle correctly when they reconnect to the broader network. VerifiableObjects are self-contained, URL-encoded cryptographic proofs that carry everything needed for offline verification - no full node, no RPC endpoint, no network access. An autonomous agent can receive payment, verify it locally with a single BLS check, and execute its task before ever touching external infrastructure. BYOP (Bring Your Own Proof) smart contracts accept VerifiableObjects as inputs, enabling contract logic to execute against proven external state without synchronous cross-chain or cross-contract calls - service terms, payment conditions, and execution receipts composable without centralized coordination.
+
+Together, these three primitives describe a ledger that does not merely tolerate the mesh-native economy - it is designed for it. The native RKU token has a hard cap of 30 million units with checkpoint-based emission, weighted proof-of-stake rewards, and an adaptive fee burn mechanism.
 
 ---
 
@@ -27,6 +30,7 @@ Rinku is a quasi URL-native, DAG-based distributed ledger with sub 1s transactio
 14. [Networking & P2P Protocol](#14-networking)
 15. [Future Work](#15-future-work)
 16. [Conclusion](#16-conclusion)
+- [References](#references)
 
 ---
 
@@ -34,9 +38,9 @@ Rinku is a quasi URL-native, DAG-based distributed ledger with sub 1s transactio
 
 Distributed ledgers have achieved remarkable success in environments where network connectivity is reliable and persistent. Bitcoin's Nakamoto consensus and Ethereum's Gasper protocol deliver strong probabilistic or deterministic finality under the assumption that a sufficient fraction of participants can communicate within reasonable time. BFT-family protocols - Tendermint, HotStuff, Bullshark, Mysticeti - push finality latency down to seconds or sub-seconds, but all share a fundamental constraint: they halt when the network cannot reach quorum.
 
-This constraint is acceptable for data-center-class infrastructure where partitions are rare & short-lived. However it is unacceptable for mesh-native or fragmented environments; ad-hoc wireless networks, mobile-first deployments in regions with less than consistent connectivity, disaster-relief coordination, tactical military networks, or any setting where partitions are expected operating conditions rather than exceptional failures. A ledger that halts during partitions is functionally useless.
+Admittedly, this constraint is acceptable for data-center-class infrastructure where partitions are rare & short-lived. However it is unacceptable for mesh-native or fragmented environments; ad-hoc wireless networks, mobile-first deployments in regions with less than consistent connectivity; any setting where partitions are expected operating conditions rather than rare edge cases. Furthermore, these environments shouldn't be disallowed the same economic primatives that the others readily support.
 
-Thankfully, the academic distributed systems literature offers rich solutions for partition tolerance - CRDTs, eventual consistency, Bayou-style conflict resolution, anti-entropy protocols; but these techniques have seen limited adoption in production blockchain design. The gap exists because financial state is not naturally commutative: transferring tokens is an inherently non-idempotent operation where order matters and conflicts have economic consequences. Naive, eventual consistency produces unacceptable results for monetary systems, especially one with hopes of vast reliability and adoption.
+Thankfully, there is no shortage of academic literature that offer rich solutions for partition tolerance - CRDTs, eventual consistency, Bayou-style conflict resolution, anti-entropy protocols; but these techniques have seen limited adoption in production blockchain design. The gap exists because financial state is not naturally commutative: transferring tokens is an inherently non-idempotent operation where order matters and conflicts have economic consequences.
 
 Rinku bridges this gap. It provides a distributed ledger designed for environments where partitions are a first-class operating condition, not a side-effect to be circumnavigated. The protocol maintains strong finality when the network is connected and degrades gracefully to provisional operation during partitions, with a deterministic merge protocol that reconciles state when connectivity is restored.
 
@@ -46,29 +50,13 @@ Traditional blockchains prioritize a single canonical history with strong finali
 
 ### 1.2 Rinku's Position
 
-Rinku takes a different position: **tunable consistency**. When the network is fully connected, Mysticeti-FPC delivers sub-second transaction acceptance and checkpoint-based settlement finality. When partitions occur, the network degrades gracefully to provisional acceptance - transactions continue locally, and state reconciles deterministically when partitions heal. This ensures zero disruption to availability, while equally retaining consistency & concensus.
+Rinku takes a different position: **tunable consistency**. When the network is fully connected, Mysticeti-FPC delivers sub-second transaction acceptance and checkpoint-based settlement finality. When partitions occur, the network degrades gracefully to provisional acceptance - transactions continue locally, and state reconciles deterministically when partitions heal. This ensures zero disruption to availability, while equally retaining consistency and concensus.
 
-The core invariant: **no honest user is prevented from transacting during a partition.** Naturally, the cost of this guarantee is that some transactions may be rolled back during merge if they conflict with transactions from other partitions. Intentional abuse is economically penalized.
+The core invariant: **no honest user is prevented from transacting during a partition.** Naturally, the cost of this guarantee is that some transactions may be rolled back during merge if they conflict with transactions from other partitions. Naturally, intentional abuse is economically penalized.
 
 ### 1.3 VerifiableObjects as the User-Facing Primitive
 
 Rinku's most distinctive user-facing concept is the **VerifiableObject** (VO): a self-contained, URL-encoded cryptographic proof that carries all data necessary for offline verification. Every meaningful output of the protocol - a payment confirmation, a contract execution receipt, a trust score attestation - is expressible as a portable `rinku://vo/` URL. This collapses the distinction between "querying the chain" and "holding a proof" - any party with a VO can verify its claim without a full node, an RPC endpoint, or any network access at all. Section 3 expands on this design much further.
-
-### 1.4 Contributions
-
-This paper presents the following contributions:
-
-1. **Tunable consistency with formalized transitions.** A three-state partition detector (NORMAL → SUSPECTED → PARTITIONED) with configurable thresholds, provisional checkpoint finality during partition, and deterministic 5-phase merge reconciliation. The protocol navigates the CAP design space dynamically rather than making a trade-off.
-
-2. **VerifiableObjects.** A universal proof container with URL encoding, freshness metadata, and cross-contract composability (BYOP). Every protocol output - account proofs, transaction finality, contract receipts, trust attestations, batch proofs, state witnesses - is expressible as a portable, self-verifying URL.
-
-3. **Proof-carrying contracts and the stateless dApp standard.** Contracts define `ViewKeySpec` schemas; every mutating call returns a `StatefulReceipt` with view key values, Merkle multiproofs, and finality certificates. Clients never store blockchain state - they hold proofs.
-
-4. **Transaction taxonomy for partition-safe operation.** A `PartitionSafety` classification system (Safe, BoundedSpend, CpOnly) that determines which operations can proceed during partitions, with per-account partition budgets that bound rollback risk for opted-in accounts.
-
-5. **Graduated economic deterrence.** A penalty system that distinguishes malicious behavior (nonce reuse: 10% balance + 100% stake slash + permanent reputation penalty) from potentially innocent behavior (economic overdraft: soft reputation penalty with linear decay), with cascade victims bearing no cost.
-
-6. **Deterministic cascade rollback.** An iterative balance-replay algorithm using integer micro-unit accounting that traces economic fund-flow dependencies through the merged transaction set, producing identical results on every node. Convergence is guaranteed by monotonic shrinkage of the valid transaction set.
 
 ---
 
@@ -146,7 +134,7 @@ An adversary **cannot**:
 
 ## 3. VerifiableObject System {#3-verifiable-objects}
 
-VerifiableObjects (VOs) are Rinku's universal container for portable, self-proving cryptographic claims. Every proof type in the system produces a `rinku://vo/` URL with embedded proof data and freshness metadata. VOs are the primary interface between the Rinku protocol and external consumers - they are how the ledger communicates provable facts to the world.
+VerifiableObjects (VOs) are Rinku's universal container for portable, self-proving cryptographic claims. Every proof type in the system produces a `rinku://vo/` URL with embedded proof data and freshness metadata. VOs are the primary interface between the Rinku protocol and external consumers - they are how the ledger communicates provable facts to the world. Furthermore, the resource allocation typically required for the standard verification via extraneous resources (i.e running a node), or API / reliable network connectivity to network validation is no longer necessary. This could prove exceptionally powerful for lightweight operators, such as drones.
 
 ### 3.1 Proof Types
 
@@ -865,16 +853,7 @@ Rinku supports optional privacy-preserving transactions using Groth16 ZK-SNARKs:
 
 The combination of Sparse Merkle Tries and self-contained proofs enables selective disclosure: users can prove specific financial or state facts (e.g., "my balance exceeds X" or "I am a member of set Y") without revealing their full transaction history or exact balance.
 
-### 13.3 Encrypted Communication
-
-Rinku integrates the Double Ratchet protocol for end-to-end encrypted direct messaging between accounts:
-
-- **Key agreement.** Users perform an X3DH (Extended Triple Diffie-Hellman) key exchange using their account's P-256 keypair and ephemeral keys. The resulting shared secret initializes the Double Ratchet state.
-- **Message encryption.** Each message is encrypted with a unique message key derived from the ratchet state. Keys are advanced after each message, providing forward secrecy - compromise of current keys cannot decrypt past messages.
-- **Mailbox addresses.** Messages are addressed to mailbox identifiers derived from account public keys, decoupling the messaging identity from the on-chain account address. This prevents correlation between on-chain activity and private communications.
-- **Storage.** Encrypted message payloads are stored as `DataOnly` transactions on the DAG. Since `DataOnly` transactions are classified as `Safe` (Section 9.8), encrypted messages continue to flow during partitions without rollback risk.
-
-### 13.4 Contract-Layer Privacy
+### 13.3 Contract-Layer Privacy
 
 Privacy features at the contract layer complement the optional ZK privacy layer:
 
@@ -1032,17 +1011,11 @@ Together, these mechanisms create a distributed ledger designed for environments
 
 ### C. Benchmarks
 
-Measurements collected from a 3-node testnet deployed on Fly.io (genesis + 2 validators, shared-cpu-1x instances, global anycast routing). All latencies include network round-trip from the benchmarking client to the nearest Fly.io edge.
+WIP
 
 #### C.1 Throughput
+TODO
 
-| Metric | Value |
-|--------|-------|
-| Sustained TPS (sequential submission) | 21–41 tx/s |
-| Acceptance rate | 96.7% (29/30 accepted) |
-| Rejection causes | Nonce race conditions, backpressure |
-
-Sequential submission measures per-client throughput. Actual network throughput is higher under parallel/batch submission. The TPS range reflects variance across runs due to network conditions and checkpoint intervals.
 
 #### C.2 Acceptance Latency (Fast-Path Confirmed Only)
 
@@ -1063,7 +1036,7 @@ Measured as time from submission to fast-path confirmation status. Only confirme
 | p95 | ~10,400 ms |
 | p99 | ~15,400 ms |
 
-Finality latency is dominated by the checkpoint interval (~10s). Transactions that do not finalize within 60s are capped and included in the distribution. The tight p50–p95 band (~10.3s) aligning with the checkpoint interval confirms correct Mysticeti-FPC operation. The p99 tail reflects occasional transactions that straddle checkpoint boundaries.
+Finality latency is dominated by the checkpoint interval (10s). Transactions that do not finalize within 60s are capped and included in the distribution. The tight p50–p95 band (~10.3s) aligning with the checkpoint interval confirms correct Mysticeti-FPC operation. The p99 tail reflects occasional transactions that straddle checkpoint boundaries.
 
 #### C.4 Proof Generation & Size
 
@@ -1072,53 +1045,20 @@ Finality latency is dominated by the checkpoint interval (~10s). Transactions th
 | Account proof (Merkle inclusion) | 21 ms | 1,953 B | 100% (5/5) |
 | Transaction proof | 26 ms | 1,841 B | 100% (5/5) |
 | Self-contained proof (VO URL) | 21 ms | 1,703 B | 100% (5/5) |
-| Batch proof (multi-receipt) | 22 ms | 103 B | 0% (endpoint format mismatch) |
+| Batch proof (multi-receipt) | 22 ms | TODO | TODO |
 
 All proof types are generated in under 30ms. Self-contained VerifiableObject URLs encode at ~1.7KB, enabling URL-portable verification without external state. Account proofs include the Sparse Merkle Trie inclusion path and weigh ~2KB.
 
-#### C.5 Cross-Node Consistency
+---
 
-| Metric | Value |
-|--------|-------|
-| Checkpoint height spread | 0 |
-| Maximum balance divergence | 0.0000 RKU |
-| All nodes synced | Yes |
-| Convergence verdict | CONVERGED |
+## References {#references}
 
-All 3 nodes maintain perfect state consistency under normal operating conditions. Checkpoint heights, account balances, and DAG state converge within a single checkpoint interval.
+[1] Tran, J.A., Ramachandran, G.S., Shah, P.M., Danilov, C., Santiago, R.A., Krishnamachari, B. "SwarmDAG: A Partition Tolerant Distributed Ledger Protocol for Swarm Robotics." *Ledger*, Vol. 4, Supplement 1, pp. 25–31, 2019. DOI: [10.5195/ledger.2019.174](https://doi.org/10.5195/ledger.2019.174)
 
-#### C.6 Protocol API Coverage
+[2] Raikwar, M., Polyanskii, N., Müller, S. "SoK: DAG-based Consensus Protocols." arXiv:2411.10026, 2024. [https://arxiv.org/abs/2411.10026](https://arxiv.org/abs/2411.10026)
 
-41/42 protocol endpoint tests pass (97.6%). The single failure is a nonce race condition on sequential transaction type testing - an expected artifact of testing against a live distributed network where nonce state propagates asynchronously.
+[3] Babel, K., Chursin, A., Danezis, G., Kichidis, A., Kokoris-Kogias, L., Koshy, A., Sonnino, A., Tian, M. "Mysticeti: Reaching the Limits of Latency with Uncertified DAGs." arXiv:2310.14821, 2023. [https://arxiv.org/abs/2310.14821](https://arxiv.org/abs/2310.14821)
 
-| Category | Pass Rate |
-|----------|-----------|
-| Health & status (5 endpoints) | 5/5 |
-| Faucet (3 tests) | 3/3 |
-| Transaction lifecycle (7 tests) | 7/7 |
-| Transaction types | 1/2 (nonce race) |
-| Batch transactions | 1/1 |
-| Gas pricing | 2/2 |
-| Staking | 2/2 |
-| Contracts | 1/1 |
-| Proof verification | 3/3 |
-| Partition tolerance | 3/3 |
-| DAG & accounts | 4/4 |
-| Checkpoints | 2/2 |
-| Tokenomics | 3/3 |
-| Peers & gossip | 3/3 |
-| WebSocket events | 1/1 |
+[4] Nakamoto, S. "Bitcoin: A Peer-to-Peer Electronic Cash System." 2008. [https://bitcoin.org/bitcoin.pdf](https://bitcoin.org/bitcoin.pdf)
 
-### D. Comparison Table
-
-| Feature | Bitcoin | Ethereum | Solana | Cosmos/Tendermint | Sui | IOTA/Tangle | Rinku |
-|---------|---------|----------|--------|-------------------|-----|-------------|-------|
-| **Structure** | Linear chain | Linear chain | Linear chain | Linear chain | DAG (objects) | DAG | DAG (transactions) |
-| **Finality model** | Probabilistic (~60 min) | Deterministic (~13 min) | Optimistic (~400ms) | Deterministic (~6s) | Deterministic (<1s) | Probabilistic | Dual: fast-path (~300ms) + checkpoint (~10s) |
-| **Partition behavior** | Stalls finality | Stalls finality | Halts | Halts | Halts (owned objects may continue) | Continues (no finality) | Continues with provisional finality |
-| **Post-partition** | Longest chain wins | Fork choice rule | Manual restart | Manual restart | Re-consensus | Tip selection convergence | Deterministic 5-phase merge |
-| **Rollback handling** | Orphaned blocks | Reorgs | N/A (halts) | N/A (halts) | N/A (halts) | Tip reselection | Graduated: conflict loser, cascade victim, innocent |
-| **Double-spend deterrence** | PoW cost | PoS slashing | PoS slashing | PoS slashing | PoS slashing | Tip selection weight | Graduated penalties (10% balance + 100% slash + reputation) |
-| **Proof portability** | SPV (headers required) | Light client (committee tracking) | None standard | IBC light client | None standard | None standard | Self-contained URLs (no headers, no tracking) |
-| **Smart contracts** | Script (limited) | EVM | SVM/eBPF | CosmWasm | Move | IOTA Smart Contracts | WASM (wasmi) with proof-carrying receipts |
-| **Stateless verification** | SPV only | Stateless clients (research) | No | No | No | No | Native (VerifiableObjects + ViewKeySpec) |
+[5] Boneh, D., Drijvers, M., Neven, G. "BLS Multi-Signatures With Public-Key Aggregation." 2018. [https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html](https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html)
