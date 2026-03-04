@@ -164,9 +164,12 @@ impl TipConsolidator {
             .unwrap()
             .as_millis() as u64;
 
-        // Use timestamp as nonce for anchor transactions (system tx bypass nonce validation)
-        // This ensures unique hashes for each anchor without consuming validator's account nonce
-        let nonce = now;
+        // Use 0 as nonce for anchor transactions (system tx bypass nonce validation)
+        // Timestamp in the tx.timestamp field already ensures unique hashes.
+        // Previously used timestamp as nonce, but if a consolidation tx ever got executed
+        // (e.g., kind field lost during serialization), it would corrupt account.nonce
+        // to a timestamp value (~1.77 trillion) instead of a sequential integer.
+        let nonce = 0;
 
         // Create anchor transaction: zero-value self-transfer with Consolidation kind
         let inner_tx = Transaction {

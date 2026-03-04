@@ -22,7 +22,24 @@ impl NodeState {
         
         if !is_system_tx {
             let state = self.inner.read().await;
-            let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+            let current_gas_price = state.current_gas_price;
+            
+            if let Some(offered_gas) = tx.tx.gas_price {
+                if offered_gas < current_gas_price {
+                    let offered_rku = rinku_core::types::from_micro_units(offered_gas);
+                    let required_rku = rinku_core::types::from_micro_units(current_gas_price);
+                    tracing::debug!(
+                        "Transaction rejected: gas price too low ({:.6} < {:.6} RKU)",
+                        offered_rku, required_rku
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Gas price too low: offered {:.6} RKU, current minimum is {:.6} RKU",
+                        offered_rku, required_rku
+                    ));
+                }
+            }
+            
+            let gas_fee = tx.tx.gas_price.unwrap_or(current_gas_price);
             
             if state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned {
                 let tx_kind = tx.tx.kind.unwrap_or(rinku_core::types::TransactionKind::Transfer);
@@ -344,25 +361,8 @@ impl NodeState {
 
         state.dag.add_node(node)?;
 
-        state.txs_this_period += 1;
-
-        let period_ms = state.config.gas.period_duration_ms;
-        let target_txs = state.config.gas.target_txs_per_period as f64;
-        let max_change = state.config.gas.adjustment_factor;
-        const ELASTICITY: f64 = 2.0;
-
-        if now_ms - state.period_start_ms >= period_ms {
-            let utilization = state.txs_this_period as f64 / target_txs;
-            let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
-            let change_factor = 1.0 + change_ratio * max_change;
-            state.current_gas_price = ((state.current_gas_price as f64) * change_factor) as u64;
-            state.current_gas_price = state.current_gas_price.clamp(
-                state.config.gas.min_gas_price,
-                state.config.gas.max_gas_price,
-            );
-            state.txs_this_period = 0;
-            state.period_start_ms = now_ms;
-        }
+        // Gas price is updated at checkpoint finalization in stats.rs::update_gas_price_at_checkpoint
+        // This ensures all nodes compute gas from the same finalized transaction counts
         
         drop(state);
 
@@ -429,7 +429,234 @@ impl NodeState {
         self.execute_finalized_transaction_core(tx).await;
         self.execute_finalized_transaction_rewards(tx).await;
     }
-    
+
+    pub async fn execute_finalized_transactions_batch(&self, txs: &[SignedTransaction]) {
+        if txs.is_empty() {
+            return;
+        }
+
+        let batch_start = std::time::Instant::now();
+        let tx_count = txs.len();
+        let mut special_txs: Vec<&SignedTransaction> = Vec::new();
+
+        {
+            let mut state = self.inner.write().await;
+            let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
+            let current_gas_price = state.current_gas_price;
+
+            for tx in txs {
+                if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                    continue;
+                }
+
+                let gas_fee = tx.tx.gas_price.unwrap_or(current_gas_price);
+
+                let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+                let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
+
+                if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
+                    if tx.tx.nonce < from_account.nonce {
+                        tracing::debug!(
+                            "Skipping already-executed tx {} (tx_nonce={} < account_nonce={})",
+                            &tx.hash[..16.min(tx.hash.len())],
+                            tx.tx.nonce,
+                            from_account.nonce
+                        );
+                        continue;
+                    }
+                    let tx_cost = if is_stake_tx {
+                        tx.tx.amount + gas_fee
+                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                        gas_fee
+                    } else {
+                        tx.tx.amount + gas_fee
+                    };
+                    from_account.balance = from_account.balance.saturating_sub(tx_cost);
+                    from_account.nonce = tx.tx.nonce + 1;
+
+                    if is_in_partition && from_account.partition_budget.is_some() {
+                        from_account.partition_budget_spent += tx_cost;
+                    }
+                }
+
+                if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
+                    let to_account = state
+                        .accounts
+                        .entry(tx.tx.to.clone())
+                        .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
+                    to_account.balance += tx.tx.amount;
+                }
+
+                state.total_burned += gas_fee / 2;
+                state.total_to_validators += gas_fee / 2;
+
+                if tx.tx.kind.is_some() && !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                    special_txs.push(tx);
+                }
+            }
+        }
+
+        if !special_txs.is_empty() {
+            let mut unstake_credits: Vec<(String, u64)> = Vec::new();
+            let mut claim_credits: Vec<(String, u64)> = Vec::new();
+            let mut stake_updates: Vec<(String, u64, u64)> = Vec::new();
+
+            {
+                let mut rewards = self.rewards.write().await;
+                for tx in &special_txs {
+                    use rinku_core::types::TransactionKind;
+                    let from_addr = &tx.tx.from;
+
+                    match tx.tx.kind.as_ref().unwrap() {
+                        TransactionKind::Stake => {
+                            if let Err(e) = rewards.stake(from_addr, tx.tx.amount) {
+                                tracing::warn!("Failed to process stake tx: {}", e);
+                            } else {
+                                if let Some(p) = rewards.get_stake(from_addr) {
+                                    stake_updates.push((from_addr.clone(), p.amount, p.staked_at));
+                                }
+                            }
+                        }
+                        TransactionKind::Unstake => {
+                            match rewards.unstake(from_addr) {
+                                Ok(amount) => {
+                                    unstake_credits.push((from_addr.clone(), amount));
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to process unstake tx: {}", e);
+                                }
+                            }
+                        }
+                        TransactionKind::ClaimRewards => {
+                            let claimed = rewards.claim_rewards(from_addr);
+                            if claimed > 0 {
+                                claim_credits.push((from_addr.clone(), claimed));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            if !unstake_credits.is_empty() || !claim_credits.is_empty() || !stake_updates.is_empty() {
+                let mut state = self.inner.write().await;
+                for (addr, amount) in &unstake_credits {
+                    if let Some(account) = state.accounts.get_mut(addr) {
+                        account.balance += amount;
+                        account.staked = 0;
+                    }
+                }
+                for (addr, claimed) in &claim_credits {
+                    if let Some(account) = state.accounts.get_mut(addr) {
+                        account.balance += claimed;
+                    }
+                }
+                for (addr, amount, staked_at) in &stake_updates {
+                    if let Some(account) = state.accounts.get_mut(addr) {
+                        account.staked = *amount;
+                        account.first_seen = *staked_at / 1000;
+                    }
+                }
+            }
+
+            for tx in &special_txs {
+                if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract)) {
+                    if let Some(ref data) = tx.tx.data {
+                        match rinku_core::types::ContractTransactionData::from_data_field(data) {
+                            Ok(contract_data) => {
+                                self.execute_contract_transaction(tx, contract_data).await;
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to parse contract tx data during finalization: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        struct TxRewardInfo {
+            tx_url: String,
+            reward_base: u64,
+            first_parent_hash: Option<String>,
+            witness_parents: Vec<(String, String)>,
+        }
+
+        let reward_infos: Vec<TxRewardInfo> = {
+            let state = self.inner.read().await;
+            let current_gas_price = state.current_gas_price;
+            txs.iter()
+                .filter(|tx| !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)))
+                .filter_map(|tx| {
+                    let gas_fee = tx.tx.gas_price.unwrap_or(current_gas_price);
+                    let tx_amount = tx.tx.amount;
+                    if tx_amount == 0 && gas_fee == 0 {
+                        return None;
+                    }
+                    let reward_base = tx_amount + gas_fee;
+                    let tx_url = format!("rinku://tx/h/{}", tx.hash);
+                    let from_addr = tx.tx.from.clone();
+
+                    fn normalize_parent(p: &str) -> &str {
+                        if p.starts_with("rinku://tx/h/") {
+                            p.strip_prefix("rinku://tx/h/").unwrap_or(p)
+                        } else if p.starts_with("rinku://tx/") {
+                            p.strip_prefix("rinku://tx/").unwrap_or(p)
+                        } else {
+                            p
+                        }
+                    }
+
+                    let first_parent_hash = tx.tx.parents.first().map(|p| normalize_parent(p).to_string());
+
+                    let witness_parents: Vec<(String, String)> = tx.tx.parents.iter()
+                        .filter_map(|parent_ref| {
+                            let ph = normalize_parent(parent_ref);
+                            state.dag.get_node(ph).and_then(|node| {
+                                let creator = node.tx.tx.from.clone();
+                                if creator != from_addr {
+                                    Some((format!("rinku://tx/h/{}", ph), creator))
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                        .collect();
+
+                    Some(TxRewardInfo { tx_url, reward_base, first_parent_hash, witness_parents })
+                })
+                .collect()
+        };
+
+        if !reward_infos.is_empty() {
+            let validator_addr = {
+                let state = self.inner.read().await;
+                state.node_validator_address.clone()
+            };
+
+            let mut rewards = self.rewards.write().await;
+            for info in &reward_infos {
+                if let Some(ref validator) = validator_addr {
+                    if let Some(ref parent_hash) = info.first_parent_hash {
+                        let tip_url = format!("rinku://tx/h/{}", parent_hash);
+                        rewards.process_tip_reward(&info.tx_url, &tip_url, validator, info.reward_base);
+                    }
+                }
+                for (parent_url, parent_creator) in &info.witness_parents {
+                    rewards.process_witness_reward(&info.tx_url, parent_url, parent_creator, info.reward_base);
+                }
+            }
+        }
+
+        tracing::info!(
+            "Batch executed {} finalized txs in {:?} (single-lock)",
+            tx_count,
+            batch_start.elapsed()
+        );
+    }
+
     pub async fn execute_finalized_transaction_core(&self, tx: &SignedTransaction) {
         if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
             return;
@@ -876,6 +1103,15 @@ impl NodeState {
                     confirmed_nonce, tx.tx.nonce
                 ));
             }
+            
+            if let Some(offered_gas) = tx.tx.gas_price {
+                if offered_gas < state.current_gas_price {
+                    return Err(anyhow::anyhow!(
+                        "Gas price too low: offered {}, minimum {}",
+                        offered_gas, state.current_gas_price
+                    ));
+                }
+            }
         }
 
         self.add_transaction_dag_only(tx).await?;
@@ -1212,30 +1448,9 @@ impl NodeState {
                 .dag
                 .add_node(node)
                 .map_err(|e| anyhow::anyhow!("{}", e));
-            if result.is_ok() {
-                state.txs_this_period += 1;
-            }
             results.push(result);
         }
 
-        let period_ms = state.config.gas.period_duration_ms;
-        let target_txs = state.config.gas.target_txs_per_period as f64;
-        let max_change = state.config.gas.adjustment_factor;
-        const ELASTICITY: f64 = 2.0;
-
-        if now_ms - state.period_start_ms >= period_ms {
-            let utilization = state.txs_this_period as f64 / target_txs;
-            let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
-            let change_factor = 1.0 + change_ratio * max_change;
-            state.current_gas_price = ((state.current_gas_price as f64) * change_factor) as u64;
-            state.current_gas_price = state.current_gas_price.clamp(
-                state.config.gas.min_gas_price,
-                state.config.gas.max_gas_price,
-            );
-            state.txs_this_period = 0;
-            state.period_start_ms = now_ms;
-        }
-        
         drop(state);
 
         results

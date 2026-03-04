@@ -1,7 +1,7 @@
 use super::*;
 
-const TPS_RING_SIZE: usize = 300;
-const TPS_SHORT_WINDOW_SECS: u64 = 10;
+const TPS_RING_SIZE: usize = 600;
+const TPS_SHORT_WINDOW_SECS: u64 = 15;
 const TPS_LONG_WINDOW_SECS: u64 = 60;
 
 impl NodeState {
@@ -94,6 +94,54 @@ impl NodeState {
 
     pub async fn record_finalized_batch(&self, tx_count: u64) {
         self.record_tx_timestamps(tx_count).await;
+        self.update_gas_price_at_checkpoint(tx_count).await;
+    }
+
+    async fn update_gas_price_at_checkpoint(&self, _finalized_tx_count: u64) {
+        let mut state = self.inner.write().await;
+        
+        let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        let gas_period_ms = state.config.gas.period_duration_ms;
+        let checkpoint_interval_ms = state.config.checkpoint_interval_ms;
+        let checkpoints_per_gas_period = if checkpoint_interval_ms > 0 {
+            (gas_period_ms / checkpoint_interval_ms).max(3) as u64
+        } else {
+            3
+        };
+        
+        if current_height > 0 && current_height % checkpoints_per_gas_period == 0 {
+            let period_tx_count: u64 = state.checkpoints.iter()
+                .rev()
+                .take(checkpoints_per_gas_period as usize)
+                .map(|cp| cp.finalized_tx_hashes.len() as u64)
+                .sum();
+            
+            let target_txs = state.config.gas.target_txs_per_period as f64;
+            let max_change = state.config.gas.adjustment_factor;
+            const ELASTICITY: f64 = 2.0;
+            
+            let utilization = period_tx_count as f64 / target_txs;
+            let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
+            let change_factor = 1.0 + change_ratio * max_change;
+            let old_price = state.current_gas_price;
+            state.current_gas_price = ((state.current_gas_price as f64) * change_factor) as u64;
+            state.current_gas_price = state.current_gas_price.clamp(
+                state.config.gas.min_gas_price,
+                state.config.gas.max_gas_price,
+            );
+            tracing::info!(
+                "EIP-1559 gas update at height {}: {} -> {} micro-units ({:.6} RKU), utilization={:.1}% ({} txs / {} target in {} checkpoints), factor={:.4}",
+                current_height,
+                old_price,
+                state.current_gas_price,
+                rinku_core::types::from_micro_units(state.current_gas_price),
+                utilization * 100.0,
+                period_tx_count,
+                state.config.gas.target_txs_per_period,
+                checkpoints_per_gas_period,
+                change_factor
+            );
+        }
     }
 
     pub async fn get_dynamic_tps(&self) -> (f64, f64, f64) {
@@ -113,41 +161,18 @@ impl NodeState {
 
         let mut short_txs: u64 = 0;
         let mut long_txs: u64 = 0;
-        let mut short_earliest = now_ms;
-        let mut long_earliest = now_ms;
 
         for &(ts, count) in state.finalized_tx_history.iter() {
             if ts >= long_cutoff {
                 long_txs += count;
-                if ts < long_earliest {
-                    long_earliest = ts;
-                }
             }
             if ts >= short_cutoff {
                 short_txs += count;
-                if ts < short_earliest {
-                    short_earliest = ts;
-                }
             }
         }
 
-        let short_elapsed = now_ms.saturating_sub(short_earliest);
-        let short_tps = if short_elapsed > 500 && short_txs > 0 {
-            (short_txs as f64) / (short_elapsed as f64 / 1000.0)
-        } else if short_txs > 0 {
-            short_txs as f64
-        } else {
-            0.0
-        };
-
-        let long_elapsed = now_ms.saturating_sub(long_earliest);
-        let long_tps = if long_elapsed > 1000 && long_txs > 0 {
-            (long_txs as f64) / (long_elapsed as f64 / 1000.0)
-        } else if long_txs > 0 {
-            long_txs as f64
-        } else {
-            0.0
-        };
+        let short_tps = (short_txs as f64) / (TPS_SHORT_WINDOW_SECS as f64);
+        let long_tps = (long_txs as f64) / (TPS_LONG_WINDOW_SECS as f64);
 
         let peak = if short_tps > long_tps { short_tps } else { long_tps };
 

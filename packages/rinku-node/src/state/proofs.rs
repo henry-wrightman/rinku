@@ -154,8 +154,13 @@ impl NodeState {
         // This must match execute_finalized_transaction exactly!
         // CRITICAL: Skip transactions already executed on fast-path, since their
         // effects are already reflected in the current state we cloned above
+        // CRITICAL: Skip consolidation transactions — execute_finalized_transactions_batch
+        // skips them, so simulation must also skip them to maintain parity
         for tx in pending_txs {
             if skip_hashes.contains(&tx.hash) {
+                continue;
+            }
+            if matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Consolidation)) {
                 continue;
             }
             let from = &tx.tx.from;
@@ -664,7 +669,13 @@ impl NodeState {
                 let is_v3_proof = proof.version >= 3;
                 
                 if let Some(account) = state.accounts.get_mut(address) {
-                    if account.nonce > proof.nonce {
+                    // Detect corrupted nonces: sequential nonces should never exceed ~1 billion
+                    // (even at 1000 TPS for 30 years). Values >= 1 trillion are timestamp artifacts
+                    // from the old tip consolidator bug (nonce = timestamp_ms).
+                    const NONCE_CORRUPTION_THRESHOLD: u64 = 1_000_000_000_000;
+                    let nonce_corrupted = account.nonce >= NONCE_CORRUPTION_THRESHOLD;
+                    
+                    if account.nonce > proof.nonce && !nonce_corrupted {
                         tracing::debug!(
                             "Skipping STATE SYNC for {} at checkpoint {}: local nonce {} > proof nonce {} (un-checkpointed txs)",
                             &address[..16.min(address.len())],
@@ -673,6 +684,15 @@ impl NodeState {
                             proof.nonce
                         );
                     } else {
+                        if nonce_corrupted {
+                            tracing::warn!(
+                                "NONCE REPAIR for {} at checkpoint {}: corrupted nonce {} -> leader nonce {}",
+                                &address[..16.min(address.len())],
+                                proof.checkpoint_height,
+                                account.nonce,
+                                proof.nonce
+                            );
+                        }
                         let balance_diff = account.balance.abs_diff(proof.balance_micro);
                         let staked_diff = account.staked.abs_diff(proof.staked_micro);
                         

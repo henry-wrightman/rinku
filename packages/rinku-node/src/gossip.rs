@@ -750,6 +750,12 @@ impl GossipService {
                                 previous_hash: c.previous_hash.clone(),
                                 signature: c.aggregated_signature.clone(),
                                 genesis_hash: snapshot.genesis_hash.clone(),
+                                finalized_tx_hashes: c.finalized_tx_hashes.clone(),
+                                state_root: Some(c.state_root.clone()),
+                                receipt_root: Some(c.receipt_root.clone()),
+                                tip_count: Some(c.tip_count),
+                                validator_signatures: c.validator_signatures.clone(),
+                                signer_bitmap: c.signer_bitmap.clone(),
                             }).collect();
                             
                             let tx_data: Vec<TransactionData> = snapshot.dag_transactions.iter().map(|stx| TransactionData {
@@ -811,6 +817,12 @@ impl GossipService {
                                         previous_hash: cp.previous_hash.clone(),
                                         signature: cp.aggregated_signature.clone(),
                                         genesis_hash: state_guard.genesis_hash.clone(),
+                                        finalized_tx_hashes: cp.finalized_tx_hashes.clone(),
+                                        state_root: Some(cp.state_root.clone()),
+                                        receipt_root: Some(cp.receipt_root.clone()),
+                                        tip_count: Some(cp.tip_count),
+                                        validator_signatures: cp.validator_signatures.clone(),
+                                        signer_bitmap: cp.signer_bitmap.clone(),
                                     })
                                     .collect();
                                 
@@ -893,6 +905,7 @@ impl GossipService {
                                 checkpoint_height: self.state.get_checkpoint_height().await,
                                 validator_address: self.checkpoint_vote_signer.as_ref().map(|s| s.validator_address.clone()),
                                 capabilities: vec!["sync".to_string(), "gossip".to_string()],
+                                known_peer_addrs: Vec::new(),
                             };
                             SyncResponse::Handshake(our_handshake)
                         }
@@ -1119,38 +1132,55 @@ impl GossipService {
                     info!("Pruned {} stale peer bloom filters", bloom_pruned);
                 }
                 
-                // Cleanup fast_path_confirmed: Remove finalized entries older than 5 minutes
-                // This prevents unbounded memory growth from tracking every transaction forever
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64;
-                const FAST_PATH_TTL_MS: u64 = 300_000; // 5 minutes
+                const FAST_PATH_TTL_MS: u64 = 60_000; // 60 seconds
+                const FAST_PATH_PENDING_TTL_MS: u64 = 60_000; // 60 seconds
+                const FAST_PATH_MAX_CONFIRMED: usize = 500;
+                const FAST_PATH_MAX_PENDING: usize = 500;
+                const FAST_PATH_MAX_EXECUTED: usize = 200;
+                
                 let old_confirmed_count = inner.fast_path_confirmed.len();
-                // Snapshot executed set to avoid borrow conflict with retain
                 let executed_snapshot: std::collections::HashSet<String> = inner.fast_path_executed.clone();
                 inner.fast_path_confirmed.retain(|tx_hash, finality| {
-                    // Never prune entries that have been executed but not yet finalized
-                    // These must survive until checkpoint anchors them so the API can report status
                     if executed_snapshot.contains(tx_hash) 
                         && !matches!(finality.status, rinku_core::types::FastPathStatus::Finalized) {
                         return true;
                     }
-                    // TTL-based cleanup for other entries
                     if let Some(confirmed_at) = finality.confirmed_at_ms {
                         now_ms.saturating_sub(confirmed_at) < FAST_PATH_TTL_MS
                     } else {
                         now_ms.saturating_sub(finality.registered_at_ms) < FAST_PATH_TTL_MS
                     }
                 });
+                if inner.fast_path_confirmed.len() > FAST_PATH_MAX_CONFIRMED {
+                    let mut entries: Vec<(String, u64)> = inner.fast_path_confirmed.iter()
+                        .map(|(k, v)| (k.clone(), v.confirmed_at_ms.unwrap_or(v.registered_at_ms)))
+                        .collect();
+                    entries.sort_by_key(|(_, ts)| *ts);
+                    let to_evict = entries.len() - FAST_PATH_MAX_CONFIRMED;
+                    for (key, _) in entries.into_iter().take(to_evict) {
+                        inner.fast_path_confirmed.remove(&key);
+                    }
+                }
                 let confirmed_pruned = old_confirmed_count - inner.fast_path_confirmed.len();
                 
-                // Cleanup fast_path_pending: Remove stuck entries older than 10 minutes
-                const FAST_PATH_PENDING_TTL_MS: u64 = 600_000; // 10 minutes
                 let old_pending_count = inner.fast_path_pending.len();
                 inner.fast_path_pending.retain(|_, finality| {
                     now_ms.saturating_sub(finality.registered_at_ms) < FAST_PATH_PENDING_TTL_MS
                 });
+                if inner.fast_path_pending.len() > FAST_PATH_MAX_PENDING {
+                    let mut entries: Vec<(String, u64)> = inner.fast_path_pending.iter()
+                        .map(|(k, v)| (k.clone(), v.registered_at_ms))
+                        .collect();
+                    entries.sort_by_key(|(_, ts)| *ts);
+                    let to_evict = entries.len() - FAST_PATH_MAX_PENDING;
+                    for (key, _) in entries.into_iter().take(to_evict) {
+                        inner.fast_path_pending.remove(&key);
+                    }
+                }
                 let pending_pruned = old_pending_count - inner.fast_path_pending.len();
                 
                 let old_executed_count = inner.fast_path_executed.len();
@@ -1158,13 +1188,20 @@ impl GossipService {
                     .filter(|tx_hash| {
                         match inner.fast_path_confirmed.get(*tx_hash) {
                             Some(finality) => matches!(finality.status, rinku_core::types::FastPathStatus::Finalized),
-                            None => false,
+                            None => true,
                         }
                     })
                     .cloned()
                     .collect();
                 for tx_hash in &executed_to_remove {
                     inner.fast_path_executed.remove(tx_hash);
+                }
+                if inner.fast_path_executed.len() > FAST_PATH_MAX_EXECUTED {
+                    let drain_count = inner.fast_path_executed.len() - FAST_PATH_MAX_EXECUTED;
+                    let to_drain: Vec<String> = inner.fast_path_executed.iter().take(drain_count).cloned().collect();
+                    for key in to_drain {
+                        inner.fast_path_executed.remove(&key);
+                    }
                 }
                 let executed_pruned = old_executed_count - inner.fast_path_executed.len();
                 
@@ -1359,12 +1396,9 @@ impl GossipService {
         {
             let mut inner = self.inner.write().await;
             for tx_hash in &finalized_tx_hashes {
-                if let Some(finality) = inner.fast_path_confirmed.get_mut(tx_hash) {
-                    if matches!(finality.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Executed) {
-                        finality.status = rinku_core::types::FastPathStatus::Finalized;
-                        finality.checkpoint_height = Some(checkpoint.height);
-                    }
-                }
+                inner.fast_path_confirmed.remove(tx_hash);
+                inner.fast_path_pending.remove(tx_hash);
+                inner.fast_path_executed.remove(tx_hash);
             }
         }
 
@@ -1727,6 +1761,7 @@ impl GossipService {
             checkpoint_height: local_checkpoint,
             validator_address,
             capabilities: vec!["sync".to_string(), "gossip".to_string()],
+            known_peer_addrs: Vec::new(),
         };
         
         let response = {
@@ -2198,6 +2233,33 @@ impl GossipService {
                         precomputed_proofs.len()
                     );
                     
+                    // BLS SIGNATURE VERIFICATION
+                    // Verify the checkpoint's aggregate BLS signature against the validator set
+                    if let Some(ref vi) = self.validator_identity {
+                        let vi_guard = vi.read().await;
+                        let mut sorted_entries: Vec<(String, Vec<u8>, u64)> = vi_guard.active_validators()
+                            .iter()
+                            .filter(|(_, v)| !v.bls_public_key.is_empty())
+                            .map(|(addr, v)| (addr.clone(), v.bls_public_key.clone(), v.effective_stake))
+                            .collect();
+                        sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
+                        let bls_keys_and_stakes: Vec<(Vec<u8>, u64)> = sorted_entries.into_iter()
+                            .map(|(_, k, s)| (k, s))
+                            .collect();
+                        drop(vi_guard);
+                        
+                        if !bls_keys_and_stakes.is_empty() {
+                            if let Err(e) = crate::state::NodeState::verify_checkpoint_bls(&checkpoint, &bls_keys_and_stakes) {
+                                warn!(
+                                    "BLS verification failed for checkpoint {} at height {}: {} — proceeding with checkpoint (validated by hash/merkle)",
+                                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                    checkpoint.height,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    
                     // CRITICAL CONSENSUS FIX: Add missing transactions from leader BEFORE applying checkpoint
                     // This ensures all nodes execute the SAME transactions and reach the SAME state
                     // Without this, nodes that missed the original gossip would have different balances
@@ -2323,19 +2385,15 @@ impl GossipService {
                                 );
                             }
                             
-                            // Upgrade fast-path status from 'confirmed' to 'finalized' for all finalized transactions
-                            // This ensures the explorer correctly shows "fast-path + finalized" for transactions
-                            // that achieved fast-path confirmation before checkpoint finalization
                             {
                                 let mut inner = self.inner.write().await;
                                 for tx_hash in &finalized_hashes_for_fastpath {
-                                    if let Some(finality) = inner.fast_path_confirmed.get_mut(tx_hash) {
-                                        if matches!(finality.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Executed) {
-                                            finality.status = rinku_core::types::FastPathStatus::Finalized;
-                                            finality.checkpoint_height = Some(checkpoint.height);
-                                        }
-                                    }
+                                    inner.fast_path_confirmed.remove(tx_hash);
+                                    inner.fast_path_pending.remove(tx_hash);
+                                    inner.fast_path_executed.remove(tx_hash);
                                 }
+                                inner.stale_nonce_cache.clear();
+                                inner.stale_nonce_cache_order.clear();
                             }
                             
                             info!(

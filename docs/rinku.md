@@ -1,10 +1,11 @@
-# Rinku: A Distributed Ledger For Mesh-Native Systems 
+# Rinku: A Distributed Ledger For Mesh-Native Systems
+
 ###### [rinkuchan.com](https://rinkuchan.com)
 
 
 ## Abstract
 
-The next wave of distributed computing is not data centers - it is autonomous agents: drone swarms, robotic fleets, and mobile sensor networks operating on adhoc mesh infrastructure where connectivity is intermittent by design, not an exception case. Existing distributed ledgers are structurally insufficient for this environment; they halt when the network partitions, require persistent RPC infrastructure for state verification, or their smart contracts assume a synchronized, always-online world.
+The next wave of distributed computing is not data centers - it is autonomous agents: drone swarms, robotic fleets, and mobile sensor networks operating on adhoc mesh infrastructure where connectivity is intermittent by design, not an edge case. Existing distributed ledgers are structurally insufficient for this environment; they halt when the network partitions, require persistent RPC infrastructure for state verification, or their smart contracts assume a synchronized, always-online world.
 
 Rinku is a DAG-based distributed ledger built around three primitives designed for exactly this environment. Tunable consistency allows the protocol to navigate the CAP tradeoff dynamically: delivering CP-like checkpoint finality when quorum is reachable, degrading gracefully to provisional availability during partitions, and deterministically reconciling state when connectivity is restored - ensuring that a swarm of robots on a local mesh can transact continuously and settle correctly when they reconnect to the broader network. VerifiableObjects are self-contained, URL-encoded cryptographic proofs that carry everything needed for offline verification - no full node, no RPC endpoint, no network access. An autonomous agent can receive payment, verify it locally with a single BLS check, and execute its task before ever touching external infrastructure. BYOP (Bring Your Own Proof) smart contracts accept VerifiableObjects as inputs, enabling contract logic to execute against proven external state without synchronous cross-chain or cross-contract calls - service terms, payment conditions, and execution receipts composable without centralized coordination.
 
@@ -30,6 +31,7 @@ Together, these three primitives describe a ledger that does not merely tolerate
 14. [Networking & P2P Protocol](#14-networking)
 15. [Future Work](#15-future-work)
 16. [Conclusion](#16-conclusion)
+
 - [References](#references)
 
 ---
@@ -46,13 +48,19 @@ Rinku bridges this gap. It provides a distributed ledger designed for environmen
 
 ### 1.1 The Partition Problem
 
-Traditional blockchains prioritize a single canonical history with strong finality but sacrifice availability - the network halts when partitions prevent quorum. Bitcoin and Ethereum provide eventual/probabilistic convergence under normal conditions and stall finality under partition. BFT chains like Tendermint and Sui provide deterministic finality but halt entirely without 2/3 stake. This should be unacceptable for distributed networks where partitions are expected, not exceptional.
+Traditional blockchains prioritize a single canonical history with strong finality but sacrifice availability - the network halts when partitions prevent quorum. There are typically 3 categories for how these halts are handled:
+
+Category 1 (Nakamoto): Live during partition, reorg losers on reconnect, with no intelligent reconciliation
+Category 2 (BFT): Halt finalization, queue in mempool; safety over liveness
+Category 3 (Hybrid/Ethereum): Tips keep moving, finality pauses; halfway measure
+
+So far, these have proven fairly sufficient for strongly connected infrastructure, but for networks that are disjoined or regularly fragmented there still remains to be a more appropriate solution.
 
 ### 1.2 Rinku's Position
 
 Rinku takes a different position: **tunable consistency**. When the network is fully connected, Mysticeti-FPC delivers sub-second transaction acceptance and checkpoint-based settlement finality. When partitions occur, the network degrades gracefully to provisional acceptance - transactions continue locally, and state reconciles deterministically when partitions heal. This ensures zero disruption to availability, while equally retaining consistency and concensus.
 
-The core invariant: **no honest user is prevented from transacting during a partition.** Naturally, the cost of this guarantee is that some transactions may be rolled back during merge if they conflict with transactions from other partitions. Naturally, intentional abuse is economically penalized.
+The core invariant: **no honest user is prevented from transacting during a partition.** Naturally, the cost of this guarantee is that some transactions may be rolled back during merge if they conflict with transactions from other partitions. Intentional abuse is economically penalized.
 
 ### 1.3 VerifiableObjects as the User-Facing Primitive
 
@@ -118,11 +126,13 @@ Rinku's security properties rely on the following assumptions:
 **Byzantine fault tolerance.** Up to f < n/3 validators (by stake weight) may behave arbitrarily - equivocating, withholding votes, or broadcasting invalid messages. The protocol guarantees safety (no conflicting finalized checkpoints) as long as the honest majority assumption holds. Liveness requires >2/3 stake to be reachable for checkpoint finality; during partitions, liveness is maintained locally through provisional checkpoints (Section 8).
 
 **Partition attacker model.** An adversary capable of partitioning the network can:
+
 - Cause some partitions to operate under provisional finality (reduced but functional)
 - Cause some transactions to be rolled back during merge if they conflict across partitions
 - Trigger cascade rollbacks that affect innocent users whose transactions depended on rolled-back funds
 
 An adversary **cannot**:
+
 - Forge transactions (ECDSA P-256 signatures)
 - Cause conflicting finalized (non-provisional) checkpoints (requires >2/3 honest stake)
 - Double-spend without detection and penalty (nonce reuse is detected during merge; Section 12)
@@ -157,6 +167,7 @@ rinku://vo/<base64_compressed_json>
 ```
 
 Additional URI schemes for specific proof types:
+
 - `rinku://sp/` - Self-contained proofs (account state with full Merkle path to checkpoint)
 - `rinku://asp/` - Account state proofs (compact)
 
@@ -370,7 +381,6 @@ Rinku uses a **Sparse DAG Sampling** algorithm to prevent tip explosion while ma
 **Weighted selection with diversity.** When the number of available tips exceeds 16, the sampling algorithm splits selection into two halves:
 
 1. **Guaranteed selection (top 8):** The 8 tips with the highest sender account weight are always included. This ensures that well-staked, high-reputation transactions are preferentially referenced, providing Sybil resistance - an attacker flooding the network with low-weight transactions cannot crowd out legitimate tips.
-
 2. **Random sampling (bottom 8):** The remaining 8 slots are filled by random sampling from all other available tips. This maintains DAG diversity, prevents the graph from narrowing to a single chain of high-weight transactions, and ensures that transactions from lower-weight (but honest) participants are eventually incorporated.
 
 **Tip consolidation.** A background `TipConsolidator` service runs on validator nodes. When the tip count exceeds a threshold (default 100), it enters aggressive consolidation mode, periodically creating `Consolidation` transactions that reference 16 tips at once. These anchor transactions merge divergent branches back into fewer tips, keeping the DAG's working set manageable.
@@ -386,6 +396,7 @@ effective_weight = (age_weight * balance_weight + stake_weight) * (1.0 - reputat
 ```
 
 Where:
+
 - **age_weight:** Time-based component since transaction insertion
 - **balance_weight:** Derived from the sender's account balance
 - **stake_weight:** Sub-linear bonus from staked tokens, computed as `stake^0.5 * 2.0`. The square-root scaling reduces the advantage of large stakers - doubling stake increases weight by only ~41%, not 100%. This provides meaningful Sybil resistance while limiting plutocratic concentration.
@@ -402,6 +413,8 @@ The sub-linear stake weight is a deliberate design choice for decentralization: 
 ---
 
 ## 8. Partition Tolerance {#8-partition-tolerance}
+
+Consider a drone swarm operating in a contested RF environment where sub-groups regularly lose connectivity for 30-120 seconds. In this environment, partition mode is the expected operating state. The transaction classification system ensures mission-critical telemetry (Safe) continues uninterrupted, bounded resource allocation (BoundedSpend) proceeds within pre-configured limits, and consensus-critical operations (CpOnly) wait for full swarm reconnection.
 
 ### 8.1 Detection
 
@@ -422,7 +435,6 @@ NORMAL  ──[visible stake < 2/3]──►  SUSPECTED  ──[timeout T_conf]�
 The `PartitionDetector` runs every 5 seconds, computing the percentage of total stake reachable via healthy gossip peers. Two detection signals are used:
 
 1. **Visible stake percentage.** The primary signal. The detector queries the gossip service for currently connected peers, maps them to their validator identities, and sums their stake. If the sum falls below 2/3 of total stake, the detector transitions to SUSPECTED.
-
 2. **Checkpoint stall detection.** A secondary signal. If no new checkpoint has been finalized for 3x the expected checkpoint interval and the node has unfinalized transactions, this indicates a likely quorum failure. This signal catches cases where visible stake calculations are stale due to peer-list update delays.
 
 The SUSPECTED state serves as a damping buffer - transient network hiccups (brief disconnections, route changes) do not trigger partition mode unless they persist for T_conf seconds. This prevents unnecessary mode switching in mildly unstable networks.
@@ -470,6 +482,7 @@ All merge computation must produce identical results on every node given the sam
 **Integer accounting:** All balance operations during merge use `u64` micro-units (1 RKU = 10^8 micro-RKU). Balances are converted from `f64` to micro-units at merge entry and converted back only after reconciliation is complete. This eliminates floating-point nondeterminism entirely within the merge path.
 
 **Canonical ordering:** Transactions are totally ordered by:
+
 1. Per-account nonce ascending
 2. DAG depth from fork-point (topological distance)
 3. Transaction hash lexicographic ascending (deterministic tiebreaker)
@@ -487,6 +500,7 @@ This is a strict total order - no two transactions can be "equal" because transa
 Both partitions exchange their `PartitionDAGDelta` containing all transactions, provisional checkpoints, and DAG edges created since the fork point (last common confirmed checkpoint). After exchange, both sides have the complete merged transaction set.
 
 Exchange is performed via gossip protocol messages (`GossipMessage::MergePayload` and `GossipMessage::MergeResult`). The merge payload includes a `MergeRequest` containing:
+
 - All transactions created during the partition epoch
 - Account state snapshots from the partition
 - Provisional checkpoint chain
@@ -503,6 +517,7 @@ The merged transaction set is scanned for two conflict types:
 This may be innocent (the user didn't know about the partition and transacted on both sides) or opportunistic.
 
 **Detection algorithm:**
+
 1. Build a set of all `(account, nonce)` pairs across both partitions. Flag any duplicates as Type 1.
 2. For each account that transacted in both partitions, compute pre-partition balance (from fork-point checkpoint), total sent and received in each partition. If combined net spend exceeds pre-partition balance, flag as Type 2.
 
@@ -691,6 +706,7 @@ Rinku provides a Rust SDK (`rinku-contract-sdk`) for contract development with t
 - **`contract_call!`** - Declares a callable contract function with automatic gas metering and error handling.
 
 The SDK provides helper functions for common operations:
+
 - **Storage:** `storage::get<T>()`, `storage::set<T>()`, `storage::delete()`, `storage::has()` - type-safe wrappers around the host ABI storage functions with automatic JSON serialization.
 - **Transfers:** `token::transfer(to, amount)` - transfers RKU from the contract's balance.
 - **Events:** `events::emit(name, data)` - emits a named event for indexing and WebSocket subscribers.
@@ -941,13 +957,9 @@ Rinku occupies a distinct position in the distributed ledger design space. Rathe
 The core contribution is not the mode-switching mechanism itself - dynamically adjusting consistency levels is a well-studied concept in distributed systems. The contribution is the set of protocol mechanisms that make this approach practical for a financial ledger:
 
 1. **The transaction classification system** (Section 9.8) transforms partition tolerance from a binary property (available or not) into a graduated spectrum. Safe operations continue without restriction; bounded-spend operations proceed within configurable risk limits; consensus-critical operations halt until quorum is restored. This gives applications and users explicit control over their partition-mode risk exposure.
-
 2. **The 5-phase merge protocol** (Section 9) provides deterministic reconciliation with formally provable convergence. Integer micro-unit accounting eliminates floating-point nondeterminism. Canonical transaction ordering ensures all nodes compute identical results. The cascade rollback algorithm traces economic dependencies exhaustively, preventing subtle state corruption from partial replays.
-
 3. **Graduated economic deterrence** (Section 12) distinguishes intent. Deliberate double-spending (nonce reuse) is expensive and permanent. Accidental overdrafts receive soft, recoverable penalties. Cascade victims bear no cost. This penalty structure makes rational exploitation unprofitable while avoiding punishing honest users caught in ambiguous situations.
-
 4. **VerifiableObjects** (Section 3) collapse the infrastructure requirements for trust. A `rinku://vo/` URL carries everything needed to verify a claim - no full node, no RPC endpoint, no ongoing network connection. This makes Rinku's proofs inherently portable, shareable, and composable - they can be passed as transaction parameters (BYOP), embedded in QR codes, or verified entirely offline.
-
 5. **Proof-carrying contracts** (Section 10.4) extend this portability to smart contract state. Contracts define which state fragments should be provable; every execution produces a `StatefulReceipt` with Merkle proofs and finality certificates. Applications can be persistently stateless - rendering verified data from receipts rather than maintaining local state.
 
 Together, these mechanisms create a distributed ledger designed for environments where network partitions are a routine operating condition rather than an exceptional failure. Rinku does not claim to solve the fundamental impossibility results of distributed systems - it claims to make a practically useful navigation of those constraints for the specific domain of decentralized financial infrastructure in mesh-native environments.
@@ -1014,8 +1026,8 @@ Together, these mechanisms create a distributed ledger designed for environments
 WIP
 
 #### C.1 Throughput
-TODO
 
+TODO
 
 #### C.2 Acceptance Latency (Fast-Path Confirmed Only)
 

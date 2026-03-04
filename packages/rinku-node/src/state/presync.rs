@@ -190,6 +190,7 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
                                     checkpoint_height: 0,
                                     validator_address: None,
                                     capabilities: vec!["sync".to_string()],
+                                    known_peer_addrs: Vec::new(),
                                 };
                                 swarm.behaviour_mut().send_request(&actual_peer, SyncRequest::Handshake(handshake));
                                 handshake_sent = true;

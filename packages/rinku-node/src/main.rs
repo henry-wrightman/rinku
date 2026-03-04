@@ -51,7 +51,7 @@ use checkpoint::CheckpointService;
 use config::NodeConfig;
 use emission::EmissionService;
 use fork_remediation::ForkRemediationService;
-use gas::{GasConfig, GasService};
+use gas::GasConfig;
 use gossip::{CheckpointVoteSigner, GossipService};
 #[cfg(feature = "p2p")]
 use network::{HandshakeConfig, NetworkConfig, NetworkService};
@@ -363,8 +363,12 @@ async fn main() -> Result<()> {
         info!("Validator key loaded: {}...", &addr[..16.min(addr.len())]);
     }
 
-    let _gas_service = GasService::new(GasConfig::default());
-    info!("Gas service initialized");
+    info!("EIP-1559 gas pricing active (target={} txs/period, adjustment={}, min={}, max={})",
+        GasConfig::default().target_txs_per_period,
+        GasConfig::default().adjustment_factor,
+        GasConfig::default().min_gas_price,
+        GasConfig::default().max_gas_price
+    );
 
     let _rewards_service = RewardsService::new(RewardConfig::default());
     info!("Rewards service initialized");
@@ -598,6 +602,7 @@ async fn main() -> Result<()> {
             bootstrap_peers: config.p2p.bootstrap_peers.clone(),
             enable_mdns: config.p2p.enable_mdns,
             data_dir: Some(config.data_dir.clone()),
+            external_addr: config.p2p.external_addr.clone(),
         };
         
         match NetworkService::new(network_config) {

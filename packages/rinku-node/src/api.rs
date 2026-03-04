@@ -944,6 +944,12 @@ async fn get_sync_transactions(
                 previous_hash: cp.previous_hash.clone(),
                 signature: cp.aggregated_signature.clone(),
                 genesis_hash: state_guard.genesis_hash.clone(),
+                finalized_tx_hashes: cp.finalized_tx_hashes.clone(),
+                state_root: Some(cp.state_root.clone()),
+                receipt_root: Some(cp.receipt_root.clone()),
+                tip_count: Some(cp.tip_count),
+                validator_signatures: cp.validator_signatures.clone(),
+                signer_bitmap: cp.signer_bitmap.clone(),
             })
             .collect();
         let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -1075,6 +1081,12 @@ async fn post_sync_delta(
                 previous_hash: cp.previous_hash.clone(),
                 signature: cp.aggregated_signature.clone(),
                 genesis_hash: state_guard.genesis_hash.clone(),
+                finalized_tx_hashes: cp.finalized_tx_hashes.clone(),
+                state_root: Some(cp.state_root.clone()),
+                receipt_root: Some(cp.receipt_root.clone()),
+                tip_count: Some(cp.tip_count),
+                validator_signatures: cp.validator_signatures.clone(),
+                signer_bitmap: cp.signer_bitmap.clone(),
             })
             .collect();
         let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);

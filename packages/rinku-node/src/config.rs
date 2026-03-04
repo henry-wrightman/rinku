@@ -7,7 +7,7 @@ use tracing::{info, warn};
 /// Transactions must be at least this old to be included in checkpoints
 /// This gives time for transactions to propagate to all validators before finalization
 /// Reduces merkle root mismatches due to transaction propagation delays during high volume
-pub const PROPAGATION_GRACE_MS: u64 = 5000; // 5 seconds
+pub const PROPAGATION_GRACE_MS: u64 = 2000; // 2 seconds
 
 /// Maximum allowed future timestamp offset for transactions (in milliseconds)
 /// Transactions with timestamps more than this far in the future are rejected
@@ -26,12 +26,12 @@ pub const MEMPOOL_CLEANUP_INTERVAL_MS: u64 = 30_000; // 30 seconds
 /// Graceful degradation threshold (tip count)
 /// When DAG tips exceed this, enter degraded mode: only accept validator/system transactions
 /// User transactions are rejected with 503 until tips drop below threshold
-pub const DEGRADED_MODE_THRESHOLD: usize = 100;
+pub const DEGRADED_MODE_THRESHOLD: usize = 1000;
 
 /// Hard backpressure threshold (tip count)
 /// When DAG tips exceed this, reject ALL transactions including validator txs
 /// This is the last line of defense before node overload
-pub const MAX_TIPS_BACKPRESSURE: usize = 300;
+pub const MAX_TIPS_BACKPRESSURE: usize = 1000;
 
 #[derive(Debug, Clone)]
 pub struct GenesisValidator {
@@ -65,6 +65,7 @@ pub struct P2pConfig {
     pub enable_mdns: bool,
     pub max_peers: usize,
     pub connection_timeout_secs: u64,
+    pub external_addr: Option<String>,
 }
 
 impl Default for P2pConfig {
@@ -76,6 +77,7 @@ impl Default for P2pConfig {
             enable_mdns: true,
             max_peers: 50,
             connection_timeout_secs: 60,
+            external_addr: None,
         }
     }
 }
@@ -116,6 +118,8 @@ impl P2pConfig {
             .and_then(|n| n.parse().ok())
             .unwrap_or(60);
 
+        let external_addr = std::env::var("P2P_EXTERNAL_ADDR").ok();
+
         Self {
             enabled,
             listen_addr,
@@ -123,6 +127,7 @@ impl P2pConfig {
             enable_mdns,
             max_peers,
             connection_timeout_secs,
+            external_addr,
         }
     }
 }
@@ -211,7 +216,7 @@ impl NodeConfig {
             checkpoint_interval_ms: env::var("CHECKPOINT_INTERVAL_MS")
                 .ok()
                 .and_then(|n| n.parse().ok())
-                .unwrap_or(15000),
+                .unwrap_or(5000),
             gossip_interval_ms: env::var("GOSSIP_INTERVAL_MS")
                 .ok()
                 .and_then(|n| n.parse().ok())

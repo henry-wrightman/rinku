@@ -122,6 +122,8 @@ pub struct PeerHandshake {
     pub checkpoint_height: u64,
     pub validator_address: Option<String>,
     pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub known_peer_addrs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,6 +178,18 @@ pub struct CheckpointData {
     pub signature: Option<String>,
     #[serde(default)]
     pub genesis_hash: Option<String>,
+    #[serde(default)]
+    pub finalized_tx_hashes: Vec<String>,
+    #[serde(default)]
+    pub state_root: Option<String>,
+    #[serde(default)]
+    pub receipt_root: Option<String>,
+    #[serde(default)]
+    pub tip_count: Option<u32>,
+    #[serde(default)]
+    pub validator_signatures: Vec<rinku_core::types::ValidatorSignature>,
+    #[serde(default)]
+    pub signer_bitmap: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,6 +233,7 @@ pub struct NetworkConfig {
     pub bootstrap_peers: Vec<String>,
     pub enable_mdns: bool,
     pub data_dir: Option<String>,
+    pub external_addr: Option<String>,
 }
 
 impl Default for NetworkConfig {
@@ -228,6 +243,7 @@ impl Default for NetworkConfig {
             bootstrap_peers: Vec::new(),
             enable_mdns: true,
             data_dir: None,
+            external_addr: None,
         }
     }
 }
@@ -379,6 +395,10 @@ pub struct NetworkService {
     peer_scores_path: Option<String>,
     /// Command channel for dial requests etc
     command_rx: mpsc::Receiver<NetworkCommand>,
+    /// Recently dialed PEX addresses to avoid dial storms (multiaddr -> timestamp)
+    recently_dialed_pex: HashMap<String, u64>,
+    /// Counter for mesh maintenance cycles (for periodic PEX)
+    mesh_maintenance_counter: u32,
 }
 
 struct NetworkStatsInner {
@@ -513,6 +533,8 @@ impl NetworkService {
             peer_scores,
             peer_scores_path,
             command_rx,
+            recently_dialed_pex: HashMap::new(),
+            mesh_maintenance_counter: 0,
         };
 
         Ok((service, handle))
@@ -582,6 +604,8 @@ impl NetworkService {
     }
     
     async fn perform_mesh_maintenance(&mut self) {
+        self.mesh_maintenance_counter = self.mesh_maintenance_counter.wrapping_add(1);
+
         let validated_peer_count = {
             let peers = self.peers.read().await;
             peers.values().filter(|p| p.handshake_validated).count()
@@ -603,6 +627,31 @@ impl NetworkService {
             }
         } else {
             debug!("Mesh healthy: {} validated peers", validated_peer_count);
+        }
+
+        const PEX_INTERVAL_CYCLES: u32 = 3;
+        const PEX_TARGET_PEERS: usize = 5;
+        if self.mesh_maintenance_counter % PEX_INTERVAL_CYCLES == 0
+            && validated_peer_count > 0
+            && validated_peer_count < PEX_TARGET_PEERS
+        {
+            let connected_peer_ids: Vec<PeerId> = {
+                let peers = self.peers.read().await;
+                peers.iter()
+                    .filter(|(_, stats)| stats.handshake_validated)
+                    .map(|(pid, _)| *pid)
+                    .collect()
+            };
+
+            let handshake = self.create_handshake(0, self.handshake_config.validator_address.clone());
+            let request = SyncRequest::Handshake(handshake);
+
+            for pid in connected_peer_ids {
+                if self.swarm.is_connected(&pid) {
+                    debug!("PEX: Sending periodic handshake to {}", pid);
+                    self.swarm.behaviour_mut().request_response.send_request(&pid, request.clone());
+                }
+            }
         }
     }
 
@@ -793,6 +842,7 @@ impl NetworkService {
                         }
                         
                         if let SyncRequest::Handshake(ref info) = request {
+                            let pex_addrs_to_process = info.known_peer_addrs.clone();
                             match self.validate_handshake(info) {
                                 Ok(_) => {
                                     let mut peers = self.peers.write().await;
@@ -819,6 +869,10 @@ impl NetworkService {
                                         channel,
                                         response
                                     );
+                                    drop(peers);
+                                    if !pex_addrs_to_process.is_empty() {
+                                        self.process_pex_addresses(&pex_addrs_to_process, &peer);
+                                    }
                                 }
                                 Err(e) => {
                                     warn!("Handshake validation failed for {}: {}", peer, e);
@@ -861,8 +915,9 @@ impl NetworkService {
                     request_response::Message::Response { request_id, response } => {
                         debug!("Received sync response for {:?}", request_id);
                         if let Some(pending) = self.pending_requests.remove(&request_id) {
-                            if let SyncResponse::Handshake(info) = &response {
+                            let pex_result = if let SyncResponse::Handshake(info) = &response {
                                 info!("Handshake response from {}: validator_address={:?}", pending.peer_id, info.validator_address);
+                                let pex_addrs = info.known_peer_addrs.clone();
                                 match self.validate_handshake(info) {
                                     Ok(_) => {
                                         let mut peers = self.peers.write().await;
@@ -872,11 +927,20 @@ impl NetworkService {
                                             peer_stats.score = peer_stats.score.saturating_add(10);
                                             self.persist_peer_score_sync(&pending.peer_id, peer_stats.score);
                                         }
+                                        Some((pex_addrs, pending.peer_id))
                                     }
                                     Err(e) => {
                                         warn!("Handshake response invalid from {}: {}", pending.peer_id, e);
                                         self.record_misbehavior_sync(&pending.peer_id.to_string());
+                                        None
                                     }
+                                }
+                            } else {
+                                None
+                            };
+                            if let Some((pex_addrs, from_peer)) = pex_result {
+                                if !pex_addrs.is_empty() {
+                                    self.process_pex_addresses(&pex_addrs, &from_peer);
                                 }
                             }
                             if let Some(response_tx) = pending.response_tx {
@@ -1149,8 +1213,9 @@ impl NetworkService {
         }
     }
 
-    /// Create a handshake info for this node
+    /// Create a handshake info for this node, including known peer addresses for PEX
     pub fn create_handshake(&self, checkpoint_height: u64, validator_address: Option<String>) -> PeerHandshake {
+        let known_peer_addrs = self.collect_known_peer_addrs();
         PeerHandshake {
             protocol_version: self.handshake_config.protocol_version.clone(),
             chain_id: self.handshake_config.chain_id.clone(),
@@ -1159,6 +1224,99 @@ impl NetworkService {
             checkpoint_height,
             validator_address,
             capabilities: vec!["sync".to_string(), "gossip".to_string(), "proofs".to_string()],
+            known_peer_addrs,
+        }
+    }
+
+    fn collect_known_peer_addrs(&self) -> Vec<String> {
+        let mut addrs = Vec::new();
+        if let Some(ref external) = self.config.external_addr {
+            let our_addr = format!("{}/p2p/{}", external, self.local_peer_id);
+            addrs.push(our_addr);
+        }
+        for bootstrap in &self.config.bootstrap_peers {
+            if !addrs.contains(bootstrap) {
+                addrs.push(bootstrap.clone());
+            }
+        }
+        let base_count = addrs.len();
+        if let Ok(peers) = self.peers.try_read() {
+            for (_, stats) in peers.iter() {
+                if !stats.handshake_validated {
+                    continue;
+                }
+                if let Some(ref info) = stats.handshake_info {
+                    for addr in &info.known_peer_addrs {
+                        if !addrs.contains(addr) {
+                            addrs.push(addr.clone());
+                        }
+                    }
+                }
+            }
+            let peer_addrs_added = addrs.len() - base_count;
+            if peer_addrs_added > 0 {
+                debug!("PEX: Sharing {} addrs from {} connected peers (total {} addrs)", peer_addrs_added, peers.len(), addrs.len());
+            }
+        }
+        const MAX_PEX_ADDRS: usize = 20;
+        addrs.truncate(MAX_PEX_ADDRS);
+        addrs
+    }
+
+    fn process_pex_addresses(&mut self, peer_addrs: &[String], from_peer: &PeerId) {
+        const PEX_DIAL_COOLDOWN_SECS: u64 = 60;
+        const MAX_PEX_ADDRS_PER_HANDSHAKE: usize = 10;
+        let now = current_time_secs();
+
+        self.recently_dialed_pex.retain(|_, ts| now - *ts < PEX_DIAL_COOLDOWN_SECS);
+
+        let mut dialed_this_round = 0usize;
+        for addr_str in peer_addrs {
+            if dialed_this_round >= MAX_PEX_ADDRS_PER_HANDSHAKE {
+                break;
+            }
+            if let Ok(addr) = addr_str.parse::<Multiaddr>() {
+                let peer_id_from_addr = addr.iter().find_map(|p| {
+                    if let libp2p::multiaddr::Protocol::P2p(peer_id) = p {
+                        Some(peer_id)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(target_peer_id) = peer_id_from_addr {
+                    if target_peer_id == self.local_peer_id {
+                        continue;
+                    }
+                    if target_peer_id == *from_peer {
+                        continue;
+                    }
+
+                    let already_connected = self.swarm.is_connected(&target_peer_id);
+                    if already_connected {
+                        continue;
+                    }
+
+                    if self.recently_dialed_pex.contains_key(addr_str) {
+                        continue;
+                    }
+
+                    let is_banned = {
+                        let banned = self.banned_peers.try_read();
+                        banned.map(|b| b.contains_key(&target_peer_id.to_string())).unwrap_or(false)
+                    };
+                    if is_banned {
+                        continue;
+                    }
+
+                    info!("PEX: Discovered new peer {} via {}, dialing {}", target_peer_id, from_peer, addr_str);
+                    self.recently_dialed_pex.insert(addr_str.clone(), now);
+                    dialed_this_round += 1;
+                    if let Err(e) = self.swarm.dial(addr.clone()) {
+                        debug!("PEX: Failed to dial {}: {}", addr_str, e);
+                    }
+                }
+            }
         }
     }
 
@@ -1288,6 +1446,7 @@ mod tests {
             bootstrap_peers: Vec::new(),
             enable_mdns: false,
             data_dir: None,
+            external_addr: None,
         };
         let (mut service, _handle) = NetworkService::new(config).unwrap();
         let mut handshake_config = HandshakeConfig::default();
@@ -1303,6 +1462,7 @@ mod tests {
             checkpoint_height: 0,
             validator_address: None,
             capabilities: vec!["sync".to_string()],
+            known_peer_addrs: Vec::new(),
         };
 
         assert!(service.validate_handshake(&bad_handshake).is_err());
@@ -1315,6 +1475,7 @@ mod tests {
             checkpoint_height: 0,
             validator_address: None,
             capabilities: vec!["sync".to_string()],
+            known_peer_addrs: Vec::new(),
         };
 
         assert!(service.validate_handshake(&good_handshake).is_ok());

@@ -105,7 +105,7 @@ impl NodeState {
                     missing_hashes.contains(&n.hash)
                 } else {
                     n.checkpoint_height
-                        .map(|h| h >= from_checkpoint)
+                        .map(|h| h > from_checkpoint)
                         .unwrap_or(true)
                 }
             })

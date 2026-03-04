@@ -530,8 +530,8 @@ impl Default for GasConfig {
         Self {
             min_gas_price: 100_000,
             max_gas_price: 1_000_000_000,
-            target_txs_per_period: 150,
-            adjustment_factor: 0.125,
+            target_txs_per_period: 1500,
+            adjustment_factor: 0.10,
             period_duration_ms: 15000,
         }
     }

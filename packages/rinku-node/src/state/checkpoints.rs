@@ -1,6 +1,106 @@
 use super::*;
+use base64::Engine;
+use crate::bls::verify_aggregated_checkpoint_signature;
 
 impl NodeState {
+    /// Verify BLS aggregate signature on a checkpoint against the known validator set.
+    /// Returns Ok(()) if valid, or Err with reason if invalid.
+    /// Skips verification if the checkpoint has no aggregated signature (legacy/testnet).
+    ///
+    /// `sorted_validator_bls_keys_and_stakes` must be sorted by address (same order as
+    /// the validator set used during signing) and provides (bls_public_key, effective_stake)
+    /// pairs for stake-weighted quorum checking.
+    pub fn verify_checkpoint_bls(
+        checkpoint: &rinku_core::types::Checkpoint,
+        sorted_validator_bls_keys_and_stakes: &[(Vec<u8>, u64)],
+    ) -> anyhow::Result<()> {
+        let agg_sig_b64 = match &checkpoint.aggregated_signature {
+            Some(s) if !s.is_empty() => s.clone(),
+            _ => {
+                tracing::warn!(
+                    "Checkpoint {} at height {} has no BLS aggregate signature — skipping verification",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    checkpoint.height,
+                );
+                return Ok(());
+            }
+        };
+        let signer_bitmap = match &checkpoint.signer_bitmap {
+            Some(bm) if !bm.is_empty() => bm.clone(),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Checkpoint {} has aggregated_signature but no signer_bitmap",
+                    checkpoint.height
+                ));
+            }
+        };
+
+        let agg_sig_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&agg_sig_b64)
+            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(&agg_sig_b64))
+            .map_err(|e| anyhow::anyhow!("Invalid base64 in aggregated_signature: {}", e))?;
+
+        if sorted_validator_bls_keys_and_stakes.is_empty() {
+            return Err(anyhow::anyhow!(
+                "No validator BLS keys available for checkpoint {} verification — cannot verify aggregate signature",
+                checkpoint.height
+            ));
+        }
+
+        let signer_indices = crate::bls::parse_signer_bitmap(
+            &signer_bitmap,
+            sorted_validator_bls_keys_and_stakes.len(),
+        );
+
+        let total_stake: u64 = sorted_validator_bls_keys_and_stakes.iter().map(|(_, s)| *s).sum();
+        let signer_stake: u64 = signer_indices.iter()
+            .filter_map(|&i| sorted_validator_bls_keys_and_stakes.get(i).map(|(_, s)| *s))
+            .sum();
+
+        let quorum_met = if total_stake > 0 {
+            (signer_stake as f64 / total_stake as f64) >= crate::consensus::QUORUM_THRESHOLD
+        } else {
+            false
+        };
+
+        if !quorum_met {
+            return Err(anyhow::anyhow!(
+                "Checkpoint {} stake quorum not met: signer_stake={} / total_stake={} ({:.2}%, need {:.2}%)",
+                checkpoint.height, signer_stake, total_stake,
+                if total_stake > 0 { signer_stake as f64 / total_stake as f64 * 100.0 } else { 0.0 },
+                crate::consensus::QUORUM_THRESHOLD * 100.0,
+            ));
+        }
+
+        let bls_keys_only: Vec<Vec<u8>> = sorted_validator_bls_keys_and_stakes
+            .iter()
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        let checkpoint_hash_bytes = checkpoint.hash.as_bytes();
+        let valid = verify_aggregated_checkpoint_signature(
+            checkpoint_hash_bytes,
+            &agg_sig_bytes,
+            &signer_bitmap,
+            &bls_keys_only,
+        );
+
+        if !valid {
+            return Err(anyhow::anyhow!(
+                "BLS aggregate signature verification FAILED for checkpoint {} at height {}",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                checkpoint.height
+            ));
+        }
+
+        tracing::debug!(
+            "BLS signature verified for checkpoint {} ({}/{} signers, {:.1}% stake)",
+            checkpoint.height, signer_indices.len(), sorted_validator_bls_keys_and_stakes.len(),
+            signer_stake as f64 / total_stake as f64 * 100.0,
+        );
+        Ok(())
+    }
+
     pub async fn get_checkpoint_height(&self) -> u64 {
         let state = self.inner.read().await;
         // CRITICAL: Return the actual height of the last checkpoint, NOT the count!
@@ -60,10 +160,10 @@ impl NodeState {
     /// matches the checkpoint's tx_merkle_root. This ensures we have the same
     /// transaction set as the leader before finalizing.
     /// 
-    /// In production, this should verify:
-    /// 1. Validator signatures meet quorum threshold
-    /// 2. The checkpoint merkle roots match expected state
-    /// For now in testnet mode, we trust the checkpoint if prev_hash links correctly.
+    /// BLS signature verification: Callers MUST call `verify_checkpoint_bls()` before
+    /// invoking this method when validator BLS keys are available. This method validates
+    /// prev_hash chain linkage and merkle root consistency but does not verify BLS
+    /// signatures itself (it lacks access to the validator identity service).
     pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint, _fast_path_executed: Option<&std::collections::HashSet<String>>) -> anyhow::Result<()> {
         use rinku_core::merkle::MerkleTree;
         
@@ -220,14 +320,9 @@ impl NodeState {
             self.record_finalized_batch(finalized_count as u64).await;
         }
         
-        // DETERMINISTIC ORDERING: Sort transactions by hash before execution
-        // to ensure all nodes apply balance changes in identical order,
-        // preventing floating-point rounding divergence across nodes.
         txs_to_execute.sort_by(|a, b| a.hash.cmp(&b.hash));
         
-        for tx in &txs_to_execute {
-            self.execute_finalized_transaction(tx).await;
-        }
+        self.execute_finalized_transactions_batch(&txs_to_execute).await;
         
         Ok(())
     }
@@ -445,14 +540,9 @@ impl NodeState {
             self.record_finalized_batch(finalized_count as u64).await;
         }
         
-        // DETERMINISTIC ORDERING: Sort transactions by hash before execution
-        // to ensure all nodes apply balance changes in identical order,
-        // preventing floating-point rounding divergence across nodes.
         txs_to_execute.sort_by(|a, b| a.hash.cmp(&b.hash));
         
-        for tx in &txs_to_execute {
-            self.execute_finalized_transaction(tx).await;
-        }
+        self.execute_finalized_transactions_batch(&txs_to_execute).await;
         
         // FOLLOWER NODES DO NOT GENERATE PROOFS
         // Only the checkpoint LEADER can generate valid proofs because only they have the

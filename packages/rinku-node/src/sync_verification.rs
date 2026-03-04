@@ -590,6 +590,12 @@ mod tests {
             previous_hash: None,
             signature: None,
             genesis_hash: None,
+            finalized_tx_hashes: Vec::new(),
+            state_root: None,
+            receipt_root: None,
+            tip_count: None,
+            validator_signatures: Vec::new(),
+            signer_bitmap: None,
         };
         let mut tx_checkpoint_heights = std::collections::HashMap::new();
         for tx in &transactions {
