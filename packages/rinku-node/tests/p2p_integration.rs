@@ -88,6 +88,7 @@ mod p2p_tests {
             checkpoint_height: 100,
             validator_address: Some("test_validator".to_string()),
             capabilities: vec!["sync".to_string(), "gossip".to_string()],
+            known_peer_addrs: vec![],
         };
 
         let serialized = serde_json::to_string(&handshake).unwrap();
@@ -305,6 +306,7 @@ mod p2p_tests {
             ],
             enable_mdns: true,
             data_dir: None,
+            external_addr: None,
         };
 
         assert_eq!(config.bootstrap_peers.len(), 2);
@@ -448,6 +450,7 @@ mod e2e_tests {
             bootstrap_peers: Vec::new(),
             enable_mdns: false, // Disable mDNS for predictable testing
             data_dir: None,
+            external_addr: None,
         };
         NetworkService::new(config).expect("Failed to create network service")
     }
