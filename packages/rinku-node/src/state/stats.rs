@@ -67,7 +67,7 @@ impl NodeState {
 
     pub async fn get_total_transactions(&self) -> u64 {
         let state = self.inner.read().await;
-        state.total_transactions
+        std::cmp::max(state.total_transactions, state.dag.node_count() as u64)
     }
 
     pub fn get_elapsed_seconds(&self) -> f64 {

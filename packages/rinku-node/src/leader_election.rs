@@ -215,6 +215,62 @@ impl LeaderElection {
         }
     }
 
+    pub fn get_backup_rank(
+        &self,
+        checkpoint_height: u64,
+        previous_checkpoint_hash: &str,
+        validator_addresses_with_stakes: &[(String, u64)],
+        local_address: &str,
+    ) -> Option<u32> {
+        let result = self.elect_leader_from_validator_addresses(
+            checkpoint_height,
+            previous_checkpoint_hash,
+            validator_addresses_with_stakes,
+            local_address,
+        );
+
+        if result.is_local {
+            return None;
+        }
+
+        let randomness = self.compute_randomness(checkpoint_height, previous_checkpoint_hash);
+
+        let mut all_validators: Vec<(String, u64)> = validator_addresses_with_stakes.to_vec();
+        if !all_validators.iter().any(|(addr, _)| addr == local_address) {
+            all_validators.push((local_address.to_string(), 1));
+        }
+        all_validators.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut hasher = Sha256::new();
+        hasher.update(b"RINKU_BACKUP_ORDER_V1");
+        hasher.update(&randomness);
+        let order_seed = hasher.finalize();
+
+        let mut indexed: Vec<(usize, u64)> = all_validators.iter().enumerate()
+            .filter(|(_, (addr, _))| addr != &result.leader_address)
+            .map(|(i, _)| {
+                let mut h = Sha256::new();
+                h.update(&order_seed);
+                h.update(i.to_le_bytes());
+                let hash = h.finalize();
+                let sort_key = u64::from_le_bytes([
+                    hash[0], hash[1], hash[2], hash[3],
+                    hash[4], hash[5], hash[6], hash[7],
+                ]);
+                (i, sort_key)
+            })
+            .collect();
+        indexed.sort_by_key(|(_, key)| *key);
+
+        for (rank, (idx, _)) in indexed.iter().enumerate() {
+            if all_validators[*idx].0 == local_address {
+                return Some(rank as u32);
+            }
+        }
+
+        Some(all_validators.len().saturating_sub(1) as u32)
+    }
+
     fn compute_randomness(&self, checkpoint_height: u64, previous_hash: &str) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(b"RINKU_LEADER_ELECTION_V1");
@@ -351,6 +407,21 @@ impl LeaderElectionService {
         };
 
         (should_create, result)
+    }
+
+    pub fn get_backup_rank_from_validators(
+        &self,
+        checkpoint_height: u64,
+        previous_checkpoint_hash: &str,
+        validator_addresses_with_stakes: &[(String, u64)],
+        local_address: &str,
+    ) -> Option<u32> {
+        self.election.get_backup_rank(
+            checkpoint_height,
+            previous_checkpoint_hash,
+            validator_addresses_with_stakes,
+            local_address,
+        )
     }
 
     pub fn should_fallback(

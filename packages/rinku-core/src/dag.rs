@@ -29,6 +29,9 @@ pub struct Dag {
     /// Index of unfinalized transaction hashes for O(1) lookup
     /// This avoids O(n) DAG scan when creating checkpoints
     unfinalized: HashSet<String>,
+    /// Per-sender index of unfinalized tx hashes for O(1) sender-scoped lookups
+    /// Avoids O(N_total_unfinalized) scan when computing effective balance/nonce
+    sender_unfinalized: HashMap<String, HashSet<String>>,
     max_nodes: usize,
 }
 
@@ -39,6 +42,7 @@ impl Dag {
             hash_to_index: HashMap::new(),
             tips: HashSet::new(),
             unfinalized: HashSet::new(),
+            sender_unfinalized: HashMap::new(),
             max_nodes,
         }
     }
@@ -58,11 +62,15 @@ impl Dag {
         }
 
         let is_finalized = node.finalized;
+        let sender = node.tx.tx.from.clone();
         let node_idx = self.graph.add_node(node);
         self.hash_to_index.insert(hash.clone(), node_idx);
-        // Only track as unfinalized if the node is actually not finalized
         if !is_finalized {
             self.unfinalized.insert(hash.clone());
+            self.sender_unfinalized
+                .entry(sender)
+                .or_default()
+                .insert(hash.clone());
         }
 
         for parent_hash in &parents {
@@ -110,11 +118,15 @@ impl Dag {
             .count();
 
         let is_finalized = node.finalized;
+        let sender = node.tx.tx.from.clone();
         let node_idx = self.graph.add_node(node);
         self.hash_to_index.insert(hash.clone(), node_idx);
-        // Only track as unfinalized if the node is actually not finalized
         if !is_finalized {
             self.unfinalized.insert(hash.clone());
+            self.sender_unfinalized
+                .entry(sender)
+                .or_default()
+                .insert(hash.clone());
         }
 
         let mut linked_parents = 0;
@@ -384,6 +396,19 @@ impl Dag {
             .collect()
     }
 
+    /// Get unfinalized nodes for a specific sender using per-sender index
+    /// O(K_sender) instead of O(N_total_unfinalized) — critical for add_transaction validation
+    pub fn get_unfinalized_for_sender(&self, sender: &str) -> Vec<&DagNode> {
+        if let Some(hashes) = self.sender_unfinalized.get(sender) {
+            hashes
+                .iter()
+                .filter_map(|hash| self.get_node(hash))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Get count of unfinalized transactions (O(1))
     pub fn unfinalized_count(&self) -> usize {
         self.unfinalized.len()
@@ -391,10 +416,16 @@ impl Dag {
 
     pub fn mark_finalized(&mut self, hash: &str, checkpoint_height: u64) -> Result<(), DagError> {
         if let Some(node) = self.get_node_mut(hash) {
+            let sender = node.tx.tx.from.clone();
             node.finalized = true;
             node.checkpoint_height = Some(checkpoint_height);
-            // Remove from unfinalized index for O(1) checkpoint creation
             self.unfinalized.remove(hash);
+            if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
+                set.remove(hash);
+                if set.is_empty() {
+                    self.sender_unfinalized.remove(&sender);
+                }
+            }
             Ok(())
         } else {
             Err(DagError::NodeNotFound(hash.to_string()))
@@ -405,16 +436,25 @@ impl Dag {
     /// Returns the number of transactions successfully marked
     pub fn mark_finalized_batch(&mut self, hashes: &[String], checkpoint_height: u64) -> usize {
         let mut count = 0;
+        let mut senders_to_remove: Vec<(String, String)> = Vec::new();
         for hash in hashes {
             if let Some(node) = self.get_node_mut(hash) {
+                senders_to_remove.push((node.tx.tx.from.clone(), hash.clone()));
                 node.finalized = true;
                 node.checkpoint_height = Some(checkpoint_height);
                 count += 1;
             }
         }
-        // Bulk remove from unfinalized set (more efficient than individual removes)
         for hash in hashes {
             self.unfinalized.remove(hash);
+        }
+        for (sender, hash) in senders_to_remove {
+            if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
+                set.remove(&hash);
+                if set.is_empty() {
+                    self.sender_unfinalized.remove(&sender);
+                }
+            }
         }
         count
     }
@@ -422,11 +462,60 @@ impl Dag {
     /// Unfinalize a transaction (used during checkpoint chain recovery)
     pub fn unfinalize(&mut self, hash: &str) {
         if let Some(node) = self.get_node_mut(hash) {
+            let sender = node.tx.tx.from.clone();
             node.finalized = false;
             node.checkpoint_height = None;
-            // Add back to unfinalized index
             self.unfinalized.insert(hash.to_string());
+            self.sender_unfinalized
+                .entry(sender)
+                .or_default()
+                .insert(hash.to_string());
         }
+    }
+
+    pub fn prune_finalized_before(&mut self, min_checkpoint_height: u64) -> usize {
+        let unfinalized_ancestors: std::collections::HashSet<String> = {
+            let mut ancestors = std::collections::HashSet::new();
+            for hash in &self.unfinalized {
+                if let Some(idx) = self.hash_to_index.get(hash) {
+                    if let Some(node) = self.graph.node_weight(*idx) {
+                        for parent in &node.tx.tx.parents {
+                            ancestors.insert(parent.clone());
+                        }
+                    }
+                }
+            }
+            ancestors
+        };
+
+        let to_remove: Vec<NodeIndex> = self
+            .graph
+            .node_indices()
+            .filter(|idx| {
+                self.graph.node_weight(*idx).map_or(false, |node| {
+                    node.finalized
+                        && node.checkpoint_height.map_or(false, |h| h < min_checkpoint_height)
+                        && !self.tips.contains(&node.hash)
+                        && !unfinalized_ancestors.contains(&node.hash)
+                })
+            })
+            .collect();
+
+        let count = to_remove.len();
+        for idx in to_remove.into_iter().rev() {
+            if let Some(node) = self.graph.node_weight(idx) {
+                let hash = node.hash.clone();
+                self.hash_to_index.remove(&hash);
+                self.tips.remove(&hash);
+            }
+            self.graph.remove_node(idx);
+        }
+
+        if count > 0 {
+            self.rebuild_index();
+            self.rebuild_tips();
+        }
+        count
     }
 
     fn prune_oldest(&mut self) -> Result<(), DagError> {
@@ -511,9 +600,16 @@ impl Dag {
         for idx in to_remove.into_iter().rev() {
             if let Some(node) = self.graph.node_weight(idx) {
                 let hash = node.hash.clone();
+                let sender = node.tx.tx.from.clone();
                 self.hash_to_index.remove(&hash);
                 self.tips.remove(&hash);
                 self.unfinalized.remove(&hash);
+                if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
+                    set.remove(&hash);
+                    if set.is_empty() {
+                        self.sender_unfinalized.remove(&sender);
+                    }
+                }
             }
             self.graph.remove_node(idx);
         }
@@ -526,11 +622,16 @@ impl Dag {
     fn rebuild_index(&mut self) {
         self.hash_to_index.clear();
         self.unfinalized.clear();
+        self.sender_unfinalized.clear();
         for idx in self.graph.node_indices() {
             if let Some(node) = self.graph.node_weight(idx) {
                 self.hash_to_index.insert(node.hash.clone(), idx);
                 if !node.finalized {
                     self.unfinalized.insert(node.hash.clone());
+                    self.sender_unfinalized
+                        .entry(node.tx.tx.from.clone())
+                        .or_default()
+                        .insert(node.hash.clone());
                 }
             }
         }
@@ -558,6 +659,15 @@ impl Dag {
         let idx = self.hash_to_index.remove(hash)?;
         self.tips.remove(hash);
         self.unfinalized.remove(hash);
+        if let Some(node) = self.graph.node_weight(idx) {
+            let sender = node.tx.tx.from.clone();
+            if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
+                set.remove(hash);
+                if set.is_empty() {
+                    self.sender_unfinalized.remove(&sender);
+                }
+            }
+        }
 
         let parent_hashes: Vec<String> = self
             .graph
@@ -675,8 +785,8 @@ mod tests {
             checkpoint_height: None,
             received_at_ms: Some(0),
             partition_epoch: None,
-            provisional_finality: false,
             rolled_back: false,
+            convergence_certificate: None,
         }
     }
 

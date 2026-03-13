@@ -92,6 +92,7 @@ impl FastPathService {
             registered_at_ms: now_ms,
             confirmed_at_ms: None,
             checkpoint_height: None,
+            tx_created_at_ms: Some(tx.tx.timestamp),
         };
 
         inner.pending_txs.insert(tx.hash.clone(), finality.clone());

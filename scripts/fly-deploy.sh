@@ -286,8 +286,8 @@ build_genesis_validators_env() {
 apply_genesis_validators_secrets() {
     local genesis_validators_env=$1
     
-    log_info "Applying GENESIS_VALIDATORS to all nodes..."
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do #  "$RELAYER1_APP"
+    log_info "Applying GENESIS_VALIDATORS to all nodes (including relayer)..."
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
         fly secrets set -a "$app" GENESIS_VALIDATORS="$genesis_validators_env"
         fly secrets deploy -a "$app"
     done
@@ -298,6 +298,8 @@ configure_genesis() {
     local genesis_app=$1
     log_info "Configuring $genesis_app as genesis node..."
     
+    local app_ip=$(get_app_ipv4 "$genesis_app")
+    
     fly secrets set -a "$genesis_app" \
         IS_GENESIS_NODE="true" \
         MAINNET_MODE="true" \
@@ -306,6 +308,14 @@ configure_genesis() {
         NETWORK_ID="$NETWORK_ID" \
         VALIDATOR_KEY_PASSWORD="testnet-${genesis_app}" \
         PUBLIC_URL="https://${genesis_app}.fly.dev"
+    
+    if [ -n "$app_ip" ]; then
+        local p2p_external_addr="/ip4/${app_ip}/tcp/4001"
+        log_info "Setting P2P_EXTERNAL_ADDR=${p2p_external_addr} for $genesis_app"
+        fly secrets set -a "$genesis_app" P2P_EXTERNAL_ADDR="$p2p_external_addr"
+    else
+        log_warn "No IPv4 found for $genesis_app — PEX address sharing will be limited"
+    fi
     
     log_success "Configured $genesis_app as genesis node"
 }
@@ -329,6 +339,15 @@ configure_validator() {
         NETWORK_ID="$NETWORK_ID" \
         VALIDATOR_KEY_PASSWORD="testnet-${validator_app}" \
         PUBLIC_URL="https://${validator_app}.fly.dev"
+    
+    local app_ip=$(get_app_ipv4 "$validator_app")
+    if [ -n "$app_ip" ]; then
+        local p2p_external_addr="/ip4/${app_ip}/tcp/4001"
+        log_info "Setting P2P_EXTERNAL_ADDR=${p2p_external_addr} for $validator_app"
+        fly secrets set -a "$validator_app" P2P_EXTERNAL_ADDR="$p2p_external_addr"
+    else
+        log_warn "No IPv4 found for $validator_app — PEX address sharing will be limited"
+    fi
     
     log_success "Configured $validator_app with bootstrap peer (IS_GENESIS_NODE=false)"
 }
@@ -356,7 +375,31 @@ configure_relayer() {
         RELAY_MIN_STAKE="100" \
         RELAY_FEE_PERCENT="0.1"
     
+    local app_ip=$(get_app_ipv4 "$relayer_app")
+    if [ -n "$app_ip" ]; then
+        local p2p_external_addr="/ip4/${app_ip}/tcp/4001"
+        log_info "Setting P2P_EXTERNAL_ADDR=${p2p_external_addr} for $relayer_app"
+        fly secrets set -a "$relayer_app" P2P_EXTERNAL_ADDR="$p2p_external_addr"
+    else
+        log_warn "No IPv4 found for $relayer_app — PEX address sharing will be limited"
+    fi
+    
     log_success "Configured $relayer_app as relayer with relay mode enabled"
+}
+
+refresh_p2p_external_addrs() {
+    log_info "Refreshing P2P_EXTERNAL_ADDR for all nodes..."
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+        if app_exists "$app"; then
+            local app_ip=$(get_app_ipv4 "$app")
+            if [ -n "$app_ip" ]; then
+                local p2p_external_addr="/ip4/${app_ip}/tcp/4001"
+                log_info "Setting P2P_EXTERNAL_ADDR=${p2p_external_addr} for $app"
+                fly secrets set -a "$app" P2P_EXTERNAL_ADDR="$p2p_external_addr"
+            fi
+        fi
+    done
+    log_success "P2P_EXTERNAL_ADDR refreshed"
 }
 
 show_status() {
@@ -433,6 +476,8 @@ deploy_update() {
     
     check_fly_auth
     
+    refresh_p2p_external_addrs
+    
     log_info "Deploying genesis node..."
     deploy_app "$GENESIS_APP"
     
@@ -448,10 +493,10 @@ deploy_update() {
         deploy_app "$VALIDATOR2_APP"
     fi
     
-    if app_exists "$RELAYER1_APP"; then
-        log_info "Deploying relayer 1..."
-        deploy_app "$RELAYER1_APP"
-    fi
+    # if app_exists "$RELAYER1_APP"; then
+    #     log_info "Deploying relayer 1..."
+    #     deploy_app "$RELAYER1_APP"
+    # fi
     
     log_success "=== All nodes updated successfully ==="
     show_status
@@ -460,6 +505,12 @@ deploy_update() {
 deploy_update_genesis() {
     log_info "=== Updating Genesis Node Only ==="
     check_fly_auth
+    
+    local app_ip=$(get_app_ipv4 "$GENESIS_APP")
+    if [ -n "$app_ip" ]; then
+        fly secrets set -a "$GENESIS_APP" P2P_EXTERNAL_ADDR="/ip4/${app_ip}/tcp/4001"
+    fi
+    
     deploy_app "$GENESIS_APP"
     log_success "Genesis node updated"
 }
@@ -467,6 +518,8 @@ deploy_update_genesis() {
 deploy_update_validators() {
     log_info "=== Updating Validator Nodes Only ==="
     check_fly_auth
+    
+    refresh_p2p_external_addrs
     
     if app_exists "$VALIDATOR1_APP"; then
         deploy_app "$VALIDATOR1_APP"
@@ -476,9 +529,9 @@ deploy_update_validators() {
         deploy_app "$VALIDATOR2_APP"
     fi
     
-    if app_exists "$RELAYER1_APP"; then
-        deploy_app "$RELAYER1_APP"
-    fi
+    # if app_exists "$RELAYER1_APP"; then
+    #     deploy_app "$RELAYER1_APP"
+    # fi
     
     log_success "Validator and relayer nodes updated"
 }
@@ -515,7 +568,7 @@ deploy_fresh() {
     # allocate_ipv4_if_needed "$RELAYER1_APP"
     
     log_info "Step 3: Destroying existing machines (IPs are preserved)..."
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do # " "$RELAYER1_APP
+    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
     if app_exists "$app"; then
         destroy_all_machines "$app"
         wait_for_no_machines "$app"

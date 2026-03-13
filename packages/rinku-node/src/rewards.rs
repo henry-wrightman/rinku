@@ -445,6 +445,53 @@ impl RewardsService {
     pub fn get_pending_rewards(&self, address: &str) -> u64 {
         self.pending_rewards.get(address).copied().unwrap_or(0)
     }
+
+    pub fn rollback_rewards_above_height(&mut self, target_height: u64, emission: &crate::emission::EmissionService) {
+        let last_height = emission.get_last_reward_height();
+        if target_height >= last_height {
+            return;
+        }
+
+        let mut total_to_revert = 0u64;
+        for h in (target_height + 1)..=last_height {
+            total_to_revert += emission.get_checkpoint_reward(h);
+        }
+
+        if total_to_revert == 0 {
+            return;
+        }
+
+        let eligible: Vec<(String, u64)> = self.stakes
+            .values()
+            .filter(|s| s.amount >= self.config.min_stake_amount)
+            .map(|s| (s.staker.clone(), s.amount))
+            .collect();
+        let total_stake: u64 = eligible.iter().map(|(_, a)| *a).sum();
+        if total_stake == 0 {
+            return;
+        }
+
+        let mut reverted_count = 0u64;
+        for (staker, stake_amount) in &eligible {
+            let share = ((total_to_revert as u128 * *stake_amount as u128) / total_stake as u128) as u64;
+            if share == 0 {
+                continue;
+            }
+
+            if let Some(pending) = self.pending_rewards.get_mut(staker) {
+                *pending = pending.saturating_sub(share);
+            }
+            if let Some(lifetime) = self.lifetime_rewards.get_mut(staker) {
+                lifetime.stake_rewards = lifetime.stake_rewards.saturating_sub(share);
+            }
+            reverted_count += 1;
+        }
+
+        tracing::info!(
+            "Rewards rollback: reverted {} micro-units across {} validators for heights {}..={}",
+            total_to_revert, reverted_count, target_height + 1, last_height
+        );
+    }
     
     pub fn get_claimed_total(&self, address: &str) -> u64 {
         self.claimed_rewards.get(address).copied().unwrap_or(0)

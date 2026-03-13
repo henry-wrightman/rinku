@@ -2,6 +2,13 @@ use super::*;
 use base64::Engine;
 use crate::bls::verify_aggregated_checkpoint_signature;
 
+pub enum BlsVerifyResult {
+    NoSignature,
+    ValidWithQuorum,
+    ValidNoQuorum { signer_stake: u64, total_stake: u64 },
+    Invalid(String),
+}
+
 impl NodeState {
     /// Verify BLS aggregate signature on a checkpoint against the known validator set.
     /// Returns Ok(()) if valid, or Err with reason if invalid.
@@ -77,9 +84,19 @@ impl NodeState {
             .map(|(k, _)| k.clone())
             .collect();
 
-        let checkpoint_hash_bytes = checkpoint.hash.as_bytes();
+        let checkpoint_hash_bytes = match hex::decode(&checkpoint.hash) {
+            Ok(b) => b,
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "Checkpoint {} at height {} has non-hex hash — cannot verify BLS: {}",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    checkpoint.height,
+                    e
+                ));
+            }
+        };
         let valid = verify_aggregated_checkpoint_signature(
-            checkpoint_hash_bytes,
+            &checkpoint_hash_bytes,
             &agg_sig_bytes,
             &signer_bitmap,
             &bls_keys_only,
@@ -101,13 +118,104 @@ impl NodeState {
         Ok(())
     }
 
-    pub async fn get_checkpoint_height(&self) -> u64 {
-        let state = self.inner.read().await;
-        // CRITICAL: Return the actual height of the last checkpoint, NOT the count!
-        // After pruning, len() can be 500 while actual height is 516+
-        state.checkpoints.last()
-            .map(|cp| cp.height)
-            .unwrap_or(0)
+    pub fn verify_checkpoint_bls_signature_only(
+        checkpoint: &rinku_core::types::Checkpoint,
+        sorted_validator_bls_keys_and_stakes: &[(Vec<u8>, u64)],
+    ) -> BlsVerifyResult {
+        let agg_sig_b64 = match &checkpoint.aggregated_signature {
+            Some(s) if !s.is_empty() => s.clone(),
+            _ => {
+                return BlsVerifyResult::NoSignature;
+            }
+        };
+        let signer_bitmap = match &checkpoint.signer_bitmap {
+            Some(bm) if !bm.is_empty() => bm.clone(),
+            _ => {
+                return BlsVerifyResult::Invalid(format!(
+                    "Checkpoint {} has aggregated_signature but no signer_bitmap",
+                    checkpoint.height
+                ));
+            }
+        };
+
+        let agg_sig_bytes = match base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&agg_sig_b64)
+            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(&agg_sig_b64))
+        {
+            Ok(b) => b,
+            Err(e) => return BlsVerifyResult::Invalid(format!("Invalid base64: {}", e)),
+        };
+
+        if sorted_validator_bls_keys_and_stakes.is_empty() {
+            return BlsVerifyResult::Invalid(format!(
+                "No validator BLS keys available for checkpoint {}",
+                checkpoint.height
+            ));
+        }
+
+        let signer_indices = crate::bls::parse_signer_bitmap(
+            &signer_bitmap,
+            sorted_validator_bls_keys_and_stakes.len(),
+        );
+
+        if signer_indices.is_empty() {
+            return BlsVerifyResult::Invalid(format!(
+                "Checkpoint {} has no signers in bitmap",
+                checkpoint.height
+            ));
+        }
+
+        let bls_keys_only: Vec<Vec<u8>> = sorted_validator_bls_keys_and_stakes
+            .iter()
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        let checkpoint_hash_bytes = match hex::decode(&checkpoint.hash) {
+            Ok(b) => b,
+            Err(e) => {
+                return BlsVerifyResult::Invalid(format!(
+                    "Checkpoint {} at height {} has non-hex hash — cannot verify BLS: {}",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    checkpoint.height,
+                    e
+                ));
+            }
+        };
+        let valid = crate::bls::verify_aggregated_checkpoint_signature(
+            &checkpoint_hash_bytes,
+            &agg_sig_bytes,
+            &signer_bitmap,
+            &bls_keys_only,
+        );
+
+        if !valid {
+            return BlsVerifyResult::Invalid(format!(
+                "BLS aggregate signature verification FAILED for checkpoint {} at height {}",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                checkpoint.height
+            ));
+        }
+
+        let total_stake: u64 = sorted_validator_bls_keys_and_stakes.iter().map(|(_, s)| *s).sum();
+        let signer_stake: u64 = signer_indices.iter()
+            .filter_map(|&i| sorted_validator_bls_keys_and_stakes.get(i).map(|(_, s)| *s))
+            .sum();
+
+        let quorum_met = total_stake > 0
+            && (signer_stake as f64 / total_stake as f64) >= crate::consensus::QUORUM_THRESHOLD;
+
+        if quorum_met {
+            BlsVerifyResult::ValidWithQuorum
+        } else {
+            BlsVerifyResult::ValidNoQuorum {
+                signer_stake,
+                total_stake,
+            }
+        }
+    }
+
+    pub fn get_checkpoint_height(&self) -> u64 {
+        self.checkpoint_height_cache.load(std::sync::atomic::Ordering::Relaxed)
     }
     
     /// Get the checkpoint height at which a transaction was finalized
@@ -164,7 +272,7 @@ impl NodeState {
     /// invoking this method when validator BLS keys are available. This method validates
     /// prev_hash chain linkage and merkle root consistency but does not verify BLS
     /// signatures itself (it lacks access to the validator identity service).
-    pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint, _fast_path_executed: Option<&std::collections::HashSet<String>>) -> anyhow::Result<()> {
+    pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint) -> anyhow::Result<()> {
         use rinku_core::merkle::MerkleTree;
         
         let mut state = self.inner.write().await;
@@ -222,9 +330,10 @@ impl NodeState {
         let our_merkle_root = if unfinalized_hashes.is_empty() {
             "0".repeat(64)
         } else {
-            match MerkleTree::from_hex_leaves(&unfinalized_hashes) {
-                Ok(tree) => tree.root(),
-                Err(_) => "0".repeat(64),
+            let hashes_clone = unfinalized_hashes.clone();
+            match tokio::task::spawn_blocking(move || MerkleTree::from_hex_leaves(&hashes_clone).map(|t| t.root())).await {
+                Ok(Ok(root)) => root,
+                _ => "0".repeat(64),
             }
         };
         
@@ -239,43 +348,21 @@ impl NodeState {
         // SAFE FINALIZATION: Only finalize if our transaction set matches the leader's
         // FINALITY-FIRST MODEL: Collect transactions for execution after marking finalized
         let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
+        let mut convergence_already_executed: std::collections::HashSet<String> = std::collections::HashSet::new();
         
         if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
             // Our unfinalized set matches the checkpoint - safe to finalize
             for hash in &unfinalized_hashes {
-                // Get transaction timestamp for finality time calculation
+                if state.convergence_executed_hashes.remove(hash) {
+                    convergence_already_executed.insert(hash.clone());
+                }
+                
                 if let Some(node) = state.dag.get_node(hash) {
-                    // DOUBLE-EXECUTION GUARD: Skip already-finalized transactions
                     if node.finalized {
                         continue;
                     }
                     
-                    let tx_timestamp = node.tx.tx.timestamp;
-                    // FINALITY-FIRST: Clone transaction for execution (before mutable borrow)
                     let tx_clone = node.tx.clone();
-                    
-                    // Handle both seconds and milliseconds timestamp formats
-                    let tx_time_ms = if tx_timestamp < 4_000_000_000 {
-                        tx_timestamp * 1000  // Convert seconds to milliseconds
-                    } else {
-                        tx_timestamp
-                    };
-                    let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
-                    
-                    // Cap finality time to 5 minutes (300s) to prevent sync/restore txs from polluting stats
-                    const MAX_FINALITY_MS: u64 = 300_000;
-                    if finality_time_ms <= MAX_FINALITY_MS {
-                        state.finality_sum_ms += finality_time_ms;
-                        state.finality_count += 1;
-                        if finality_time_ms > state.finality_max_ms {
-                            state.finality_max_ms = finality_time_ms;
-                        }
-                        if state.finality_times_ms.len() >= 1000 {
-                            state.finality_times_ms.pop_front();
-                        }
-                        state.finality_times_ms.push_back(finality_time_ms);
-                    }
-                    // FINALITY-FIRST: Collect transaction for execution
                     txs_to_execute.push(tx_clone);
                 }
                 let _ = state.dag.mark_finalized(hash, height);
@@ -313,6 +400,8 @@ impl NodeState {
         state.checkpoints.push(checkpoint.clone());
         state.last_checkpoint_time_ms = now_ms;
         
+        self.checkpoint_height_cache.store(height, std::sync::atomic::Ordering::Relaxed);
+        
         // Release state lock before executing transactions
         drop(state);
         
@@ -320,9 +409,27 @@ impl NodeState {
             self.record_finalized_batch(finalized_count as u64).await;
         }
         
-        txs_to_execute.sort_by(|a, b| a.hash.cmp(&b.hash));
+        txs_to_execute.sort_by(|a, b| {
+            a.tx.from.cmp(&b.tx.from)
+                .then(a.tx.nonce.cmp(&b.tx.nonce))
+                .then(a.hash.cmp(&b.hash))
+        });
         
-        self.execute_finalized_transactions_batch(&txs_to_execute).await;
+        self.execute_finalized_transactions_batch(&txs_to_execute, &convergence_already_executed).await;
+        
+        {
+            let mut state = self.inner.write().await;
+            if finalized_count > 0 {
+                let snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
+                    .accounts
+                    .iter()
+                    .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
+                    .collect();
+                state.checkpoint_accounts_snapshot = Some((height, snapshot));
+            } else {
+                state.checkpoint_accounts_snapshot = None;
+            }
+        }
         
         Ok(())
     }
@@ -335,10 +442,9 @@ impl NodeState {
     /// This is CRITICAL for proof storage decisions - proofs should ONLY be stored when
     /// missing_tx_count == 0, otherwise the proof values won't match local account state.
     pub async fn apply_checkpoint_with_finalized_hashes(
-        &self, 
+        &self,
         checkpoint: Checkpoint,
         finalized_tx_hashes: Vec<String>,
-        _fast_path_executed: &std::collections::HashSet<String>,
     ) -> Result<usize> {
         let mut state = self.inner.write().await;
         
@@ -361,6 +467,7 @@ impl NodeState {
         
         // FINALITY-FIRST MODEL: Collect transactions for execution after marking finalized
         let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
+        let mut convergence_already_executed: std::collections::HashSet<String> = std::collections::HashSet::new();
         
         // Track missing transactions - if we're missing any, our state differs from leader's
         let mut missing_tx_count = 0usize;
@@ -372,44 +479,21 @@ impl NodeState {
             let mut missing = 0;
             
             for hash in &finalized_tx_hashes {
+                // Track which txs were already convergence-executed (fast-path)
+                if state.convergence_executed_hashes.remove(hash) {
+                    convergence_already_executed.insert(hash.clone());
+                }
+                
                 // Only finalize transactions we have in our DAG
                 if let Some(node) = state.dag.get_node(hash) {
-                    // DOUBLE-EXECUTION GUARD: Skip already-finalized transactions
                     if node.finalized {
                         continue;
                     }
                     
-                    let tx_timestamp = node.tx.tx.timestamp;
-                    // FINALITY-FIRST: Clone transaction for execution (before mutable borrow)
                     let tx_clone = node.tx.clone();
                     
-                    // Handle both seconds and milliseconds timestamp formats
-                    let tx_time_ms = if tx_timestamp < 4_000_000_000 {
-                        tx_timestamp * 1000  // Convert seconds to milliseconds
-                    } else {
-                        tx_timestamp
-                    };
-                    let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
-                    
-                    // Cap finality time to 5 minutes (300s) to prevent sync/restore txs from polluting stats
-                    const MAX_FINALITY_MS: u64 = 300_000;
-                    if finality_time_ms <= MAX_FINALITY_MS {
-                        state.finality_sum_ms += finality_time_ms;
-                        state.finality_count += 1;
-                        if finality_time_ms > state.finality_max_ms {
-                            state.finality_max_ms = finality_time_ms;
-                        }
-                        if state.finality_times_ms.len() >= 1000 {
-                            state.finality_times_ms.pop_front();
-                        }
-                        state.finality_times_ms.push_back(finality_time_ms);
-                    }
-                    
-                    // FINALITY-FIRST: Collect transaction for execution
                     txs_to_execute.push(tx_clone);
                     let _ = state.dag.mark_finalized(hash, height);
-                    // Increment total_transactions at checkpoint finalization
-                    state.total_transactions += 1;
                     count += 1;
                 } else {
                     missing += 1;
@@ -462,49 +546,26 @@ impl NodeState {
             let our_merkle_root = if unfinalized_hashes.is_empty() {
                 "0".repeat(64)
             } else {
-                match MerkleTree::from_hex_leaves(&unfinalized_hashes) {
-                    Ok(tree) => tree.root(),
-                    Err(_) => "0".repeat(64),
+                let hashes_clone = unfinalized_hashes.clone();
+                match tokio::task::spawn_blocking(move || MerkleTree::from_hex_leaves(&hashes_clone).map(|t| t.root())).await {
+                    Ok(Ok(root)) => root,
+                    _ => "0".repeat(64),
                 }
             };
             
             if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                 for hash in &unfinalized_hashes {
+                    if state.convergence_executed_hashes.remove(hash) {
+                        convergence_already_executed.insert(hash.clone());
+                    }
+                    
                     if let Some(node) = state.dag.get_node(hash) {
-                        // DOUBLE-EXECUTION GUARD: Skip already-finalized transactions
                         if node.finalized {
                             continue;
                         }
                         
-                        let tx_timestamp = node.tx.tx.timestamp;
-                        // FINALITY-FIRST: Clone transaction for execution (before mutable borrow)
                         let tx_clone = node.tx.clone();
-                        
-                        // Handle both seconds and milliseconds timestamp formats
-                        let tx_time_ms = if tx_timestamp < 4_000_000_000 {
-                            tx_timestamp * 1000  // Convert seconds to milliseconds
-                        } else {
-                            tx_timestamp
-                        };
-                        let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
-                        
-                        // Cap finality time to 5 minutes (300s) to prevent sync/restore txs from polluting stats
-                        const MAX_FINALITY_MS: u64 = 300_000;
-                        if finality_time_ms <= MAX_FINALITY_MS {
-                            state.finality_sum_ms += finality_time_ms;
-                            state.finality_count += 1;
-                            if finality_time_ms > state.finality_max_ms {
-                                state.finality_max_ms = finality_time_ms;
-                            }
-                            if state.finality_times_ms.len() >= 1000 {
-                                state.finality_times_ms.pop_front();
-                            }
-                            state.finality_times_ms.push_back(finality_time_ms);
-                        }
-                        // FINALITY-FIRST: Collect transaction for execution
                         txs_to_execute.push(tx_clone);
-                        // Increment total_transactions only upon finalization
-                        state.total_transactions += 1;
                     }
                     let _ = state.dag.mark_finalized(hash, height);
                 }
@@ -533,6 +594,8 @@ impl NodeState {
         state.checkpoints.push(checkpoint_with_hashes);
         state.last_checkpoint_time_ms = now_ms;
         
+        self.checkpoint_height_cache.store(checkpoint.height, std::sync::atomic::Ordering::Relaxed);
+        
         // Release state lock before executing transactions
         drop(state);
         
@@ -540,30 +603,42 @@ impl NodeState {
             self.record_finalized_batch(finalized_count as u64).await;
         }
         
-        txs_to_execute.sort_by(|a, b| a.hash.cmp(&b.hash));
+        txs_to_execute.sort_by(|a, b| {
+            a.tx.from.cmp(&b.tx.from)
+                .then(a.tx.nonce.cmp(&b.tx.nonce))
+                .then(a.hash.cmp(&b.hash))
+        });
         
-        self.execute_finalized_transactions_batch(&txs_to_execute).await;
+        self.execute_finalized_transactions_batch(&txs_to_execute, &convergence_already_executed).await;
         
-        // FOLLOWER NODES DO NOT GENERATE PROOFS
-        // Only the checkpoint LEADER can generate valid proofs because only they have the
-        // exact simulated account set used to compute state_root. Followers receive checkpoints
-        // with state_root but their account set may differ due to:
-        // - Transaction propagation timing differences
-        // - Activity bot transactions creating accounts on some nodes before others
-        // - Different ordering of parallel transactions
-        // 
-        // Proof generation on followers would use the wrong account set and produce invalid proofs.
-        // Users should query the leader node or wait for proofs to propagate via sync.
-        if missing_tx_count > 0 {
+        if missing_tx_count == 0 {
+            let state = self.inner.read().await;
+            let snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
+                .accounts
+                .iter()
+                .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
+                .collect();
+            drop(state);
+            
+            let mut state = self.inner.write().await;
+            state.checkpoint_accounts_snapshot = Some((height, snapshot));
+            drop(state);
+            
             tracing::debug!(
-                "Follower checkpoint {} - missing {} txs (proofs not generated, query leader)",
+                "Follower checkpoint {} h={} - captured account snapshot for on-demand proofs",
                 &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                missing_tx_count
+                height
             );
         } else {
+            let mut state = self.inner.write().await;
+            state.checkpoint_accounts_snapshot = None;
+            drop(state);
+            
             tracing::debug!(
-                "Follower checkpoint {} applied successfully (proofs not generated, query leader)",
-                &checkpoint.hash[..16.min(checkpoint.hash.len())]
+                "Follower checkpoint {} h={} - missing {} txs, cleared stale snapshot",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                height,
+                missing_tx_count
             );
         }
         

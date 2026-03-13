@@ -4,7 +4,7 @@ use rinku_core::types::SignedTransaction;
 use std::collections::{HashSet, VecDeque};
 use tracing::{debug, info};
 
-pub const DEFAULT_RETENTION_CHECKPOINTS: u64 = 500;
+pub const DEFAULT_RETENTION_CHECKPOINTS: u64 = 50;
 pub const DEFAULT_MAX_DAG_NODES: usize = 100_000;
 pub const PRUNING_BATCH_SIZE: usize = 1000;
 

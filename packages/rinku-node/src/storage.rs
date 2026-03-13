@@ -6,6 +6,26 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
+pub async fn blocking_io<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce() -> Result<R> + Send + 'static,
+    R: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
+}
+
+pub async fn blocking_cpu<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .expect("spawn_blocking join error")
+}
+
 use crate::contracts::ContractState;
 use crate::emission::EmissionSnapshot;
 use crate::rewards::RewardsSnapshot;
@@ -20,6 +40,8 @@ pub struct DagSnapshotEntry {
     pub finalized: bool,
     #[serde(default)]
     pub checkpoint_height: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub convergence_certificate: Option<rinku_core::types::ConvergenceCertificate>,
 }
 
 pub const TABLE_ACCOUNTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("accounts");
@@ -600,9 +622,10 @@ impl RedbStorage {
                         if let Ok(tx) = serde_json::from_slice::<SignedTransaction>(value.value()) {
                             dag_entries.push(DagSnapshotEntry {
                                 tx,
-                                parents: Vec::new(), // No parent info in old format
-                                finalized: true, // Assume finalized in old snapshots
+                                parents: Vec::new(),
+                                finalized: true,
                                 checkpoint_height: None,
+                                convergence_certificate: None,
                             });
                         }
                     }

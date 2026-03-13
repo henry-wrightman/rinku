@@ -9,7 +9,7 @@ use rinku_core::types::{SignedTransaction, Transaction, TransactionKind};
 
 /// With Sparse DAG Sampling (MAX_SAMPLED_TIPS=16), tips grow more slowly.
 /// These thresholds are still generous to handle burst scenarios.
-const UPPER_THRESHOLD: usize = 100;
+const UPPER_THRESHOLD: usize = 500;
 const LOWER_THRESHOLD: usize = 50;
 /// Consolidate same number as MAX_SAMPLED_TIPS for efficient merging
 const TIPS_PER_CONSOLIDATION: usize = 16;
@@ -25,11 +25,12 @@ const TPS_HIGH: f64 = 500.0;
 const TPS_MEDIUM: f64 = 50.0;
 const TPS_LOW: f64 = 10.0;
 
-/// Minimum tips to trigger anchor creation
-/// Set to 3 to avoid premature consolidation on low-activity chains. A value of 2
-/// caused unnecessary consolidation when only 1 user transaction existed alongside
-/// the genesis tx, creating redundant self-transfers.
-const MIN_TIPS_FOR_ANCHOR: usize = 3;
+/// Minimum tips to trigger anchor creation.
+/// Set to 1 so the consolidator always injects anchors even after DAG pruning
+/// reduces tip count. Previously set to 3, which caused leaders to have 0
+/// eligible transactions when tips dropped below the threshold post-pruning,
+/// stalling the chain for 20+ seconds until takeover rotation.
+const MIN_TIPS_FOR_ANCHOR: usize = 1;
 
 pub struct TipConsolidator {
     state: NodeState,
@@ -131,6 +132,11 @@ impl TipConsolidator {
         // Shoal++ enhancement: Create anchor transactions even below threshold
         // This helps converge the DAG faster, reducing checkpoint latency
         if tip_count < MIN_TIPS_FOR_ANCHOR {
+            return;
+        }
+
+        let tps = self.state.get_finalized_tps().await;
+        if tps < 1.0 && tip_count <= TIPS_PER_CONSOLIDATION {
             return;
         }
 

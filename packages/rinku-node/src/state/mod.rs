@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
@@ -25,11 +26,11 @@ pub(crate) mod presync;
 mod accounts;
 mod metadata;
 mod dag;
-mod checkpoints;
+pub(crate) mod checkpoints;
 mod stats;
 mod proofs;
 mod transactions;
-pub use transactions::FastPathExecResult;
+pub use transactions::ConvergenceExecResult;
 mod validators;
 mod sync;
 mod fork;
@@ -142,6 +143,8 @@ pub struct StateInner {
     pub has_synced_from_network: bool,
     pub weight_trie: Option<WeightTrie>,
     pub partition_state: partition::PartitionState,
+    pub checkpoint_accounts_snapshot: Option<(u64, HashMap<String, (u64, u64, u64)>)>,
+    pub convergence_executed_hashes: std::collections::HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -154,6 +157,10 @@ pub struct NodeState {
     pub rewards: Arc<RwLock<RewardsService>>,
     start_time: std::time::Instant,
     pub loaded_from_persistence: bool,
+    pub checkpoint_height_cache: Arc<AtomicU64>,
+    pub dag_write_semaphore: Arc<tokio::sync::Semaphore>,
+    deferred_batch_txs: Arc<tokio::sync::Mutex<Vec<rinku_core::types::SignedTransaction>>>,
+    deferred_batch_retry_counts: Arc<tokio::sync::Mutex<std::collections::HashMap<String, u32>>>,
 }
 
 pub struct StateRootWithProofs {
@@ -239,9 +246,9 @@ impl NodeState {
                             }
                         }),
                         received_at_ms: Some(entry.tx.tx.timestamp),
-            partition_epoch: None,
-            provisional_finality: false,
+                        partition_epoch: None,
                         rolled_back: false,
+                        convergence_certificate: entry.convergence_certificate.clone(),
                     };
                     let _ = dag.add_node(node);
                 }
@@ -313,6 +320,8 @@ impl NodeState {
                         Some(wt)
                     },
                     partition_state: partition::PartitionState::default(),
+                    checkpoint_accounts_snapshot: None,
+                    convergence_executed_hashes: std::collections::HashSet::new(),
                 }
             } else {
                 if let Some(snapshot) = presync::try_presync_from_peers(&config.p2p.bootstrap_peers, config.is_genesis_node).await {
@@ -354,9 +363,9 @@ impl NodeState {
                             finalized: is_finalized,
                             checkpoint_height,
                             received_at_ms: Some(tx.tx.timestamp),
-            partition_epoch: None,
-            provisional_finality: false,
+                            partition_epoch: None,
                             rolled_back: false,
+                            convergence_certificate: None,
                         };
                         let _ = dag.add_node(node);
                     }
@@ -404,13 +413,19 @@ impl NodeState {
                         has_synced_from_network: true,
                         weight_trie: Some(WeightTrie::new()),
                         partition_state: partition::PartitionState::default(),
+                        checkpoint_accounts_snapshot: None,
+                        convergence_executed_hashes: std::collections::HashSet::new(),
                     };
                     
-                    let emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
+                    let mut emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
                         EmissionService::from_json(em_snapshot)
                     } else {
                         EmissionService::new()
                     };
+                    let restored_height = snapshot.checkpoints.last().map(|c| c.height).unwrap_or(0);
+                    if restored_height > 0 {
+                        emission.set_last_reward_height(restored_height);
+                    }
                     
                     let slashing = if let Some(sl_snapshot) = snapshot.slashing_snapshot {
                         SlashingService::from_json(sl_snapshot)
@@ -429,6 +444,7 @@ impl NodeState {
                         RewardsService::new(crate::rewards::RewardConfig::default())
                     };
                     
+                    let initial_height = inner.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
                     let node_state = Self {
                         config,
                         inner: Arc::new(RwLock::new(inner)),
@@ -438,6 +454,10 @@ impl NodeState {
                         rewards: Arc::new(RwLock::new(rewards)),
                         start_time: std::time::Instant::now(),
                         loaded_from_persistence: false,
+                        checkpoint_height_cache: Arc::new(AtomicU64::new(initial_height)),
+                        dag_write_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
+                        deferred_batch_txs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+                        deferred_batch_retry_counts: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
                     };
                     
                     node_state.recalculate_dag_weights().await;
@@ -512,9 +532,9 @@ impl NodeState {
                     finalized: true,
                     checkpoint_height: Some(0),
                     received_at_ms: Some(genesis_time * 1000),
-            partition_epoch: None,
-            provisional_finality: false,
+                    partition_epoch: None,
                     rolled_back: false,
+                    convergence_certificate: None,
                 };
                 let _ = dag.add_node(genesis_node);
                 info!(
@@ -592,10 +612,12 @@ impl NodeState {
                     has_synced_from_network: false,
                     weight_trie: Some(WeightTrie::new()),
                     partition_state: partition::PartitionState::default(),
+                    checkpoint_accounts_snapshot: None,
+                    convergence_executed_hashes: std::collections::HashSet::new(),
                 }
             };
 
-        let emission = if let Some(snapshot) = storage.load_emission()? {
+        let mut emission = if let Some(snapshot) = storage.load_emission()? {
             info!(
                 "Restored emission: {:.2} RKU emitted, {:.2} RKU burned",
                 snapshot.total_emitted,
@@ -605,6 +627,10 @@ impl NodeState {
         } else {
             EmissionService::new()
         };
+        {
+            let local_height = inner.checkpoints.last().map(|c| c.height).unwrap_or(0);
+            emission.set_last_reward_height(local_height);
+        }
         
         let slashing = SlashingService::new();
 
@@ -619,6 +645,7 @@ impl NodeState {
             RewardsService::new(crate::rewards::RewardConfig::default())
         };
 
+        let initial_height = inner.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
         let node_state = Self {
             config,
             inner: Arc::new(RwLock::new(inner)),
@@ -628,6 +655,10 @@ impl NodeState {
             rewards: Arc::new(RwLock::new(rewards)),
             start_time: std::time::Instant::now(),
             loaded_from_persistence,
+            checkpoint_height_cache: Arc::new(AtomicU64::new(initial_height)),
+            dag_write_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
+            deferred_batch_txs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            deferred_batch_retry_counts: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         };
         
         node_state.recalculate_dag_weights().await;

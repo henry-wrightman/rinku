@@ -3,11 +3,11 @@ use rinku_core::types::{GasConfig, TokenomicsConfig};
 use std::env;
 use tracing::{info, warn};
 
-/// Propagation grace period in milliseconds
+/// Propagation grace period in milliseconds (default 200ms, configurable via PROPAGATION_GRACE_MS env var)
 /// Transactions must be at least this old to be included in checkpoints
 /// This gives time for transactions to propagate to all validators before finalization
 /// Reduces merkle root mismatches due to transaction propagation delays during high volume
-pub const PROPAGATION_GRACE_MS: u64 = 2000; // 2 seconds
+pub const PROPAGATION_GRACE_MS: u64 = 200;
 
 /// Maximum allowed future timestamp offset for transactions (in milliseconds)
 /// Transactions with timestamps more than this far in the future are rejected
@@ -31,7 +31,7 @@ pub const DEGRADED_MODE_THRESHOLD: usize = 1000;
 /// Hard backpressure threshold (tip count)
 /// When DAG tips exceed this, reject ALL transactions including validator txs
 /// This is the last line of defense before node overload
-pub const MAX_TIPS_BACKPRESSURE: usize = 1000;
+pub const MAX_TIPS_BACKPRESSURE: usize = 500;
 
 #[derive(Debug, Clone)]
 pub struct GenesisValidator {
@@ -118,7 +118,9 @@ impl P2pConfig {
             .and_then(|n| n.parse().ok())
             .unwrap_or(60);
 
-        let external_addr = std::env::var("P2P_EXTERNAL_ADDR").ok();
+        let external_addr = std::env::var("P2P_EXTERNAL_ADDR")
+            .ok()
+            .filter(|s| !s.is_empty());
 
         Self {
             enabled,
@@ -208,7 +210,7 @@ impl NodeConfig {
             max_dag_nodes: env::var("MAX_DAG_NODES")
                 .ok()
                 .and_then(|n| n.parse().ok())
-                .unwrap_or(300),
+                .unwrap_or(2000),
             max_tips: env::var("MAX_TIPS")
                 .ok()
                 .and_then(|n| n.parse().ok())

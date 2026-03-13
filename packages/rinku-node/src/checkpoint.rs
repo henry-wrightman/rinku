@@ -1,6 +1,6 @@
 use anyhow::Result;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use futures::future::join_all;
+use futures::stream::{FuturesUnordered, StreamExt};
 use rinku_core::{
     merkle::MerkleTree,
     types::{Checkpoint, ValidatorSignature},
@@ -20,16 +20,15 @@ use crate::consensus::ConsensusService;
 use crate::dag_pruning::{DagPruningService, PruningConfig};
 use crate::leader_election::{LeaderElectionService, LeaderElectionConfig};
 #[cfg(feature = "p2p")]
-use crate::network::{CheckpointData, CheckpointVoteRequest, CheckpointVoteResponse, NetworkHandle, SyncRequest, SyncResponse};
+use crate::network::{CheckpointData, CheckpointPushData, CheckpointVoteRequest, NetworkHandle, SyncRequest, SyncResponse, VoteRequest, VoteResponse};
 use crate::slashing::SlashingService;
 use crate::state::NodeState;
 use crate::trust::TrustVerifier;
 use crate::validator_identity::ValidatorIdentityService;
 
-/// Quorum threshold for multi-validator checkpoints (2/3 of stake)
-/// Use 0.6666 instead of 0.667 to allow exactly 2/3 validators to reach quorum
-/// (e.g., 2000/3000 = 0.6667 >= 0.6666, but 2000/3000 < 0.667)
-const QUORUM_STAKE_THRESHOLD: f64 = 0.6666;
+const DYNAMIC_TX_CAP_MIN: usize = 10;
+const DYNAMIC_TX_CAP_MAX: usize = 500;
+const DYNAMIC_TX_CAP_DEFAULT: usize = 50;
 
 pub struct CheckpointService {
     state: NodeState,
@@ -41,29 +40,29 @@ pub struct CheckpointService {
     consecutive_fork_failures: std::sync::atomic::AtomicU32,
     trust_verifier: Arc<TrustVerifier>,
     validator_identity: Option<Arc<RwLock<ValidatorIdentityService>>>,
-    pruning_service: Option<DagPruningService>,
+    pruning_service: Option<Arc<tokio::sync::Mutex<DagPruningService>>>,
     pruning_counter: std::sync::atomic::AtomicU32,
     consensus_service: Option<Arc<RwLock<ConsensusService>>>,
     slashing_service: Option<Arc<RwLock<SlashingService>>>,
     #[cfg(feature = "p2p")]
-    network_handle: Option<Arc<tokio::sync::Mutex<NetworkHandle>>>,
-    /// Our validator's stake (for quorum calculation)
+    network_handle: Option<Arc<NetworkHandle>>,
     our_stake: u64,
-    /// Leader election service for checkpoint creation
     leader_election: Option<LeaderElectionService>,
-    /// Our public URL for leader election
     local_url: Option<String>,
-    /// Enforce strict quorum/signature requirements
     mainnet_mode: bool,
-    /// GossipService for immediate checkpoint broadcast
     gossip_service: Option<Arc<crate::gossip::GossipService>>,
     event_bus: Option<Arc<crate::events::EventBus>>,
-    cached_proposal: Option<(u64, Vec<String>, Vec<SignedTransaction>, String)>,
     last_seen_height: u64,
     stuck_iterations: u32,
+    dynamic_tx_cap: usize,
+    leader_wait_ticks: u32,
+    leader_wait_height: u64,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
+const LEADER_SKIP_BASE_TICKS: u32 = 5;
+const LEADER_SKIP_STAGGER_TICKS: u32 = 2;
+const LEADER_INTENT_EXTENSION_TICKS: u32 = 5;
 
 // Use centralized constant from config
 use crate::config::PROPAGATION_GRACE_MS;
@@ -89,21 +88,23 @@ impl CheckpointService {
             consecutive_fork_failures: std::sync::atomic::AtomicU32::new(0),
             trust_verifier: Arc::new(TrustVerifier::new(trust_config)),
             validator_identity: None,
-            pruning_service: Some(DagPruningService::new(PruningConfig::default())),
+            pruning_service: Some(Arc::new(tokio::sync::Mutex::new(DagPruningService::new(PruningConfig::default())))),
             pruning_counter: std::sync::atomic::AtomicU32::new(0),
             consensus_service: None,
             slashing_service: None,
             #[cfg(feature = "p2p")]
             network_handle: None,
-            our_stake: 10_000_000_000, // Default stake in micro-units (100 RKU)
+            our_stake: 10_000_000_000,
             leader_election: None,
             local_url: None,
             mainnet_mode,
             gossip_service: None,
             event_bus: None,
-            cached_proposal: None,
             last_seen_height: 0,
             stuck_iterations: 0,
+            dynamic_tx_cap: DYNAMIC_TX_CAP_DEFAULT,
+            leader_wait_ticks: 0,
+            leader_wait_height: 0,
         }
     }
     
@@ -123,7 +124,7 @@ impl CheckpointService {
     }
     
     pub fn with_pruning_config(mut self, config: PruningConfig) -> Self {
-        self.pruning_service = Some(DagPruningService::new(config));
+        self.pruning_service = Some(Arc::new(tokio::sync::Mutex::new(DagPruningService::new(config))));
         self
     }
     
@@ -139,7 +140,7 @@ impl CheckpointService {
     
     /// Set the P2P network handle for requesting checkpoint votes from peers
     #[cfg(feature = "p2p")]
-    pub fn with_network_handle(mut self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) -> Self {
+    pub fn with_network_handle(mut self, handle: Arc<NetworkHandle>) -> Self {
         self.network_handle = Some(handle);
         self
     }
@@ -198,10 +199,12 @@ impl CheckpointService {
     pub async fn start(mut self) -> Result<()> {
         self.sign_genesis_checkpoint().await;
         
-        let interval = tokio::time::Duration::from_millis(self.interval_ms);
+        let mut ticker = tokio::time::interval(tokio::time::Duration::from_millis(self.interval_ms));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        ticker.tick().await;
 
         loop {
-            tokio::time::sleep(interval).await;
+            ticker.tick().await;
 
             if let Some(ref validator_identity) = self.validator_identity {
                 let result = validator_identity.write().await.process_epoch_transition();
@@ -214,38 +217,61 @@ impl CheckpointService {
                 }
             }
 
-            if let Err(e) = self.create_checkpoint().await {
-                tracing::warn!("Checkpoint creation failed: {}", e);
+            if let Err(e) = self.create_state_snapshot().await {
+                tracing::warn!("State snapshot failed: {}", e);
             }
             
             let prune_count = self.pruning_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             const PRUNE_EVERY_N_CHECKPOINTS: u32 = 10;
+            const IN_MEMORY_RETENTION: u64 = 10;
+
             if prune_count > 0 && prune_count % PRUNE_EVERY_N_CHECKPOINTS == 0 {
-                let state_guard = self.state.inner.read().await;
-                // CRITICAL: Use actual checkpoint height, NOT len() which breaks after pruning
-                let current_height = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
-                let finalized_hashes: std::collections::HashSet<String> = state_guard.dag
-                    .get_all_nodes()
-                    .iter()
-                    .filter(|n| n.finalized)
-                    .map(|n| n.hash.clone())
-                    .collect();
-                drop(state_guard);
+                let current_height = self.state.get_checkpoint_height();
                 
-                if current_height > 100 {
-                    if let Some(ref mut pruning) = self.pruning_service.as_mut() {
-                        let storage = self.state.storage();
-                        match pruning.prune_dag(storage.as_ref(), current_height, &finalized_hashes) {
-                            Ok(stats) => {
-                                info!(
-                                    "DAG pruning completed: {} nodes pruned, {} checkpoints pruned, oldest retained: {}",
-                                    stats.nodes_pruned, stats.checkpoints_pruned, stats.oldest_retained_checkpoint
-                                );
+                if current_height > 50 {
+                    let finalized_hashes: std::collections::HashSet<String> = {
+                        let state_guard = self.state.inner.read().await;
+                        state_guard.dag
+                            .get_all_nodes()
+                            .iter()
+                            .filter(|n| n.finalized)
+                            .map(|n| n.hash.clone())
+                            .collect()
+                    };
+
+                    if let Some(ref pruning_arc) = self.pruning_service {
+                        let pruning = Arc::clone(pruning_arc);
+                        let storage = Arc::clone(self.state.storage());
+                        tokio::spawn(async move {
+                            let mut pruning_guard = pruning.lock().await;
+                            match pruning_guard.prune_dag(&storage, current_height, &finalized_hashes) {
+                                Ok(stats) => {
+                                    info!(
+                                        "DAG pruning completed: {} nodes pruned, {} checkpoints pruned, oldest retained: {}",
+                                        stats.nodes_pruned, stats.checkpoints_pruned, stats.oldest_retained_checkpoint
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!("DAG pruning failed: {}", e);
+                                }
                             }
-                            Err(e) => {
-                                warn!("DAG pruning failed: {}", e);
-                            }
-                        }
+                        });
+                    }
+                }
+            }
+
+            {
+                let current_height = self.state.get_checkpoint_height();
+                if current_height > IN_MEMORY_RETENTION {
+                    let mut state_guard = self.state.inner.write().await;
+                    let pruned = state_guard.dag.prune_finalized_before(current_height - IN_MEMORY_RETENTION);
+                    let remaining = state_guard.dag.node_count();
+                    drop(state_guard);
+                    if pruned > 0 {
+                        info!(
+                            "DAG in-memory prune: {} finalized nodes removed, {} remaining",
+                            pruned, remaining
+                        );
                     }
                 }
             }
@@ -305,40 +331,37 @@ impl CheckpointService {
         }
     }
 
-    /// Check if any peer has a checkpoint at the given height via P2P delta sync
-    /// If found, returns the peer's checkpoint to adopt instead of creating our own
-    /// Also ingests any unfinalized peer transactions into our local DAG so they
-    /// become available for the next checkpoint attempt (fixes leader-with-no-txs loop)
-    async fn fetch_peer_checkpoint(&self, height: u64) -> Option<Checkpoint> {
+    /// Fetch and apply a peer checkpoint at the given height via P2P delta sync.
+    /// Tries each peer sequentially, returning as soon as one provides useful data.
+    /// This avoids waiting for dead peers' 3s timeouts when healthy peers respond fast.
+    async fn fetch_and_apply_peer_checkpoint(&self, _height: u64) -> bool {
         #[cfg(feature = "p2p")]
         {
-            let network_handle = self.network_handle.as_ref()?;
-            let handle = network_handle.lock().await;
-            let peers = handle.get_connected_peers().await;
-            drop(handle);
+            let network_handle = match self.network_handle.as_ref() {
+                Some(h) => h,
+                None => return false,
+            };
+            let peers = network_handle.get_connected_peers().await;
 
-            let from_cp = if height > 0 { height - 1 } else { 0 };
+            let local_height = self.state.get_checkpoint_height();
+            let from_cp = local_height;
 
             for peer in &peers {
                 let peer_id = peer.peer_id.clone();
-                let result = {
-                    let handle = network_handle.lock().await;
-                    handle.request_delta(&peer_id, from_cp).await
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_millis(1500),
+                    network_handle.request_delta(&peer_id, from_cp),
+                ).await;
+
+                let result = match result {
+                    Ok(r) => r,
+                    Err(_) => {
+                        warn!("Delta sync request to peer {} timed out after 1.5s", &peer_id[..16.min(peer_id.len())]);
+                        continue;
+                    }
                 };
                 match result {
                     Ok(SyncResponse::Delta(delta)) => {
-                        for cp_data in &delta.new_checkpoints {
-                            if cp_data.height == height {
-                                let checkpoint = self.checkpoint_data_to_checkpoint(cp_data, &delta.new_checkpoints);
-                                info!(
-                                    "Found peer checkpoint at height {} from p2p peer {}: {}",
-                                    height, &peer_id[..16.min(peer_id.len())],
-                                    &checkpoint.hash[..16.min(checkpoint.hash.len())]
-                                );
-                                return Some(checkpoint);
-                            }
-                        }
-
                         if !delta.transactions.is_empty() {
                             let mut ingested = 0u64;
                             for tx_data in &delta.transactions {
@@ -367,26 +390,123 @@ impl CheckpointService {
                             }
                             if ingested > 0 {
                                 info!(
-                                    "Ingested {} peer txs from delta (peer {}, no checkpoint at height {})",
+                                    "Ingested {} peer txs from delta (peer {}, {} checkpoints available)",
                                     ingested,
                                     &peer_id[..16.min(peer_id.len())],
-                                    height
+                                    delta.new_checkpoints.len()
                                 );
                             }
                         }
 
-                        debug!("P2P peer {} had no checkpoint at height {} in delta", &peer_id[..16.min(peer_id.len())], height);
+                        let mut sorted_cps: Vec<&CheckpointData> = delta.new_checkpoints.iter().collect();
+                        sorted_cps.sort_by_key(|c| c.height);
+
+                        let mut applied_count = 0u64;
+                        for cp_data in &sorted_cps {
+                            let current = self.state.get_checkpoint_height();
+                            if cp_data.height <= current {
+                                continue;
+                            }
+                            if cp_data.height != current + 1 {
+                                if let Some(ref gossip) = self.gossip_service {
+                                    let checkpoint = self.checkpoint_data_to_checkpoint(cp_data, &delta.new_checkpoints);
+                                    let mut buffer = gossip.checkpoint_buffer.lock().await;
+                                    if !buffer.contains_key(&checkpoint.height) {
+                                        info!(
+                                            "Delta sync: buffering checkpoint {} at height {} (current: {}) for later",
+                                            &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                            checkpoint.height,
+                                            current
+                                        );
+                                        buffer.insert(checkpoint.height, crate::gossip::BufferedCheckpoint {
+                                            checkpoint,
+                                            finalized_tx_hashes: cp_data.finalized_tx_hashes.clone(),
+                                            finalized_transactions: Vec::new(),
+                                            precomputed_proofs: Vec::new(),
+                                            source: format!("delta-{}", &peer_id[..16.min(peer_id.len())]),
+                                        });
+                                    }
+                                }
+                                continue;
+                            }
+
+                            let checkpoint = self.checkpoint_data_to_checkpoint(cp_data, &delta.new_checkpoints);
+
+                            {
+                                let mut emission = self.state.emission.write().await;
+                                let reward = emission.get_checkpoint_reward(checkpoint.height);
+                                if emission.record_emission_for_height(checkpoint.height, reward) {
+                                    let mut rewards = self.state.rewards.write().await;
+                                    rewards.distribute_checkpoint_rewards(reward);
+                                }
+                            }
+
+                            let finalized_tx_hashes = checkpoint.finalized_tx_hashes.clone();
+                            match self.state.apply_checkpoint_with_finalized_hashes(
+                                checkpoint.clone(),
+                                finalized_tx_hashes,
+                            ).await {
+                                Ok(missing_tx_count) => {
+                                    if missing_tx_count > 0 {
+                                        warn!(
+                                            "Delta-sync recovery: {} txs missing after checkpoint {} at height {}",
+                                            missing_tx_count,
+                                            &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                            checkpoint.height
+                                        );
+                                    }
+                                    applied_count += 1;
+                                    if let Some(ref gossip) = self.gossip_service {
+                                        gossip.remove_finalized_from_convergence(&checkpoint.finalized_tx_hashes).await;
+                                    }
+                                    info!(
+                                        "Applied recovered checkpoint {} at height {} from delta sync",
+                                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                        checkpoint.height
+                                    );
+                                    if let Some(ref eb) = self.event_bus {
+                                        eb.publish(crate::events::NodeEvent::CheckpointCreated {
+                                            hash: checkpoint.hash.clone(),
+                                            height: checkpoint.height,
+                                            txs_finalized: checkpoint.finalized_tx_hashes.len(),
+                                            reward: 0.0,
+                                        });
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "Failed to apply recovered checkpoint {} at height {}: {}",
+                                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                        checkpoint.height,
+                                        e
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+
+                        if applied_count > 0 {
+                            info!(
+                                "Delta sync from peer {}: applied {} checkpoints, draining buffer",
+                                &peer_id[..16.min(peer_id.len())],
+                                applied_count
+                            );
+                            if let Some(ref gossip) = self.gossip_service {
+                                gossip.drain_checkpoint_buffer().await;
+                            }
+                            return true;
+                        }
                     }
                     Ok(_) => {
-                        debug!("P2P peer {} returned unexpected response for delta", &peer_id[..16.min(peer_id.len())]);
+                        warn!("P2P peer {} returned unexpected response for delta", &peer_id[..16.min(peer_id.len())]);
                     }
                     Err(e) => {
-                        debug!("Failed to request delta from p2p peer {}: {}", &peer_id[..16.min(peer_id.len())], e);
+                        warn!("Failed to request delta from p2p peer {}: {}", &peer_id[..16.min(peer_id.len())], e);
                     }
                 }
             }
         }
-        None
+        false
     }
 
     #[cfg(feature = "p2p")]
@@ -428,16 +548,11 @@ impl CheckpointService {
                 state.checkpoints.last().map(|cp| cp.height).unwrap_or(0)
             };
 
-            let handle = network_handle.lock().await;
-            let peers = handle.get_connected_peers().await;
-            drop(handle);
+            let peers = network_handle.get_connected_peers().await;
 
             for peer in &peers {
                 let peer_id = peer.peer_id.clone();
-                let result = {
-                    let handle = network_handle.lock().await;
-                    handle.request_delta(&peer_id, from_checkpoint).await
-                };
+                let result = network_handle.request_delta(&peer_id, from_checkpoint).await;
                 match result {
                     Ok(SyncResponse::Delta(delta)) => {
                         let mut added = 0;
@@ -478,8 +593,8 @@ impl CheckpointService {
                                     tx,
                                     received_at_ms: Some(now_ms),
                                     partition_epoch: None,
-                                    provisional_finality: false,
                                     rolled_back: false,
+                                    convergence_certificate: None,
                                 };
                                 if state.dag.add_node(node).is_ok() {
                                     added += 1;
@@ -625,14 +740,19 @@ impl CheckpointService {
         let checkpoint_reward = {
             let mut emission = self.state.emission.write().await;
             let reward = emission.get_checkpoint_reward(height);
-            emission.record_emission(reward);
-            reward
+            if emission.record_emission_for_height(height, reward) {
+                reward
+            } else {
+                0
+            }
         };
 
-        // Distribute checkpoint rewards
-        let distributions = {
+        // Distribute checkpoint rewards (only if emission was recorded)
+        let distributions = if checkpoint_reward > 0 {
             let mut rewards = self.state.rewards.write().await;
             rewards.distribute_checkpoint_rewards(checkpoint_reward)
+        } else {
+            vec![]
         };
 
         if !distributions.is_empty() {
@@ -650,7 +770,7 @@ impl CheckpointService {
 
         // FINALITY-FIRST MODEL: Collect transactions for execution before marking finalized
         // DOUBLE-EXECUTION GUARD: Only collect transactions that aren't already finalized
-        let txs_to_execute: Vec<SignedTransaction> = {
+        let mut txs_to_execute: Vec<SignedTransaction> = {
             let state = self.state.inner.read().await;
             unfinalized_hashes.iter()
                 .filter_map(|hash| {
@@ -665,17 +785,23 @@ impl CheckpointService {
                 .collect()
         };
 
+        txs_to_execute.sort_by(|a, b| {
+            a.tx.from.cmp(&b.tx.from)
+                .then(a.tx.nonce.cmp(&b.tx.nonce))
+                .then(a.hash.cmp(&b.hash))
+        });
+
         // Update state with adopted checkpoint
         let mut state = self.state.inner.write().await;
         state.checkpoints.push(peer_checkpoint);
         state.last_checkpoint_time_ms = now_ms;
+        self.state.checkpoint_height_cache.store(height, std::sync::atomic::Ordering::Relaxed);
 
         // Mark transactions as finalized
         for hash in unfinalized_hashes {
             let _ = state.dag.mark_finalized(hash, height);
         }
         let finalized_count = unfinalized_hashes.len() as u64;
-        state.total_transactions += finalized_count;
 
         drop(state);
 
@@ -692,7 +818,7 @@ impl CheckpointService {
         );
         
         let fp_executed = if let Some(ref gossip) = self.gossip_service {
-            gossip.get_all_fast_path_executed().await
+            gossip.get_all_convergence_executed().await
         } else {
             std::collections::HashSet::new()
         };
@@ -751,9 +877,7 @@ impl CheckpointService {
             let network_handle = self.network_handle.as_ref()
                 .ok_or_else(|| anyhow::anyhow!("No P2P network handle available for chain recovery"))?;
 
-            let handle = network_handle.lock().await;
-            let peers = handle.get_connected_peers().await;
-            drop(handle);
+            let peers = network_handle.get_connected_peers().await;
 
             if peers.is_empty() {
                 return Err(anyhow::anyhow!("No P2P peers available for chain recovery"));
@@ -764,10 +888,7 @@ impl CheckpointService {
                 let peer_id_short = &peer_id[..16.min(peer_id.len())];
                 info!("[ForkRecovery] Requesting full snapshot sync from p2p peer {}", peer_id_short);
 
-                let result = {
-                    let handle = network_handle.lock().await;
-                    handle.request_snapshot(&peer_id).await
-                };
+                let result = network_handle.request_snapshot(&peer_id).await;
                 match result {
                     Ok(SyncResponse::Snapshot(snapshot_data)) => {
                         use crate::state::presync::convert_snapshot_data_to_sync_snapshot;
@@ -867,6 +988,8 @@ impl CheckpointService {
                             let mut state = self.state.inner.write().await;
 
                             state.checkpoints = sync_snapshot.checkpoints;
+                            let sync_cp_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+                            self.state.checkpoint_height_cache.store(sync_cp_height, std::sync::atomic::Ordering::Relaxed);
 
                             state.accounts.clear();
                             for (fingerprint, account) in sync_snapshot.accounts {
@@ -894,8 +1017,8 @@ impl CheckpointService {
                                     tx: tx.clone(),
                                     received_at_ms: Some(timestamp_ms),
                                     partition_epoch: None,
-                                    provisional_finality: false,
                                     rolled_back: false,
+                                    convergence_certificate: None,
                                 };
                                 let _ = state.dag.add_node(node);
                             }
@@ -955,13 +1078,13 @@ impl CheckpointService {
         !quorum_reached && !mainnet_mode
     }
 
-    async fn create_checkpoint(&mut self) -> Result<()> {
-        let (height, previous_hash) = {
+    async fn create_state_snapshot(&mut self) -> Result<()> {
+        let (height, previous_hash, local_checkpoint_height) = {
             let state = self.state.inner.read().await;
             let current_height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
             let height = current_height + 1;
             let previous_hash = state.checkpoints.last().map(|c| c.hash.clone());
-            (height, previous_hash)
+            (height, previous_hash, current_height)
         };
 
         if height != self.last_seen_height {
@@ -971,10 +1094,525 @@ impl CheckpointService {
             self.stuck_iterations += 1;
         }
 
-        let is_leader = if let Some(ref leader_election) = self.leader_election {
-            let prev_hash_for_election = previous_hash.as_deref().unwrap_or("genesis");
-            
-            let mut validator_addresses_with_stakes: Vec<(String, u64)> = if let Some(ref identity) = self.validator_identity {
+        if self.stuck_iterations > 3 {
+            if let Some(ref gossip) = self.gossip_service {
+                gossip.drain_checkpoint_buffer().await;
+                let new_height = self.state.get_checkpoint_height();
+                if new_height > local_checkpoint_height {
+                    info!(
+                        "Snapshot sync: buffer drain advanced height from {} to {} — resuming",
+                        local_checkpoint_height, new_height
+                    );
+                    return Ok(());
+                }
+            }
+
+            let unfinalized_count = {
+                let state = self.state.inner.read().await;
+                state.dag.unfinalized_count()
+            };
+
+            let is_proposer_for_reset = self.is_snapshot_proposer(height).await;
+
+            if unfinalized_count > 0 && is_proposer_for_reset {
+                self.stuck_iterations = 0;
+                info!("Snapshot proposer: resetting stuck counter — {} unfinalized txs available (we are proposer)", unfinalized_count);
+            } else if unfinalized_count == 0 {
+                if self.stuck_iterations % 2 == 0 {
+                    if self.fetch_and_apply_peer_checkpoint(height).await {
+                        info!("Snapshot sync: recovered from peer at height {}", height);
+                        return Ok(());
+                    }
+                }
+                return Ok(());
+            }
+        }
+
+        let is_proposer = self.is_snapshot_proposer(height).await;
+
+        if !is_proposer {
+            if let Some(ref gossip) = self.gossip_service {
+                gossip.drain_checkpoint_buffer().await;
+                let new_height = self.state.get_checkpoint_height();
+                if new_height > local_checkpoint_height {
+                    self.leader_wait_ticks = 0;
+                    self.leader_wait_height = 0;
+                    return Ok(());
+                }
+            }
+
+            if self.stuck_iterations >= 3 && self.stuck_iterations % 2 == 1 {
+                if self.fetch_and_apply_peer_checkpoint(height).await {
+                    info!("Non-proposer recovered checkpoint at height {} from peer", height);
+                    self.leader_wait_ticks = 0;
+                    self.leader_wait_height = 0;
+                    return Ok(());
+                }
+            }
+
+            let unfinalized_count = {
+                let state = self.state.inner.read().await;
+                state.dag.unfinalized_count()
+            };
+
+            if unfinalized_count > 0 && height == self.leader_wait_height {
+                self.leader_wait_ticks += 1;
+            } else if unfinalized_count > 0 && height != self.leader_wait_height {
+                self.leader_wait_height = height;
+                self.leader_wait_ticks = 1;
+            } else {
+                self.leader_wait_ticks = 0;
+                self.leader_wait_height = 0;
+            }
+
+            let backup_rank = if let Some(ref leader_election) = self.leader_election {
+                let prev_hash = {
+                    let state = self.state.inner.read().await;
+                    state.checkpoints.last().map(|c| c.hash.clone()).unwrap_or_else(|| "genesis".to_string())
+                };
+                let validator_addresses_with_stakes: Vec<(String, u64)> = if let Some(ref identity) = self.validator_identity {
+                    let identity_guard = identity.read().await;
+                    identity_guard.active_validators()
+                        .iter()
+                        .map(|(addr, v)| (addr.clone(), v.effective_stake))
+                        .collect()
+                } else {
+                    vec![(self.validator_address.clone(), 1)]
+                };
+                leader_election.get_backup_rank_from_validators(
+                    height,
+                    &prev_hash,
+                    &validator_addresses_with_stakes,
+                    &self.validator_address,
+                ).unwrap_or(0)
+            } else {
+                0
+            };
+
+            let base_skip_threshold = LEADER_SKIP_BASE_TICKS + (backup_rank * LEADER_SKIP_STAGGER_TICKS);
+            let has_valid_intent = if let Some(ref gossip) = self.gossip_service {
+                gossip.has_valid_leader_intent(height, self.interval_ms).await
+            } else {
+                false
+            };
+            let skip_threshold = if has_valid_intent {
+                if self.leader_wait_ticks == base_skip_threshold {
+                    info!(
+                        "Leader intent active for height {} — extending failover from {} to {} ticks",
+                        height, base_skip_threshold, base_skip_threshold + LEADER_INTENT_EXTENSION_TICKS
+                    );
+                }
+                base_skip_threshold + LEADER_INTENT_EXTENSION_TICKS
+            } else {
+                base_skip_threshold
+            };
+
+            if self.leader_wait_ticks >= skip_threshold {
+                if let Some(ref gossip) = self.gossip_service {
+                    gossip.drain_checkpoint_buffer().await;
+                    let new_height = self.state.get_checkpoint_height();
+                    if new_height > local_checkpoint_height {
+                        info!(
+                            "LEADER SKIP aborted: checkpoint arrived at height {} while preparing skip for height {} (after {} ticks)",
+                            new_height, height, self.leader_wait_ticks
+                        );
+                        self.leader_wait_ticks = 0;
+                        self.leader_wait_height = 0;
+                        return Ok(());
+                    }
+                }
+
+                if self.fetch_and_apply_peer_checkpoint(height).await {
+                    info!(
+                        "LEADER SKIP aborted: recovered leader's checkpoint at height {} from peer delta sync",
+                        height
+                    );
+                    self.leader_wait_ticks = 0;
+                    self.leader_wait_height = 0;
+                    return Ok(());
+                }
+
+                info!(
+                    "LEADER SKIP: Designated leader timed out for height {} after {} ticks (~{}s) — this node taking over (backup rank {}, {} unfinalized txs)",
+                    height, self.leader_wait_ticks, self.leader_wait_ticks as u64 * self.interval_ms / 1000, backup_rank, unfinalized_count
+                );
+                self.leader_wait_ticks = 0;
+                self.leader_wait_height = 0;
+            } else {
+                return Ok(());
+            }
+        } else {
+            self.leader_wait_ticks = 0;
+            self.leader_wait_height = 0;
+        }
+
+        if let Some(ref gossip) = self.gossip_service {
+            gossip.broadcast_checkpoint_intent(height, &self.validator_address).await;
+        }
+
+        let (hashes, txs, merkle_root) = self.gather_unfinalized_txs(height, true, &previous_hash).await?;
+
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        let t_start = std::time::Instant::now();
+
+        if let Some(ref gossip) = self.gossip_service {
+            gossip.drain_checkpoint_buffer().await;
+            let new_height = self.state.get_checkpoint_height();
+            if new_height >= height {
+                info!(
+                    "Checkpoint production aborted: height {} already covered (tip now {}) — late checkpoint arrived before emission",
+                    height, new_height
+                );
+                return Ok(());
+            }
+        }
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+
+        let checkpoint_reward = {
+            let mut emission = self.state.emission.write().await;
+            let reward = emission.get_checkpoint_reward(height);
+            let is_new = emission.record_emission_for_height(height, reward);
+
+            if is_new {
+                let mut rewards = self.state.rewards.write().await;
+                let distributions = rewards.distribute_checkpoint_rewards(reward);
+                if !distributions.is_empty() {
+                    info!(
+                        "Pre-distributed {:.6} RKU to {} validators before state root computation",
+                        rinku_core::types::from_micro_units(reward),
+                        distributions.len()
+                    );
+                }
+            }
+
+            reward
+        };
+
+        let mut affected_addresses_for_proofs: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for tx in &txs {
+            affected_addresses_for_proofs.insert(tx.tx.from.clone());
+            if !tx.tx.to.is_empty() {
+                affected_addresses_for_proofs.insert(tx.tx.to.clone());
+            }
+        }
+        let affected_vec: Vec<String> = affected_addresses_for_proofs.into_iter().collect();
+
+        let convergence_executed = if let Some(ref gossip) = self.gossip_service {
+            gossip.get_all_convergence_executed().await
+        } else {
+            std::collections::HashSet::new()
+        };
+
+        let proofs_result = self.state.compute_state_root_and_proofs_at_height(
+            &txs, &affected_vec, height, &convergence_executed
+        ).await;
+        let state_root = proofs_result.state_root.clone();
+        let finalized_proofs = proofs_result.proofs;
+        let tip_count = hashes.len() as u32;
+
+        let checkpoint_hash_bytes = Self::compute_checkpoint_hash(
+            height,
+            &merkle_root,
+            &state_root,
+            &"0".repeat(64),
+            tip_count,
+            timestamp,
+        );
+
+        let signature = bls_sign(&checkpoint_hash_bytes, &self.bls_private_key)
+            .map_err(|e| anyhow::anyhow!("BLS signing failed: {}", e))?;
+
+        let my_stake = self.state.get_validator_stake(&self.validator_address).await.unwrap_or(0);
+        let proposer_sig = ValidatorSignature {
+            validator: self.validator_address.clone(),
+            signature: URL_SAFE_NO_PAD.encode(&signature),
+            weight: my_stake,
+            bls_public_key: Some(self.bls_public_key_base64()),
+        };
+
+        let proposer_bitmap = if let Some(ref identity) = self.validator_identity {
+            let identity_guard = identity.read().await;
+            let mut sorted_addrs: Vec<&String> = identity_guard.active_validators()
+                .iter()
+                .filter(|(_, v)| !v.bls_public_key.is_empty())
+                .map(|(addr, _)| addr)
+                .collect();
+            sorted_addrs.sort();
+            let total_validators = sorted_addrs.len();
+            if let Some(my_index) = sorted_addrs.iter().position(|a| **a == self.validator_address) {
+                Some(create_signer_bitmap(&[my_index], total_validators))
+            } else {
+                warn!(
+                    "Proposer {} not found in sorted validator set ({} validators) — checkpoint will be unsigned",
+                    &self.validator_address[..16.min(self.validator_address.len())],
+                    total_validators
+                );
+                None
+            }
+        } else {
+            None
+        };
+
+        let partition_info = self.state.get_partition_state().await;
+        let is_partitioned = partition_info.status == crate::state::partition::PartitionStatus::Partitioned;
+
+        let weight_trie_root = {
+            let (all_stakes, total_network_stake): (std::collections::HashMap<String, u64>, u64) = {
+                let state = self.state.inner.read().await;
+                let mut stakes: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+                for (addr, v) in state.validators.iter() {
+                    if v.stake > 0 {
+                        stakes.insert(addr.clone(), v.stake);
+                    }
+                }
+                for (addr, account) in state.accounts.iter() {
+                    if account.staked > 0 {
+                        let stake_micro = account.staked;
+                        stakes.entry(addr.clone())
+                            .and_modify(|s| *s = (*s).max(stake_micro))
+                            .or_insert(stake_micro);
+                    }
+                }
+                let total: u64 = stakes.values().sum();
+                (stakes, total)
+            };
+
+            let mut state = self.state.inner.write().await;
+            if let Some(ref mut weight_trie) = state.weight_trie {
+                let pending_count = weight_trie.pending_vote_count();
+                if pending_count > 0 {
+                    let updated = weight_trie.finalize_votes(&all_stakes, total_network_stake);
+                    info!(
+                        "Snapshot {}: finalized {} pending weight votes into {} tx aggregations",
+                        height, pending_count, updated.len()
+                    );
+                }
+                weight_trie.compute_root()
+            } else {
+                String::new()
+            }
+        };
+
+        let checkpoint = Checkpoint {
+            height,
+            hash: hex::encode(&checkpoint_hash_bytes),
+            previous_hash,
+            tx_merkle_root: merkle_root,
+            state_root,
+            receipt_root: "0".repeat(64),
+            tip_count,
+            timestamp,
+            validator_signatures: vec![proposer_sig],
+            aggregated_signature: if proposer_bitmap.is_some() { Some(URL_SAFE_NO_PAD.encode(&signature)) } else { None },
+            signer_bitmap: proposer_bitmap,
+            finalized_tx_hashes: hashes.clone(),
+            weight_trie_root,
+            provisional: is_partitioned,
+            partition_epoch: if is_partitioned { partition_info.current_epoch } else { None },
+            visible_stake_pct: if is_partitioned { Some(partition_info.visible_stake_pct) } else { None },
+            merge_report_hash: None,
+        };
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let mut txs_to_execute: Vec<SignedTransaction> = {
+            let state = self.state.inner.read().await;
+            hashes.iter()
+                .filter_map(|hash| {
+                    state.dag.get_node(hash).and_then(|node| {
+                        if node.finalized { None } else { Some(node.tx.clone()) }
+                    })
+                })
+                .collect()
+        };
+
+        let finality_times: Vec<u64> = Vec::new();
+        let finality_sum: u64 = 0;
+        let finality_max: u64 = 0;
+        let finality_count: u64 = 0;
+
+        if let Some(ref gossip) = self.gossip_service {
+            gossip.drain_checkpoint_buffer().await;
+            let new_height = self.state.get_checkpoint_height();
+            if new_height >= height {
+                info!(
+                    "Checkpoint production aborted: height {} already covered (tip now {}) — late checkpoint arrived during computation",
+                    height, new_height
+                );
+                return Ok(());
+            }
+        }
+
+        let mut state = self.state.inner.write().await;
+        let current_tip = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
+        if current_tip + 1 != height {
+            drop(state);
+            info!(
+                "LEADER SKIP ABORT: Local tip advanced to {} while computing checkpoint {} — another node produced it first",
+                current_tip, height
+            );
+            return Ok(());
+        }
+        state.checkpoints.push(checkpoint.clone());
+        state.last_checkpoint_time_ms = now_ms;
+        self.state.checkpoint_height_cache.store(checkpoint.height, std::sync::atomic::Ordering::Relaxed);
+        state.finality_sum_ms += finality_sum;
+        state.finality_count += finality_count;
+        if finality_max > state.finality_max_ms {
+            state.finality_max_ms = finality_max;
+        }
+        for finality_time in &finality_times {
+            if state.finality_times_ms.len() >= 1000 {
+                state.finality_times_ms.pop_front();
+            }
+            state.finality_times_ms.push_back(*finality_time);
+        }
+
+        let _finalized = state.dag.mark_finalized_batch(&hashes, height);
+
+        for hash in &hashes {
+            state.convergence_executed_hashes.remove(hash);
+        }
+
+        if is_partitioned {
+            for hash in &hashes {
+                if let Some(node) = state.dag.get_node_mut(hash) {
+                    node.partition_epoch = partition_info.current_epoch;
+                }
+            }
+        }
+
+        let snapshot_finalized_count = hashes.len() as u64;
+        drop(state);
+
+        if snapshot_finalized_count > 0 {
+            self.state.record_finalized_batch(snapshot_finalized_count).await;
+        }
+
+        let prep_ms = t_start.elapsed().as_millis();
+        info!(
+            "Created state snapshot {} at height {} ({} txs finalized, {:.6} RKU emitted, {}ms)",
+            &checkpoint.hash[..16],
+            height,
+            hashes.len(),
+            rinku_core::types::from_micro_units(checkpoint_reward),
+            prep_ms
+        );
+
+        if let Some(ref eb) = self.event_bus {
+            eb.publish(crate::events::NodeEvent::CheckpointCreated {
+                hash: checkpoint.hash.clone(),
+                height,
+                txs_finalized: hashes.len(),
+                reward: rinku_core::types::from_micro_units(checkpoint_reward),
+            });
+        }
+
+        let proof_tx_hash = hashes.first()
+            .cloned()
+            .unwrap_or_else(|| checkpoint.hash.clone());
+
+        let mut final_proofs = finalized_proofs;
+        for proof in final_proofs.values_mut() {
+            proof.checkpoint_hash = checkpoint.hash.clone();
+            proof.checkpoint_timestamp = checkpoint.timestamp;
+            proof.bls_aggregated_sig = checkpoint.aggregated_signature.clone();
+            proof.bls_signer_bitmap = checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b));
+            proof.tx_hash = proof_tx_hash.clone();
+        }
+
+        txs_to_execute.sort_by(|a, b| {
+            a.tx.from.cmp(&b.tx.from)
+                .then(a.tx.nonce.cmp(&b.tx.nonce))
+                .then(a.hash.cmp(&b.hash))
+        });
+
+        let mut newly_applied: Vec<bool> = Vec::with_capacity(txs_to_execute.len());
+        for tx in &txs_to_execute {
+            if !convergence_executed.contains(&tx.hash) {
+                let applied = self.state.execute_finalized_transaction_core(tx).await;
+                newly_applied.push(applied);
+            } else {
+                newly_applied.push(true);
+            }
+        }
+
+        for (i, tx) in txs_to_execute.iter().enumerate() {
+            if newly_applied.get(i).copied().unwrap_or(false) {
+                self.state.execute_finalized_transaction_rewards(tx).await;
+            }
+        }
+
+        self.state.store_precomputed_proofs(&final_proofs).await;
+
+        if let Some(ref consensus) = self.consensus_service {
+            let participating_validators: Vec<String> = checkpoint.validator_signatures
+                .iter()
+                .map(|sig| sig.validator.clone())
+                .collect();
+            let mut consensus_guard = consensus.write().await;
+            consensus_guard.track_liveness(height, &participating_validators).await;
+        }
+
+        if let Some(ref gossip) = self.gossip_service {
+            let proofs_vec: Vec<rinku_core::types::AccountStateProof> =
+                final_proofs.values().cloned().collect();
+            gossip.broadcast_checkpoint(
+                checkpoint.clone(),
+                hashes.clone(),
+                txs_to_execute.clone(),
+                proofs_vec.clone(),
+            ).await;
+
+            #[cfg(feature = "p2p")]
+            if let Some(ref network) = self.network_handle {
+                let push_data = CheckpointPushData {
+                    checkpoint,
+                    finalized_tx_hashes: hashes,
+                    finalized_transactions: txs_to_execute,
+                    precomputed_proofs: proofs_vec,
+                };
+                let peer_ids = network.get_connected_peer_ids().await;
+                let peer_count = peer_ids.len();
+                let net = network.clone();
+                tokio::spawn(async move {
+                    let mut sent = 0usize;
+                    for peer_id in &peer_ids {
+                        let request = SyncRequest::CheckpointPush(push_data.clone());
+                        match net.send_sync_request(peer_id, request).await {
+                            Ok(_rx) => { sent += 1; }
+                            Err(e) => {
+                                debug!("Failed to push snapshot to {}: {}", &peer_id[..12.min(peer_id.len())], e);
+                            }
+                        }
+                    }
+                    if sent > 0 {
+                        info!("Pushed state snapshot to {}/{} peers via sync channel", sent, peer_count);
+                    }
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn is_snapshot_proposer(&self, height: u64) -> bool {
+        if let Some(ref leader_election) = self.leader_election {
+            let prev_hash = {
+                let state = self.state.inner.read().await;
+                state.checkpoints.last().map(|c| c.hash.clone()).unwrap_or_else(|| "genesis".to_string())
+            };
+
+            let validator_addresses_with_stakes: Vec<(String, u64)> = if let Some(ref identity) = self.validator_identity {
                 let identity_guard = identity.read().await;
                 identity_guard.active_validators()
                     .iter()
@@ -983,586 +1621,228 @@ impl CheckpointService {
             } else {
                 vec![(self.validator_address.clone(), 1)]
             };
-            
-            validator_addresses_with_stakes.sort_by(|a, b| a.0.cmp(&b.0));
-            
-            let validator_preview: Vec<String> = validator_addresses_with_stakes.iter()
-                .take(5)
-                .map(|(a, s)| format!("{}({})", &a[..16.min(a.len())], s))
-                .collect();
-            info!(
-                "Leader election input: checkpoint={}, prev_hash={}, validators={} {:?}, local={}",
-                height, &prev_hash_for_election[..12.min(prev_hash_for_election.len())], 
-                validator_addresses_with_stakes.len(), validator_preview,
-                &self.validator_address[..16.min(self.validator_address.len())]
-            );
-            
-            let (should_create, _election_result) = leader_election.should_create_checkpoint_from_validators(
+
+            let (should_create, _) = leader_election.should_create_checkpoint_from_validators(
                 height,
-                prev_hash_for_election,
+                &prev_hash,
                 &validator_addresses_with_stakes,
                 &self.validator_address,
             );
-            
-            if !should_create {
-                const FALLBACK_SYNC_AFTER: u32 = 6;
-                if self.stuck_iterations > 0 && self.stuck_iterations % FALLBACK_SYNC_AFTER == 0 {
-                    info!(
-                        "Non-leader stuck at height {} for {} ticks - fallback delta sync",
-                        height, self.stuck_iterations
-                    );
-                    self.fetch_peer_checkpoint(height).await;
+
+            if should_create {
+                if let Some(ref gossip) = self.gossip_service {
+                    let has_next = gossip.has_buffered_checkpoint(height).await;
+                    if has_next {
+                        return false;
+                    }
                 }
-                return Ok(());
             }
-            
-            true
+
+            should_create
         } else {
             true
-        };
-
-        // STEP 3: Get unfinalized transactions (only leaders reach this point)
-        // LOCKED TX SET: If we already proposed a tx set for this height (retry after
-        // quorum failure), reuse the same set. This prevents the snowball effect where
-        // retries pick up new txs that accumulated during the timeout, growing the set
-        // and delta sync payloads on every retry.
-        let (unfinalized_hashes, unfinalized_txs, tx_merkle_root) = if let Some((cached_h, ref hashes, ref txs, ref root)) = self.cached_proposal {
-            if cached_h == height {
-                info!(
-                    "Reusing locked tx set for checkpoint {} ({} txs, root={})",
-                    height, hashes.len(), &root[..16.min(root.len())]
-                );
-                (hashes.clone(), txs.clone(), root.clone())
-            } else {
-                self.cached_proposal = None;
-                self.gather_unfinalized_txs(height, is_leader, &previous_hash).await?
-            }
-        } else {
-            self.gather_unfinalized_txs(height, is_leader, &previous_hash).await?
-        };
-
-        if unfinalized_hashes.is_empty() {
-            return Ok(());
         }
-
-        self.cached_proposal = Some((height, unfinalized_hashes.clone(), unfinalized_txs.clone(), tx_merkle_root.clone()));
-
-        // Record that we're creating the checkpoint (leader only)
-        if let Some(ref leader_election) = self.leader_election {
-            leader_election.record_checkpoint_created();
-        }
-
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
-        
-        // CRITICAL: Process emissions and distribute checkpoint rewards BEFORE computing state_root
-        // This ensures that if a claim transaction is pending, the simulation sees the same
-        // pending_rewards value that the execution will claim. Otherwise, rewards distributed
-        // after state_root calculation would cause claim proofs to be invalid.
-        let checkpoint_reward = {
-            let mut emission = self.state.emission.write().await;
-            let reward = emission.get_checkpoint_reward(height);
-            emission.record_emission(reward);
-            reward
-        };
-
-        // Distribute checkpoint rewards to staked validators BEFORE state root computation
-        let distributions = {
-            let mut rewards = self.state.rewards.write().await;
-            rewards.distribute_checkpoint_rewards(checkpoint_reward)
-        };
-
-        if !distributions.is_empty() {
-            info!(
-                "Pre-distributed {:.6} RKU to {} validators before state root computation",
-                rinku_core::types::from_micro_units(checkpoint_reward),
-                distributions.len()
-            );
-        }
-        
-        // Collect affected addresses BEFORE computing state_root
-        // This is needed to generate proofs using the same simulated account set
-        let mut affected_addresses_for_proofs: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for tx in &unfinalized_txs {
-            affected_addresses_for_proofs.insert(tx.tx.from.clone());
-            if !tx.tx.to.is_empty() {
-                affected_addresses_for_proofs.insert(tx.tx.to.clone());
-            }
-        }
-        let affected_addresses_vec: Vec<String> = affected_addresses_for_proofs.into_iter().collect();
-        
-        // Get fast-path executed set BEFORE state root computation
-        // Transactions already executed on fast-path have their effects in current state,
-        // so the simulation must skip them to avoid double-counting
-        let fp_executed = if let Some(ref gossip) = self.gossip_service {
-            gossip.get_all_fast_path_executed().await
-        } else {
-            std::collections::HashSet::new()
-        };
-        
-        // Compute state_root with pending transactions applied (post-execution state)
-        // This ensures the state_root matches what proofs will verify against
-        // NOTE: Rewards were distributed above, so claim transactions will see the updated pending_rewards
-        // CRITICAL: We don't generate proofs yet because we don't have the checkpoint hash
-        // CRITICAL: Skip fast-path-executed txs in simulation (already in current state)
-        let state_root = self.state.compute_state_root_with_pending_txs(&unfinalized_txs, &fp_executed).await;
-        let receipt_root = "0".repeat(64);
-        let tip_count = unfinalized_hashes.len() as u32;
-
-        let checkpoint_hash = Self::compute_checkpoint_hash(
-            height,
-            &tx_merkle_root,
-            &state_root,
-            &receipt_root,
-            tip_count,
-            timestamp,
-        );
-
-        let signature = bls_sign(&checkpoint_hash, &self.bls_private_key)
-            .map_err(|e| anyhow::anyhow!("BLS signing failed: {}", e))?;
-
-        let my_stake = self.state.get_validator_stake(&self.validator_address).await.unwrap_or(0);
-        let validator_sig = ValidatorSignature {
-            validator: self.validator_address.clone(),
-            signature: URL_SAFE_NO_PAD.encode(&signature),
-            weight: my_stake,
-            bls_public_key: Some(self.bls_public_key_base64()),
-        };
-
-        // Multi-validator quorum collection - attempt to gather votes from peers
-        // Falls back to single-validator mode if no peer votes are collected
-        // CRITICAL: Pass the exact tx list so validators can verify before signing
-        let (all_signatures, raw_signatures, total_stake) = self.collect_validator_quorum(
-            &checkpoint_hash,
-            height,
-            signature.clone(),
-            validator_sig.clone(),
-            &tx_merkle_root,
-            &state_root,
-            &unfinalized_hashes,
-            &unfinalized_txs,
-        ).await;
-        
-        // Check partition status for provisional checkpoint creation
-        let partition_info = self.state.get_partition_state().await;
-        let is_partitioned = partition_info.status == crate::state::partition::PartitionStatus::Partitioned;
-
-        // Get total network stake for quorum check
-        let total_network_stake = if let Some(ref identity) = self.validator_identity {
-            let identity = identity.read().await;
-            identity.total_active_stake().max(self.our_stake)
-        } else {
-            self.our_stake
-        };
-        let quorum_stake_needed = if is_partitioned {
-            let visible_stake = (total_network_stake as f64 * partition_info.visible_stake_pct) as u64;
-            (visible_stake as f64 * QUORUM_STAKE_THRESHOLD) as u64
-        } else {
-            (total_network_stake as f64 * QUORUM_STAKE_THRESHOLD) as u64
-        };
-        let mut quorum_reached = total_stake >= quorum_stake_needed && all_signatures.len() > 1;
-        if !quorum_reached && self.trust_verifier.has_genesis_validators() {
-            let genesis_addrs = self.trust_verifier.genesis_validator_addresses();
-            let signed: HashSet<String> = all_signatures
-                .iter()
-                .map(|s| s.validator.clone())
-                .collect();
-            if genesis_addrs.iter().all(|addr| signed.contains(addr)) {
-                info!(
-                    "All genesis validators signed checkpoint {} - overriding quorum stake check",
-                    height
-                );
-                quorum_reached = true;
-            }
-        }
-        
-        if !quorum_reached && self.mainnet_mode {
-            warn!(
-                "Checkpoint {} quorum not reached in MAINNET_MODE ({:.0}/{:.0} stake, {} votes)",
-                height, total_stake, quorum_stake_needed, all_signatures.len()
-            );
-            return Ok(());
-        }
-
-        // Use collected signatures if quorum was reached, otherwise use single validator
-        let use_single_validator = Self::should_use_single_validator(quorum_reached, self.mainnet_mode);
-        let (final_signatures, final_raw_sigs) = if !use_single_validator {
-            info!(
-                "Checkpoint {} has {} validator signatures with {:.0}/{:.0} stake (quorum reached)",
-                height, all_signatures.len(), total_stake, total_network_stake
-            );
-            (all_signatures, raw_signatures)
-        } else {
-            // Single-validator mode - use only our signature
-            debug!(
-                "Checkpoint {} using single-validator mode ({:.0}/{:.0} stake, {} votes)",
-                height, total_stake, quorum_stake_needed, all_signatures.len()
-            );
-            (vec![validator_sig], vec![signature])
-        };
-        
-        let signer_indices: Vec<usize> = (0..final_signatures.len()).collect();
-        let aggregated_sig = aggregate_signatures(&final_raw_sigs)
-            .map_err(|e| anyhow::anyhow!("BLS aggregation failed: {}", e))?;
-        let signer_bitmap = create_signer_bitmap(&signer_indices, final_signatures.len());
-
-        // Finalize pending weight votes and compute weight trie root for this checkpoint
-        let weight_trie_root = {
-            // Get ALL stakes: both validators AND regular accounts with stake (convert to micro-RKU as u64)
-            let (all_stakes, total_network_stake): (std::collections::HashMap<String, u64>, u64) = {
-                let state = self.state.inner.read().await;
-                let mut stakes: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-                
-                // 1. Add validator stakes
-                for (addr, v) in state.validators.iter() {
-                    if v.stake > 0 {
-                        stakes.insert(addr.clone(), v.stake);
-                    }
-                }
-                
-                // 2. Add account stakes (regular users who staked but aren't validators)
-                for (addr, account) in state.accounts.iter() {
-                    if account.staked > 0 {
-                        let stake_micro = account.staked;
-                        // Use entry API to combine or add stake
-                        stakes.entry(addr.clone())
-                            .and_modify(|s| *s = (*s).max(stake_micro)) // Take max if both exist
-                            .or_insert(stake_micro);
-                    }
-                }
-                
-                let total: u64 = stakes.values().sum();
-                (stakes, total)
-            };
-            let validator_stakes = all_stakes; // Rename for compatibility
-            
-            let mut state = self.state.inner.write().await;
-            if let Some(ref mut weight_trie) = state.weight_trie {
-                // Finalize pending votes (aggregate by stake weight)
-                let pending_count = weight_trie.pending_vote_count();
-                if pending_count > 0 {
-                    // Log stakes map for debugging - includes both validators and stakers
-                    tracing::info!(
-                        "Weight vote finalization: {} stakers (validators + accounts), total_stake={}",
-                        validator_stakes.len(), total_network_stake
-                    );
-                    for (addr, stake) in &validator_stakes {
-                        tracing::info!("  Stakes map: {} (len={}) = {} micro ({:.2} RKU)", 
-                            addr, addr.len(), stake, *stake as f64 / 1_000_000.0);
-                    }
-                    
-                    let updated = weight_trie.finalize_votes(&validator_stakes, total_network_stake);
-                    tracing::info!(
-                        "Checkpoint {}: finalized {} pending weight votes into {} tx aggregations",
-                        height, pending_count, updated.len()
-                    );
-                    
-                    // Log aggregation results for debugging
-                    for (tx_hash, weight) in &updated {
-                        tracing::info!(
-                            "  Weight aggregation for {}: boost={}, suppress={}, neutral={}, count={}",
-                            &tx_hash[..16.min(tx_hash.len())],
-                            weight.boost_stake_micro,
-                            weight.suppress_stake_micro, 
-                            weight.neutral_stake_micro,
-                            weight.attestation_count
-                        );
-                    }
-                }
-                
-                // Compute root after finalizing votes
-                weight_trie.compute_root()
-            } else {
-                String::new()
-            }
-        };
-        
-        let checkpoint = Checkpoint {
-            height,
-            hash: hex::encode(&checkpoint_hash),
-            previous_hash,
-            tx_merkle_root,
-            state_root,
-            receipt_root,
-            tip_count,
-            timestamp,
-            validator_signatures: final_signatures,
-            aggregated_signature: Some(URL_SAFE_NO_PAD.encode(&aggregated_sig)),
-            signer_bitmap: Some(signer_bitmap),
-            finalized_tx_hashes: unfinalized_hashes.clone(),
-            weight_trie_root,
-            provisional: is_partitioned,
-            partition_epoch: if is_partitioned { partition_info.current_epoch } else { None },
-            visible_stake_pct: if is_partitioned { Some(partition_info.visible_stake_pct) } else { None },
-            merge_report_hash: None,
-        };
-
-        // Process emissions and rewards for this checkpoint
-        // NOTE: Checkpoint rewards were already distributed earlier (before state_root computation)
-        // to ensure claim transaction simulations match execution
-
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        // PHASE 1: Quick read to collect timestamps and transactions (minimal lock time)
-        // FINALITY-FIRST MODEL: Also collect transactions for execution after finalization
-        // DOUBLE-EXECUTION GUARD: Only collect transactions that aren't already finalized
-        let (tx_timestamps, txs_to_execute): (Vec<(String, u64)>, Vec<SignedTransaction>) = {
-            let state = self.state.inner.read().await;
-            let timestamps: Vec<(String, u64)> = unfinalized_hashes.iter()
-                .filter_map(|hash| {
-                    state.dag.get_node(hash).and_then(|node| {
-                        if node.finalized {
-                            None  // Skip already-finalized for stats
-                        } else {
-                            Some((hash.clone(), node.tx.tx.timestamp))
-                        }
-                    })
-                })
-                .collect();
-            let txs: Vec<SignedTransaction> = unfinalized_hashes.iter()
-                .filter_map(|hash| {
-                    state.dag.get_node(hash).and_then(|node| {
-                        if node.finalized {
-                            None  // Skip already-finalized transactions
-                        } else {
-                            Some(node.tx.clone())
-                        }
-                    })
-                })
-                .collect();
-            (timestamps, txs)
-        };
-
-        // PHASE 2: Compute finality times OUTSIDE any lock
-        let finality_times: Vec<u64> = tx_timestamps.iter()
-            .map(|(_, tx_timestamp)| {
-                let tx_time_ms = if *tx_timestamp < 4_000_000_000 {
-                    tx_timestamp * 1000
-                } else {
-                    *tx_timestamp
-                };
-                now_ms.saturating_sub(tx_time_ms)
-            })
-            .collect();
-
-        // PHASE 3: Pre-compute finality stats outside the lock
-        let finality_sum: u64 = finality_times.iter().sum();
-        let finality_max: u64 = finality_times.iter().copied().max().unwrap_or(0);
-        let finality_count = finality_times.len() as u64;
-
-        // PHASE 4: Minimal write lock - batch mutations
-        let mut state = self.state.inner.write().await;
-        state.checkpoints.push(checkpoint.clone());
-        state.last_checkpoint_time_ms = now_ms;
-
-        // Update finality stats (pre-computed values)
-        state.finality_sum_ms += finality_sum;
-        state.finality_count += finality_count;
-        if finality_max > state.finality_max_ms {
-            state.finality_max_ms = finality_max;
-        }
-        // Add to rolling window (batch)
-        for finality_time in &finality_times {
-            if state.finality_times_ms.len() >= 1000 {
-                state.finality_times_ms.pop_front();
-            }
-            state.finality_times_ms.push_back(*finality_time);
-        }
-
-        // Batch mark all as finalized (single operation instead of loop)
-        let _finalized = state.dag.mark_finalized_batch(&unfinalized_hashes, height);
-        state.total_transactions += unfinalized_hashes.len() as u64;
-
-        if is_partitioned {
-            for hash in &unfinalized_hashes {
-                if let Some(node) = state.dag.get_node_mut(hash) {
-                    node.provisional_finality = true;
-                    node.partition_epoch = partition_info.current_epoch;
-                }
-            }
-        }
-        
-        let leader_finalized_count = unfinalized_hashes.len() as u64;
-        
-        // Release write lock before executing transactions
-        drop(state);
-
-        if leader_finalized_count > 0 {
-            self.state.record_finalized_batch(leader_finalized_count).await;
-        }
-
-        info!(
-            "Created checkpoint {} at height {} ({} txs finalized, {:.6} RKU emitted)",
-            &checkpoint.hash[..16],
-            height,
-            unfinalized_hashes.len(),
-            rinku_core::types::from_micro_units(checkpoint_reward)
-        );
-        if let Some(ref eb) = self.event_bus {
-            eb.publish(crate::events::NodeEvent::CheckpointCreated {
-                hash: checkpoint.hash.clone(),
-                height,
-                txs_finalized: unfinalized_hashes.len(),
-                reward: rinku_core::types::from_micro_units(checkpoint_reward),
-            });
-        }
-        
-        // FINALITY-FIRST MODEL: Execute finalized transactions using TWO-PASS approach
-        // This ensures simulation/execution parity for claim transactions:
-        // - Pass 1: Execute PHASES 1 & 2 (balance changes, stakes, unstakes, claims)
-        // - Pass 2: Execute PHASE 3 (witness/tip rewards)
-        // 
-        // By separating reward distribution from claim execution, we ensure claims
-        // see exactly the pending_rewards that were snapshotted during simulation,
-        // not additional witness rewards from earlier transactions in this checkpoint.
-        
-        // LEADER NODE PROOF GENERATION: Generate proofs BEFORE execution using simulated state
-        // CRITICAL: Proofs must use the SAME transaction set that was used for state_root computation
-        // We use `unfinalized_txs` (collected early, at line ~1062) NOT `txs_to_execute` (collected later)
-        // This ensures nonces match exactly: simulation starts from the same base state that was used
-        // for state_root computation, avoiding race conditions where concurrent checkpoints could
-        // modify account.nonce between the two simulation runs.
-        let proof_tx_hash = unfinalized_hashes.first()
-            .cloned()
-            .unwrap_or_else(|| checkpoint.hash.clone());
-        
-        // Get precomputed proofs using the same transaction set as state_root computation
-        // CRITICAL FIX: Use unfinalized_txs (same set as state_root) NOT txs_to_execute
-        // CRITICAL: Pass fp_executed to skip fast-path-executed txs (same as state_root computation)
-        let precomputed_proofs = self.state.compute_state_root_and_proofs(
-            &unfinalized_txs,
-            &affected_addresses_vec,
-            Some(&checkpoint),
-            &proof_tx_hash,
-            &fp_executed,
-        ).await;
-
-        // PASS 1: Execute balance/nonce changes, stakes, unstakes, and claims
-        // Skip core execution for fast-path-executed txs (already applied)
-        for tx in &txs_to_execute {
-            if !fp_executed.contains(&tx.hash) {
-                self.state.execute_finalized_transaction_core(tx).await;
-            } else {
-                tracing::debug!(
-                    "Checkpoint: skipping core execution for fast-path-executed tx {}",
-                    &tx.hash[..16.min(tx.hash.len())]
-                );
-            }
-        }
-        
-        // PASS 2: Distribute witness/tip rewards (always runs - rewards deferred from fast-path)
-        for tx in &txs_to_execute {
-            self.state.execute_finalized_transaction_rewards(tx).await;
-        }
-        
-        // Store precomputed proofs (generated from simulated state, not post-execution state)
-        // These proofs are guaranteed to verify against checkpoint.state_root
-        self.state.store_precomputed_proofs(&precomputed_proofs.proofs).await;
-        
-        // Track validator liveness - record which validators participated
-        if let Some(ref consensus) = self.consensus_service {
-            let participating_validators: Vec<String> = checkpoint.validator_signatures
-                .iter()
-                .map(|sig| sig.validator.clone())
-                .collect();
-            
-            let mut consensus_guard = consensus.write().await;
-            consensus_guard.track_liveness(height, &participating_validators).await;
-            debug!(
-                "Tracked liveness for checkpoint {}: {} validators participated",
-                height, participating_validators.len()
-            );
-        }
-        
-        // IMMEDIATELY broadcast the checkpoint to all peers for fast propagation
-        // This ensures other nodes receive the checkpoint without waiting for sync
-        // Include the list of finalized transaction hashes so receivers can finalize
-        // transactions even if their merkle roots don't match (due to propagation delays)
-        // Also include precomputed proofs so followers can store them without regeneration
-        // CRITICAL: Include actual transactions so followers can execute them even if they
-        // missed the original gossip - this prevents balance divergence between nodes
-        if let Some(ref gossip) = self.gossip_service {
-            let proofs_vec: Vec<rinku_core::types::AccountStateProof> = 
-                precomputed_proofs.proofs.values().cloned().collect();
-            gossip.broadcast_checkpoint(
-                checkpoint, 
-                unfinalized_hashes.clone(), 
-                txs_to_execute.clone(),
-                proofs_vec
-            ).await;
-        }
-
-        self.cached_proposal = None;
-
-        Ok(())
     }
-    
+
     async fn gather_unfinalized_txs(
-        &self,
+        &mut self,
         height: u64,
         is_leader: bool,
-        previous_hash: &Option<String>,
+        _previous_hash: &Option<String>,
     ) -> Result<(Vec<String>, Vec<SignedTransaction>, String)> {
-        let state = self.state.inner.read().await;
+        let (mut unfinalized, mut unfinalized_txs, total_count, too_new_count, eligible_count) = {
+            let state = self.state.inner.read().await;
 
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let cutoff_time = now_ms.saturating_sub(PROPAGATION_GRACE_MS);
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let cutoff_time = now_ms.saturating_sub(PROPAGATION_GRACE_MS);
 
-        const MAX_TXS_PER_CHECKPOINT: usize = 200;
+            let tx_cap = self.dynamic_tx_cap;
 
-        let all_unfinalized = state.dag.get_unfinalized_nodes();
-        let mut unfinalized_nodes: Vec<_> = all_unfinalized
-            .iter()
-            .filter(|n| n.tx.tx.timestamp <= cutoff_time)
-            .filter(|n| Self::is_valid_hex_hash(&n.hash))
-            .collect();
+            let all_unfinalized = state.dag.get_unfinalized_nodes();
+            let total = all_unfinalized.len();
+            let mut unfinalized_nodes: Vec<_> = all_unfinalized
+                .iter()
+                .filter(|n| n.tx.tx.timestamp <= cutoff_time)
+                .filter(|n| Self::is_valid_hex_hash(&n.hash))
+                .collect();
 
-        if unfinalized_nodes.len() > MAX_TXS_PER_CHECKPOINT {
-            info!(
-                "Checkpoint {} congested: {} eligible txs, cap {}, prioritizing by gas price",
-                height, unfinalized_nodes.len(), MAX_TXS_PER_CHECKPOINT
-            );
-            unfinalized_nodes.sort_by(|a, b| {
-                let gas_a = a.tx.tx.gas_price.unwrap_or(0);
-                let gas_b = b.tx.tx.gas_price.unwrap_or(0);
-                gas_b.cmp(&gas_a)
-                    .then_with(|| a.tx.tx.timestamp.cmp(&b.tx.tx.timestamp))
-            });
-            unfinalized_nodes.truncate(MAX_TXS_PER_CHECKPOINT);
-        }
+            let too_new = total - unfinalized_nodes.len();
+            let eligible = unfinalized_nodes.len();
 
-        let mut unfinalized: Vec<String> = unfinalized_nodes.iter()
-            .map(|n| n.hash.clone())
-            .collect();
+            if eligible > tx_cap {
+                unfinalized_nodes.sort_by(|a, b| {
+                    let gas_a = a.tx.tx.gas_price.unwrap_or(0);
+                    let gas_b = b.tx.tx.gas_price.unwrap_or(0);
+                    gas_b.cmp(&gas_a)
+                        .then_with(|| a.tx.tx.timestamp.cmp(&b.tx.tx.timestamp))
+                });
+                unfinalized_nodes.truncate(tx_cap);
+            }
 
-        let unfinalized_txs: Vec<SignedTransaction> = unfinalized_nodes.iter()
-            .map(|n| n.tx.clone())
-            .collect();
+            let hashes: Vec<String> = unfinalized_nodes.iter()
+                .map(|n| n.hash.clone())
+                .collect();
 
-        let total_unfinalized = all_unfinalized.len();
-        if total_unfinalized > unfinalized.len() {
-            debug!(
-                "Propagation grace: {} of {} unfinalized txs excluded (too new, cutoff={}ms)",
-                total_unfinalized - unfinalized.len(),
-                total_unfinalized,
-                PROPAGATION_GRACE_MS
-            );
-        }
+            let txs: Vec<SignedTransaction> = unfinalized_nodes.iter()
+                .map(|n| n.tx.clone())
+                .collect();
 
-        if unfinalized.is_empty() {
-            if is_leader {
+            if total > hashes.len() {
                 debug!(
-                    "Leader for checkpoint {} but no unfinalized transactions - waiting for gossip",
-                    height
+                    "Propagation grace: {} of {} unfinalized txs excluded (too new, cutoff={}ms)",
+                    total - hashes.len(),
+                    total,
+                    PROPAGATION_GRACE_MS
                 );
             }
+
+            (hashes, txs, total, too_new, eligible)
+        };
+
+        let tx_cap = self.dynamic_tx_cap;
+        if eligible_count > tx_cap {
+            let new_cap = ((tx_cap as f64) * 2.0).ceil() as usize;
+            let new_cap = new_cap.min(DYNAMIC_TX_CAP_MAX).max(DYNAMIC_TX_CAP_MIN);
+            info!(
+                "Checkpoint {} congested: {} eligible txs, dynamic cap {} -> {}, prioritizing by gas price",
+                height, eligible_count, tx_cap, new_cap
+            );
+            self.dynamic_tx_cap = new_cap;
+        } else if eligible_count < tx_cap / 2 && tx_cap > DYNAMIC_TX_CAP_DEFAULT {
+            let new_cap = ((tx_cap as f64) * 0.95).floor() as usize;
+            let new_cap = new_cap.max(DYNAMIC_TX_CAP_DEFAULT);
+            if new_cap != tx_cap {
+                info!(
+                    "Checkpoint {} under-utilized: {} eligible txs, dynamic cap {} -> {}",
+                    height, eligible_count, tx_cap, new_cap
+                );
+                self.dynamic_tx_cap = new_cap;
+            }
+        }
+
+        const LEADER_MIN_TX_THRESHOLD: usize = 1;
+
+        if !is_leader && unfinalized.is_empty() {
+            return Ok((vec![], vec![], String::new()));
+        }
+
+        let needs_peer_sync = is_leader && unfinalized.len() < LEADER_MIN_TX_THRESHOLD;
+        if needs_peer_sync {
+            #[cfg(feature = "p2p")]
+            {
+                if let Some(ref network_handle) = self.network_handle {
+                    info!(
+                        "Leader has 0 eligible txs for checkpoint {} — syncing from peers",
+                        height
+                    );
+                    let peers = network_handle.get_connected_peers().await;
+                    let local_cp_height = self.state.get_checkpoint_height();
+
+                    let mut peer_futures = Vec::new();
+                    for peer in &peers {
+                        let peer_id = peer.peer_id.clone();
+                        let nh = network_handle.clone();
+                        peer_futures.push(async move {
+                            let result = tokio::time::timeout(
+                                std::time::Duration::from_millis(800),
+                                nh.request_delta(&peer_id, local_cp_height),
+                            ).await;
+                            (peer_id, result)
+                        });
+                    }
+
+                    let results = futures::future::join_all(peer_futures).await;
+                    let mut total_ingested = 0u64;
+
+                    for (peer_id, result) in results {
+                        let result = match result {
+                            Ok(r) => r,
+                            Err(_) => {
+                                debug!("Pre-checkpoint sync to peer {} timed out", &peer_id[..16.min(peer_id.len())]);
+                                continue;
+                            }
+                        };
+                        if let Ok(SyncResponse::Delta(delta)) = result {
+                            for tx_data in &delta.transactions {
+                                let stx = SignedTransaction {
+                                    tx: rinku_core::types::Transaction {
+                                        from: tx_data.from.clone(),
+                                        to: tx_data.to.clone(),
+                                        amount: tx_data.amount,
+                                        nonce: tx_data.nonce,
+                                        timestamp: tx_data.timestamp,
+                                        parents: tx_data.parents.clone(),
+                                        kind: None,
+                                        gas_limit: None,
+                                        gas_price: Some(tx_data.gas_price),
+                                        data: None,
+                                        signature: Some(tx_data.signature.clone()),
+                                        memo: tx_data.memo.clone(),
+                                        references: tx_data.references.clone(),
+                                    },
+                                    hash: tx_data.hash.clone(),
+                                    signature: tx_data.signature.clone(),
+                                };
+                                if self.state.add_transaction_from_sync(stx).await.is_ok() {
+                                    total_ingested += 1;
+                                }
+                            }
+                        }
+                    }
+
+                    if total_ingested > 0 {
+                        info!(
+                            "Pre-checkpoint sync ingested {} txs from peers — re-checking unfinalized",
+                            total_ingested
+                        );
+                        let now_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        let cutoff_time = now_ms.saturating_sub(PROPAGATION_GRACE_MS);
+                        let tx_cap = self.dynamic_tx_cap;
+
+                        let state = self.state.inner.read().await;
+                        let all_unfinalized = state.dag.get_unfinalized_nodes();
+                        let mut eligible: Vec<_> = all_unfinalized
+                            .iter()
+                            .filter(|n| n.tx.tx.timestamp <= cutoff_time)
+                            .filter(|n| Self::is_valid_hex_hash(&n.hash))
+                            .collect();
+
+                        if !eligible.is_empty() {
+                            if eligible.len() > tx_cap {
+                                eligible.sort_by(|a, b| {
+                                    let gas_a = a.tx.tx.gas_price.unwrap_or(0);
+                                    let gas_b = b.tx.tx.gas_price.unwrap_or(0);
+                                    gas_b.cmp(&gas_a)
+                                        .then_with(|| a.tx.tx.timestamp.cmp(&b.tx.tx.timestamp))
+                                });
+                                eligible.truncate(tx_cap);
+                            }
+                            info!(
+                                "Peer sync recovered {} eligible txs for checkpoint {} (was {})",
+                                eligible.len(), height, unfinalized.len()
+                            );
+                            unfinalized = eligible.iter().map(|n| n.hash.clone()).collect();
+                            unfinalized_txs = eligible.iter().map(|n| n.tx.clone()).collect();
+                            drop(state);
+                        } else {
+                            drop(state);
+                        }
+                    }
+                }
+            }
+        }
+
+        if is_leader && unfinalized.is_empty() {
+            debug!(
+                "Leader skip: checkpoint {} has 0 eligible txs after peer sync ({} unfinalized, {} too new) — network idle",
+                height, total_count, too_new_count
+            );
             return Ok((vec![], vec![], String::new()));
         }
 
@@ -1571,287 +1851,17 @@ impl CheckpointService {
         let tx_merkle_root = if unfinalized.is_empty() {
             "0".repeat(64)
         } else {
-            let tree = MerkleTree::from_hex_leaves(&unfinalized)?;
+            let hashes_clone = unfinalized.clone();
+            let tree = tokio::task::spawn_blocking(move || MerkleTree::from_hex_leaves(&hashes_clone))
+                .await
+                .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
             tree.root()
         };
 
         Ok((unfinalized, unfinalized_txs, tx_merkle_root))
     }
-
-    /// Collect validator votes from peers for multi-validator quorum.
-    /// 
-    /// Uses stake-weighted quorum threshold (2/3 of total stake) to determine
-    /// when enough signatures have been collected. Falls back to single-validator
-    /// mode if P2P network is unavailable or insufficient votes are collected.
-    /// 
-    /// CRITICAL: Requests votes from all peers in PARALLEL to avoid blocking on slow peers.
-    /// A slow/unresponsive peer should not prevent quorum from being reached with healthy peers.
-    /// 
-    /// The finalized_tx_hashes are included in vote requests so validators can verify
-    /// they have all the transactions before signing, preventing merkle root mismatches.
-    async fn collect_validator_quorum(
-        &self,
-        checkpoint_hash: &[u8],
-        height: u64,
-        our_signature: Vec<u8>,
-        our_validator_sig: ValidatorSignature,
-        tx_merkle_root: &str,
-        state_root: &str,
-        finalized_tx_hashes: &[String],
-        finalized_transactions: &[SignedTransaction],
-    ) -> (Vec<ValidatorSignature>, Vec<Vec<u8>>, u64) {
-        // Per-peer timeout for vote requests (truly parallel now that mutex is not held during await)
-        // 5s is generous for same-region VMs; slow peers won't block others
-        const QUORUM_TIMEOUT_MS: u64 = 5000;
-        
-        let mut signatures = vec![our_validator_sig.clone()];
-        let mut raw_signatures = vec![our_signature];
-        let mut total_stake_collected = our_validator_sig.weight;
-        
-        // Get total network stake from validator identity if available
-        let total_network_stake = if let Some(ref identity) = self.validator_identity {
-            let identity = identity.read().await;
-            identity.total_active_stake().max(self.our_stake)
-        } else {
-            self.our_stake // Fallback: assume we're the only validator
-        };
-        
-        let quorum_stake_needed = (total_network_stake as f64 * QUORUM_STAKE_THRESHOLD) as u64;
-        debug!(
-            "Quorum collection: need {}/{} stake ({:.1}%)",
-            quorum_stake_needed, total_network_stake, QUORUM_STAKE_THRESHOLD * 100.0
-        );
-        
-        // Check if we already have quorum with just our stake
-        if total_stake_collected >= quorum_stake_needed {
-            debug!("Single validator has sufficient stake for quorum");
-            return (signatures, raw_signatures, total_stake_collected);
-        }
-        
-        // Try P2P vote collection if network handle is available
-        #[cfg(feature = "p2p")]
-        if let Some(ref network) = self.network_handle {
-            let checkpoint_hash_hex = hex::encode(checkpoint_hash);
-            
-            // Get connected peer IDs
-            let peer_ids = {
-                let locked = network.lock().await;
-                locked.get_connected_peer_ids().await
-            };
-            debug!("Requesting checkpoint votes from {} connected peers IN PARALLEL", peer_ids.len());
-            
-            // PARALLEL VOTE COLLECTION: Request votes from ALL peers simultaneously
-            // This prevents a slow peer from blocking the entire quorum collection
-            let finalized_tx_hashes_vec: Vec<String> = finalized_tx_hashes.to_vec();
-            let finalized_txs_vec: Vec<SignedTransaction> = finalized_transactions.to_vec();
-            let vote_futures: Vec<_> = peer_ids.iter().map(|peer_id| {
-                let network = Arc::clone(network);
-                let checkpoint_hash_hex = checkpoint_hash_hex.clone();
-                let tx_merkle_root = tx_merkle_root.to_string();
-                let state_root = state_root.to_string();
-                let checkpoint_hash_bytes = checkpoint_hash.to_vec();
-                let peer_id = peer_id.clone();
-                let validator_identity = self.validator_identity.clone();
-                let tx_hashes = finalized_tx_hashes_vec.clone();
-                let txs = finalized_txs_vec.clone();
-                
-                async move {
-                    // Per-request timeout to prevent blocking on slow peers
-                    let result = tokio::time::timeout(
-                        std::time::Duration::from_millis(QUORUM_TIMEOUT_MS),
-                        Self::request_checkpoint_vote_p2p_static(
-                            &network,
-                            &peer_id,
-                            &checkpoint_hash_hex,
-                            height,
-                            &tx_merkle_root,
-                            &state_root,
-                            &checkpoint_hash_bytes,
-                            validator_identity.as_ref(),
-                            &tx_hashes,
-                            &txs,
-                        )
-                    ).await;
-                    
-                    match result {
-                        Ok(Some(vote)) => Some(vote),
-                        Ok(None) => None,
-                        Err(_) => {
-                            debug!("Timeout requesting vote from peer {}", peer_id);
-                            None
-                        }
-                    }
-                }
-            }).collect();
-            
-            // Wait for all vote requests to complete (with their individual timeouts)
-            let results = join_all(vote_futures).await;
-            
-            // Process results and collect valid signatures
-            for result in results {
-                if let Some((peer_sig, peer_raw, peer_stake)) = result {
-                    // Avoid duplicate signatures from same validator
-                    if !signatures.iter().any(|s| s.validator == peer_sig.validator) {
-                        info!(
-                            "Received quorum vote from {} (stake: {:.0}) for checkpoint {}",
-                            &peer_sig.validator[..16.min(peer_sig.validator.len())],
-                            peer_stake,
-                            height
-                        );
-                        signatures.push(peer_sig);
-                        raw_signatures.push(peer_raw);
-                        total_stake_collected += peer_stake;
-                    }
-                }
-            }
-            
-            if total_stake_collected >= quorum_stake_needed {
-                info!(
-                    "Quorum reached with {:.0}/{:.0} stake from {} validators",
-                    total_stake_collected, total_network_stake, signatures.len()
-                );
-            }
-        }
-        
-        (signatures, raw_signatures, total_stake_collected)
-    }
-    
-    /// Static version of request_checkpoint_vote_p2p for parallel execution
-    #[cfg(feature = "p2p")]
-    async fn request_checkpoint_vote_p2p_static(
-        network: &Arc<tokio::sync::Mutex<NetworkHandle>>,
-        peer_id: &str,
-        checkpoint_hash_hex: &str,
-        height: u64,
-        tx_merkle_root: &str,
-        state_root: &str,
-        checkpoint_hash_bytes: &[u8],
-        validator_identity: Option<&Arc<RwLock<ValidatorIdentityService>>>,
-        finalized_tx_hashes: &[String],
-        finalized_transactions: &[SignedTransaction],
-    ) -> Option<(ValidatorSignature, Vec<u8>, u64)> {
-        // With custom 16MB CBOR codec, we can send many more embedded transactions
-        // Average transaction is ~500 bytes, so 10,000 txs ≈ 5MB, well within 16MB limit
-        const MAX_EMBEDDED_TXS: usize = 10_000;
-        let limited_transactions: Vec<SignedTransaction> = if finalized_transactions.len() > MAX_EMBEDDED_TXS {
-            info!(
-                "Limiting embedded transactions in vote request from {} to {} (checkpoint {})",
-                finalized_transactions.len(), MAX_EMBEDDED_TXS, height
-            );
-            finalized_transactions.iter().take(MAX_EMBEDDED_TXS).cloned().collect()
-        } else {
-            finalized_transactions.to_vec()
-        };
-        
-        let request = SyncRequest::CheckpointVote(CheckpointVoteRequest {
-            checkpoint_hash: checkpoint_hash_hex.to_string(),
-            height,
-            tx_merkle_root: tx_merkle_root.to_string(),
-            state_root: state_root.to_string(),
-            finalized_tx_hashes: finalized_tx_hashes.to_vec(),
-            finalized_transactions: limited_transactions,
-        });
-        
-        let response_rx = {
-            let locked = network.lock().await;
-            locked.send_sync_request(peer_id, request).await
-        };
-        let response: Result<SyncResponse, anyhow::Error> = match response_rx {
-            Ok(rx) => match rx.await {
-                Ok(r) => Ok(r),
-                Err(_) => {
-                    debug!("Vote request cancelled for peer {}", peer_id);
-                    return None;
-                }
-            },
-            Err(e) => {
-                debug!("Failed to send vote request to {}: {}", peer_id, e);
-                return None;
-            }
-        };
-        match response {
-            Ok(SyncResponse::CheckpointVote(Some(vote))) => {
-                // SECURITY: Validate the validator against our local registry
-                let (verified_pk, verified_stake) = if let Some(identity) = validator_identity {
-                    let identity = identity.read().await;
-                    
-                    // Check if this validator is known and active in our registry
-                    if !identity.is_active_validator(&vote.validator_address) {
-                        warn!(
-                            "Rejecting vote from unknown/inactive validator {} (peer {})",
-                            &vote.validator_address[..16.min(vote.validator_address.len())],
-                            peer_id
-                        );
-                        return None;
-                    }
-                    
-                    // Get the known BLS public key for this validator from our registry
-                    match identity.get_validator_bls_key(&vote.validator_address) {
-                        Some(known_pk) => {
-                            // Verify the peer's claimed public key matches our known key
-                            let claimed_pk = URL_SAFE_NO_PAD.decode(&vote.bls_public_key).ok()?;
-                            if claimed_pk != known_pk {
-                                warn!(
-                                    "Rejecting vote: BLS key mismatch for validator {} (peer {})",
-                                    &vote.validator_address[..16.min(vote.validator_address.len())],
-                                    peer_id
-                                );
-                                return None;
-                            }
-                            let stake = identity.get_validator_stake(&vote.validator_address).unwrap_or(0);
-                            (known_pk, stake)
-                        }
-                        None => {
-                            warn!(
-                                "Rejecting vote: no BLS key in registry for validator {} (peer {})",
-                                &vote.validator_address[..16.min(vote.validator_address.len())],
-                                peer_id
-                            );
-                            return None;
-                        }
-                    }
-                } else {
-                    // No validator identity service, accept the peer's claimed key/stake (testnet mode)
-                    let pk = URL_SAFE_NO_PAD.decode(&vote.bls_public_key).ok()?;
-                    (pk, vote.stake)
-                };
-                
-                // Verify the BLS signature using the verified public key
-                let raw_signature = URL_SAFE_NO_PAD.decode(&vote.signature).ok()?;
-                if !bls_verify(checkpoint_hash_bytes, &raw_signature, &verified_pk) {
-                    warn!(
-                        "Rejecting vote: invalid BLS signature from validator {} (peer {})",
-                        &vote.validator_address[..16.min(vote.validator_address.len())],
-                        peer_id
-                    );
-                    return None;
-                }
-                
-                let validator_sig = ValidatorSignature {
-                    validator: vote.validator_address,
-                    signature: vote.signature,
-                    weight: verified_stake,
-                    bls_public_key: Some(URL_SAFE_NO_PAD.encode(&verified_pk)),
-                };
-                
-                Some((validator_sig, raw_signature, verified_stake))
-            }
-            Ok(SyncResponse::CheckpointVote(None)) => {
-                debug!("Peer {} declined to vote on checkpoint {}", peer_id, height);
-                None
-            }
-            Ok(SyncResponse::Error { message }) => {
-                warn!("Peer {} returned error for checkpoint vote: {}", peer_id, message);
-                None
-            }
-            _ => {
-                debug!("Unexpected or failed response from peer {} for checkpoint vote", peer_id);
-                None
-            }
-        }
-    }
-    
 }
+
 
 #[cfg(test)]
 mod tests {

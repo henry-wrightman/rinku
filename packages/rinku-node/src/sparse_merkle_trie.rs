@@ -528,6 +528,14 @@ impl SparseMerkleTrie {
         Ok(count)
     }
 
+    pub fn take_dirty_nodes(&mut self) -> HashMap<[u8; 32], TrieNode> {
+        std::mem::take(&mut self.dirty_nodes)
+    }
+
+    pub fn insert_cache(&mut self, hash: [u8; 32], node: TrieNode) {
+        self.cache.insert(hash, node);
+    }
+
     pub fn dirty_node_count(&self) -> usize {
         self.dirty_nodes.len()
     }

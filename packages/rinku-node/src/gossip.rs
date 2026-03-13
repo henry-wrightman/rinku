@@ -13,6 +13,16 @@ const KNOWN_TXS_MAX_SIZE: usize = 50_000;
 const SEEN_CONFLICTS_MAX_SIZE: usize = 10_000;
 const SEEN_EVIDENCE_MAX_SIZE: usize = 5_000;
 
+const CHECKPOINT_BUFFER_MAX_AHEAD: u64 = 10;
+
+pub struct BufferedCheckpoint {
+    pub checkpoint: Checkpoint,
+    pub finalized_tx_hashes: Vec<String>,
+    pub finalized_transactions: Vec<SignedTransaction>,
+    pub precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
+    pub source: String,
+}
+
 /// Default bloom filter size in bits (64KB = 512k bits for ~100K items at 1% FPR)
 const BLOOM_FILTER_SIZE_BITS: usize = 524_288;
 /// Number of hash functions for bloom filter (optimal k = (m/n) * ln(2) ≈ 7 for 100K items)
@@ -183,6 +193,22 @@ impl BoundedHashSet {
         self.set.contains(value)
     }
 
+    pub fn remove(&mut self, value: &str) -> bool {
+        if self.set.remove(value) {
+            self.order.retain(|v| v != value);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn remove_batch(&mut self, values: &std::collections::HashSet<&String>) {
+        for v in values {
+            self.set.remove(v.as_str());
+        }
+        self.order.retain(|v| !values.contains(v));
+    }
+
     pub fn clear(&mut self) {
         self.set.clear();
         self.order.clear();
@@ -195,7 +221,7 @@ impl BoundedHashSet {
 
 use crate::config::TrustConfig;
 #[cfg(feature = "p2p")]
-use crate::network::{NetworkHandle, NetworkCommand, IncomingSyncRequest};
+use crate::network::{NetworkHandle, NetworkCommand, IncomingSyncRequest, IncomingVoteRequest};
 use crate::slashing::DoubleSignEvidence;
 use crate::state::NodeState;
 use crate::trust::TrustVerifier;
@@ -366,7 +392,7 @@ pub enum GossipMessage {
     /// Fast-path broadcast for data-only transactions (Mysticeti-FPC style)
     /// These transactions only touch sender's account (gas) and can achieve
     /// sub-second finality via reliable broadcast quorum
-    FastPathBroadcast {
+    TxConfirmBroadcast {
         tx: SignedTransaction,
         sender_validator: String,
         sender_stake: u64,
@@ -374,9 +400,7 @@ pub enum GossipMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
     },
-    /// Validator acknowledgment for fast-path transaction
-    /// When 2/3+ stake ACKs are collected, the tx is considered confirmed
-    FastPathAck {
+    TxConfirmAck {
         tx_hash: String,
         validator_address: String,
         validator_stake: u64,
@@ -396,6 +420,42 @@ pub enum GossipMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
     },
+    CheckpointIntent {
+        height: u64,
+        leader_address: String,
+        timestamp_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
+        #[serde(default)]
+        relay_count: u8,
+    },
+    Batch {
+        messages: Vec<GossipMessage>,
+    },
+}
+
+impl GossipMessage {
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            GossipMessage::Transaction { .. } => "Transaction",
+            GossipMessage::TipAnnouncement { .. } => "TipAnnouncement",
+            GossipMessage::CheckpointSignature { .. } => "CheckpointSignature",
+            GossipMessage::PeerDiscovery { .. } => "PeerDiscovery",
+            GossipMessage::ConflictResolution { .. } => "ConflictResolution",
+            GossipMessage::SyncRequest { .. } => "SyncRequest",
+            GossipMessage::SyncResponse { .. } => "SyncResponse",
+            GossipMessage::BloomAnnouncement { .. } => "BloomAnnouncement",
+            GossipMessage::SlashingEvidence { .. } => "SlashingEvidence",
+            GossipMessage::WeightVote { .. } => "WeightVote",
+            GossipMessage::CheckpointAnnouncement { .. } => "CheckpointAnnouncement",
+            GossipMessage::TxConfirmBroadcast { .. } => "TxConfirmBroadcast",
+            GossipMessage::TxConfirmAck { .. } => "TxConfirmAck",
+            GossipMessage::MergePayload { .. } => "MergePayload",
+            GossipMessage::MergeResult { .. } => "MergeResult",
+            GossipMessage::CheckpointIntent { .. } => "CheckpointIntent",
+            GossipMessage::Batch { .. } => "Batch",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -448,13 +508,26 @@ pub struct GossipServiceInner {
     /// Counter for stale nonce rejections (for stats/logging)
     pub stale_nonce_rejections: u64,
     /// Counter for cache hits (quick-rejected without full validation)
-    pub stale_nonce_cache_hits: u64,
+    pub stale_nonce_cache_hits: std::sync::atomic::AtomicU64,
     /// Flag to prevent overlapping propagation tasks
     pub propagation_in_flight: bool,
     /// Fast-path finality tracking for data-only transactions
-    pub fast_path_pending: HashMap<String, rinku_core::types::FastPathFinality>,
-    pub fast_path_confirmed: HashMap<String, rinku_core::types::FastPathFinality>,
-    pub fast_path_executed: std::collections::HashSet<String>,
+    pub convergence_pending: HashMap<String, rinku_core::types::FastPathFinality>,
+    pub convergence_confirmed: HashMap<String, rinku_core::types::FastPathFinality>,
+    pub convergence_executed: std::collections::HashSet<String>,
+    pub leader_intents: HashMap<u64, (String, u64)>,
+    pub recent_checkpoint_data: HashMap<u64, CachedCheckpointData>,
+    pub last_convergence_retry: std::time::Instant,
+    pub convergence_retry_counts: HashMap<String, u8>,
+    pub last_tip_hash: u64,
+    pub deferred_by_sender_nonce: HashMap<String, std::collections::BTreeMap<u64, SignedTransaction>>,
+}
+
+pub struct CachedCheckpointData {
+    pub checkpoint: Checkpoint,
+    pub finalized_tx_hashes: Vec<String>,
+    pub finalized_transactions: Vec<SignedTransaction>,
+    pub precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -474,6 +547,17 @@ pub struct CheckpointVoteSigner {
     pub bls_public_key: Vec<u8>,
 }
 
+struct ValidatorCache {
+    validators: HashMap<String, Validator>,
+    our_address: Option<String>,
+    our_stake: u64,
+    total_stake: u64,
+    quorum_threshold: u64,
+    cached_at: std::time::Instant,
+}
+
+const VALIDATOR_CACHE_TTL_MS: u128 = 5000;
+
 pub struct GossipService {
     state: NodeState,
     inner: Arc<RwLock<GossipServiceInner>>,
@@ -483,15 +567,23 @@ pub struct GossipService {
     sync_verify_strict: bool,
     checkpoint_vote_signer: Option<CheckpointVoteSigner>,
     #[cfg(feature = "p2p")]
-    network_handle: Option<Arc<tokio::sync::Mutex<NetworkHandle>>>,
+    network_handle: Option<Arc<NetworkHandle>>,
     #[cfg(feature = "p2p")]
     p2p_message_rx: Option<Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<GossipMessage>>>>>,
     #[cfg(feature = "p2p")]
+    p2p_priority_rx: Option<Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<GossipMessage>>>>>,
+    #[cfg(feature = "p2p")]
+    p2p_checkpoint_rx: Option<Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<GossipMessage>>>>>,
+    #[cfg(feature = "p2p")]
     p2p_sync_rx: Option<Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<IncomingSyncRequest>>>>>,
+    #[cfg(feature = "p2p")]
+    p2p_vote_rx: Option<Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<IncomingVoteRequest>>>>>,
     #[cfg(feature = "p2p")]
     p2p_response_tx: Option<tokio::sync::mpsc::Sender<NetworkCommand>>,
     validator_identity: Option<Arc<tokio::sync::RwLock<crate::validator_identity::ValidatorIdentityService>>>,
     event_bus: Option<Arc<crate::events::EventBus>>,
+    pub checkpoint_buffer: Arc<tokio::sync::Mutex<HashMap<u64, BufferedCheckpoint>>>,
+    validator_cache: Arc<tokio::sync::RwLock<Option<ValidatorCache>>>,
 }
 
 impl Clone for GossipService {
@@ -509,11 +601,19 @@ impl Clone for GossipService {
             #[cfg(feature = "p2p")]
             p2p_message_rx: None,
             #[cfg(feature = "p2p")]
+            p2p_priority_rx: None,
+            #[cfg(feature = "p2p")]
+            p2p_checkpoint_rx: None,
+            #[cfg(feature = "p2p")]
             p2p_sync_rx: None,
+            #[cfg(feature = "p2p")]
+            p2p_vote_rx: None,
             #[cfg(feature = "p2p")]
             p2p_response_tx: self.p2p_response_tx.clone(),
             validator_identity: self.validator_identity.clone(),
             event_bus: self.event_bus.clone(),
+            checkpoint_buffer: self.checkpoint_buffer.clone(),
+            validator_cache: self.validator_cache.clone(),
         }
     }
 }
@@ -569,11 +669,17 @@ impl GossipService {
                 stale_nonce_cache: HashMap::new(),
                 stale_nonce_cache_order: VecDeque::new(),
                 stale_nonce_rejections: 0,
-                stale_nonce_cache_hits: 0,
+                stale_nonce_cache_hits: std::sync::atomic::AtomicU64::new(0),
                 propagation_in_flight: false,
-                fast_path_pending: HashMap::new(),
-                fast_path_confirmed: HashMap::new(),
-                fast_path_executed: std::collections::HashSet::new(),
+                convergence_pending: HashMap::new(),
+                convergence_confirmed: HashMap::new(),
+                convergence_executed: std::collections::HashSet::new(),
+                leader_intents: HashMap::new(),
+                recent_checkpoint_data: HashMap::new(),
+                last_convergence_retry: std::time::Instant::now(),
+                convergence_retry_counts: HashMap::new(),
+                last_tip_hash: 0,
+                deferred_by_sender_nonce: HashMap::new(),
             })),
             node_id,
             interval_ms,
@@ -585,14 +691,59 @@ impl GossipService {
             #[cfg(feature = "p2p")]
             p2p_message_rx: None,
             #[cfg(feature = "p2p")]
+            p2p_priority_rx: None,
+            #[cfg(feature = "p2p")]
+            p2p_checkpoint_rx: None,
+            #[cfg(feature = "p2p")]
             p2p_sync_rx: None,
+            #[cfg(feature = "p2p")]
+            p2p_vote_rx: None,
             #[cfg(feature = "p2p")]
             p2p_response_tx: None,
             validator_identity: None,
             event_bus: None,
+            checkpoint_buffer: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            validator_cache: Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 
+    async fn get_cached_validators(&self) -> (HashMap<String, Validator>, Option<String>, u64, u64, u64) {
+        {
+            let cache = self.validator_cache.read().await;
+            if let Some(ref c) = *cache {
+                if c.cached_at.elapsed().as_millis() < VALIDATOR_CACHE_TTL_MS {
+                    return (c.validators.clone(), c.our_address.clone(), c.our_stake, c.total_stake, c.quorum_threshold);
+                }
+            }
+        }
+        let validators = self.state.get_validators_map().await;
+        let (our_addr, _) = self.state.get_validator_info().await;
+        let our_stake = if let Some(ref addr) = our_addr {
+            self.state.get_validator_stake(addr).await.unwrap_or(0)
+        } else {
+            0
+        };
+        let total_stake: u64 = validators.values().map(|v| v.stake).sum();
+        let quorum_threshold = total_stake * 2 / 3;
+        let mut cache = self.validator_cache.write().await;
+        *cache = Some(ValidatorCache {
+            validators: validators.clone(),
+            our_address: our_addr.clone(),
+            our_stake,
+            total_stake,
+            quorum_threshold,
+            cached_at: std::time::Instant::now(),
+        });
+        (validators, our_addr, our_stake, total_stake, quorum_threshold)
+    }
+
+    #[cfg(feature = "p2p")]
+    pub fn set_p2p_vote_channel(
+        &mut self,
+        vote_rx: Option<tokio::sync::mpsc::Receiver<IncomingVoteRequest>>,
+    ) {
+        self.p2p_vote_rx = vote_rx.map(|rx| Arc::new(tokio::sync::Mutex::new(Some(rx))));
+    }
 
     pub fn set_event_bus(&mut self, event_bus: Arc<crate::events::EventBus>) {
         self.event_bus = Some(event_bus);
@@ -611,7 +762,7 @@ impl GossipService {
     }
 
     #[cfg(feature = "p2p")]
-    pub fn set_network_handle(&mut self, handle: Arc<tokio::sync::Mutex<NetworkHandle>>) {
+    pub fn set_network_handle(&mut self, handle: Arc<NetworkHandle>) {
         self.network_handle = Some(handle);
     }
 
@@ -619,10 +770,14 @@ impl GossipService {
     pub fn set_p2p_channels(
         &mut self,
         message_rx: Option<tokio::sync::mpsc::Receiver<GossipMessage>>,
+        priority_rx: Option<tokio::sync::mpsc::Receiver<GossipMessage>>,
+        checkpoint_rx: Option<tokio::sync::mpsc::Receiver<GossipMessage>>,
         sync_rx: Option<tokio::sync::mpsc::Receiver<IncomingSyncRequest>>,
         response_tx: Option<tokio::sync::mpsc::Sender<NetworkCommand>>,
     ) {
         self.p2p_message_rx = message_rx.map(|rx| Arc::new(tokio::sync::Mutex::new(Some(rx))));
+        self.p2p_priority_rx = priority_rx.map(|rx| Arc::new(tokio::sync::Mutex::new(Some(rx))));
+        self.p2p_checkpoint_rx = checkpoint_rx.map(|rx| Arc::new(tokio::sync::Mutex::new(Some(rx))));
         self.p2p_sync_rx = sync_rx.map(|rx| Arc::new(tokio::sync::Mutex::new(Some(rx))));
         self.p2p_response_tx = response_tx;
     }
@@ -660,11 +815,26 @@ impl GossipService {
 
         #[cfg(feature = "p2p")]
         {
+            let priority_rx_opt = if let Some(ref rx_slot) = self.p2p_priority_rx {
+                rx_slot.lock().await.take()
+            } else {
+                None
+            };
+
             if let Some(ref rx_slot) = self.p2p_message_rx {
                 if let Some(rx) = rx_slot.lock().await.take() {
                     let gossip_clone = Arc::clone(&self);
                     tokio::spawn(async move {
-                        gossip_clone.run_p2p_receiver(rx).await;
+                        gossip_clone.run_p2p_receiver(rx, priority_rx_opt).await;
+                    });
+                }
+            }
+
+            if let Some(ref rx_slot) = self.p2p_checkpoint_rx {
+                if let Some(rx) = rx_slot.lock().await.take() {
+                    let gossip_clone_cp = Arc::clone(&self);
+                    tokio::spawn(async move {
+                        gossip_clone_cp.run_checkpoint_receiver(rx).await;
                     });
                 }
             }
@@ -675,6 +845,16 @@ impl GossipService {
                     let gossip_clone2 = Arc::clone(&self);
                     tokio::spawn(async move {
                         gossip_clone2.run_sync_request_handler(rx, response_tx).await;
+                    });
+                }
+            }
+
+            if let Some(ref rx_slot) = self.p2p_vote_rx {
+                let response_tx = self.p2p_response_tx.clone();
+                if let Some(rx) = rx_slot.lock().await.take() {
+                    let gossip_clone3 = Arc::clone(&self);
+                    tokio::spawn(async move {
+                        gossip_clone3.run_vote_request_handler(rx, response_tx).await;
                     });
                 }
             }
@@ -690,33 +870,365 @@ impl GossipService {
     }
 
     #[cfg(feature = "p2p")]
-    async fn run_p2p_receiver(&self, mut rx: tokio::sync::mpsc::Receiver<GossipMessage>) {
-        info!("P2P message receiver started (lock-free async)");
-        while let Some(msg) = rx.recv().await {
-            debug!("Received P2P gossip message: {:?}", std::mem::discriminant(&msg));
-            if let Err(e) = self.handle_message(msg).await {
-                warn!("Failed to handle P2P message: {}", e);
+    async fn run_p2p_receiver(
+        self: Arc<Self>,
+        mut rx: tokio::sync::mpsc::Receiver<GossipMessage>,
+        priority_rx: Option<tokio::sync::mpsc::Receiver<GossipMessage>>,
+    ) {
+        info!("P2P message receiver started (concurrent, bounded, priority-aware)");
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(12));
+        let priority_semaphore = Arc::new(tokio::sync::Semaphore::new(64));
+
+        if let Some(mut pri_rx) = priority_rx {
+            loop {
+                for _ in 0..10 {
+                    match pri_rx.try_recv() {
+                        Ok(msg) => {
+                            debug!("Processing PRIORITY message [dedicated]");
+                            let sem = priority_semaphore.clone();
+                            let handler = Arc::clone(&self);
+                            tokio::spawn(async move {
+                                let _permit = sem.acquire_owned().await.unwrap();
+                                if let Err(e) = handler.handle_message(msg).await {
+                                    warn!("Failed to handle priority P2P message: {}", e);
+                                }
+                            });
+                        }
+                        Err(_) => break,
+                    }
+                }
+
+                tokio::select! {
+                    biased;
+                    Some(msg) = pri_rx.recv() => {
+                        debug!("Processing PRIORITY message [dedicated]");
+                        let sem = priority_semaphore.clone();
+                        let handler = Arc::clone(&self);
+                        tokio::spawn(async move {
+                            let _permit = sem.acquire_owned().await.unwrap();
+                            if let Err(e) = handler.handle_message(msg).await {
+                                warn!("Failed to handle priority P2P message: {}", e);
+                            }
+                        });
+                    }
+                    Some(msg) = rx.recv() => {
+                        let sem = semaphore.clone();
+                        let handler = Arc::clone(&self);
+                        tokio::spawn(async move {
+                            let _permit = sem.acquire_owned().await.unwrap();
+                            if let Err(e) = handler.handle_message(msg).await {
+                                warn!("Failed to handle P2P message: {}", e);
+                            }
+                        });
+                    }
+                    else => break,
+                }
+            }
+        } else {
+            while let Some(msg) = rx.recv().await {
+                let permit = semaphore.clone().acquire_owned().await.unwrap();
+                let handler = Arc::clone(&self);
+                tokio::spawn(async move {
+                    if let Err(e) = handler.handle_message(msg).await {
+                        warn!("Failed to handle P2P message: {}", e);
+                    }
+                    drop(permit);
+                });
             }
         }
         warn!("P2P message channel closed");
     }
 
     #[cfg(feature = "p2p")]
+    async fn run_checkpoint_receiver(
+        self: Arc<Self>,
+        mut rx: tokio::sync::mpsc::Receiver<GossipMessage>,
+    ) {
+        info!("Dedicated checkpoint receiver started (isolated from convergence handlers)");
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(4));
+        while let Some(msg) = rx.recv().await {
+            let sem = semaphore.clone();
+            let handler = Arc::clone(&self);
+            tokio::spawn(async move {
+                let _permit = sem.acquire_owned().await.unwrap();
+                if let Err(e) = handler.handle_message(msg).await {
+                    warn!("Failed to handle checkpoint message: {}", e);
+                }
+            });
+        }
+        warn!("Checkpoint message channel closed");
+    }
+
+    #[cfg(feature = "p2p")]
     async fn run_sync_request_handler(
-        &self,
+        self: Arc<Self>,
         mut rx: tokio::sync::mpsc::Receiver<IncomingSyncRequest>,
         response_tx: Option<tokio::sync::mpsc::Sender<NetworkCommand>>,
     ) {
+        info!("P2P sync request handler started (concurrent)");
+        while let Some(incoming) = rx.recv().await {
+            let handler = Arc::clone(&self);
+            let resp_tx = response_tx.clone();
+            tokio::spawn(async move {
+                handler.process_sync_request(incoming, resp_tx).await;
+            });
+        }
+        warn!("Sync request channel closed");
+    }
+
+    #[cfg(feature = "p2p")]
+    async fn run_vote_request_handler(
+        self: Arc<Self>,
+        mut rx: tokio::sync::mpsc::Receiver<IncomingVoteRequest>,
+        response_tx: Option<tokio::sync::mpsc::Sender<NetworkCommand>>,
+    ) {
+        info!("P2P vote request handler started (dedicated channel)");
+        while let Some(incoming) = rx.recv().await {
+            let handler = Arc::clone(&self);
+            let resp_tx = response_tx.clone();
+            tokio::spawn(async move {
+                handler.process_vote_request(incoming, resp_tx).await;
+            });
+        }
+        warn!("Vote request channel closed");
+    }
+
+    #[cfg(feature = "p2p")]
+    async fn process_vote_request(
+        &self,
+        incoming: IncomingVoteRequest,
+        response_tx: Option<tokio::sync::mpsc::Sender<NetworkCommand>>,
+    ) {
         use crate::network::{
-            AccountData, CheckpointData, CheckpointVoteResponse, DeltaData, PeerHandshake,
-            SnapshotData, SyncRequest, SyncResponse, TransactionData, ValidatorData,
+            CheckpointVoteResponse, VoteRequest, VoteResponse,
         };
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         use base64::Engine;
         use crate::bls::bls_sign;
-        
-        info!("P2P sync request handler started (lock-free async)");
-        while let Some(incoming) = rx.recv().await {
+
+        let response = match incoming.request {
+            VoteRequest::CheckpointVote(request) => {
+                let vote_start = std::time::Instant::now();
+                let vote_height = request.height;
+                let local_cp_height = self.state.get_checkpoint_height();
+                let vote_response = if vote_height > local_cp_height + 3 {
+                    debug!(
+                        "Fast-declining vote for checkpoint {} (local height {}, too far ahead)",
+                        vote_height, local_cp_height
+                    );
+                    VoteResponse::CheckpointVote(None)
+                } else if vote_height <= local_cp_height {
+                    debug!(
+                        "Fast-declining stale vote for checkpoint {} (local height {})",
+                        vote_height, local_cp_height
+                    );
+                    VoteResponse::CheckpointVote(None)
+                } else if let Some(ref signer) = self.checkpoint_vote_signer {
+                    if signer.validator_address.is_empty() {
+                        VoteResponse::CheckpointVote(None)
+                    } else {
+                        let can_sign = if !request.finalized_tx_hashes.is_empty() {
+                            let total_txs = request.finalized_tx_hashes.len();
+                            let lock_timed_out;
+
+                            let missing_count = match self.state.inner.try_read() {
+                                Ok(state) => {
+                                    lock_timed_out = false;
+                                    let count = request.finalized_tx_hashes.iter()
+                                        .filter(|hash| state.dag.get_node(hash).is_none())
+                                        .count();
+                                    drop(state);
+                                    count
+                                }
+                                Err(_) => {
+                                    match tokio::time::timeout(
+                                        std::time::Duration::from_millis(500),
+                                        self.state.inner.read()
+                                    ).await {
+                                        Ok(state) => {
+                                            lock_timed_out = false;
+                                            let count = request.finalized_tx_hashes.iter()
+                                                .filter(|hash| state.dag.get_node(hash).is_none())
+                                                .count();
+                                            drop(state);
+                                            count
+                                        }
+                                        Err(_) => {
+                                            lock_timed_out = true;
+                                            info!("Vote request for checkpoint {}: state lock timeout, signing on merkle root only", request.height);
+                                            0
+                                        }
+                                    }
+                                }
+                            };
+
+                            let mut applied_count = 0usize;
+
+                            if !lock_timed_out && missing_count > 0 && !request.finalized_transactions.is_empty() {
+                                let missing_hashes: Vec<String> = match tokio::time::timeout(
+                                    std::time::Duration::from_millis(200),
+                                    self.state.inner.read()
+                                ).await {
+                                    Ok(state) => {
+                                        let hashes = request.finalized_tx_hashes.iter()
+                                            .filter(|hash| state.dag.get_node(hash).is_none())
+                                            .cloned()
+                                            .collect();
+                                        drop(state);
+                                        hashes
+                                    }
+                                    Err(_) => {
+                                        info!("Vote request: inline sync read timed out for checkpoint {}, skipping tx application", request.height);
+                                        vec![]
+                                    }
+                                };
+                                if !missing_hashes.is_empty() {
+                                    let missing_set: std::collections::HashSet<&str> = missing_hashes.iter().map(|h| h.as_str()).collect();
+                                    let txs_to_add: Vec<rinku_core::types::SignedTransaction> = request.finalized_transactions.iter()
+                                        .filter(|tx| missing_set.contains(tx.hash.as_str()))
+                                        .cloned()
+                                        .collect();
+                                    if let Ok(count) = tokio::time::timeout(
+                                        std::time::Duration::from_millis(300),
+                                        self.state.force_add_transactions_batch_for_vote(txs_to_add)
+                                    ).await.unwrap_or(Ok(0)) {
+                                        applied_count = count;
+                                    }
+                                }
+                            }
+
+                            let still_missing = if !lock_timed_out && missing_count > 0 {
+                                match self.state.inner.try_read() {
+                                    Ok(state) => request.finalized_tx_hashes.iter()
+                                        .filter(|hash| state.dag.get_node(hash).is_none())
+                                        .count(),
+                                    Err(_) => 0,
+                                }
+                            } else {
+                                0
+                            };
+
+                            let mut tx_hashes = request.finalized_tx_hashes.clone();
+                            tx_hashes.sort();
+                            let hashes_clone = tx_hashes.clone();
+                            let computed_root = tokio::task::spawn_blocking(move || {
+                                rinku_core::MerkleTree::from_hex_leaves(&hashes_clone)
+                                    .map(|t| t.root())
+                                    .unwrap_or_else(|_| "0".repeat(64))
+                            }).await.unwrap_or_else(|_| "0".repeat(64));
+
+                            if computed_root != request.tx_merkle_root {
+                                warn!(
+                                    "Declining checkpoint vote for height {}: merkle root mismatch (ours={}, theirs={})",
+                                    request.height, &computed_root[..16], &request.tx_merkle_root[..16]
+                                );
+                                false
+                            } else if !lock_timed_out && still_missing > 0 && still_missing * 4 > total_txs * 3 {
+                                warn!(
+                                    "Declining checkpoint vote for height {}: missing {}/{} transactions (>75%) — too many unknown txs",
+                                    request.height, still_missing, total_txs
+                                );
+                                false
+                            } else if !lock_timed_out && still_missing > 0 {
+                                info!(
+                                    "Checkpoint vote for height {}: missing {}/{} transactions but merkle root valid — signing",
+                                    request.height, still_missing, total_txs
+                                );
+                                true
+                            } else {
+                                if lock_timed_out {
+                                    info!(
+                                        "Signing checkpoint {} vote on merkle root only (lock contention bypass, {} txs)",
+                                        request.height, total_txs
+                                    );
+                                } else {
+                                    info!(
+                                        "Verified {} transactions for checkpoint {} vote (applied {} via inline sync, {} missing tolerated)",
+                                        total_txs, request.height, applied_count, still_missing
+                                    );
+                                }
+                                true
+                            }
+                        } else {
+                            debug!("Legacy vote request without tx hashes for height {}", request.height);
+                            true
+                        };
+
+                        if !can_sign {
+                            VoteResponse::CheckpointVote(None)
+                        } else {
+                            let final_height = self.state.get_checkpoint_height();
+                            if vote_height <= final_height {
+                                debug!(
+                                    "Post-check: declining vote for checkpoint {} (committed during processing, height now {})",
+                                    vote_height, final_height
+                                );
+                                VoteResponse::CheckpointVote(None)
+                            } else {
+                            match hex::decode(&request.checkpoint_hash) {
+                                Ok(hash_bytes) => {
+                                    match bls_sign(&hash_bytes, &signer.bls_private_key) {
+                                        Ok(signature) => {
+                                            let actual_stake = match tokio::time::timeout(
+                                                std::time::Duration::from_millis(50),
+                                                self.state.inner.read()
+                                            ).await {
+                                                Ok(state) => state.validators.get(&signer.validator_address).map(|v| v.stake).unwrap_or(GENESIS_VALIDATOR_STAKE),
+                                                Err(_) => {
+                                                    info!("Vote for checkpoint {}: stake lookup timed out, using cached genesis stake", vote_height);
+                                                    GENESIS_VALIDATOR_STAKE
+                                                },
+                                            };
+                                            let response = CheckpointVoteResponse {
+                                                validator_address: signer.validator_address.clone(),
+                                                signature: URL_SAFE_NO_PAD.encode(&signature),
+                                                signature_bytes: signature,
+                                                bls_public_key: URL_SAFE_NO_PAD.encode(&signer.bls_public_key),
+                                                stake: actual_stake,
+                                            };
+                                            VoteResponse::CheckpointVote(Some(response))
+                                        }
+                                        Err(e) => VoteResponse::Error {
+                                            message: format!("Failed to sign checkpoint: {}", e),
+                                        },
+                                    }
+                                }
+                                Err(_) => VoteResponse::Error {
+                                    message: "Invalid checkpoint hash".to_string(),
+                                },
+                            }
+                            }
+                        }
+                    }
+                } else {
+                    VoteResponse::CheckpointVote(None)
+                };
+                let vote_ms = vote_start.elapsed().as_millis();
+                if vote_ms > 100 {
+                    warn!("Vote request for checkpoint {} processed in {}ms (slow!)", vote_height, vote_ms);
+                } else {
+                    info!("Vote request for checkpoint {} processed in {}ms", vote_height, vote_ms);
+                }
+                vote_response
+            }
+        };
+
+        if let Some(ref tx) = response_tx {
+            let _ = tx.send(NetworkCommand::SendVoteResponse(incoming.response_channel, response)).await;
+        }
+    }
+
+    #[cfg(feature = "p2p")]
+    async fn process_sync_request(
+        &self,
+        incoming: IncomingSyncRequest,
+        response_tx: Option<tokio::sync::mpsc::Sender<NetworkCommand>>,
+    ) {
+        use crate::network::{
+            AccountData, CheckpointData, DeltaData, PeerHandshake,
+            SnapshotData, SyncRequest, SyncResponse, TransactionData, ValidatorData,
+        };
+
                     info!("Handling sync request from {}: {:?}", incoming.peer_id, incoming.request);
                     
                     let response = match incoming.request {
@@ -789,30 +1301,23 @@ impl GossipService {
                             })
                         }
                         SyncRequest::Delta { from_checkpoint } => {
+                            let delta_start = std::time::Instant::now();
                             info!("Handling P2P delta sync request from checkpoint {}", from_checkpoint);
                             
-                            // Get checkpoints and transaction mappings
-                            let (new_checkpoints, tx_checkpoint_heights, to_checkpoint, validators) = {
+                            let (new_checkpoints, tx_checkpoint_heights, to_checkpoint, max_included_height, validators) = {
                                 let state_guard = self.state.inner.read().await;
-                                let mut tx_checkpoint_heights = std::collections::HashMap::new();
-                                let mut tx_count_by_checkpoint: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
                                 
-                                for node in state_guard.dag.get_all_nodes() {
-                                    if let Some(height) = node.checkpoint_height {
-                                        tx_checkpoint_heights.insert(node.hash.clone(), height);
-                                        *tx_count_by_checkpoint.entry(height).or_insert(0) += 1;
-                                    }
-                                }
-                                
+                                const MAX_SYNC_CHECKPOINTS: usize = 3;
                                 let new_checkpoints: Vec<CheckpointData> = state_guard
                                     .checkpoints
                                     .iter()
                                     .filter(|cp| cp.height > from_checkpoint)
+                                    .take(MAX_SYNC_CHECKPOINTS)
                                     .map(|cp| CheckpointData {
                                         height: cp.height,
                                         merkle_root: cp.tx_merkle_root.clone(),
                                         timestamp: cp.timestamp,
-                                        tx_count: *tx_count_by_checkpoint.get(&cp.height).unwrap_or(&0),
+                                        tx_count: cp.finalized_tx_hashes.len() as u64,
                                         hash: Some(cp.hash.clone()),
                                         previous_hash: cp.previous_hash.clone(),
                                         signature: cp.aggregated_signature.clone(),
@@ -826,7 +1331,21 @@ impl GossipService {
                                     })
                                     .collect();
                                 
+                                let max_included_height = new_checkpoints.last().map(|cp| cp.height).unwrap_or(from_checkpoint);
                                 let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+                                
+                                let included_tx_hashes: std::collections::HashSet<String> = new_checkpoints.iter()
+                                    .flat_map(|cp| cp.finalized_tx_hashes.iter().cloned())
+                                    .collect();
+                                
+                                let mut tx_checkpoint_heights = std::collections::HashMap::new();
+                                for node in state_guard.dag.get_all_nodes() {
+                                    if let Some(height) = node.checkpoint_height {
+                                        if height > from_checkpoint && height <= max_included_height {
+                                            tx_checkpoint_heights.insert(node.hash.clone(), height);
+                                        }
+                                    }
+                                }
                                 
                                 let validators: Vec<ValidatorData> = state_guard.validators.values().map(|v| ValidatorData {
                                     address: v.address.clone(),
@@ -835,15 +1354,17 @@ impl GossipService {
                                     status: "Active".to_string(),
                                 }).collect();
                                 
-                                (new_checkpoints, tx_checkpoint_heights, to_checkpoint, validators)
+                                (new_checkpoints, tx_checkpoint_heights, to_checkpoint, max_included_height, validators)
                             };
                             
-                            // Get transactions since checkpoint
+                            let included_tx_hashes: std::collections::HashSet<&str> = new_checkpoints.iter()
+                                .flat_map(|cp| cp.finalized_tx_hashes.iter().map(|h| h.as_str()))
+                                .collect();
+                            
                             let all_txs = self.state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
                             
-                            // Limit to prevent massive responses (P2P has size limits)
                             let txs: Vec<TransactionData> = all_txs.into_iter()
-                                .take(5000) // Cap at 5000 txs per request
+                                .filter(|stx| included_tx_hashes.contains(stx.hash.as_str()))
                                 .map(|stx| TransactionData {
                                     hash: stx.hash.clone(),
                                     from: stx.tx.from.clone(),
@@ -859,17 +1380,23 @@ impl GossipService {
                                 })
                                 .collect();
                             
-                            info!("P2P delta sync response: {} txs, {} checkpoints (from {} to {})",
-                                txs.len(), new_checkpoints.len(), from_checkpoint, to_checkpoint);
-                            
-                            SyncResponse::Delta(DeltaData {
-                                transactions: txs,
-                                new_checkpoints,
+                            let delta_ms = delta_start.elapsed().as_millis();
+                            let response = SyncResponse::Delta(DeltaData {
+                                transactions: txs.clone(),
+                                new_checkpoints: new_checkpoints.clone(),
                                 from_checkpoint,
-                                to_checkpoint,
+                                to_checkpoint: max_included_height,
                                 tx_checkpoint_heights,
                                 validators,
-                            })
+                            });
+                            let response_size = serde_json::to_string(&response).map(|s| s.len()).unwrap_or(0);
+                            info!("P2P delta sync response: {} txs, {} checkpoints (from {} to {}) built in {}ms, ~{}KB serialized",
+                                txs.len(), new_checkpoints.len(), from_checkpoint, max_included_height, delta_ms, response_size / 1024);
+                            if max_included_height < to_checkpoint {
+                                info!("Delta sync chunked: sent up to height {} (peer still needs up to {})", max_included_height, to_checkpoint);
+                            }
+                            
+                            response
                         }
                         SyncRequest::Transaction { hash } => {
                             let tx = self.state.get_transaction(&hash).await;
@@ -896,168 +1423,31 @@ impl GossipService {
                             SyncResponse::AccountsState(accounts)
                         }
                         SyncRequest::Handshake(_handshake) => {
-                            // Return our peer info
                             let our_handshake = PeerHandshake {
                                 protocol_version: crate::versioning::PROTOCOL_VERSION.to_string(),
                                 chain_id: "rinku-testnet".to_string(),
                                 network_id: "rinku".to_string(),
                                 node_id: self.state.get_node_id().await,
-                                checkpoint_height: self.state.get_checkpoint_height().await,
+                                checkpoint_height: self.state.get_checkpoint_height(),
                                 validator_address: self.checkpoint_vote_signer.as_ref().map(|s| s.validator_address.clone()),
                                 capabilities: vec!["sync".to_string(), "gossip".to_string()],
                                 known_peer_addrs: Vec::new(),
                             };
                             SyncResponse::Handshake(our_handshake)
                         }
-                        SyncRequest::CheckpointVote(request) => {
-                            if let Some(ref signer) = self.checkpoint_vote_signer {
-                                if signer.validator_address.is_empty() {
-                                    SyncResponse::CheckpointVote(None)
-                                } else {
-                                    // OPTION A: Apply missing transactions from the vote request before signing
-                                    // This ensures consensus can progress even during high transaction volume
-                                    let can_sign = if !request.finalized_tx_hashes.is_empty() {
-                                        // First, check which transactions we're missing
-                                        let missing_hashes: Vec<String> = {
-                                            let state = self.state.inner.read().await;
-                                            request.finalized_tx_hashes.iter()
-                                                .filter(|hash| state.dag.get_node(hash).is_none())
-                                                .cloned()
-                                                .collect()
-                                        };
-                                        
-                                        let mut applied_count = 0;
-                                        
-                                        // If we have missing transactions and the leader sent the data, apply them
-                                        if !missing_hashes.is_empty() && !request.finalized_transactions.is_empty() {
-                                            info!(
-                                                "Vote request includes {} transactions, need {} missing for checkpoint {}",
-                                                request.finalized_transactions.len(),
-                                                missing_hashes.len(),
-                                                request.height
-                                            );
-                                            
-                                            // Apply missing transactions from the vote request using force-add
-                                            // This bypasses nonce/parent validation since we just need the hash
-                                            // in the DAG for merkle verification - we're not executing these
-                                            for tx in &request.finalized_transactions {
-                                                if missing_hashes.contains(&tx.hash) {
-                                                    // Force-add to DAG without validation (for checkpoint vote only)
-                                                    match self.state.force_add_transaction_for_vote(tx.clone()).await {
-                                                        Ok(_) => {
-                                                            applied_count += 1;
-                                                        }
-                                                        Err(e) => {
-                                                            // Log but continue - might already exist or have other issues
-                                                            debug!("Could not force-add tx {} for vote: {}", &tx.hash[..16.min(tx.hash.len())], e);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            
-                                            if applied_count > 0 {
-                                                info!(
-                                                    "Force-added {}/{} missing transactions for checkpoint {} vote verification",
-                                                    applied_count, missing_hashes.len(), request.height
-                                                );
-                                            }
-                                        }
-                                        
-                                        // Re-check missing count after applying transactions
-                                        let (still_missing, still_missing_hashes) = {
-                                            let state = self.state.inner.read().await;
-                                            let missing: Vec<String> = request.finalized_tx_hashes.iter()
-                                                .filter(|hash| state.dag.get_node(hash).is_none())
-                                                .cloned()
-                                                .collect();
-                                            (missing.len(), missing)
-                                        };
-                                        
-                                        if still_missing > 0 {
-                                            // Log which specific hashes are missing
-                                            let embedded_hashes: std::collections::HashSet<&str> = 
-                                                request.finalized_transactions.iter()
-                                                    .map(|tx| tx.hash.as_str())
-                                                    .collect();
-                                            
-                                            for missing_hash in still_missing_hashes.iter().take(5) {
-                                                let in_embedded = embedded_hashes.contains(missing_hash.as_str());
-                                                warn!(
-                                                    "Missing hash after sync: {} (in embedded txs: {})",
-                                                    &missing_hash[..32.min(missing_hash.len())], in_embedded
-                                                );
-                                            }
-                                            
-                                            warn!(
-                                                "Declining checkpoint vote for height {}: still missing {}/{} transactions after inline sync (embedded: {})",
-                                                request.height, still_missing, request.finalized_tx_hashes.len(),
-                                                request.finalized_transactions.len()
-                                            );
-                                            false
-                                        } else {
-                                            // Verify merkle root matches
-                                            let mut tx_hashes = request.finalized_tx_hashes.clone();
-                                            tx_hashes.sort();
-                                            let computed_root = rinku_core::MerkleTree::from_hex_leaves(&tx_hashes)
-                                                .map(|t| t.root())
-                                                .unwrap_or_else(|_| "0".repeat(64));
-                                            
-                                            if computed_root != request.tx_merkle_root {
-                                                warn!(
-                                                    "Declining checkpoint vote for height {}: merkle root mismatch (ours={}, theirs={})",
-                                                    request.height, &computed_root[..16], &request.tx_merkle_root[..16]
-                                                );
-                                                false
-                                            } else {
-                                                info!(
-                                                    "Verified {} transactions for checkpoint {} vote (applied {} via inline sync)",
-                                                    request.finalized_tx_hashes.len(), request.height, applied_count
-                                                );
-                                                true
-                                            }
-                                        }
-                                    } else {
-                                        // Legacy request without tx hashes - sign blindly (backwards compatible)
-                                        debug!("Legacy vote request without tx hashes for height {}", request.height);
-                                        true
-                                    };
-                                    
-                                    if !can_sign {
-                                        SyncResponse::CheckpointVote(None)
-                                    } else {
-                                        match hex::decode(&request.checkpoint_hash) {
-                                            Ok(hash_bytes) => {
-                                                match bls_sign(&hash_bytes, &signer.bls_private_key) {
-                                                    Ok(signature) => {
-                                                        let actual_stake = self.state.get_validator_stake(&signer.validator_address).await
-                                                            .unwrap_or(GENESIS_VALIDATOR_STAKE);
-                                                        let response = CheckpointVoteResponse {
-                                                            validator_address: signer.validator_address.clone(),
-                                                            signature: URL_SAFE_NO_PAD.encode(&signature),
-                                                            signature_bytes: signature,
-                                                            bls_public_key: URL_SAFE_NO_PAD.encode(&signer.bls_public_key),
-                                                            stake: actual_stake,
-                                                        };
-                                                        SyncResponse::CheckpointVote(Some(response))
-                                                    }
-                                                    Err(e) => SyncResponse::Error {
-                                                        message: format!("Failed to sign checkpoint: {}", e),
-                                                    },
-                                                }
-                                            }
-                                            Err(_) => SyncResponse::Error {
-                                                message: "Invalid checkpoint hash".to_string(),
-                                            },
-                                        }
-                                    }
-                                }
+                        SyncRequest::CheckpointPush(push_data) => {
+                            let applied = self.apply_received_checkpoint(
+                                push_data.checkpoint,
+                                push_data.finalized_tx_hashes,
+                                push_data.finalized_transactions,
+                                push_data.precomputed_proofs,
+                                "sync-push",
+                            ).await;
+                            if applied {
+                                SyncResponse::CheckpointPushAck { accepted: true }
                             } else {
-                                SyncResponse::CheckpointVote(None)
+                                SyncResponse::CheckpointPushAck { accepted: false }
                             }
-                        }
-                        _ => {
-                            debug!("Unsupported sync request type from {}", incoming.peer_id);
-                            SyncResponse::Error { message: "Unsupported request type".to_string() }
                         }
                     };
                     
@@ -1068,16 +1458,13 @@ impl GossipService {
                     } else {
                         warn!("No response sender available for sync request from {}", incoming.peer_id);
                     }
-        }
-        warn!("Sync request channel closed");
     }
 
     #[cfg(feature = "p2p")]
     async fn broadcast_via_p2p(&self, message: &GossipMessage) {
         if let Some(ref handle) = self.network_handle {
-            let locked = handle.lock().await;
-            if let Err(e) = locked.broadcast(message.clone()).await {
-                debug!("Failed to broadcast via P2P: {}", e);
+            if let Err(e) = handle.broadcast(message.clone()).await {
+                warn!("Failed to broadcast via P2P: {} (type: {})", e, message.variant_name());
             }
         }
     }
@@ -1098,7 +1485,7 @@ impl GossipService {
 
         let tips = self.state.get_tips().await;
         let (dag_size, _, _) = self.state.get_dag_stats().await;
-        let checkpoint_height = self.state.get_checkpoint_height().await;
+        let checkpoint_height = self.state.get_checkpoint_height();
 
         // Check if we should refresh peer status (every 10 seconds, time-based)
         let now_secs = std::time::SystemTime::now()
@@ -1136,87 +1523,100 @@ impl GossipService {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64;
-                const FAST_PATH_TTL_MS: u64 = 60_000; // 60 seconds
-                const FAST_PATH_PENDING_TTL_MS: u64 = 60_000; // 60 seconds
-                const FAST_PATH_MAX_CONFIRMED: usize = 500;
-                const FAST_PATH_MAX_PENDING: usize = 500;
-                const FAST_PATH_MAX_EXECUTED: usize = 200;
+                const CONVERGENCE_TTL_MS: u64 = 60_000; // 60 seconds
+                const CONVERGENCE_PENDING_TTL_MS: u64 = 60_000; // 60 seconds
+                const CONVERGENCE_MAX_CONFIRMED: usize = 500;
+                const CONVERGENCE_MAX_PENDING: usize = 500;
+                const CONVERGENCE_MAX_EXECUTED: usize = 10_000;
                 
-                let old_confirmed_count = inner.fast_path_confirmed.len();
-                let executed_snapshot: std::collections::HashSet<String> = inner.fast_path_executed.clone();
-                inner.fast_path_confirmed.retain(|tx_hash, finality| {
+                let old_confirmed_count = inner.convergence_confirmed.len();
+                let executed_snapshot: std::collections::HashSet<String> = inner.convergence_executed.clone();
+                inner.convergence_confirmed.retain(|tx_hash, finality| {
                     if executed_snapshot.contains(tx_hash) 
                         && !matches!(finality.status, rinku_core::types::FastPathStatus::Finalized) {
                         return true;
                     }
                     if let Some(confirmed_at) = finality.confirmed_at_ms {
-                        now_ms.saturating_sub(confirmed_at) < FAST_PATH_TTL_MS
+                        now_ms.saturating_sub(confirmed_at) < CONVERGENCE_TTL_MS
                     } else {
-                        now_ms.saturating_sub(finality.registered_at_ms) < FAST_PATH_TTL_MS
+                        now_ms.saturating_sub(finality.registered_at_ms) < CONVERGENCE_TTL_MS
                     }
                 });
-                if inner.fast_path_confirmed.len() > FAST_PATH_MAX_CONFIRMED {
-                    let mut entries: Vec<(String, u64)> = inner.fast_path_confirmed.iter()
+                if inner.convergence_confirmed.len() > CONVERGENCE_MAX_CONFIRMED {
+                    let mut entries: Vec<(String, u64)> = inner.convergence_confirmed.iter()
                         .map(|(k, v)| (k.clone(), v.confirmed_at_ms.unwrap_or(v.registered_at_ms)))
                         .collect();
                     entries.sort_by_key(|(_, ts)| *ts);
-                    let to_evict = entries.len() - FAST_PATH_MAX_CONFIRMED;
+                    let to_evict = entries.len() - CONVERGENCE_MAX_CONFIRMED;
                     for (key, _) in entries.into_iter().take(to_evict) {
-                        inner.fast_path_confirmed.remove(&key);
+                        inner.convergence_confirmed.remove(&key);
                     }
                 }
-                let confirmed_pruned = old_confirmed_count - inner.fast_path_confirmed.len();
+                let confirmed_pruned = old_confirmed_count - inner.convergence_confirmed.len();
                 
-                let old_pending_count = inner.fast_path_pending.len();
-                inner.fast_path_pending.retain(|_, finality| {
-                    now_ms.saturating_sub(finality.registered_at_ms) < FAST_PATH_PENDING_TTL_MS
+                let old_pending_count = inner.convergence_pending.len();
+                inner.convergence_pending.retain(|_, finality| {
+                    now_ms.saturating_sub(finality.registered_at_ms) < CONVERGENCE_PENDING_TTL_MS
                 });
-                if inner.fast_path_pending.len() > FAST_PATH_MAX_PENDING {
-                    let mut entries: Vec<(String, u64)> = inner.fast_path_pending.iter()
+                if inner.convergence_pending.len() > CONVERGENCE_MAX_PENDING {
+                    let mut entries: Vec<(String, u64)> = inner.convergence_pending.iter()
                         .map(|(k, v)| (k.clone(), v.registered_at_ms))
                         .collect();
                     entries.sort_by_key(|(_, ts)| *ts);
-                    let to_evict = entries.len() - FAST_PATH_MAX_PENDING;
+                    let to_evict = entries.len() - CONVERGENCE_MAX_PENDING;
                     for (key, _) in entries.into_iter().take(to_evict) {
-                        inner.fast_path_pending.remove(&key);
+                        inner.convergence_pending.remove(&key);
                     }
                 }
-                let pending_pruned = old_pending_count - inner.fast_path_pending.len();
+                let pending_pruned = old_pending_count - inner.convergence_pending.len();
                 
-                let old_executed_count = inner.fast_path_executed.len();
-                let executed_to_remove: Vec<String> = inner.fast_path_executed.iter()
-                    .filter(|tx_hash| {
-                        match inner.fast_path_confirmed.get(*tx_hash) {
-                            Some(finality) => matches!(finality.status, rinku_core::types::FastPathStatus::Finalized),
-                            None => true,
-                        }
-                    })
-                    .cloned()
-                    .collect();
-                for tx_hash in &executed_to_remove {
-                    inner.fast_path_executed.remove(tx_hash);
-                }
-                if inner.fast_path_executed.len() > FAST_PATH_MAX_EXECUTED {
-                    let drain_count = inner.fast_path_executed.len() - FAST_PATH_MAX_EXECUTED;
-                    let to_drain: Vec<String> = inner.fast_path_executed.iter().take(drain_count).cloned().collect();
+                let old_executed_count = inner.convergence_executed.len();
+                if inner.convergence_executed.len() > CONVERGENCE_MAX_EXECUTED {
+                    let drain_count = inner.convergence_executed.len() - CONVERGENCE_MAX_EXECUTED;
+                    let to_drain: Vec<String> = inner.convergence_executed.iter().take(drain_count).cloned().collect();
                     for key in to_drain {
-                        inner.fast_path_executed.remove(&key);
+                        inner.convergence_executed.remove(&key);
                     }
                 }
-                let executed_pruned = old_executed_count - inner.fast_path_executed.len();
-                
+                let executed_pruned = old_executed_count - inner.convergence_executed.len();
+
+                let pending_keys: std::collections::HashSet<String> = inner.convergence_pending.keys().cloned().collect();
+                inner.convergence_retry_counts.retain(|tx_hash, _| {
+                    pending_keys.contains(tx_hash)
+                });
+
+                let executed_snapshot: std::collections::HashSet<String> = inner.convergence_executed.clone();
+                let confirmed_keys: std::collections::HashSet<String> = inner.convergence_confirmed.keys().cloned().collect();
+                inner.deferred_by_sender_nonce.retain(|_sender, nonces| {
+                    nonces.retain(|_nonce, tx| {
+                        !executed_snapshot.contains(&tx.hash) && confirmed_keys.contains(&tx.hash)
+                    });
+                    !nonces.is_empty()
+                });
+                const MAX_DEFERRED_SENDERS: usize = 1000;
+                if inner.deferred_by_sender_nonce.len() > MAX_DEFERRED_SENDERS {
+                    let excess = inner.deferred_by_sender_nonce.len() - MAX_DEFERRED_SENDERS;
+                    let to_remove: Vec<String> = inner.deferred_by_sender_nonce.keys().take(excess).cloned().collect();
+                    for key in to_remove {
+                        inner.deferred_by_sender_nonce.remove(&key);
+                    }
+                }
+
+                drop(inner);
+
+                let inner = self.inner.read().await;
                 if confirmed_pruned > 0 || pending_pruned > 0 || executed_pruned > 0 {
                     info!(
                         "Fast-path cleanup: {} confirmed, {} pending, {} executed pruned (remaining: {} confirmed, {} pending, {} executed)",
                         confirmed_pruned, pending_pruned, executed_pruned,
-                        inner.fast_path_confirmed.len(), inner.fast_path_pending.len(), inner.fast_path_executed.len()
+                        inner.convergence_confirmed.len(), inner.convergence_pending.len(), inner.convergence_executed.len()
                     );
                 }
                 
                 // Log stale nonce cache stats
                 // The cache tracks (address -> min_expected_nonce) to quick-reject stale gossip
                 let cache_size = inner.stale_nonce_cache.len();
-                let cache_hits = inner.stale_nonce_cache_hits;
+                let cache_hits = inner.stale_nonce_cache_hits.load(std::sync::atomic::Ordering::Relaxed);
                 let rejections = inner.stale_nonce_rejections;
                 if cache_size > 0 || cache_hits > 0 || rejections > 0 {
                     info!(
@@ -1236,6 +1636,8 @@ impl GossipService {
             self.refresh_peer_status_and_sync().await;
         }
 
+        self.convergence_retry_sweep().await;
+
         // Cap tips to 10 to prevent bandwidth explosion when tip count is high
         // Peers only need a sample of tips for sync, not the full set
         const MAX_GOSSIP_TIPS: usize = 10;
@@ -1247,23 +1649,44 @@ impl GossipService {
 
         let merkle_root = self.state.get_dag_merkle_root().await.unwrap_or_default();
 
-        let public_url = std::env::var("PUBLIC_URL").ok();
-        let tips_announced = tips_capped.len();
-        let message = GossipMessage::TipAnnouncement {
-            tips: tips_capped,
-            tip_urls,
-            dag_size,
-            merkle_root,
-            sender_url: public_url.clone(),
+        let mut tips_sorted = tips_capped.clone();
+        tips_sorted.sort();
+        let mut tip_hash_state = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&tips_sorted, &mut tip_hash_state);
+        std::hash::Hash::hash(&dag_size, &mut tip_hash_state);
+        std::hash::Hash::hash(&merkle_root, &mut tip_hash_state);
+        std::hash::Hash::hash(&checkpoint_height, &mut tip_hash_state);
+        let tip_content_hash = std::hash::Hasher::finish(&tip_hash_state);
+
+        let should_publish_tip = {
+            let inner = self.inner.read().await;
+            inner.last_tip_hash != tip_content_hash
         };
 
-        #[cfg(feature = "p2p")]
-        self.broadcast_via_p2p(&message).await;
+        if should_publish_tip {
+            let public_url = std::env::var("PUBLIC_URL").ok();
+            let tips_announced = tips_capped.len();
+            let message = GossipMessage::TipAnnouncement {
+                tips: tips_capped,
+                tip_urls,
+                dag_size,
+                merkle_root,
+                sender_url: public_url.clone(),
+            };
 
-        debug!(
-            "Gossip round: {}/{} tips announced via p2p, dag_size={}",
-            tips_announced, tips.len(), dag_size
-        );
+            #[cfg(feature = "p2p")]
+            self.broadcast_via_p2p(&message).await;
+
+            {
+                let mut inner = self.inner.write().await;
+                inner.last_tip_hash = tip_content_hash;
+            }
+
+            debug!(
+                "Gossip round: {}/{} tips announced via p2p, dag_size={}",
+                tips_announced, tips.len(), dag_size
+            );
+        }
 
         // Spawn propagation as background task (non-blocking)
         Self::spawn_propagation_task(gossip_arc);
@@ -1371,11 +1794,650 @@ impl GossipService {
         debug!("Broadcast weight vote for tx {} via p2p", &tx_hash[..16.min(tx_hash.len())]);
     }
     
-    /// Immediately broadcast a newly created checkpoint to all peers
-    /// This is called by the leader after creating a checkpoint for fast propagation
-    /// Includes precomputed proofs so followers can store them without regenerating
-    /// CRITICAL: Also includes the actual finalized transactions so followers can execute them
-    /// even if they missed the original transaction gossip (prevents balance divergence)
+    pub async fn apply_received_checkpoint(
+        &self,
+        checkpoint: Checkpoint,
+        finalized_tx_hashes: Vec<String>,
+        finalized_transactions: Vec<SignedTransaction>,
+        precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
+        source: &str,
+    ) -> bool {
+        let local_height = self.state.get_checkpoint_height();
+
+        if checkpoint.height <= local_height {
+            {
+                let state_guard = self.state.inner.read().await;
+                let local_checkpoint_at_height = state_guard.checkpoints.iter()
+                    .find(|c| c.height == checkpoint.height);
+                if let Some(local_cp) = local_checkpoint_at_height {
+                    if local_cp.hash != checkpoint.hash {
+                        let local_hash = local_cp.hash.clone();
+                        let remote_hash = checkpoint.hash.clone();
+                        drop(state_guard);
+
+                        warn!(
+                            "CHECKPOINT CONFLICT at height {}: local={} vs remote={} (via {}) — FORK DETECTED, triggering reconciliation",
+                            checkpoint.height,
+                            &local_hash[..16.min(local_hash.len())],
+                            &remote_hash[..16.min(remote_hash.len())],
+                            source
+                        );
+
+                        if let Some(ref vi) = self.validator_identity {
+                            let vi_guard = vi.read().await;
+                            let mut sorted_entries: Vec<(String, Vec<u8>, u64)> = vi_guard.active_validators()
+                                .iter()
+                                .filter(|(_, v)| !v.bls_public_key.is_empty())
+                                .map(|(addr, v)| (addr.clone(), v.bls_public_key.clone(), v.effective_stake))
+                                .collect();
+                            sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
+                            let bls_keys_and_stakes: Vec<(Vec<u8>, u64)> = sorted_entries.into_iter()
+                                .map(|(_, k, s)| (k, s))
+                                .collect();
+                            drop(vi_guard);
+
+                            if !bls_keys_and_stakes.is_empty() {
+                                match crate::state::NodeState::verify_checkpoint_bls_signature_only(&checkpoint, &bls_keys_and_stakes) {
+                                    crate::state::checkpoints::BlsVerifyResult::ValidWithQuorum => {
+                                        info!(
+                                            "CONFLICT RESOLUTION: BLS signature valid (quorum met) for remote checkpoint {} at height {}",
+                                            &remote_hash[..16.min(remote_hash.len())],
+                                            checkpoint.height
+                                        );
+                                    }
+                                    crate::state::checkpoints::BlsVerifyResult::ValidNoQuorum { signer_stake, total_stake } => {
+                                        warn!(
+                                            "CONFLICT RESOLUTION: BLS signature valid but quorum not met ({}/{} stake, {:.1}%) for checkpoint {} at height {} — proceeding with hash tie-break (single-signer expected in RCC Layer 2)",
+                                            signer_stake, total_stake,
+                                            if total_stake > 0 { signer_stake as f64 / total_stake as f64 * 100.0 } else { 0.0 },
+                                            &remote_hash[..16.min(remote_hash.len())],
+                                            checkpoint.height
+                                        );
+                                    }
+                                    crate::state::checkpoints::BlsVerifyResult::NoSignature => {
+                                        info!(
+                                            "CONFLICT RESOLUTION: No BLS signature on remote checkpoint {} at height {} — proceeding with hash tie-break",
+                                            &remote_hash[..16.min(remote_hash.len())],
+                                            checkpoint.height
+                                        );
+                                    }
+                                    crate::state::checkpoints::BlsVerifyResult::Invalid(reason) => {
+                                        warn!(
+                                            "CONFLICT RESOLUTION: BLS signature INVALID for remote checkpoint {} at height {} — rejecting: {}",
+                                            &remote_hash[..16.min(remote_hash.len())],
+                                            checkpoint.height,
+                                            reason
+                                        );
+                                        return false;
+                                    }
+                                }
+                            }
+                        }
+
+                        if remote_hash < local_hash {
+                            warn!(
+                                "CHECKPOINT CONFLICT RESOLUTION: Remote checkpoint {} wins over local {} at height {} (lower hash) — adopting remote state",
+                                &remote_hash[..16.min(remote_hash.len())],
+                                &local_hash[..16.min(local_hash.len())],
+                                checkpoint.height
+                            );
+
+                            let rollback_height = checkpoint.height.saturating_sub(1);
+                            let mut state_guard = self.state.inner.write().await;
+
+                            let removed_count = state_guard.checkpoints.len();
+                            state_guard.checkpoints.retain(|c| c.height < checkpoint.height);
+                            let kept_count = state_guard.checkpoints.len();
+                            let checkpoints_removed = removed_count - kept_count;
+
+                            self.state.checkpoint_height_cache.store(
+                                rollback_height,
+                                std::sync::atomic::Ordering::Relaxed,
+                            );
+
+                            let hashes_to_unfinalize: Vec<String> = state_guard.dag
+                                .get_all_nodes()
+                                .iter()
+                                .filter(|n| n.finalized && n.checkpoint_height.map_or(false, |h| h >= checkpoint.height))
+                                .map(|n| n.hash.clone())
+                                .collect();
+                            for hash in &hashes_to_unfinalize {
+                                state_guard.dag.unfinalize(hash);
+                            }
+
+                            for proof in &precomputed_proofs {
+                                if let Some(account) = state_guard.accounts.get_mut(&proof.address) {
+                                    account.balance = proof.balance_micro;
+                                    account.nonce = proof.nonce;
+                                    account.staked = proof.staked_micro;
+                                }
+                            }
+                            let accounts_restored = precomputed_proofs.len();
+
+                            drop(state_guard);
+
+                            {
+                                let mut inner = self.inner.write().await;
+                                for hash in &hashes_to_unfinalize {
+                                    inner.convergence_executed.remove(hash);
+                                }
+                            }
+
+                            {
+                                let emission = self.state.emission.read().await;
+                                let mut rewards = self.state.rewards.write().await;
+                                rewards.rollback_rewards_above_height(rollback_height, &emission);
+                            }
+
+                            {
+                                let mut emission = self.state.emission.write().await;
+                                emission.rollback_to_height(rollback_height);
+                            }
+
+                            info!(
+                                "CONFLICT ROLLBACK: Reverted to height {}, removed {} checkpoints, unfinalized {} txs, restored {} account states, rolled back emission+rewards to height {} — ready to apply winning checkpoint",
+                                rollback_height,
+                                checkpoints_removed,
+                                hashes_to_unfinalize.len(),
+                                accounts_restored,
+                                rollback_height
+                            );
+
+                            let applied = self.apply_single_checkpoint(
+                                checkpoint,
+                                finalized_tx_hashes,
+                                finalized_transactions,
+                                precomputed_proofs,
+                                source,
+                            ).await;
+                            if applied {
+                                self.drain_checkpoint_buffer().await;
+                            }
+                            return applied;
+                        } else {
+                            info!(
+                                "CHECKPOINT CONFLICT RESOLUTION: Local checkpoint {} wins over remote {} at height {} (lower hash) — keeping local and re-broadcasting winner",
+                                &local_hash[..16.min(local_hash.len())],
+                                &remote_hash[..16.min(remote_hash.len())],
+                                checkpoint.height
+                            );
+
+                            let cached = {
+                                let inner = self.inner.read().await;
+                                inner.recent_checkpoint_data.get(&checkpoint.height).map(|c| {
+                                    (c.checkpoint.clone(), c.finalized_tx_hashes.clone(),
+                                     c.finalized_transactions.clone(), c.precomputed_proofs.clone())
+                                })
+                            };
+
+                            if let Some((cp, tx_hashes, tx_bodies, proofs)) = cached {
+                                info!(
+                                    "Re-broadcasting winning local checkpoint {} at height {} ({} txs, {} proofs)",
+                                    &local_hash[..16.min(local_hash.len())],
+                                    cp.height,
+                                    tx_bodies.len(),
+                                    proofs.len()
+                                );
+                                self.broadcast_checkpoint(cp, tx_hashes, tx_bodies, proofs).await;
+                            } else {
+                                warn!(
+                                    "Cannot re-broadcast winning checkpoint at height {} — broadcast data not in cache (checkpoint was created by another node or cache evicted)",
+                                    checkpoint.height
+                                );
+                            }
+                        }
+
+                        return false;
+                    }
+                }
+            }
+
+            if source == "sync-push" && !finalized_transactions.is_empty() {
+                info!(
+                    "Late sync-push for already-applied checkpoint {} at height {} — retroactively adding {} tx bodies and {} proofs",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    checkpoint.height,
+                    finalized_transactions.len(),
+                    precomputed_proofs.len()
+                );
+                let mut added_hashes: Vec<String> = Vec::new();
+                for tx in &finalized_transactions {
+                    if !self.state.has_transaction(&tx.hash).await {
+                        if let Ok(()) = self.state.add_transaction_dag_only(tx.clone()).await {
+                            added_hashes.push(tx.hash.clone());
+                        }
+                    }
+                }
+                let added = added_hashes.len();
+                if added > 0 {
+                    let mut sorted_finalized = finalized_transactions.clone();
+                    sorted_finalized.sort_by(|a, b| {
+                        a.tx.from.cmp(&b.tx.from)
+                            .then(a.tx.nonce.cmp(&b.tx.nonce))
+                            .then(a.hash.cmp(&b.hash))
+                    });
+                    let empty_convergence = std::collections::HashSet::new();
+                    self.state.execute_finalized_transactions_batch(&sorted_finalized, &empty_convergence).await;
+                    for tx_hash in &finalized_tx_hashes {
+                        self.state.set_tx_checkpoint_height(tx_hash, checkpoint.height).await;
+                    }
+                    info!(
+                        "Late sync-push: added {} new txs to DAG, executed, and finalized at height {} for checkpoint {}",
+                        added, checkpoint.height, &checkpoint.hash[..16.min(checkpoint.hash.len())]
+                    );
+                }
+                if !precomputed_proofs.is_empty() {
+                    let proof_map: std::collections::HashMap<String, rinku_core::types::AccountStateProof> =
+                        precomputed_proofs.into_iter()
+                            .map(|p| (p.address.clone(), p))
+                            .collect();
+                    self.state.store_precomputed_proofs(&proof_map).await;
+                    self.state.purge_stale_deferred_txs().await;
+                    info!(
+                        "Late sync-push: applied {} leader proofs for checkpoint {}",
+                        proof_map.len(), checkpoint.height
+                    );
+                }
+            } else {
+                debug!(
+                    "Ignoring checkpoint {} at height {} (local height: {}, via {})",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    checkpoint.height,
+                    local_height,
+                    source
+                );
+            }
+            return false;
+        }
+
+        if checkpoint.height != local_height + 1 {
+            if checkpoint.height <= local_height + CHECKPOINT_BUFFER_MAX_AHEAD {
+                let mut buffer = self.checkpoint_buffer.lock().await;
+                if !buffer.contains_key(&checkpoint.height) {
+                    info!(
+                        "Buffering checkpoint {} at height {} (local: {}, via {}) — will apply when caught up",
+                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                        checkpoint.height,
+                        local_height,
+                        source
+                    );
+                    buffer.insert(checkpoint.height, BufferedCheckpoint {
+                        checkpoint,
+                        finalized_tx_hashes,
+                        finalized_transactions,
+                        precomputed_proofs,
+                        source: source.to_string(),
+                    });
+                }
+                drop(buffer);
+                let updated_height = self.state.get_checkpoint_height();
+                if updated_height >= local_height + 1 {
+                    debug!("Height advanced during buffering ({} -> {}), draining buffer", local_height, updated_height);
+                    self.drain_checkpoint_buffer().await;
+                }
+            } else {
+                debug!(
+                    "Checkpoint {} at height {} too far ahead (local: {}, via {}), will sync",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    checkpoint.height,
+                    local_height,
+                    source
+                );
+            }
+            return false;
+        }
+
+        let applied = self.apply_single_checkpoint(
+            checkpoint, finalized_tx_hashes, finalized_transactions, precomputed_proofs, source,
+        ).await;
+
+        if applied {
+            self.drain_checkpoint_buffer().await;
+        }
+
+        applied
+    }
+
+    async fn apply_single_checkpoint(
+        &self,
+        checkpoint: Checkpoint,
+        finalized_tx_hashes: Vec<String>,
+        finalized_transactions: Vec<SignedTransaction>,
+        precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
+        source: &str,
+    ) -> bool {
+        let current_height = self.state.get_checkpoint_height();
+        if checkpoint.height <= current_height {
+            debug!(
+                "Skipping duplicate apply of checkpoint {} at height {} (current: {}, via {})",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                checkpoint.height,
+                current_height,
+                source
+            );
+            return false;
+        }
+        if checkpoint.height != current_height + 1 {
+            warn!(
+                "Checkpoint {} at height {} is not sequential (current: {}, via {}) — skipping",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                checkpoint.height,
+                current_height,
+                source
+            );
+            return false;
+        }
+        info!(
+            "Received checkpoint {} at height {} via {} ({} finalized txs, {} tx bodies, {} proofs)",
+            &checkpoint.hash[..16.min(checkpoint.hash.len())],
+            checkpoint.height,
+            source,
+            finalized_tx_hashes.len(),
+            finalized_transactions.len(),
+            precomputed_proofs.len()
+        );
+
+        if let Some(ref vi) = self.validator_identity {
+            let vi_guard = vi.read().await;
+            let mut sorted_entries: Vec<(String, Vec<u8>, u64)> = vi_guard.active_validators()
+                .iter()
+                .filter(|(_, v)| !v.bls_public_key.is_empty())
+                .map(|(addr, v)| (addr.clone(), v.bls_public_key.clone(), v.effective_stake))
+                .collect();
+            sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
+            let bls_keys_and_stakes: Vec<(Vec<u8>, u64)> = sorted_entries.into_iter()
+                .map(|(_, k, s)| (k, s))
+                .collect();
+            drop(vi_guard);
+
+            if !bls_keys_and_stakes.is_empty() {
+                match crate::state::NodeState::verify_checkpoint_bls_signature_only(&checkpoint, &bls_keys_and_stakes) {
+                    crate::state::checkpoints::BlsVerifyResult::ValidWithQuorum => {}
+                    crate::state::checkpoints::BlsVerifyResult::ValidNoQuorum { .. } => {}
+                    crate::state::checkpoints::BlsVerifyResult::NoSignature => {}
+                    crate::state::checkpoints::BlsVerifyResult::Invalid(reason) => {
+                        warn!(
+                            "BLS signature INVALID for checkpoint {} at height {} — rejecting: {}",
+                            &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                            checkpoint.height,
+                            reason
+                        );
+                        return false;
+                    }
+                }
+            }
+        }
+
+        let mut added_from_leader = 0usize;
+        let mut rejected_count = 0usize;
+
+        let finalized_hash_set: std::collections::HashSet<&String> =
+            finalized_tx_hashes.iter().collect();
+
+        if !finalized_transactions.is_empty() {
+            let existing_hashes: std::collections::HashSet<String> = {
+                let state = self.state.inner.read().await;
+                finalized_tx_hashes.iter()
+                    .filter(|h| state.dag.get_node(h).is_some())
+                    .cloned()
+                    .collect()
+            };
+
+            let mut txs_to_add: Vec<SignedTransaction> = Vec::new();
+            for tx in &finalized_transactions {
+                if existing_hashes.contains(&tx.hash) {
+                    continue;
+                }
+                if !finalized_hash_set.contains(&tx.hash) {
+                    warn!(
+                        "SECURITY: Rejecting tx {} - not in finalized hash list for checkpoint {}",
+                        &tx.hash[..16.min(tx.hash.len())],
+                        checkpoint.height
+                    );
+                    rejected_count += 1;
+                    continue;
+                }
+                txs_to_add.push(tx.clone());
+            }
+
+            if !txs_to_add.is_empty() {
+                let batch_count = txs_to_add.len();
+                match self.state.force_add_transactions_batch_for_vote(txs_to_add).await {
+                    Ok(count) => {
+                        added_from_leader = count;
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Batch add {} txs for checkpoint {} failed: {}",
+                            batch_count, checkpoint.height, e
+                        );
+                    }
+                }
+            }
+
+            if added_from_leader > 0 || rejected_count > 0 {
+                info!(
+                    "Checkpoint {} tx sync: added {} from leader, rejected {} (security)",
+                    checkpoint.height, added_from_leader, rejected_count
+                );
+            }
+        }
+
+        {
+            let mut emission = self.state.emission.write().await;
+            let reward = emission.get_checkpoint_reward(checkpoint.height);
+            if emission.record_emission_for_height(checkpoint.height, reward) {
+                let mut rewards = self.state.rewards.write().await;
+                rewards.distribute_checkpoint_rewards(reward);
+            } else {
+                tracing::debug!(
+                    "Skipping reward distribution for checkpoint {} — already distributed (leader pre-distribution)",
+                    checkpoint.height
+                );
+            }
+        }
+
+        let finalized_hashes_for_fastpath = finalized_tx_hashes.clone();
+        match self.state.apply_checkpoint_with_finalized_hashes(
+            checkpoint.clone(),
+            finalized_tx_hashes,
+        ).await {
+            Err(e) => {
+                warn!(
+                    "Failed to apply checkpoint {} via {}: {}",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    source, e
+                );
+                return false;
+            }
+            Ok(missing_tx_count) => {
+                if missing_tx_count > 0 {
+                    warn!(
+                        "CONSENSUS WARNING: Still missing {} txs after leader sync for checkpoint {} (added {} from leader, had {} tx bodies, via {})",
+                        missing_tx_count, checkpoint.height,
+                        added_from_leader, finalized_transactions.len(), source
+                    );
+                }
+
+                let proofs_for_cache = precomputed_proofs.clone();
+
+                if !precomputed_proofs.is_empty() {
+                    let proof_map: std::collections::HashMap<String, rinku_core::types::AccountStateProof> =
+                        precomputed_proofs.into_iter()
+                            .map(|p| (p.address.clone(), p))
+                            .collect();
+                    self.state.store_precomputed_proofs(&proof_map).await;
+                    self.state.purge_stale_deferred_txs().await;
+                    if missing_tx_count > 0 {
+                        info!(
+                            "Applied {} leader proofs for checkpoint {} despite {} missing txs — proofs are authoritative state",
+                            proof_map.len(), checkpoint.height, missing_tx_count
+                        );
+                    } else {
+                        info!(
+                            "Stored {} precomputed proofs from leader for checkpoint {}",
+                            proof_map.len(), checkpoint.height
+                        );
+                    }
+                }
+
+                {
+                    let finalized_set: std::collections::HashSet<&String> = finalized_hashes_for_fastpath.iter().collect();
+                    let mut inner = self.inner.write().await;
+                    for tx_hash in &finalized_hashes_for_fastpath {
+                        inner.convergence_confirmed.remove(tx_hash);
+                        inner.convergence_pending.remove(tx_hash);
+                        inner.convergence_executed.insert(tx_hash.clone());
+                    }
+                    inner.known_txs.remove_batch(&finalized_set);
+                    inner.stale_nonce_cache.clear();
+                    inner.stale_nonce_cache_order.clear();
+                    inner.leader_intents.remove(&checkpoint.height);
+
+                    let cp_height = checkpoint.height;
+                    inner.recent_checkpoint_data.insert(cp_height, CachedCheckpointData {
+                        checkpoint: checkpoint.clone(),
+                        finalized_tx_hashes: finalized_hashes_for_fastpath.clone(),
+                        finalized_transactions,
+                        precomputed_proofs: proofs_for_cache,
+                    });
+                    const CHECKPOINT_CACHE_RETAIN: u64 = 10;
+                    if cp_height > CHECKPOINT_CACHE_RETAIN {
+                        inner.recent_checkpoint_data.retain(|h, _| *h > cp_height - CHECKPOINT_CACHE_RETAIN);
+                    }
+                }
+
+                info!(
+                    "Applied checkpoint {} at height {} via {} (added {} txs from leader)",
+                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                    checkpoint.height, source, added_from_leader
+                );
+
+                if let Some(ref eb) = self.event_bus {
+                    eb.publish(crate::events::NodeEvent::CheckpointCreated {
+                        hash: checkpoint.hash.clone(),
+                        height: checkpoint.height,
+                        txs_finalized: finalized_hashes_for_fastpath.len(),
+                        reward: 0.0,
+                    });
+                }
+            }
+        }
+
+        true
+    }
+
+    pub async fn has_buffered_checkpoint(&self, height: u64) -> bool {
+        let buffer = self.checkpoint_buffer.lock().await;
+        buffer.contains_key(&height)
+    }
+
+    pub async fn max_buffered_height(&self) -> Option<u64> {
+        let buffer = self.checkpoint_buffer.lock().await;
+        buffer.keys().max().copied()
+    }
+
+    pub async fn remove_finalized_from_convergence(&self, finalized_hashes: &[String]) {
+        let finalized_set: std::collections::HashSet<&String> = finalized_hashes.iter().collect();
+        let mut inner = self.inner.write().await;
+        for tx_hash in finalized_hashes {
+            inner.convergence_confirmed.remove(tx_hash);
+            inner.convergence_pending.remove(tx_hash);
+            inner.convergence_executed.insert(tx_hash.clone());
+        }
+        inner.known_txs.remove_batch(&finalized_set);
+    }
+
+    pub async fn broadcast_checkpoint_intent(&self, height: u64, leader_address: &str) {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let public_url = std::env::var("PUBLIC_URL").ok();
+        let message = GossipMessage::CheckpointIntent {
+            height,
+            leader_address: leader_address.to_string(),
+            timestamp_ms: now_ms,
+            sender_url: public_url,
+            relay_count: 0,
+        };
+        info!(
+            "Broadcasting checkpoint intent for height {} (leader: {})",
+            height, &leader_address[..16.min(leader_address.len())]
+        );
+        #[cfg(feature = "p2p")]
+        self.broadcast_via_p2p(&message).await;
+    }
+
+    pub async fn has_leader_intent_for_height(&self, height: u64) -> bool {
+        let inner = self.inner.read().await;
+        inner.leader_intents.contains_key(&height)
+    }
+
+    pub async fn get_leader_intent_address(&self, height: u64) -> Option<String> {
+        let inner = self.inner.read().await;
+        inner.leader_intents.get(&height).map(|(addr, _)| addr.clone())
+    }
+
+    pub async fn has_valid_leader_intent(&self, height: u64, interval_ms: u64) -> bool {
+        let inner = self.inner.read().await;
+        if let Some((leader_addr, timestamp_ms)) = inner.leader_intents.get(&height) {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let max_age_ms = interval_ms * 8;
+            let age_ms = now_ms.saturating_sub(*timestamp_ms);
+            if age_ms > max_age_ms {
+                info!(
+                    "Stale checkpoint intent for height {} from {} (age {}ms > {}ms max) — ignoring",
+                    height, &leader_addr[..16.min(leader_addr.len())], age_ms, max_age_ms
+                );
+                return false;
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn clear_leader_intent(&self, height: u64) {
+        let mut inner = self.inner.write().await;
+        inner.leader_intents.remove(&height);
+    }
+
+    pub async fn drain_checkpoint_buffer(&self) {
+        loop {
+            let next_height = self.state.get_checkpoint_height() + 1;
+            let buffered = {
+                let mut buffer = self.checkpoint_buffer.lock().await;
+                buffer.remove(&next_height)
+            };
+            match buffered {
+                Some(b) => {
+                    info!(
+                        "Applying buffered checkpoint at height {} (source: {})",
+                        next_height, b.source
+                    );
+                    let applied = self.apply_single_checkpoint(
+                        b.checkpoint,
+                        b.finalized_tx_hashes,
+                        b.finalized_transactions,
+                        b.precomputed_proofs,
+                        &format!("buffered-{}", b.source),
+                    ).await;
+                    if !applied {
+                        break;
+                    }
+                }
+                None => break,
+            }
+        }
+        let local_height = self.state.get_checkpoint_height();
+        let mut buffer = self.checkpoint_buffer.lock().await;
+        buffer.retain(|h, _| *h > local_height);
+    }
+
     pub async fn broadcast_checkpoint(
         &self, 
         checkpoint: Checkpoint, 
@@ -1386,19 +2448,32 @@ impl GossipService {
         let public_url = std::env::var("PUBLIC_URL").ok();
         
         info!(
-            "Broadcasting checkpoint {} at height {} via p2p ({} finalized txs, {} tx bodies)",
+            "Broadcasting checkpoint {} at height {} via p2p ({} finalized tx hashes, {} proofs, {} bodies)",
             &checkpoint.hash[..16.min(checkpoint.hash.len())],
             checkpoint.height,
             finalized_tx_hashes.len(),
-            finalized_transactions.len()
+            precomputed_proofs.len(),
+            finalized_transactions.len(),
         );
         
         {
             let mut inner = self.inner.write().await;
             for tx_hash in &finalized_tx_hashes {
-                inner.fast_path_confirmed.remove(tx_hash);
-                inner.fast_path_pending.remove(tx_hash);
-                inner.fast_path_executed.remove(tx_hash);
+                inner.convergence_confirmed.remove(tx_hash);
+                inner.convergence_pending.remove(tx_hash);
+                inner.convergence_executed.insert(tx_hash.clone());
+            }
+
+            let height = checkpoint.height;
+            inner.recent_checkpoint_data.insert(height, CachedCheckpointData {
+                checkpoint: checkpoint.clone(),
+                finalized_tx_hashes: finalized_tx_hashes.clone(),
+                finalized_transactions: finalized_transactions.clone(),
+                precomputed_proofs: precomputed_proofs.clone(),
+            });
+            const CHECKPOINT_CACHE_RETAIN: u64 = 10;
+            if height > CHECKPOINT_CACHE_RETAIN {
+                inner.recent_checkpoint_data.retain(|h, _| *h > height - CHECKPOINT_CACHE_RETAIN);
             }
         }
 
@@ -1413,7 +2488,7 @@ impl GossipService {
         #[cfg(feature = "p2p")]
         self.broadcast_via_p2p(&message).await;
     }
-    
+
     async fn broadcast_peer_list(&self) {
         let known_peers: Vec<String> = {
             let inner = self.inner.read().await;
@@ -1499,10 +2574,10 @@ impl GossipService {
         let batch_count = batch_txs.len();
         let overflow_count = overflow_txs.len();
         if overflow_count > 0 {
-            info!("Background propagation: {} transactions to {} peers ({} deferred to next cycle)", 
+            debug!("Background propagation: {} transactions to {} peers ({} deferred to next cycle)", 
                   batch_count, peers.len(), overflow_count);
         } else {
-            info!("Background propagation: {} transactions to {} peers", batch_count, peers.len());
+            debug!("Background propagation: {} transactions to {} peers", batch_count, peers.len());
         }
         
         let public_url = std::env::var("PUBLIC_URL").ok();
@@ -1567,10 +2642,7 @@ impl GossipService {
         let mut failed_count = 0usize;
         
         // Make P2P delta request
-        let response = {
-            let locked = handle.lock().await;
-            locked.request_delta(peer_id, local_checkpoint).await?
-        };
+        let response = handle.request_delta(peer_id, local_checkpoint).await?;
         
         match response {
             SyncResponse::Delta(delta) => {
@@ -1627,36 +2699,75 @@ impl GossipService {
                     {
                         let mut emission = self.state.emission.write().await;
                         let reward = emission.get_checkpoint_reward(cp_data.height);
-                        emission.record_emission(reward);
-                        let mut rewards = self.state.rewards.write().await;
-                        rewards.distribute_checkpoint_rewards(reward);
+                        if emission.record_emission_for_height(cp_data.height, reward) {
+                            let mut rewards = self.state.rewards.write().await;
+                            rewards.distribute_checkpoint_rewards(reward);
+                        } else {
+                            tracing::debug!(
+                                "Skipping reward distribution for delta checkpoint {} — already distributed",
+                                cp_data.height
+                            );
+                        }
                     }
 
                     let checkpoint = rinku_core::types::Checkpoint {
                         height: cp_data.height,
                         tx_merkle_root: cp_data.merkle_root.clone(),
-                        state_root: String::new(),
-                        receipt_root: String::new(),
+                        state_root: cp_data.state_root.clone().unwrap_or_default(),
+                        receipt_root: cp_data.receipt_root.clone().unwrap_or_default(),
                         timestamp: cp_data.timestamp,
                         previous_hash: cp_data.previous_hash.clone(),
-                        tip_count: cp_data.tx_count as u32,
+                        tip_count: cp_data.tip_count.unwrap_or(cp_data.tx_count as u32),
                         hash: cp_data.hash.clone().unwrap_or_default(),
-                        signer_bitmap: None,
+                        signer_bitmap: cp_data.signer_bitmap.clone(),
                         aggregated_signature: cp_data.signature.clone(),
-                        validator_signatures: Vec::new(),
-                        finalized_tx_hashes: Vec::new(),
+                        validator_signatures: cp_data.validator_signatures.clone(),
+                        finalized_tx_hashes: cp_data.finalized_tx_hashes.clone(),
                         weight_trie_root: String::new(),
-            provisional: false,
-            partition_epoch: None,
-            visible_stake_pct: None,
+                        provisional: false,
+                        partition_epoch: None,
+                        visible_stake_pct: None,
                         merge_report_hash: None,
                     };
-                    
-                    if let Err(e) = self.state.apply_checkpoint(checkpoint, None).await {
-                        warn!("Failed to apply synced checkpoint {}: {}", cp_data.height, e);
-                        failed_count += 1;
+
+                    if cp_data.finalized_tx_hashes.is_empty() {
+                        if let Err(e) = self.state.apply_checkpoint(checkpoint).await {
+                            warn!("Failed to apply synced checkpoint {}: {}", cp_data.height, e);
+                            failed_count += 1;
+                        } else {
+                            result.added += 1;
+                        }
                     } else {
-                        result.added += 1;
+                        match self.state.apply_checkpoint_with_finalized_hashes(
+                            checkpoint,
+                            cp_data.finalized_tx_hashes.clone(),
+                        ).await {
+                            Err(e) => {
+                                warn!("Failed to apply synced checkpoint {} with finalized hashes: {}", cp_data.height, e);
+                                failed_count += 1;
+                            }
+                            Ok(missing_tx_count) => {
+                                if missing_tx_count > 0 {
+                                    warn!(
+                                        "Delta sync checkpoint {}: {} txs missing locally (of {} finalized)",
+                                        cp_data.height, missing_tx_count, cp_data.finalized_tx_hashes.len()
+                                    );
+                                }
+                                {
+                                    let mut inner = self.inner.write().await;
+                                    for tx_hash in &cp_data.finalized_tx_hashes {
+                                        inner.convergence_confirmed.remove(tx_hash);
+                                        inner.convergence_pending.remove(tx_hash);
+                                        inner.convergence_executed.insert(tx_hash.clone());
+                                    }
+                                }
+                                info!(
+                                    "Applied delta sync checkpoint at height {} ({} txs finalized, {} missing)",
+                                    cp_data.height, cp_data.finalized_tx_hashes.len(), missing_tx_count
+                                );
+                                result.added += 1;
+                            }
+                        }
                     }
                 }
                 
@@ -1709,10 +2820,7 @@ impl GossipService {
         
         info!("P2P snapshot sync from peer {}", peer_id);
         
-        let response = {
-            let locked = handle.lock().await;
-            locked.request_snapshot(peer_id).await?
-        };
+        let response = handle.request_snapshot(peer_id).await?;
         
         match response {
             SyncResponse::Snapshot(snapshot) => {
@@ -1749,7 +2857,7 @@ impl GossipService {
             None => return Err(anyhow::anyhow!("P2P network not available")),
         };
         
-        let local_checkpoint = self.state.get_checkpoint_height().await;
+        let local_checkpoint = self.state.get_checkpoint_height();
         let node_id = self.state.get_node_id().await;
         let validator_address = self.checkpoint_vote_signer.as_ref().map(|s| s.validator_address.clone());
         
@@ -1764,10 +2872,7 @@ impl GossipService {
             known_peer_addrs: Vec::new(),
         };
         
-        let response = {
-            let locked = handle.lock().await;
-            locked.handshake(peer_id, handshake).await?
-        };
+        let response = handle.handshake(peer_id, handshake).await?;
         
         match response {
             SyncResponse::Handshake(peer_info) => {
@@ -1792,7 +2897,7 @@ impl GossipService {
     /// Trigger P2P sync from a connected peer (100% P2P, no HTTP fallback)
     #[cfg(feature = "p2p")]
     async fn trigger_sync_from_peer_p2p(&self, peer_id: &str) -> anyhow::Result<()> {
-        let local_checkpoint = self.state.get_checkpoint_height().await;
+        let local_checkpoint = self.state.get_checkpoint_height();
         
         // Get peer status via P2P handshake
         let status = self.fetch_peer_status_p2p(peer_id).await
@@ -1833,19 +2938,16 @@ impl GossipService {
         
         match message {
             GossipMessage::Transaction { hash, tx, .. } => {
-                // QUICK-REJECT: Check stale nonce cache BEFORE any state operations
-                // This prevents CPU-intensive validation of known-stale transactions
                 {
                     let inner = self.inner.read().await;
                     if let Some(&min_nonce) = inner.stale_nonce_cache.get(&tx.tx.from) {
                         if tx.tx.nonce < min_nonce {
-                            // Silently drop - no logging to avoid log spam
-                            // This is a known-stale transaction from gossip echo
-                            drop(inner);
-                            let mut inner_mut = self.inner.write().await;
-                            inner_mut.stale_nonce_cache_hits += 1;
+                            inner.stale_nonce_cache_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             return Ok(None);
                         }
+                    }
+                    if inner.known_txs.contains(&hash) {
+                        return Ok(None);
                     }
                 }
                 
@@ -2090,7 +3192,7 @@ impl GossipService {
             } => {
                 // sender_url already handled at top of handle_message
                 let txs = self.state.get_txs_since_checkpoint(from_checkpoint, &missing_hashes).await;
-                let checkpoint_height = self.state.get_checkpoint_height().await;
+                let checkpoint_height = self.state.get_checkpoint_height();
 
                 Ok(Some(GossipMessage::SyncResponse {
                     transactions: txs,
@@ -2209,237 +3311,17 @@ impl GossipService {
             }
             
             GossipMessage::CheckpointAnnouncement { checkpoint, finalized_tx_hashes, precomputed_proofs, finalized_transactions, .. } => {
-                // Immediately apply checkpoint from network leader
-                let local_height = self.state.get_checkpoint_height().await;
-                
-                if checkpoint.height <= local_height {
-                    debug!(
-                        "Ignoring checkpoint {} at height {} (local height: {})",
-                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                        checkpoint.height,
-                        local_height
-                    );
-                    return Ok(None);
-                }
-                
-                // Check if this is the next expected checkpoint
-                if checkpoint.height == local_height + 1 {
-                    info!(
-                        "Received checkpoint announcement {} at height {} (leader broadcast, {} finalized txs, {} tx bodies, {} proofs)",
-                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                        checkpoint.height,
-                        finalized_tx_hashes.len(),
-                        finalized_transactions.len(),
-                        precomputed_proofs.len()
-                    );
-                    
-                    // BLS SIGNATURE VERIFICATION
-                    // Verify the checkpoint's aggregate BLS signature against the validator set
-                    if let Some(ref vi) = self.validator_identity {
-                        let vi_guard = vi.read().await;
-                        let mut sorted_entries: Vec<(String, Vec<u8>, u64)> = vi_guard.active_validators()
-                            .iter()
-                            .filter(|(_, v)| !v.bls_public_key.is_empty())
-                            .map(|(addr, v)| (addr.clone(), v.bls_public_key.clone(), v.effective_stake))
-                            .collect();
-                        sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
-                        let bls_keys_and_stakes: Vec<(Vec<u8>, u64)> = sorted_entries.into_iter()
-                            .map(|(_, k, s)| (k, s))
-                            .collect();
-                        drop(vi_guard);
-                        
-                        if !bls_keys_and_stakes.is_empty() {
-                            if let Err(e) = crate::state::NodeState::verify_checkpoint_bls(&checkpoint, &bls_keys_and_stakes) {
-                                warn!(
-                                    "BLS verification failed for checkpoint {} at height {}: {} — proceeding with checkpoint (validated by hash/merkle)",
-                                    &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                                    checkpoint.height,
-                                    e
-                                );
-                            }
-                        }
-                    }
-                    
-                    // CRITICAL CONSENSUS FIX: Add missing transactions from leader BEFORE applying checkpoint
-                    // This ensures all nodes execute the SAME transactions and reach the SAME state
-                    // Without this, nodes that missed the original gossip would have different balances
-                    let mut added_from_leader = 0usize;
-                    let mut rejected_count = 0usize;
-                    
-                    // Build set of finalized hashes for validation
-                    let finalized_hash_set: std::collections::HashSet<&String> = 
-                        finalized_tx_hashes.iter().collect();
-                    
-                    if !finalized_transactions.is_empty() {
-                        // Build lookup of transactions we already have
-                        let existing_hashes: std::collections::HashSet<String> = {
-                            let state = self.state.inner.read().await;
-                            finalized_tx_hashes.iter()
-                                .filter(|h| state.dag.get_node(h).is_some())
-                                .cloned()
-                                .collect()
-                        };
-                        
-                        // Add missing transactions from leader WITH SECURITY VALIDATION
-                        for tx in &finalized_transactions {
-                            if existing_hashes.contains(&tx.hash) {
-                                continue; // Already have this transaction
-                            }
-                            
-                            // SECURITY: Verify tx hash is in the finalized list (prevents injection)
-                            // Note: We trust the leader's hash since JSON serialization order is non-deterministic
-                            // and recomputing the hash would produce false mismatches. The finalized hash list
-                            // is signed by the leader, providing the security guarantee we need.
-                            if !finalized_hash_set.contains(&tx.hash) {
-                                warn!(
-                                    "SECURITY: Rejecting tx {} - not in finalized hash list for checkpoint {}",
-                                    &tx.hash[..16.min(tx.hash.len())],
-                                    checkpoint.height
-                                );
-                                rejected_count += 1;
-                                continue;
-                            }
-                            
-                            // Add validated transaction to DAG
-                            match self.state.force_add_transaction_for_vote(tx.clone()).await {
-                                Ok(_) => {
-                                    added_from_leader += 1;
-                                }
-                                Err(e) => {
-                                    debug!(
-                                        "Failed to add tx {} from checkpoint: {}",
-                                        &tx.hash[..16.min(tx.hash.len())],
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                        
-                        if added_from_leader > 0 || rejected_count > 0 {
-                            info!(
-                                "Checkpoint {} tx sync: added {} from leader, rejected {} (security)",
-                                checkpoint.height,
-                                added_from_leader,
-                                rejected_count
-                            );
-                        }
-                    }
-                    
-                    {
-                        let mut emission = self.state.emission.write().await;
-                        let reward = emission.get_checkpoint_reward(checkpoint.height);
-                        emission.record_emission(reward);
-                        let mut rewards = self.state.rewards.write().await;
-                        rewards.distribute_checkpoint_rewards(reward);
-                    }
-
-                    let finalized_hashes_for_fastpath = finalized_tx_hashes.clone();
-                    let fp_executed_set = {
-                        let inner = self.inner.read().await;
-                        inner.fast_path_executed.clone()
-                    };
-                    match self.state.apply_checkpoint_with_finalized_hashes(
-                        checkpoint.clone(), 
-                        finalized_tx_hashes,
-                        &fp_executed_set,
-                    ).await {
-                        Err(e) => {
-                            warn!(
-                                "Failed to apply announced checkpoint {}: {}",
-                                &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                                e
-                            );
-                        }
-                        Ok(missing_tx_count) => {
-                            // After adding missing txs from leader, missing_tx_count should be 0
-                            // If not, log a warning as this indicates a serious consensus issue
-                            if missing_tx_count > 0 {
-                                warn!(
-                                    "CONSENSUS WARNING: Still missing {} txs after leader sync for checkpoint {} (added {} from leader, had {} tx bodies)",
-                                    missing_tx_count,
-                                    checkpoint.height,
-                                    added_from_leader,
-                                    finalized_transactions.len()
-                                );
-                            }
-                            
-                            // Store precomputed proofs if we have all transactions
-                            if missing_tx_count == 0 && !precomputed_proofs.is_empty() {
-                                let proof_map: std::collections::HashMap<String, rinku_core::types::AccountStateProof> = 
-                                    precomputed_proofs.into_iter()
-                                        .map(|p| (p.address.clone(), p))
-                                        .collect();
-                                self.state.store_precomputed_proofs(&proof_map).await;
-                                info!(
-                                    "Stored {} precomputed proofs from leader for checkpoint {}",
-                                    proof_map.len(),
-                                    checkpoint.height
-                                );
-                            } else if missing_tx_count > 0 && !precomputed_proofs.is_empty() {
-                                // DO NOT store proofs - they would have incorrect nonce/balance
-                                warn!(
-                                    "Skipped storing {} proofs for checkpoint {} - missing {} txs (proofs would have incorrect state)",
-                                    precomputed_proofs.len(),
-                                    checkpoint.height,
-                                    missing_tx_count
-                                );
-                            }
-                            
-                            {
-                                let mut inner = self.inner.write().await;
-                                for tx_hash in &finalized_hashes_for_fastpath {
-                                    inner.fast_path_confirmed.remove(tx_hash);
-                                    inner.fast_path_pending.remove(tx_hash);
-                                    inner.fast_path_executed.remove(tx_hash);
-                                }
-                                inner.stale_nonce_cache.clear();
-                                inner.stale_nonce_cache_order.clear();
-                            }
-                            
-                            info!(
-                                "Applied announced checkpoint {} at height {} (added {} txs from leader)",
-                                &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                                checkpoint.height,
-                                added_from_leader
-                            );
-
-                            if let Some(ref eb) = self.event_bus {
-                                eb.publish(crate::events::NodeEvent::CheckpointCreated {
-                                    hash: checkpoint.hash.clone(),
-                                    height: checkpoint.height,
-                                    txs_finalized: finalized_hashes_for_fastpath.len(),
-                                    reward: 0.0,
-                                });
-                            }
-                        }
-                    }
-                } else {
-                    debug!(
-                        "Checkpoint {} at height {} too far ahead (local: {}), will sync",
-                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                        checkpoint.height,
-                        local_height
-                    );
-                }
-                
+                self.apply_received_checkpoint(checkpoint, finalized_tx_hashes, finalized_transactions, precomputed_proofs, "gossip").await;
                 Ok(None)
             }
             
-            GossipMessage::FastPathBroadcast {
+            GossipMessage::TxConfirmBroadcast {
                 tx,
                 sender_validator,
                 sender_stake,
                 timestamp_ms,
                 ..
             } => {
-                if !tx.is_fast_path_eligible() {
-                    debug!(
-                        "FastPathBroadcast rejected: tx {} not eligible for fast-path",
-                        &tx.hash[..16.min(tx.hash.len())]
-                    );
-                    return Ok(None);
-                }
-
                 let is_new = {
                     let mut inner = self.inner.write().await;
                     if inner.known_txs.contains(&tx.hash) {
@@ -2452,11 +3334,57 @@ impl GossipService {
                 };
 
                 if is_new {
+                    {
+                        let inner = self.inner.read().await;
+                        if inner.convergence_executed.contains(&tx.hash) {
+                            debug!(
+                                "Skipping already-executed tx {} (post-checkpoint re-broadcast)",
+                                &tx.hash[..16.min(tx.hash.len())]
+                            );
+                            return Ok(None);
+                        }
+                    }
                     match self.state.add_transaction_from_gossip(tx.clone()).await {
                         Ok(TransactionResult::Accepted) | Ok(TransactionResult::Buffered) => {
-                            let validators = self.state.get_validators_map().await;
-                            let total_stake: u64 = validators.values().map(|v| v.stake).sum();
-                            let quorum_threshold = total_stake * 2 / 3;
+                            let is_consolidation_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation));
+                            if is_consolidation_tx {
+                                return Ok(None);
+                            }
+                            let already_confirmed = {
+                                let inner = self.inner.read().await;
+                                inner.convergence_confirmed.contains_key(&tx.hash) && !inner.convergence_executed.contains(&tx.hash)
+                            };
+                            if already_confirmed {
+                                info!(
+                                    "FastPath: broadcast arrived for already-confirmed tx {} — executing now",
+                                    &tx.hash[..16.min(tx.hash.len())]
+                                );
+                                self.execute_confirmed_transaction(&tx).await;
+                                let (_validators, our_validator_addr, our_stake_val, _ts, _qt) =
+                                    self.get_cached_validators().await;
+                                if let Some(validator_addr) = our_validator_addr {
+                                    if our_stake_val > 0 {
+                                        let now_ms = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_millis() as u64;
+                                        let ack = GossipMessage::TxConfirmAck {
+                                            tx_hash: tx.hash.clone(),
+                                            validator_address: validator_addr,
+                                            validator_stake: our_stake_val,
+                                            bls_signature: None,
+                                            timestamp_ms: now_ms,
+                                            sender_url: std::env::var("PUBLIC_URL").ok(),
+                                        };
+                                        #[cfg(feature = "p2p")]
+                                        self.broadcast_via_p2p(&ack).await;
+                                    }
+                                }
+                                return Ok(None);
+                            }
+
+                            let (validators, our_validator_addr, our_stake_val, _total_stake, quorum_threshold) =
+                                self.get_cached_validators().await;
                             
                             let now_ms = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -2467,7 +3395,7 @@ impl GossipService {
                             
                             {
                                 let mut inner = self.inner.write().await;
-                                let finality = inner.fast_path_pending.entry(tx.hash.clone()).or_insert_with(|| {
+                                let finality = inner.convergence_pending.entry(tx.hash.clone()).or_insert_with(|| {
                                     rinku_core::types::FastPathFinality {
                                         tx_hash: tx.hash.clone(),
                                         status: rinku_core::types::FastPathStatus::Pending,
@@ -2477,20 +3405,51 @@ impl GossipService {
                                         registered_at_ms: timestamp_ms,
                                         confirmed_at_ms: None,
                                         checkpoint_height: None,
+                                        tx_created_at_ms: Some(tx.tx.timestamp),
                                     }
                                 });
+                                if finality.tx_created_at_ms.is_none() {
+                                    finality.tx_created_at_ms = Some(tx.tx.timestamp);
+                                }
                                 
-                                if validators.contains_key(&sender_validator) && sender_stake > 0 {
-                                    let already_acked = finality.acks.iter().any(|a| a.validator_address == sender_validator);
-                                    if !already_acked {
-                                        finality.acks.push(rinku_core::types::FastPathAck {
-                                            tx_hash: tx.hash.clone(),
-                                            validator_address: sender_validator.clone(),
-                                            validator_stake: sender_stake,
-                                            bls_signature: None,
-                                            timestamp_ms,
-                                        });
-                                        finality.total_stake_acked += sender_stake;
+                                if let Some(canonical_validator) = validators.get(&sender_validator) {
+                                    let canonical_stake = canonical_validator.stake;
+                                    if canonical_stake > 0 {
+                                        if sender_stake != canonical_stake {
+                                            warn!(
+                                                "TxConfirmBroadcast stake mismatch for {}: claimed {} vs canonical {}",
+                                                &sender_validator[..16.min(sender_validator.len())],
+                                                sender_stake,
+                                                canonical_stake
+                                            );
+                                        }
+                                        let already_acked = finality.acks.iter().any(|a| a.validator_address == sender_validator);
+                                        if !already_acked {
+                                            finality.acks.push(rinku_core::types::FastPathAck {
+                                                tx_hash: tx.hash.clone(),
+                                                validator_address: sender_validator.clone(),
+                                                validator_stake: canonical_stake,
+                                                bls_signature: None,
+                                                timestamp_ms,
+                                            });
+                                            finality.total_stake_acked += canonical_stake;
+                                        }
+                                    }
+                                }
+
+                                if let Some(ref addr) = our_validator_addr {
+                                    if our_stake_val > 0 {
+                                        let self_acked = finality.acks.iter().any(|a| a.validator_address == *addr);
+                                        if !self_acked {
+                                            finality.acks.push(rinku_core::types::FastPathAck {
+                                                tx_hash: tx.hash.clone(),
+                                                validator_address: addr.clone(),
+                                                validator_stake: our_stake_val,
+                                                bls_signature: None,
+                                                timestamp_ms: now_ms,
+                                            });
+                                            finality.total_stake_acked += our_stake_val;
+                                        }
                                     }
                                 }
                                 
@@ -2499,21 +3458,21 @@ impl GossipService {
                                     finality.confirmed_at_ms = Some(now_ms);
                                     confirmed_finality = Some(finality.clone());
                                 }
+                                if let Some(ref finalized) = confirmed_finality {
+                                    inner.convergence_confirmed.insert(tx.hash.clone(), finalized.clone());
+                                    inner.convergence_pending.remove(&tx.hash);
+                                }
                             }
                             
-                            if let Some(finalized) = confirmed_finality {
+                            if let Some(ref finalized) = confirmed_finality {
                                 let stake_acked = finalized.total_stake_acked;
-                                let mut inner = self.inner.write().await;
-                                inner.fast_path_confirmed.insert(tx.hash.clone(), finalized);
-                                inner.fast_path_pending.remove(&tx.hash);
-                                
                                 info!(
                                     "FastPath CONFIRMED for {} with {} stake (threshold: {})",
                                     &tx.hash[..16.min(tx.hash.len())],
                                     stake_acked,
                                     quorum_threshold
                                 );
-                                drop(inner);
+                                self.state.set_convergence_certificate(&tx.hash, finalized).await;
                                 if let Some(ref eb) = self.event_bus {
                                     eb.publish(crate::events::NodeEvent::FastPathConfirmed {
                                         hash: tx.hash.clone(),
@@ -2524,71 +3483,15 @@ impl GossipService {
                                         threshold: from_micro_units(quorum_threshold),
                                     });
                                 }
-                                self.execute_on_fast_path(&tx).await;
+                                self.execute_confirmed_transaction(&tx).await;
                             }
                             
-                            let (our_validator, our_stake) = self.state.get_validator_info().await;
-                            
-                            if let (Some(validator_addr), Some(_)) = (our_validator, our_stake) {
-                                let our_stake = self.state.get_validator_stake(&validator_addr).await.unwrap_or(0);
-                                
-                                if our_stake > 0 {
-                                    let mut just_confirmed = false;
-                                    {
-                                        let mut inner = self.inner.write().await;
-                                        if let Some(finality) = inner.fast_path_pending.get_mut(&tx.hash) {
-                                            let already_acked = finality.acks.iter().any(|a| a.validator_address == validator_addr);
-                                            if !already_acked {
-                                                finality.acks.push(rinku_core::types::FastPathAck {
-                                                    tx_hash: tx.hash.clone(),
-                                                    validator_address: validator_addr.clone(),
-                                                    validator_stake: our_stake,
-                                                    bls_signature: None,
-                                                    timestamp_ms: now_ms,
-                                                });
-                                                finality.total_stake_acked += our_stake;
-                                                
-                                                if finality.total_stake_acked >= quorum_threshold && finality.status == rinku_core::types::FastPathStatus::Pending {
-                                                    finality.status = rinku_core::types::FastPathStatus::Confirmed;
-                                                    finality.confirmed_at_ms = Some(now_ms);
-                                                    let confirmed = finality.clone();
-                                                    let stake = finality.total_stake_acked;
-                                                    inner.fast_path_confirmed.insert(tx.hash.clone(), confirmed);
-                                                    just_confirmed = true;
-                                                    
-                                                    info!(
-                                                        "FastPath CONFIRMED for {} with {} stake (threshold: {})",
-                                                        &tx.hash[..16.min(tx.hash.len())],
-                                                        stake,
-                                                        quorum_threshold
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                    
-                                    if just_confirmed {
-                                        if let Some(ref eb) = self.event_bus {
-                                            let inner = self.inner.read().await;
-                                            let stake = inner.fast_path_confirmed.get(&tx.hash)
-                                                .map(|f| f.total_stake_acked).unwrap_or(0);
-                                            drop(inner);
-                                            eb.publish(crate::events::NodeEvent::FastPathConfirmed {
-                                                hash: tx.hash.clone(),
-                                                from: tx.tx.from.clone(),
-                                                to: tx.tx.to.clone(),
-                                                amount: from_micro_units(tx.tx.amount),
-                                                total_stake: from_micro_units(stake),
-                                                threshold: from_micro_units(quorum_threshold),
-                                            });
-                                        }
-                                        self.execute_on_fast_path(&tx).await;
-                                    }
-                                    
-                                    let ack = GossipMessage::FastPathAck {
+                            if let Some(ref validator_addr) = our_validator_addr {
+                                if our_stake_val > 0 {
+                                    let ack = GossipMessage::TxConfirmAck {
                                         tx_hash: tx.hash.clone(),
-                                        validator_address: validator_addr,
-                                        validator_stake: our_stake,
+                                        validator_address: validator_addr.clone(),
+                                        validator_stake: our_stake_val,
                                         bls_signature: None,
                                         timestamp_ms: now_ms,
                                         sender_url: std::env::var("PUBLIC_URL").ok(),
@@ -2600,13 +3503,245 @@ impl GossipService {
                                     debug!(
                                         "Sent FastPathAck for tx {} (stake: {})",
                                         &tx.hash[..16.min(tx.hash.len())],
-                                        our_stake
+                                        our_stake_val
                                     );
                                 }
                             }
                         }
                         Err(e) => {
-                            warn!("Failed to add fast-path tx {}: {}", &tx.hash[..16.min(tx.hash.len())], e);
+                            let err_str = e.to_string();
+                            let is_stale_or_dup = err_str.contains("Stale nonce") || err_str.contains("Duplicate");
+                            if is_stale_or_dup {
+                                debug!("Fast-path tx {} DAG-rejected ({}), participating in convergence anyway", &tx.hash[..16.min(tx.hash.len())], err_str);
+                            } else {
+                                warn!("Failed to add fast-path tx {}: {}", &tx.hash[..16.min(tx.hash.len())], e);
+                                let mut inner = self.inner.write().await;
+                                inner.known_txs.remove(&tx.hash);
+                            }
+                            if is_stale_or_dup {
+                                let (validators, our_validator_addr, our_stake_val, _total_stake, quorum_threshold) =
+                                    self.get_cached_validators().await;
+                                let now_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64;
+
+                                let mut confirmed_finality: Option<rinku_core::types::FastPathFinality> = None;
+                                {
+                                    let mut inner = self.inner.write().await;
+                                    if !inner.convergence_executed.contains(&tx.hash) {
+                                        let finality = inner.convergence_pending.entry(tx.hash.clone()).or_insert_with(|| {
+                                            rinku_core::types::FastPathFinality {
+                                                tx_hash: tx.hash.clone(),
+                                                status: rinku_core::types::FastPathStatus::Pending,
+                                                acks: Vec::new(),
+                                                total_stake_acked: 0,
+                                                quorum_stake_required: quorum_threshold,
+                                                registered_at_ms: now_ms,
+                                                confirmed_at_ms: None,
+                                                checkpoint_height: None,
+                                                tx_created_at_ms: Some(tx.tx.timestamp),
+                                            }
+                                        });
+                                        if let Some(canonical_validator) = validators.get(&sender_validator) {
+                                            let canonical_stake = canonical_validator.stake;
+                                            if canonical_stake > 0 {
+                                                let already_acked = finality.acks.iter().any(|a| a.validator_address == sender_validator);
+                                                if !already_acked {
+                                                    finality.acks.push(rinku_core::types::FastPathAck {
+                                                        tx_hash: tx.hash.clone(),
+                                                        validator_address: sender_validator.clone(),
+                                                        validator_stake: canonical_stake,
+                                                        bls_signature: None,
+                                                        timestamp_ms,
+                                                    });
+                                                    finality.total_stake_acked += canonical_stake;
+                                                }
+                                            }
+                                        }
+                                        if let Some(ref addr) = our_validator_addr {
+                                            if our_stake_val > 0 {
+                                                let self_acked = finality.acks.iter().any(|a| a.validator_address == *addr);
+                                                if !self_acked {
+                                                    finality.acks.push(rinku_core::types::FastPathAck {
+                                                        tx_hash: tx.hash.clone(),
+                                                        validator_address: addr.clone(),
+                                                        validator_stake: our_stake_val,
+                                                        bls_signature: None,
+                                                        timestamp_ms: now_ms,
+                                                    });
+                                                    finality.total_stake_acked += our_stake_val;
+                                                }
+                                            }
+                                        }
+                                        if finality.total_stake_acked >= quorum_threshold && finality.status == rinku_core::types::FastPathStatus::Pending {
+                                            finality.status = rinku_core::types::FastPathStatus::Confirmed;
+                                            finality.confirmed_at_ms = Some(now_ms);
+                                            confirmed_finality = Some(finality.clone());
+                                        }
+                                        if let Some(ref finalized) = confirmed_finality {
+                                            inner.convergence_confirmed.insert(tx.hash.clone(), finalized.clone());
+                                            inner.convergence_pending.remove(&tx.hash);
+                                        }
+                                    }
+                                }
+                                if let Some(ref finalized) = confirmed_finality {
+                                    let stake_acked = finalized.total_stake_acked;
+                                    self.state.set_convergence_certificate(&tx.hash, finalized).await;
+                                    info!(
+                                        "FastPath CONFIRMED (DAG-rejected path) for {} with {} stake (threshold: {})",
+                                        &tx.hash[..16.min(tx.hash.len())],
+                                        stake_acked,
+                                        quorum_threshold
+                                    );
+                                    self.execute_confirmed_transaction(&tx).await;
+                                }
+                                if let Some(ref addr) = our_validator_addr {
+                                    if our_stake_val > 0 {
+                                        let ack = GossipMessage::TxConfirmAck {
+                                            tx_hash: tx.hash.clone(),
+                                            validator_address: addr.clone(),
+                                            validator_stake: our_stake_val,
+                                            bls_signature: None,
+                                            timestamp_ms: now_ms,
+                                            sender_url: std::env::var("PUBLIC_URL").ok(),
+                                        };
+                                        #[cfg(feature = "p2p")]
+                                        self.broadcast_via_p2p(&ack).await;
+                                        debug!(
+                                            "Sent FastPathAck for DAG-rejected tx {} (stake: {})",
+                                            &tx.hash[..16.min(tx.hash.len())],
+                                            our_stake_val
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    {
+                        let inner = self.inner.read().await;
+                        if inner.convergence_executed.contains(&tx.hash) {
+                            return Ok(None);
+                        }
+                    }
+                    debug!(
+                        "FastPathBroadcast for already-known tx {} — processing vote only",
+                        &tx.hash[..16.min(tx.hash.len())]
+                    );
+                    let (validators, our_validator_addr, our_stake_val, _total_stake, quorum_threshold) = self.get_cached_validators().await;
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+
+                    if let Some(canonical_validator) = validators.get(&sender_validator) {
+                        let canonical_stake = canonical_validator.stake;
+                        if sender_stake != canonical_stake {
+                            warn!(
+                                "TxConfirmBroadcast (known) stake mismatch for {}: claimed {} vs canonical {}",
+                                &sender_validator[..16.min(sender_validator.len())],
+                                sender_stake,
+                                canonical_stake
+                            );
+                        }
+                        if canonical_stake > 0 {
+                        let mut confirmed_finality: Option<rinku_core::types::FastPathFinality> = None;
+                        {
+                            let mut inner = self.inner.write().await;
+                            let finality = inner.convergence_pending.entry(tx.hash.clone()).or_insert_with(|| {
+                                rinku_core::types::FastPathFinality {
+                                    tx_hash: tx.hash.clone(),
+                                    status: rinku_core::types::FastPathStatus::Pending,
+                                    acks: Vec::new(),
+                                    total_stake_acked: 0,
+                                    quorum_stake_required: quorum_threshold,
+                                    registered_at_ms: timestamp_ms,
+                                    confirmed_at_ms: None,
+                                    checkpoint_height: None,
+                                    tx_created_at_ms: Some(tx.tx.timestamp),
+                                }
+                            });
+                            if finality.tx_created_at_ms.is_none() {
+                                finality.tx_created_at_ms = Some(tx.tx.timestamp);
+                            }
+                            let already_acked = finality.acks.iter().any(|a| a.validator_address == sender_validator);
+                            if !already_acked {
+                                finality.acks.push(rinku_core::types::FastPathAck {
+                                    tx_hash: tx.hash.clone(),
+                                    validator_address: sender_validator.clone(),
+                                    validator_stake: canonical_stake,
+                                    bls_signature: None,
+                                    timestamp_ms,
+                                });
+                                finality.total_stake_acked += canonical_stake;
+                            }
+                            if let Some(ref addr) = our_validator_addr {
+                                if our_stake_val > 0 {
+                                    let self_acked = finality.acks.iter().any(|a| a.validator_address == *addr);
+                                    if !self_acked {
+                                        finality.acks.push(rinku_core::types::FastPathAck {
+                                            tx_hash: tx.hash.clone(),
+                                            validator_address: addr.clone(),
+                                            validator_stake: our_stake_val,
+                                            bls_signature: None,
+                                            timestamp_ms: now_ms,
+                                        });
+                                        finality.total_stake_acked += our_stake_val;
+                                    }
+                                }
+                            }
+                            if finality.total_stake_acked >= quorum_threshold && finality.status == rinku_core::types::FastPathStatus::Pending {
+                                finality.status = rinku_core::types::FastPathStatus::Confirmed;
+                                finality.confirmed_at_ms = Some(now_ms);
+                                confirmed_finality = Some(finality.clone());
+                            }
+                        }
+                        if let Some(finalized) = confirmed_finality {
+                            let stake_acked = finalized.total_stake_acked;
+                            self.state.set_convergence_certificate(&tx.hash, &finalized).await;
+                            let mut inner = self.inner.write().await;
+                            inner.convergence_confirmed.insert(tx.hash.clone(), finalized);
+                            inner.convergence_pending.remove(&tx.hash);
+                            info!(
+                                "FastPath CONFIRMED (late vote) for {} with {} stake (threshold: {})",
+                                &tx.hash[..16.min(tx.hash.len())],
+                                stake_acked,
+                                quorum_threshold
+                            );
+                            drop(inner);
+                            if let Some(ref eb) = self.event_bus {
+                                eb.publish(crate::events::NodeEvent::FastPathConfirmed {
+                                    hash: tx.hash.clone(),
+                                    from: tx.tx.from.clone(),
+                                    to: tx.tx.to.clone(),
+                                    amount: from_micro_units(tx.tx.amount),
+                                    total_stake: from_micro_units(stake_acked),
+                                    threshold: from_micro_units(quorum_threshold),
+                                });
+                            }
+                            self.execute_confirmed_transaction(&tx).await;
+                        }
+                    }
+                    }
+
+                    if let Some(ref validator_addr) = our_validator_addr {
+                        if our_stake_val > 0 {
+                            let ack = GossipMessage::TxConfirmAck {
+                                tx_hash: tx.hash.clone(),
+                                validator_address: validator_addr.clone(),
+                                validator_stake: our_stake_val,
+                                bls_signature: None,
+                                timestamp_ms: now_ms,
+                                sender_url: std::env::var("PUBLIC_URL").ok(),
+                            };
+                            #[cfg(feature = "p2p")]
+                            self.broadcast_via_p2p(&ack).await;
+                            debug!(
+                                "Sent FastPathAck for already-known tx {} (stake: {})",
+                                &tx.hash[..16.min(tx.hash.len())],
+                                our_stake_val
+                            );
                         }
                     }
                 }
@@ -2614,7 +3749,7 @@ impl GossipService {
                 Ok(None)
             }
             
-            GossipMessage::FastPathAck {
+            GossipMessage::TxConfirmAck {
                 tx_hash,
                 validator_address,
                 validator_stake,
@@ -2622,7 +3757,16 @@ impl GossipService {
                 timestamp_ms,
                 ..
             } => {
-                let validators = self.state.get_validators_map().await;
+                {
+                    let inner = self.inner.read().await;
+                    if inner.convergence_executed.contains(&tx_hash) {
+                        return Ok(None);
+                    }
+                }
+
+                let (validators, our_validator_addr, our_stake_val, _total_stake, quorum_threshold) =
+                    self.get_cached_validators().await;
+
                 let valid_ack = if let Some(validator) = validators.get(&validator_address) {
                     if validator.stake != validator_stake {
                         warn!(
@@ -2644,74 +3788,100 @@ impl GossipService {
                 };
 
                 if valid_ack {
-                    let total_stake: u64 = validators.values().map(|v| v.stake).sum();
-                    let quorum_threshold = total_stake * 2 / 3;
-                    
-                    let mut confirmed_finality: Option<rinku_core::types::FastPathFinality> = None;
-                    
-                    {
-                        let now_ms = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        let mut inner = self.inner.write().await;
-                        let finality = inner.fast_path_pending.entry(tx_hash.clone()).or_insert_with(|| {
-                            rinku_core::types::FastPathFinality {
-                                tx_hash: tx_hash.clone(),
-                                status: rinku_core::types::FastPathStatus::Pending,
-                                acks: Vec::new(),
-                                total_stake_acked: 0,
-                                quorum_stake_required: quorum_threshold,
-                                registered_at_ms: now_ms,
-                                confirmed_at_ms: None,
-                                checkpoint_height: None,
-                            }
-                        });
-                        
-                        let already_acked = finality.acks.iter().any(|a| a.validator_address == validator_address);
-                        if !already_acked {
-                            finality.acks.push(rinku_core::types::FastPathAck {
-                                tx_hash: tx_hash.clone(),
-                                validator_address: validator_address.clone(),
-                                validator_stake,
-                                bls_signature: bls_signature.clone(),
-                                timestamp_ms,
-                            });
-                            finality.total_stake_acked += validator_stake;
-                            
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let mut inner = self.inner.write().await;
+
+                    if inner.convergence_executed.contains(&tx_hash) {
+                        return Ok(None);
+                    }
+
+                    if inner.convergence_confirmed.contains_key(&tx_hash) {
+                        return Ok(None);
+                    }
+
+                    if !inner.convergence_pending.contains_key(&tx_hash) {
+                        if !inner.known_txs.contains(&tx_hash) {
                             debug!(
-                                "FastPathAck for {}: {}/{} stake ({}% quorum)",
-                                &tx_hash[..16.min(tx_hash.len())],
-                                finality.total_stake_acked,
-                                quorum_threshold,
-                                if quorum_threshold > 0 { (finality.total_stake_acked * 100 / quorum_threshold) as u32 } else { 0 }
+                                "TxConfirmAck for unknown tx {} — ignoring (not in known_txs)",
+                                &tx_hash[..16.min(tx_hash.len())]
                             );
-                            
-                            if finality.total_stake_acked >= quorum_threshold && finality.status == rinku_core::types::FastPathStatus::Pending {
-                                finality.status = rinku_core::types::FastPathStatus::Confirmed;
-                                finality.confirmed_at_ms = Some(std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis() as u64);
-                                
-                                confirmed_finality = Some(finality.clone());
+                            return Ok(None);
+                        }
+                    }
+
+                    let finality = inner.convergence_pending.entry(tx_hash.clone()).or_insert_with(|| {
+                        debug!(
+                            "TxConfirmAck created skeleton pending for {} (missed broadcast, known tx)",
+                            &tx_hash[..16.min(tx_hash.len())]
+                        );
+                        rinku_core::types::FastPathFinality {
+                            tx_hash: tx_hash.clone(),
+                            status: rinku_core::types::FastPathStatus::Pending,
+                            acks: Vec::new(),
+                            total_stake_acked: 0,
+                            quorum_stake_required: quorum_threshold,
+                            registered_at_ms: now_ms,
+                            confirmed_at_ms: None,
+                            checkpoint_height: None,
+                            tx_created_at_ms: None,
+                        }
+                    });
+                    
+                    let already_acked = finality.acks.iter().any(|a| a.validator_address == validator_address);
+                    if !already_acked {
+                        finality.acks.push(rinku_core::types::FastPathAck {
+                            tx_hash: tx_hash.clone(),
+                            validator_address: validator_address.clone(),
+                            validator_stake,
+                            bls_signature: bls_signature.clone(),
+                            timestamp_ms,
+                        });
+                        finality.total_stake_acked += validator_stake;
+                    }
+
+                    if let Some(ref addr) = our_validator_addr {
+                        if our_stake_val > 0 {
+                            let self_acked = finality.acks.iter().any(|a| a.validator_address == *addr);
+                            if !self_acked {
+                                finality.acks.push(rinku_core::types::FastPathAck {
+                                    tx_hash: tx_hash.clone(),
+                                    validator_address: addr.clone(),
+                                    validator_stake: our_stake_val,
+                                    bls_signature: None,
+                                    timestamp_ms: now_ms,
+                                });
+                                finality.total_stake_acked += our_stake_val;
                             }
                         }
                     }
+                            
+                    debug!(
+                        "FastPathAck for {}: {}/{} stake ({}% quorum)",
+                        &tx_hash[..16.min(tx_hash.len())],
+                        finality.total_stake_acked,
+                        quorum_threshold,
+                        if quorum_threshold > 0 { (finality.total_stake_acked * 100 / quorum_threshold) as u32 } else { 0 }
+                    );
                     
-                    if let Some(finalized) = confirmed_finality {
+                    if finality.total_stake_acked >= quorum_threshold && finality.status == rinku_core::types::FastPathStatus::Pending {
+                        finality.status = rinku_core::types::FastPathStatus::Confirmed;
+                        finality.confirmed_at_ms = Some(now_ms);
+                        let finalized = finality.clone();
                         let stake_acked = finalized.total_stake_acked;
-                        let mut inner = self.inner.write().await;
-                        inner.fast_path_confirmed.insert(tx_hash.clone(), finalized);
-                        inner.fast_path_pending.remove(&tx_hash);
+                        inner.convergence_confirmed.insert(tx_hash.clone(), finalized.clone());
+                        inner.convergence_pending.remove(&tx_hash);
+                        drop(inner);
                         
+                        self.state.set_convergence_certificate(&tx_hash, &finalized).await;
                         info!(
-                            "FastPath CONFIRMED for {} with {} stake (threshold: {})",
+                            "FastPath CONFIRMED (via ACK) for {} with {} stake (threshold: {})",
                             &tx_hash[..16.min(tx_hash.len())],
                             stake_acked,
                             quorum_threshold
                         );
-                        drop(inner);
                         if let Some(ref eb) = self.event_bus {
                             if let Some(tx) = self.state.get_transaction(&tx_hash).await {
                                 eb.publish(crate::events::NodeEvent::FastPathConfirmed {
@@ -2724,7 +3894,7 @@ impl GossipService {
                                 });
                             }
                         }
-                        self.execute_on_fast_path_by_hash(&tx_hash).await;
+                        self.execute_confirmed_transaction_by_hash(&tx_hash).await;
                     }
                 }
                 
@@ -2782,6 +3952,50 @@ impl GossipService {
                     report.merge_epoch, report.transactions_kept.len(), report.transactions_rejected.len()
                 );
                 self.state.set_latest_merge_report(report).await;
+                Ok(None)
+            }
+
+            GossipMessage::CheckpointIntent { height, leader_address, timestamp_ms, relay_count, .. } => {
+                let current_height = self.state.get_checkpoint_height();
+                let target_height = current_height + 1;
+                if height >= target_height && height <= target_height + 5 {
+                    let mut inner = self.inner.write().await;
+                    let is_new = !inner.leader_intents.contains_key(&height);
+                    inner.leader_intents.insert(height, (leader_address.clone(), timestamp_ms));
+                    let intent_count = inner.leader_intents.len();
+                    if intent_count > 10 {
+                        let min_relevant = target_height.saturating_sub(1);
+                        inner.leader_intents.retain(|h, _| *h >= min_relevant);
+                    }
+                    info!(
+                        "Received checkpoint intent for height {} from leader {} (relay={})",
+                        height, &leader_address[..16.min(leader_address.len())], relay_count
+                    );
+                    if is_new && relay_count == 0 {
+                        let relay_msg = GossipMessage::CheckpointIntent {
+                            height,
+                            leader_address,
+                            timestamp_ms,
+                            sender_url: std::env::var("PUBLIC_URL").ok(),
+                            relay_count: 1,
+                        };
+                        drop(inner);
+                        info!("Relaying checkpoint intent for height {}", height);
+                        #[cfg(feature = "p2p")]
+                        self.broadcast_via_p2p(&relay_msg).await;
+                        return Ok(None);
+                    }
+                } else {
+                    debug!(
+                        "Ignored checkpoint intent for height {} (current={}, target={}, relay={})",
+                        height, current_height, target_height, relay_count
+                    );
+                }
+                Ok(None)
+            }
+
+            GossipMessage::Batch { .. } => {
+                warn!("Received Batch message in handle_message - batches should be unpacked at network layer");
                 Ok(None)
             }
         }
@@ -2854,45 +4068,48 @@ impl GossipService {
         }
     }
 
-    pub async fn get_fast_path_status(&self, tx_hash: &str) -> Option<rinku_core::types::FastPathFinality> {
+    pub async fn get_convergence_status(&self, tx_hash: &str) -> Option<rinku_core::types::FastPathFinality> {
         let inner = self.inner.read().await;
-        if let Some(finality) = inner.fast_path_confirmed.get(tx_hash) {
+        if let Some(finality) = inner.convergence_confirmed.get(tx_hash) {
             return Some(finality.clone());
         }
-        if let Some(finality) = inner.fast_path_pending.get(tx_hash) {
+        if let Some(finality) = inner.convergence_pending.get(tx_hash) {
             return Some(finality.clone());
         }
         None
     }
 
-    pub async fn is_fast_path_executed(&self, tx_hash: &str) -> bool {
+    pub async fn is_convergence_executed(&self, tx_hash: &str) -> bool {
         let inner = self.inner.read().await;
-        inner.fast_path_executed.contains(tx_hash)
+        inner.convergence_executed.contains(tx_hash)
     }
 
-    pub async fn get_all_fast_path_executed(&self) -> std::collections::HashSet<String> {
+    pub async fn get_all_convergence_executed(&self) -> std::collections::HashSet<String> {
         let inner = self.inner.read().await;
-        inner.fast_path_executed.clone()
+        inner.convergence_executed.clone()
     }
 
-    async fn execute_on_fast_path(&self, tx: &rinku_core::types::SignedTransaction) {
+    async fn execute_confirmed_transaction(&self, tx: &rinku_core::types::SignedTransaction) {
         {
             let inner = self.inner.read().await;
-            if inner.fast_path_executed.contains(&tx.hash) {
+            if inner.convergence_executed.contains(&tx.hash) {
                 return;
             }
         }
 
-        let result = self.state.execute_fast_path_transaction(tx).await;
+        let result = self.state.execute_confirmed_transaction_state(tx).await;
 
         match result {
-            crate::state::FastPathExecResult::Executed => {
-                let mut inner = self.inner.write().await;
-                inner.fast_path_executed.insert(tx.hash.clone());
-                if let Some(finality) = inner.fast_path_confirmed.get_mut(&tx.hash) {
-                    finality.status = rinku_core::types::FastPathStatus::Executed;
+            crate::state::ConvergenceExecResult::Executed => {
+                let sender = tx.tx.from.clone();
+                let executed_nonce = tx.tx.nonce;
+                {
+                    let mut inner = self.inner.write().await;
+                    inner.convergence_executed.insert(tx.hash.clone());
+                    if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
+                        finality.status = rinku_core::types::FastPathStatus::Executed;
+                    }
                 }
-                drop(inner);
                 if let Some(ref eb) = self.event_bus {
                     eb.publish(crate::events::NodeEvent::FastPathExecuted {
                         hash: tx.hash.clone(),
@@ -2921,18 +4138,22 @@ impl GossipService {
                         }
                     }
                 }
+                self.cascade_execute_next_nonce(&sender, executed_nonce).await;
             }
-            crate::state::FastPathExecResult::AlreadyApplied => {
+            crate::state::ConvergenceExecResult::AlreadyApplied => {
+                let sender = tx.tx.from.clone();
+                let executed_nonce = tx.tx.nonce;
                 tracing::info!(
                     "FastPath: marking tx {} as executed (already applied via sync)",
                     &tx.hash[..16.min(tx.hash.len())]
                 );
-                let mut inner = self.inner.write().await;
-                inner.fast_path_executed.insert(tx.hash.clone());
-                if let Some(finality) = inner.fast_path_confirmed.get_mut(&tx.hash) {
-                    finality.status = rinku_core::types::FastPathStatus::Executed;
+                {
+                    let mut inner = self.inner.write().await;
+                    inner.convergence_executed.insert(tx.hash.clone());
+                    if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
+                        finality.status = rinku_core::types::FastPathStatus::Executed;
+                    }
                 }
-                drop(inner);
                 if let Some(ref eb) = self.event_bus {
                     eb.publish(crate::events::NodeEvent::FastPathExecuted {
                         hash: tx.hash.clone(),
@@ -2941,22 +4162,208 @@ impl GossipService {
                         amount: from_micro_units(tx.tx.amount),
                     });
                 }
+                self.cascade_execute_next_nonce(&sender, executed_nonce).await;
             }
-            crate::state::FastPathExecResult::Rejected => {
+            crate::state::ConvergenceExecResult::Deferred => {
+                const MAX_DEFERRED_PER_SENDER: usize = 50;
+                let mut inner = self.inner.write().await;
+                let sender_map = inner.deferred_by_sender_nonce
+                    .entry(tx.tx.from.clone())
+                    .or_default();
+                sender_map.insert(tx.tx.nonce, tx.clone());
+                if sender_map.len() > MAX_DEFERRED_PER_SENDER {
+                    if let Some(&highest_nonce) = sender_map.keys().next_back() {
+                        if highest_nonce != tx.tx.nonce {
+                            sender_map.remove(&highest_nonce);
+                        } else if let Some(&second_highest) = sender_map.keys().rev().nth(1) {
+                            sender_map.remove(&second_highest);
+                        }
+                    }
+                }
+                if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
+                    finality.status = rinku_core::types::FastPathStatus::Finalized;
+                }
+            }
+            crate::state::ConvergenceExecResult::Rejected => {
+                let mut inner = self.inner.write().await;
+                if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
+                    finality.status = rinku_core::types::FastPathStatus::Finalized;
+                }
             }
         }
     }
 
-    async fn execute_on_fast_path_by_hash(&self, tx_hash: &str) {
+    async fn execute_confirmed_transaction_result(&self, tx: &rinku_core::types::SignedTransaction) -> crate::state::ConvergenceExecResult {
         {
             let inner = self.inner.read().await;
-            if inner.fast_path_executed.contains(tx_hash) {
+            if inner.convergence_executed.contains(&tx.hash) {
+                return crate::state::ConvergenceExecResult::AlreadyApplied;
+            }
+        }
+
+        let result = self.state.execute_confirmed_transaction_state(tx).await;
+
+        match result {
+            crate::state::ConvergenceExecResult::Executed => {
+                let sender = tx.tx.from.clone();
+                let executed_nonce = tx.tx.nonce;
+                {
+                    let mut inner = self.inner.write().await;
+                    inner.convergence_executed.insert(tx.hash.clone());
+                    if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
+                        finality.status = rinku_core::types::FastPathStatus::Executed;
+                    }
+                }
+                if let Some(ref eb) = self.event_bus {
+                    eb.publish(crate::events::NodeEvent::FastPathExecuted {
+                        hash: tx.hash.clone(),
+                        from: tx.tx.from.clone(),
+                        to: tx.tx.to.clone(),
+                        amount: from_micro_units(tx.tx.amount),
+                    });
+                }
+                self.cascade_execute_next_nonce(&sender, executed_nonce).await;
+                crate::state::ConvergenceExecResult::Executed
+            }
+            crate::state::ConvergenceExecResult::AlreadyApplied => {
+                let sender = tx.tx.from.clone();
+                let executed_nonce = tx.tx.nonce;
+                {
+                    let mut inner = self.inner.write().await;
+                    inner.convergence_executed.insert(tx.hash.clone());
+                    if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
+                        finality.status = rinku_core::types::FastPathStatus::Executed;
+                    }
+                }
+                self.cascade_execute_next_nonce(&sender, executed_nonce).await;
+                crate::state::ConvergenceExecResult::AlreadyApplied
+            }
+            crate::state::ConvergenceExecResult::Deferred => {
+                const MAX_DEFERRED_PER_SENDER: usize = 50;
+                let mut inner = self.inner.write().await;
+                let sender_map = inner.deferred_by_sender_nonce
+                    .entry(tx.tx.from.clone())
+                    .or_default();
+                sender_map.insert(tx.tx.nonce, tx.clone());
+                if sender_map.len() > MAX_DEFERRED_PER_SENDER {
+                    if let Some(&highest_nonce) = sender_map.keys().next_back() {
+                        if highest_nonce != tx.tx.nonce {
+                            sender_map.remove(&highest_nonce);
+                        } else if let Some(&second_highest) = sender_map.keys().rev().nth(1) {
+                            sender_map.remove(&second_highest);
+                        }
+                    }
+                }
+                if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
+                    finality.status = rinku_core::types::FastPathStatus::Finalized;
+                }
+                crate::state::ConvergenceExecResult::Deferred
+            }
+            crate::state::ConvergenceExecResult::Rejected => {
+                let mut inner = self.inner.write().await;
+                if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
+                    finality.status = rinku_core::types::FastPathStatus::Finalized;
+                }
+                crate::state::ConvergenceExecResult::Rejected
+            }
+        }
+    }
+
+    async fn cascade_execute_next_nonce(&self, sender: &str, executed_nonce: u64) {
+        const MAX_CASCADE_DEPTH: u32 = 10;
+        let mut next_nonce = executed_nonce + 1;
+
+        for depth in 0..MAX_CASCADE_DEPTH {
+            let deferred_tx = {
+                let mut inner = self.inner.write().await;
+                inner.deferred_by_sender_nonce
+                    .get_mut(sender)
+                    .and_then(|nonces| nonces.remove(&next_nonce))
+            };
+
+            let tx = match deferred_tx {
+                Some(tx) => tx,
+                None => break,
+            };
+
+            let result = self.state.execute_confirmed_transaction_state(&tx).await;
+
+            match result {
+                crate::state::ConvergenceExecResult::Executed => {
+                    {
+                        let mut inner = self.inner.write().await;
+                        inner.convergence_executed.insert(tx.hash.clone());
+                        if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
+                            finality.status = rinku_core::types::FastPathStatus::Executed;
+                        }
+                    }
+                    tracing::info!(
+                        "CASCADE EXECUTED tx {} from {} (nonce={}, depth={})",
+                        &tx.hash[..16.min(tx.hash.len())],
+                        &sender[..16.min(sender.len())],
+                        next_nonce,
+                        depth
+                    );
+                    if let Some(ref eb) = self.event_bus {
+                        eb.publish(crate::events::NodeEvent::FastPathExecuted {
+                            hash: tx.hash.clone(),
+                            from: tx.tx.from.clone(),
+                            to: tx.tx.to.clone(),
+                            amount: from_micro_units(tx.tx.amount),
+                        });
+                        if !tx.tx.from.is_empty() && tx.tx.from != "faucet" {
+                            if let Some(acc) = self.state.get_account(&tx.tx.from).await {
+                                eb.publish(crate::events::NodeEvent::AccountUpdated {
+                                    address: tx.tx.from.clone(),
+                                    balance: from_micro_units(acc.balance),
+                                    nonce: acc.nonce,
+                                    staked: from_micro_units(acc.staked),
+                                });
+                            }
+                        }
+                        if !tx.tx.to.is_empty() {
+                            if let Some(acc) = self.state.get_account(&tx.tx.to).await {
+                                eb.publish(crate::events::NodeEvent::AccountUpdated {
+                                    address: tx.tx.to.clone(),
+                                    balance: from_micro_units(acc.balance),
+                                    nonce: acc.nonce,
+                                    staked: from_micro_units(acc.staked),
+                                });
+                            }
+                        }
+                    }
+                    next_nonce += 1;
+                }
+                crate::state::ConvergenceExecResult::AlreadyApplied => {
+                    let mut inner = self.inner.write().await;
+                    inner.convergence_executed.insert(tx.hash.clone());
+                    next_nonce += 1;
+                }
+                crate::state::ConvergenceExecResult::Deferred => {
+                    let mut inner = self.inner.write().await;
+                    inner.deferred_by_sender_nonce
+                        .entry(sender.to_string())
+                        .or_default()
+                        .insert(next_nonce, tx);
+                    break;
+                }
+                crate::state::ConvergenceExecResult::Rejected => {
+                    break;
+                }
+            }
+        }
+    }
+
+    async fn execute_confirmed_transaction_by_hash(&self, tx_hash: &str) {
+        {
+            let inner = self.inner.read().await;
+            if inner.convergence_executed.contains(tx_hash) {
                 return;
             }
         }
 
         if let Some(tx) = self.state.get_transaction(tx_hash).await {
-            self.execute_on_fast_path(&tx).await;
+            self.execute_confirmed_transaction(&tx).await;
         } else {
             tracing::warn!(
                 "FastPath execution skipped: tx {} not found in DAG",
@@ -2965,12 +4372,7 @@ impl GossipService {
         }
     }
 
-    pub async fn broadcast_fast_path_transaction(&self, tx: SignedTransaction, validator_address: &str, validator_stake: u64) -> bool {
-        if !tx.is_fast_path_eligible() {
-            warn!("Transaction {} not eligible for fast-path", &tx.hash[..16.min(tx.hash.len())]);
-            return false;
-        }
-
+    pub async fn broadcast_convergence_transaction(&self, tx: SignedTransaction, validator_address: &str, validator_stake: u64) -> bool {
         let is_new = {
             let mut inner = self.inner.write().await;
             if !inner.known_txs.contains(&tx.hash) {
@@ -2990,7 +4392,40 @@ impl GossipService {
                 .unwrap_or_default()
                 .as_millis() as u64;
 
-            let message = GossipMessage::FastPathBroadcast {
+            if validator_stake > 0 {
+                let validators = self.state.get_validators_map().await;
+                let total_stake: u64 = validators.values().map(|v| v.stake).sum();
+                let quorum_threshold = total_stake * 2 / 3;
+
+                let mut inner = self.inner.write().await;
+                let finality = inner.convergence_pending.entry(tx_hash.clone()).or_insert_with(|| {
+                    rinku_core::types::FastPathFinality {
+                        tx_hash: tx_hash.clone(),
+                        status: rinku_core::types::FastPathStatus::Pending,
+                        acks: Vec::new(),
+                        total_stake_acked: 0,
+                        quorum_stake_required: quorum_threshold,
+                        registered_at_ms: timestamp_ms,
+                        confirmed_at_ms: None,
+                        checkpoint_height: None,
+                        tx_created_at_ms: Some(tx.tx.timestamp),
+                    }
+                });
+                let already_acked = finality.acks.iter().any(|a| a.validator_address == validator_address);
+                if !already_acked {
+                    finality.acks.push(rinku_core::types::FastPathAck {
+                        tx_hash: tx_hash.clone(),
+                        validator_address: validator_address.to_string(),
+                        validator_stake,
+                        bls_signature: None,
+                        timestamp_ms,
+                    });
+                    finality.total_stake_acked += validator_stake;
+                }
+                drop(inner);
+            }
+
+            let message = GossipMessage::TxConfirmBroadcast {
                 tx,
                 sender_validator: validator_address.to_string(),
                 sender_stake: validator_stake,
@@ -3002,7 +4437,7 @@ impl GossipService {
             self.broadcast_via_p2p(&message).await;
             
             info!(
-                "Broadcast fast-path tx {} via P2P (validator: {}, stake: {})",
+                "Broadcast convergence tx {} via P2P (validator: {}, stake: {})",
                 &tx_hash[..16.min(tx_hash.len())],
                 &validator_address[..16.min(validator_address.len())],
                 validator_stake
@@ -3011,6 +4446,100 @@ impl GossipService {
             true
         } else {
             false
+        }
+    }
+
+    async fn convergence_retry_sweep(&self) {
+        const RETRY_INTERVAL_MS: u128 = 2000;
+        const RETRY_STALE_THRESHOLD_MS: u64 = 2000;
+        const MAX_RETRIES_PER_TX: u8 = 3;
+        const MAX_RETRY_BUDGET: usize = 50;
+
+        let should_sweep = {
+            let inner = self.inner.read().await;
+            inner.last_convergence_retry.elapsed().as_millis() >= RETRY_INTERVAL_MS
+        };
+        if !should_sweep {
+            return;
+        }
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let stale_tx_hashes: Vec<String> = {
+            let inner = self.inner.read().await;
+            inner.convergence_pending.iter()
+                .filter(|(tx_hash, finality)| {
+                    finality.status == rinku_core::types::FastPathStatus::Pending
+                        && now_ms.saturating_sub(finality.registered_at_ms) >= RETRY_STALE_THRESHOLD_MS
+                        && !inner.convergence_executed.contains(*tx_hash)
+                        && inner.convergence_retry_counts.get(*tx_hash).copied().unwrap_or(0) < MAX_RETRIES_PER_TX
+                })
+                .map(|(tx_hash, _)| tx_hash.clone())
+                .take(MAX_RETRY_BUDGET)
+                .collect()
+        };
+
+        if stale_tx_hashes.is_empty() {
+            {
+                let mut inner = self.inner.write().await;
+                inner.last_convergence_retry = std::time::Instant::now();
+            }
+            return;
+        }
+
+        let (_validators, our_validator_addr, our_stake, _total_stake, _quorum) = self.get_cached_validators().await;
+
+        let validator_address = match our_validator_addr {
+            Some(ref addr) if our_stake > 0 => addr.clone(),
+            _ => {
+                let mut inner = self.inner.write().await;
+                inner.last_convergence_retry = std::time::Instant::now();
+                return;
+            }
+        };
+
+        let public_url = std::env::var("PUBLIC_URL").ok();
+        let mut retried_hashes: Vec<String> = Vec::new();
+
+        for tx_hash in &stale_tx_hashes {
+            if let Some(tx) = self.state.get_transaction(tx_hash).await {
+                let timestamp_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+
+                let message = GossipMessage::TxConfirmBroadcast {
+                    tx,
+                    sender_validator: validator_address.clone(),
+                    sender_stake: our_stake,
+                    timestamp_ms,
+                    sender_url: public_url.clone(),
+                };
+
+                #[cfg(feature = "p2p")]
+                self.broadcast_via_p2p(&message).await;
+
+                retried_hashes.push(tx_hash.clone());
+            }
+        }
+
+        {
+            let mut inner = self.inner.write().await;
+            inner.last_convergence_retry = std::time::Instant::now();
+            for tx_hash in &retried_hashes {
+                let count = inner.convergence_retry_counts.entry(tx_hash.clone()).or_insert(0);
+                *count += 1;
+            }
+        }
+
+        if !retried_hashes.is_empty() {
+            info!(
+                "Convergence retry sweep: re-broadcast {} stuck txs ({} candidates, max {} retries each)",
+                retried_hashes.len(), stale_tx_hashes.len(), MAX_RETRIES_PER_TX
+            );
         }
     }
 
@@ -3055,7 +4584,7 @@ impl GossipService {
         #[cfg(feature = "p2p")]
         {
             if let Some(ref handle) = self.network_handle {
-                return handle.lock().await.get_peer_count().await;
+                return handle.get_peer_count().await;
             }
         }
         
@@ -3090,19 +4619,19 @@ impl GossipService {
         #[cfg(feature = "p2p")]
         {
             if let Some(ref handle) = self.network_handle {
-                return handle.lock().await.get_connected_peers().await;
+                return handle.get_connected_peers().await;
             }
         }
         Vec::new()
     }
 
-    pub async fn get_fast_path_stats(&self) -> crate::fast_path::FastPathStats {
+    pub async fn get_convergence_stats(&self) -> crate::fast_path::FastPathStats {
         let inner = self.inner.read().await;
         
         // Calculate average confirmation time from confirmed transactions
         let mut total_ms: u64 = 0;
         let mut count: usize = 0;
-        for finality in inner.fast_path_confirmed.values() {
+        for finality in inner.convergence_confirmed.values() {
             if let Some(time_ms) = finality.finality_time_ms() {
                 total_ms += time_ms;
                 count += 1;
@@ -3121,8 +4650,8 @@ impl GossipService {
         
         crate::fast_path::FastPathStats {
             enabled: true,
-            pending_count: inner.fast_path_pending.len(),
-            confirmed_count: inner.fast_path_confirmed.len(),
+            pending_count: inner.convergence_pending.len(),
+            confirmed_count: inner.convergence_confirmed.len(),
             total_validator_stake,
             quorum_threshold: 0.667,
             avg_confirmation_ms,
@@ -3188,10 +4717,12 @@ impl GossipService {
             GossipMessage::SlashingEvidence { sender_url, .. } => sender_url.clone(),
             GossipMessage::WeightVote { sender_url, .. } => sender_url.clone(),
             GossipMessage::CheckpointAnnouncement { sender_url, .. } => sender_url.clone(),
-            GossipMessage::FastPathBroadcast { sender_url, .. } => sender_url.clone(),
-            GossipMessage::FastPathAck { sender_url, .. } => sender_url.clone(),
+            GossipMessage::TxConfirmBroadcast { sender_url, .. } => sender_url.clone(),
+            GossipMessage::TxConfirmAck { sender_url, .. } => sender_url.clone(),
             GossipMessage::MergePayload { sender_url, .. } => sender_url.clone(),
             GossipMessage::MergeResult { sender_url, .. } => sender_url.clone(),
+            GossipMessage::CheckpointIntent { sender_url, .. } => sender_url.clone(),
+            GossipMessage::Batch { .. } => None,
         }
     }
     /// Generate a bloom filter containing all known transaction hashes
@@ -3219,7 +4750,7 @@ impl GossipService {
     /// Broadcast bloom filter announcement to peers
     pub async fn broadcast_bloom_filter(&self) {
         let filter = self.generate_bloom_filter().await;
-        let checkpoint_height = self.state.get_checkpoint_height().await;
+        let checkpoint_height = self.state.get_checkpoint_height();
         let (_, tip_count, _) = self.state.get_dag_stats().await;
         
         let message = GossipMessage::BloomAnnouncement {

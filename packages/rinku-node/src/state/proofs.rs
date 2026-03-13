@@ -1,31 +1,46 @@
 use super::*;
 
 impl NodeState {
-    /// Get pending (unfinalized) transaction stats for a sender
+    /// Get pending (unfinalized) transaction stats for a sender using per-sender DAG index
     /// Returns (pending_outgoing_amount, pending_gas, pending_tx_count)
-    /// Used for finality-first validation: effective_balance = confirmed - pending_outgoing - pending_gas
+    /// O(K_sender) instead of O(N_total_unfinalized) thanks to sender_unfinalized index
     pub(crate) fn get_pending_stats_for_sender(state: &StateInner, sender: &str) -> (u64, u64, u64) {
         let mut pending_amount = 0u64;
         let mut pending_gas = 0u64;
         let mut pending_count = 0u64;
-        
-        for node in state.dag.get_all_nodes() {
-            if !node.finalized && node.tx.tx.from == sender {
-                let gas = node.tx.tx.gas_price.unwrap_or(state.current_gas_price);
-                pending_gas += gas;
-                
-                let is_unstake = matches!(node.tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                let is_claim = matches!(node.tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                if !is_unstake && !is_claim {
-                    pending_amount += node.tx.tx.amount;
-                }
-                pending_count += 1;
+
+        for node in state.dag.get_unfinalized_for_sender(sender) {
+            let gas = node.tx.tx.gas_price.unwrap_or(state.current_gas_price);
+            pending_gas += gas;
+
+            let is_unstake = matches!(node.tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+            let is_claim = matches!(node.tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+            if !is_unstake && !is_claim {
+                pending_amount += node.tx.tx.amount;
             }
+            pending_count += 1;
         }
-        
+
         (pending_amount, pending_gas, pending_count)
     }
-    
+
+    /// Get effective balance AND nonce for a sender in a single pass (no double scan)
+    /// Returns (effective_balance, effective_nonce)
+    pub(crate) fn get_effective_balance_and_nonce(state: &StateInner, sender: &str) -> (u64, u64) {
+        let (confirmed_balance, confirmed_nonce) = state
+            .accounts
+            .get(sender)
+            .map(|a| (a.balance, a.nonce))
+            .unwrap_or((0, 0));
+        let (pending_amount, pending_gas, pending_count) =
+            Self::get_pending_stats_for_sender(state, sender);
+        let effective_balance = confirmed_balance
+            .saturating_sub(pending_amount)
+            .saturating_sub(pending_gas);
+        let effective_nonce = confirmed_nonce + pending_count;
+        (effective_balance, effective_nonce)
+    }
+
     /// Get the expected nonce for a sender, accounting for pending (unfinalized) transactions
     /// effective_nonce = confirmed_nonce + pending_tx_count
     pub(crate) fn get_effective_nonce(state: &StateInner, sender: &str) -> u64 {
@@ -33,7 +48,7 @@ impl NodeState {
         let (_, _, pending_count) = Self::get_pending_stats_for_sender(state, sender);
         confirmed_nonce + pending_count
     }
-    
+
     /// Get effective balance for a sender, accounting for pending (unfinalized) transactions
     /// effective_balance = confirmed_balance - pending_outgoing - pending_gas
     pub(crate) fn get_effective_balance(state: &StateInner, sender: &str) -> u64 {
@@ -90,6 +105,20 @@ impl NodeState {
     pub async fn compute_state_root_with_pending_txs(&self, pending_txs: &[rinku_core::SignedTransaction], skip_hashes: &std::collections::HashSet<String>) -> String {
         self.compute_state_root_and_proofs(pending_txs, &[], None, "", skip_hashes).await.state_root
     }
+
+    /// Compute state root AND proofs at proposal time using checkpoint height only.
+    /// CRITICAL: This ensures proofs are computed from the SAME state snapshot as the state root,
+    /// preventing FastPath race conditions where transactions executed between proposal and quorum
+    /// would cause double-counting in proof values.
+    pub async fn compute_state_root_and_proofs_at_height(
+        &self,
+        pending_txs: &[rinku_core::SignedTransaction],
+        affected_addresses: &[String],
+        height: u64,
+        skip_hashes: &std::collections::HashSet<String>,
+    ) -> StateRootWithProofs {
+        self.compute_state_root_and_proofs(pending_txs, affected_addresses, Some(height), "", skip_hashes).await
+    }
     
     /// Compute state root AND precomputed proofs for affected addresses
     /// CRITICAL: Proofs must be computed from the same simulated account set used for state_root
@@ -98,7 +127,7 @@ impl NodeState {
         &self,
         pending_txs: &[rinku_core::SignedTransaction],
         affected_addresses: &[String],
-        checkpoint_template: Option<&rinku_core::types::Checkpoint>,
+        checkpoint_height: Option<u64>,
         tx_hash: &str,
         skip_hashes: &std::collections::HashSet<String>,
     ) -> StateRootWithProofs {
@@ -151,12 +180,15 @@ impl NodeState {
         drop(rewards);
         
         // Apply pending transactions to simulated state
-        // This must match execute_finalized_transaction exactly!
-        // CRITICAL: Skip transactions already executed on fast-path, since their
-        // effects are already reflected in the current state we cloned above
-        // CRITICAL: Skip consolidation transactions — execute_finalized_transactions_batch
-        // skips them, so simulation must also skip them to maintain parity
-        for tx in pending_txs {
+        // This must match execute_finalized_transactions_batch exactly!
+        // CRITICAL: Sort by (sender, nonce) to ensure nonce-correct execution order
+        let mut sorted_txs: Vec<&SignedTransaction> = pending_txs.iter().collect();
+        sorted_txs.sort_by(|a, b| {
+            a.tx.from.cmp(&b.tx.from)
+                .then(a.tx.nonce.cmp(&b.tx.nonce))
+                .then(a.hash.cmp(&b.hash))
+        });
+        for tx in &sorted_txs {
             if skip_hashes.contains(&tx.hash) {
                 continue;
             }
@@ -166,7 +198,6 @@ impl NodeState {
             let from = &tx.tx.from;
             let to = &tx.tx.to;
             let amount = tx.tx.amount;
-            // CRITICAL: Use the same gas price fallback as execute_finalized_transaction
             let fee = tx.tx.gas_price.unwrap_or(current_gas_price);
             
             let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Stake));
@@ -174,89 +205,94 @@ impl NodeState {
             let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::ClaimRewards));
             let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Contract));
             
-            // Deduct from sender based on transaction type (matches execute_finalized_transaction)
+            let sender_exists = simulated_accounts.contains_key(from);
+            let mut tx_applied = false;
+            
             if let Some(sender) = simulated_accounts.get_mut(from) {
-                if is_stake_tx {
-                    // Stake: deduct amount + fee (amount goes to stake, not recipient)
-                    sender.0 = sender.0.saturating_sub(amount).saturating_sub(fee);
+                if tx.tx.nonce != sender.1 {
+                    continue;
+                }
+                let tx_cost = if is_stake_tx {
+                    amount + fee
                 } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                    sender.0 = sender.0.saturating_sub(fee);
+                    fee
                 } else {
-                    sender.0 = sender.0.saturating_sub(amount).saturating_sub(fee);
+                    amount + fee
+                };
+                if sender.0 < tx_cost {
+                    continue;
                 }
-                sender.1 += 1; // Increment nonce
+                sender.0 -= tx_cost;
+                sender.1 = tx.tx.nonce + 1;
+                tx_applied = true;
             }
             
-            // Credit recipient only for regular transfers (not stake/unstake/claim/contract)
-            if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                if let Some(receiver) = simulated_accounts.get_mut(to) {
-                    receiver.0 += amount;
-                } else {
-                    // Create new account for receiver
-                    simulated_accounts.insert(to.clone(), (amount, 0, 0));
+            if tx_applied || !sender_exists {
+                if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
+                    if let Some(receiver) = simulated_accounts.get_mut(to) {
+                        receiver.0 += amount;
+                    } else {
+                        simulated_accounts.insert(to.clone(), (amount, 0, 0));
+                    }
                 }
             }
             
-            // Handle staking state changes
-            if is_stake_tx {
-                if let Some(staker) = simulated_accounts.get_mut(from) {
-                    staker.2 += amount; // Increase stake
-                }
-                // Update simulated_reward_state with staked_at timestamp
-                if let Some(reward_state) = simulated_reward_state.get_mut(from) {
-                    if reward_state.1 == 0 { // staked_at was 0, set it now
-                        reward_state.1 = tx.tx.timestamp;
-                    }
-                } else {
-                    // Create new reward state entry for new stakers
-                    simulated_reward_state.insert(from.clone(), (0, tx.tx.timestamp, None, 0));
-                }
-            } else if is_unstake_tx {
-                // CRITICAL: Use rewards service stake amount (not account.staked) to match execution
-                // execute_finalized_transaction uses rewards.unstake() which returns the rewards service value
-                if let Some(rewards_stake) = stake_amounts_snapshot.get(from) {
+            if tx_applied || !sender_exists {
+                if is_stake_tx {
                     if let Some(staker) = simulated_accounts.get_mut(from) {
-                        staker.0 += rewards_stake; // Return stake to balance (from rewards service)
-                        staker.2 = 0; // Clear stake
+                        staker.2 += amount;
                     }
-                } else {
-                    if let Some(staker) = simulated_accounts.get_mut(from) {
-                        let unstaked = staker.2;
-                        staker.0 += unstaked;
-                        staker.2 = 0;
+                    if let Some(reward_state) = simulated_reward_state.get_mut(from) {
+                        if reward_state.1 == 0 {
+                            reward_state.1 = tx.tx.timestamp;
+                        }
+                    } else {
+                        simulated_reward_state.insert(from.clone(), (0, tx.tx.timestamp, None, 0));
                     }
-                }
-            } else if is_claim_tx {
-                // Claim adds pending rewards to balance (matches execute_finalized_transaction)
-                if let Some(claimed) = pending_rewards_snapshot.get(from) {
-                    if *claimed > 0 {
-                        if let Some(claimer) = simulated_accounts.get_mut(from) {
-                            let old_balance = claimer.0;
-                            claimer.0 += claimed;
-                            tracing::info!(
-                                "[SIMULATION] Claim for {}: pending_rewards={}, old_balance={}, new_balance={}",
-                                &from[..16.min(from.len())],
-                                claimed,
-                                old_balance,
-                                claimer.0
-                            );
-                            
-                            if let Some(reward_state) = simulated_reward_state.get_mut(from) {
-                                reward_state.0 = 0; // pending_rewards = 0 after claim
-                                reward_state.3 += claimed; // claimed_total += claimed amount
+                } else if is_unstake_tx {
+                    if let Some(rewards_stake) = stake_amounts_snapshot.get(from) {
+                        if let Some(staker) = simulated_accounts.get_mut(from) {
+                            staker.0 += rewards_stake;
+                            staker.2 = 0;
+                        }
+                    } else {
+                        if let Some(staker) = simulated_accounts.get_mut(from) {
+                            let unstaked = staker.2;
+                            staker.0 += unstaked;
+                            staker.2 = 0;
+                        }
+                    }
+                } else if is_claim_tx {
+                    if let Some(claimed) = pending_rewards_snapshot.get(from) {
+                        if *claimed > 0 {
+                            if let Some(claimer) = simulated_accounts.get_mut(from) {
+                                let old_balance = claimer.0;
+                                claimer.0 += claimed;
+                                tracing::info!(
+                                    "[SIMULATION] Claim for {}: pending_rewards={}, old_balance={}, new_balance={}",
+                                    &from[..16.min(from.len())],
+                                    claimed,
+                                    old_balance,
+                                    claimer.0
+                                );
+                                
+                                if let Some(reward_state) = simulated_reward_state.get_mut(from) {
+                                    reward_state.0 = 0;
+                                    reward_state.3 += claimed;
+                                }
                             }
+                        } else {
+                            tracing::warn!(
+                                "[SIMULATION] Claim for {}: pending_rewards is 0!",
+                                &from[..16.min(from.len())]
+                            );
                         }
                     } else {
                         tracing::warn!(
-                            "[SIMULATION] Claim for {}: pending_rewards is 0!",
+                            "[SIMULATION] Claim for {}: NO pending_rewards in snapshot!",
                             &from[..16.min(from.len())]
                         );
                     }
-                } else {
-                    tracing::warn!(
-                        "[SIMULATION] Claim for {}: NO pending_rewards in snapshot!",
-                        &from[..16.min(from.len())]
-                    );
                 }
             }
         }
@@ -291,35 +327,22 @@ impl NodeState {
             };
         }
         
-        let state_root = if leaves.len() == 1 {
-            leaves[0].clone()
-        } else {
-            // Build merkle tree using canonical internal node format
-            let mut current_level = leaves.clone();
-            while current_level.len() > 1 {
-                let mut next_level = Vec::new();
-                for chunk in current_level.chunks(2) {
-                    let left = &chunk[0];
-                    let right = if chunk.len() > 1 { &chunk[1] } else { &chunk[0] };
-                    next_level.push(Self::hash_internal_for_proof(left, right));
-                }
-                current_level = next_level;
-            }
-            current_level[0].clone()
-        };
+        let tree_levels = Self::build_merkle_tree_levels(&leaves);
+        let state_root = tree_levels.last()
+            .and_then(|level| level.first())
+            .cloned()
+            .unwrap_or_else(|| "0".repeat(64));
         
         // Generate proofs for affected addresses using the SAME simulated account set
         // This is CRITICAL: proofs must be computed from identical data as state_root
         let mut proofs: HashMap<String, rinku_core::types::AccountStateProof> = HashMap::new();
         
-        if let Some(checkpoint) = checkpoint_template {
+        if let Some(height) = checkpoint_height {
             for address in affected_addresses {
-                // Find the account in simulated_accounts (sorted by address)
                 if let Some(idx) = account_entries.iter().position(|(addr, _)| *addr == address) {
                     let (_, (balance, nonce, staked)) = &account_entries[idx];
                     
-                    // Compute merkle proof path from the simulated leaves
-                    let merkle_proof = Self::compute_merkle_proof_path_canonical(&leaves, idx);
+                    let merkle_proof = Self::extract_proof_from_levels(&tree_levels, idx);
                     
                     tracing::info!(
                         "Generating proof for {}: balance={:.8}, nonce={}, staked={:.8} (checkpoint {}, state_root={})",
@@ -327,11 +350,10 @@ impl NodeState {
                         balance,
                         nonce,
                         staked,
-                        checkpoint.height,
+                        height,
                         &state_root[..16.min(state_root.len())]
                     );
                     
-                    // Get reward state from simulated_reward_state if available
                     let (pending_rewards, staked_at, last_reward_at, claimed_total) = 
                         simulated_reward_state.get(address)
                             .cloned()
@@ -351,21 +373,26 @@ impl NodeState {
                         last_reward_at,
                         claimed_rewards_total_micro: claimed_total,
                         claimed_rewards_total: rinku_core::types::from_micro_units(claimed_total),
-                        checkpoint_height: checkpoint.height,
-                        checkpoint_hash: checkpoint.hash.clone(),
-                        checkpoint_timestamp: checkpoint.timestamp,
+                        checkpoint_height: height,
+                        checkpoint_hash: String::new(),
+                        checkpoint_timestamp: 0,
                         state_root: state_root.clone(),
                         merkle_proof,
                         merkle_index: idx,
                         is_on_demand: false,
-                        bls_aggregated_sig: checkpoint.aggregated_signature.clone(),
-                        bls_signer_bitmap: checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b)),
+                        bls_aggregated_sig: None,
+                        bls_signer_bitmap: None,
                         tx_hash: tx_hash.to_string(),
                     };
                     
                     proofs.insert(address.clone(), proof);
                 }
             }
+        }
+        
+        if let Some(height) = checkpoint_height {
+            let mut state = self.inner.write().await;
+            state.checkpoint_accounts_snapshot = Some((height, simulated_accounts));
         }
         
         StateRootWithProofs { state_root, proofs }
@@ -501,9 +528,22 @@ impl NodeState {
         let state = self.inner.read().await;
         
         let checkpoint = state.checkpoints.last()?.clone();
-        let account = state.accounts.get(address)?.clone();
         
-        let mut account_entries: Vec<_> = state.accounts.iter().collect();
+        let (snapshot_height, snapshot) = state.checkpoint_accounts_snapshot.as_ref()?;
+        
+        if *snapshot_height != checkpoint.height {
+            tracing::warn!(
+                "On-demand proof skipped for {}: snapshot height {} != checkpoint height {}",
+                &address[..16.min(address.len())],
+                snapshot_height,
+                checkpoint.height
+            );
+            return None;
+        }
+        
+        let (balance_micro, nonce, staked_micro) = snapshot.get(address).copied()?;
+        
+        let mut account_entries: Vec<_> = snapshot.iter().collect();
         account_entries.sort_by(|a, b| a.0.cmp(b.0));
         
         let merkle_index = account_entries
@@ -512,8 +552,8 @@ impl NodeState {
         
         let leaves: Vec<String> = account_entries
             .iter()
-            .map(|(addr, acc)| {
-                Self::hash_account_leaf_for_proof(addr, acc.balance, acc.nonce, acc.staked)
+            .map(|(addr, (balance, n, staked))| {
+                Self::hash_account_leaf_for_proof(addr, *balance, *n, *staked)
             })
             .collect();
         
@@ -535,22 +575,22 @@ impl NodeState {
         drop(rewards);
         
         tracing::info!(
-            "Generated proof for {} at checkpoint {}: balance={}, nonce={}, staked={}",
+            "On-demand proof for {} using checkpoint {} snapshot: balance={}, nonce={}, staked={}",
             &address[..16.min(address.len())],
             checkpoint.height,
-            account.balance,
-            account.nonce,
-            account.staked
+            balance_micro,
+            nonce,
+            staked_micro
         );
         
         Some(rinku_core::types::AccountStateProof {
             version: 3,
             address: address.to_string(),
-            balance_micro: account.balance,
-            balance: rinku_core::types::from_micro_units(account.balance),
-            nonce: account.nonce,
-            staked_micro: account.staked,
-            staked: rinku_core::types::from_micro_units(account.staked),
+            balance_micro,
+            balance: rinku_core::types::from_micro_units(balance_micro),
+            nonce,
+            staked_micro,
+            staked: rinku_core::types::from_micro_units(staked_micro),
             pending_rewards_micro: pending_rewards,
             pending_rewards: rinku_core::types::from_micro_units(pending_rewards),
             staked_at,
@@ -566,49 +606,63 @@ impl NodeState {
             bls_aggregated_sig: checkpoint.aggregated_signature.clone(),
             bls_signer_bitmap: checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b)),
             tx_hash: "on-demand".to_string(),
-            is_on_demand: false,
+            is_on_demand: true,
         })
     }
     
-    /// Compute merkle proof path for a leaf at given index
-    /// Uses canonical format matching sync_verification (hash_internal)
-    fn compute_merkle_proof_path_canonical(leaves: &[String], target_index: usize) -> Vec<String> {
-        if leaves.is_empty() || leaves.len() == 1 {
-            return vec![];
-        }
+    fn build_merkle_tree_levels(leaves: &[String]) -> Vec<Vec<String>> {
+        let mut levels: Vec<Vec<String>> = Vec::new();
+        levels.push(leaves.to_vec());
         
-        let mut proof = Vec::new();
-        let mut current_level: Vec<String> = leaves.to_vec();
-        let mut current_index = target_index;
-        
+        let mut current_level = leaves.to_vec();
         while current_level.len() > 1 {
-            // Get sibling
-            let sibling_index = if current_index % 2 == 0 {
-                current_index + 1
-            } else {
-                current_index - 1
-            };
-            
-            if sibling_index < current_level.len() {
-                proof.push(current_level[sibling_index].clone());
-            } else {
-                // Odd number of nodes, duplicate the last one
-                proof.push(current_level[current_index].clone());
-            }
-            
-            // Build next level using canonical hash_internal format
             let mut next_level = Vec::new();
             for chunk in current_level.chunks(2) {
                 let left = &chunk[0];
                 let right = if chunk.len() > 1 { &chunk[1] } else { &chunk[0] };
                 next_level.push(Self::hash_internal_for_proof(left, right));
             }
-            
+            levels.push(next_level.clone());
             current_level = next_level;
+        }
+        
+        levels
+    }
+
+    fn extract_proof_from_levels(levels: &[Vec<String>], target_index: usize) -> Vec<String> {
+        if levels.is_empty() || levels.len() == 1 {
+            return vec![];
+        }
+        
+        let mut proof = Vec::new();
+        let mut current_index = target_index;
+        
+        for level in &levels[..levels.len() - 1] {
+            let sibling_index = if current_index % 2 == 0 {
+                current_index + 1
+            } else {
+                current_index - 1
+            };
+            
+            if sibling_index < level.len() {
+                proof.push(level[sibling_index].clone());
+            } else {
+                proof.push(level[current_index].clone());
+            }
+            
             current_index /= 2;
         }
         
         proof
+    }
+
+    fn compute_merkle_proof_path_canonical(leaves: &[String], target_index: usize) -> Vec<String> {
+        if leaves.is_empty() || leaves.len() == 1 {
+            return vec![];
+        }
+        
+        let levels = Self::build_merkle_tree_levels(leaves);
+        Self::extract_proof_from_levels(&levels, target_index)
     }
     
     /// Update balance proofs for accounts affected by finalized transactions

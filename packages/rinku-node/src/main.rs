@@ -63,7 +63,7 @@ use tokio::sync::RwLock;
 use validator::ValidatorKeyManager;
 use validator_identity::ValidatorIdentityService;
 
-#[tokio::main]
+#[tokio::main(worker_threads = 4)]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let export_key = args.iter().any(|a| a == "--export-key");
@@ -596,7 +596,7 @@ async fn main() -> Result<()> {
 
     // Start libp2p NetworkService for production P2P (before GossipService so we can pass the handle)
     #[cfg(feature = "p2p")]
-    let (network_handle, p2p_message_rx, p2p_sync_rx, p2p_response_tx) = if config.p2p.enabled {
+    let (network_handle, p2p_message_rx, p2p_priority_rx, p2p_checkpoint_rx, p2p_sync_rx, p2p_vote_rx, p2p_response_tx) = if config.p2p.enabled {
         let network_config = NetworkConfig {
             listen_addr: config.p2p.listen_addr.clone(),
             bootstrap_peers: config.p2p.bootstrap_peers.clone(),
@@ -608,9 +608,12 @@ async fn main() -> Result<()> {
         match NetworkService::new(network_config) {
             Ok((mut network_service, mut handle)) => {
                 let p2p_message_rx = handle.take_message_rx();
+                let p2p_priority_rx = handle.take_priority_message_rx();
+                let p2p_checkpoint_rx = handle.take_checkpoint_message_rx();
                 let p2p_sync_rx = handle.take_sync_incoming_rx();
+                let p2p_vote_rx = handle.take_vote_incoming_rx();
                 let p2p_response_tx = Some(handle.response_sender());
-                let shared_handle = Arc::new(tokio::sync::Mutex::new(handle));
+                let shared_handle = Arc::new(handle);
                 let mut handshake_config = HandshakeConfig::default();
                 handshake_config.chain_id = config.chain_id.clone();
                 handshake_config.network_id = config.network_id.clone();
@@ -640,16 +643,16 @@ async fn main() -> Result<()> {
                     }
                 });
                 
-                (Some(shared_handle), p2p_message_rx, p2p_sync_rx, p2p_response_tx)
+                (Some(shared_handle), p2p_message_rx, p2p_priority_rx, p2p_checkpoint_rx, p2p_sync_rx, p2p_vote_rx, p2p_response_tx)
             }
             Err(e) => {
                 warn!("Failed to start P2P network: {}", e);
-                (None, None, None, None)
+                (None, None, None, None, None, None, None)
             }
         }
     } else {
         info!("P2P networking disabled (using HTTP gossip only)");
-        (None, None, None, None)
+        (None, None, None, None, None, None, None)
     };
 
     #[cfg(feature = "p2p")]
@@ -676,7 +679,8 @@ async fn main() -> Result<()> {
         #[cfg(feature = "p2p")]
         if let Some(ref handle) = network_handle {
             service.set_network_handle(handle.clone());
-            service.set_p2p_channels(p2p_message_rx, p2p_sync_rx, p2p_response_tx);
+            service.set_p2p_channels(p2p_message_rx, p2p_priority_rx, p2p_checkpoint_rx, p2p_sync_rx, p2p_response_tx);
+            service.set_p2p_vote_channel(p2p_vote_rx);
             info!("GossipService connected to libp2p network (lock-free channels)");
         }
         
@@ -695,11 +699,11 @@ async fn main() -> Result<()> {
 
     let gossip_service = gossip_service.map(|gs| std::sync::Arc::new(gs));
 
-    // Wire up GossipService to CheckpointService for immediate checkpoint broadcast
     if let Some(ref gs) = gossip_service {
         checkpoint_service = checkpoint_service.with_gossip_service(gs.clone());
     }
-    checkpoint_service = checkpoint_service.with_event_bus(event_bus.clone());
+    checkpoint_service = checkpoint_service
+        .with_event_bus(event_bus.clone());
 
     let checkpoint_handle = tokio::spawn(async move {
         if let Err(e) = checkpoint_service.start().await {

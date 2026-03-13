@@ -359,8 +359,8 @@ impl MergeOrchestrator {
                     tx: remote_tx.clone(),
                     received_at_ms: Some(now_ms),
                     partition_epoch: Some(report.merge_epoch),
-                    provisional_finality: false,
                     rolled_back: false,
+                    convergence_certificate: None,
                 };
                 let _ = state.dag.add_node(node);
             }
@@ -385,18 +385,17 @@ impl MergeOrchestrator {
                 state.dag.remove_node(hash);
                 removed_count += 1;
             } else if cascade_hashes.contains(hash.as_str()) {
+                state.dag.unfinalize(hash);
                 if let Some(node) = state.dag.get_node_mut(hash) {
                     node.rolled_back = true;
-                    node.finalized = false;
                 }
                 marked_count += 1;
             }
         }
 
         for hash in surviving_tx_hashes {
+            let _ = state.dag.mark_finalized(hash, fork_point_checkpoint_height + 1);
             if let Some(node) = state.dag.get_node_mut(hash) {
-                node.finalized = true;
-                node.checkpoint_height = Some(fork_point_checkpoint_height + 1);
                 node.rolled_back = false;
             }
         }
@@ -499,6 +498,8 @@ impl MergeOrchestrator {
         };
 
         state.checkpoints.push(merge_checkpoint);
+        let merge_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        self.state.checkpoint_height_cache.store(merge_height, std::sync::atomic::Ordering::Relaxed);
 
         info!(
             "State reconciliation complete: {} balances updated, {} remote txs ingested, \

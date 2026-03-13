@@ -1,7 +1,7 @@
 #![cfg(feature = "p2p")]
 
 use anyhow::Result;
-use libp2p::futures::StreamExt;
+use libp2p::futures::{StreamExt, FutureExt};
 use libp2p::{
     gossipsub::{self, IdentTopic, MessageAuthenticity, ValidationMode},
     identity::Keypair,
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::{debug, info, trace, warn};
 
@@ -34,9 +34,17 @@ fn sync_protocol_id() -> String {
     format!("/rinku/sync/{}", major)
 }
 
+fn vote_protocol_id() -> String {
+    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    format!("/rinku/vote/{}", major)
+}
+
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
-const MESH_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(10);
-const MIN_MESH_PEERS: usize = 1;
+const MESH_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(5);
+const MIN_MESH_PEERS: usize = 2;
+const RECONNECT_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+const MAX_RAPID_RECONNECTS: usize = 3;
+const RECONNECT_DELAY: Duration = Duration::from_secs(1);
 
 /// Sync request types for P2P sync operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,8 +61,16 @@ pub enum SyncRequest {
     AccountsState { addresses: Vec<String> },
     /// Handshake with peer info
     Handshake(PeerHandshake),
-    /// Request a checkpoint vote from a validator peer
-    CheckpointVote(CheckpointVoteRequest),
+    /// Direct push of a finalized checkpoint to a peer (reliable delivery)
+    CheckpointPush(CheckpointPushData),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointPushData {
+    pub checkpoint: rinku_core::types::Checkpoint,
+    pub finalized_tx_hashes: Vec<String>,
+    pub finalized_transactions: Vec<rinku_core::types::SignedTransaction>,
+    pub precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
 }
 
 /// Request for a validator to sign a checkpoint
@@ -92,25 +108,42 @@ pub enum SyncResponse {
     AccountsState(Vec<AccountData>),
     /// Handshake response
     Handshake(PeerHandshake),
+    /// Ack for a direct checkpoint push
+    CheckpointPushAck { accepted: bool },
     /// Error response
     Error { message: String },
-    /// Checkpoint vote response from a validator
-    CheckpointVote(Option<CheckpointVoteResponse>),
 }
 
 /// Response containing a validator's checkpoint signature
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointVoteResponse {
-    /// Validator address that signed
     pub validator_address: String,
-    /// Base64-encoded BLS signature
     pub signature: String,
-    /// Raw signature bytes (for aggregation)
     pub signature_bytes: Vec<u8>,
-    /// Base64-encoded BLS public key
     pub bls_public_key: String,
-    /// Validator's stake weight
     pub stake: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum VoteRequest {
+    CheckpointVote(CheckpointVoteRequest),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum VoteResponse {
+    CheckpointVote(Option<CheckpointVoteResponse>),
+    Error { message: String },
+}
+
+pub struct IncomingVoteRequest {
+    pub peer_id: String,
+    pub request: VoteRequest,
+    pub response_channel: ResponseChannel<VoteResponse>,
+}
+
+struct PendingVoteRequest {
+    peer_id: PeerId,
+    response_tx: Option<oneshot::Sender<VoteResponse>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,6 +256,7 @@ pub struct ProofData {
 pub struct RinkuBehaviour {
     pub gossipsub: gossipsub::Behaviour,
     pub request_response: request_response::Behaviour<CborCodec<SyncRequest, SyncResponse>>,
+    pub vote_protocol: request_response::Behaviour<CborCodec<VoteRequest, VoteResponse>>,
     pub identify: identify::Behaviour,
     pub mdns: mdns::tokio::Behaviour,
 }
@@ -375,14 +409,16 @@ pub struct NetworkService {
     config: NetworkConfig,
     stats: Arc<RwLock<NetworkStatsInner>>,
     message_tx: mpsc::Sender<GossipMessage>,
+    priority_message_tx: mpsc::Sender<GossipMessage>,
+    checkpoint_message_tx: mpsc::Sender<GossipMessage>,
     outbound_rx: mpsc::Receiver<GossipMessage>,
     peers: Arc<RwLock<HashMap<PeerId, PeerStats>>>,
-    /// Channel for outbound sync requests
     sync_request_rx: mpsc::Receiver<(PeerId, SyncRequest, oneshot::Sender<SyncResponse>)>,
-    /// Channel for incoming sync requests (to be handled by application)
     sync_incoming_tx: mpsc::Sender<IncomingSyncRequest>,
-    /// Pending requests awaiting responses
     pending_requests: HashMap<OutboundRequestId, PendingSyncRequest>,
+    vote_request_rx: mpsc::Receiver<(PeerId, VoteRequest, oneshot::Sender<VoteResponse>)>,
+    vote_incoming_tx: mpsc::Sender<IncomingVoteRequest>,
+    pending_vote_requests: HashMap<OutboundRequestId, PendingVoteRequest>,
     /// DoS protection configuration
     dos_config: DoSConfig,
     /// Handshake configuration
@@ -395,10 +431,10 @@ pub struct NetworkService {
     peer_scores_path: Option<String>,
     /// Command channel for dial requests etc
     command_rx: mpsc::Receiver<NetworkCommand>,
-    /// Recently dialed PEX addresses to avoid dial storms (multiaddr -> timestamp)
     recently_dialed_pex: HashMap<String, u64>,
-    /// Counter for mesh maintenance cycles (for periodic PEX)
     mesh_maintenance_counter: u32,
+    peer_last_addr: HashMap<PeerId, Multiaddr>,
+    reconnect_pending: Vec<(Multiaddr, usize, Instant)>,
 }
 
 struct NetworkStatsInner {
@@ -406,6 +442,10 @@ struct NetworkStatsInner {
     messages_received: u64,
     bytes_sent: u64,
     bytes_received: u64,
+    last_logged_bytes_sent: u64,
+    last_logged_bytes_received: u64,
+    last_logged_msgs_published: u64,
+    last_logged_msgs_received: u64,
 }
 
 impl NetworkService {
@@ -425,8 +465,6 @@ impl NetworkService {
                 let hash = hasher.finalize();
                 gossipsub::MessageId::from(hex::encode(&hash[..16]))
             })
-            // Increased from 64KB to 2MB to handle checkpoint announcements with thousands of finalized tx hashes
-            // Each tx hash is ~64 chars, so 10k transactions = ~640KB. 2MB provides headroom for growth.
             .max_transmit_size(2 * 1024 * 1024)
             .build()
             .map_err(|e| anyhow::anyhow!("Invalid gossipsub config: {}", e))?;
@@ -455,7 +493,20 @@ impl NetworkService {
             cbor_codec,
             [(sync_protocol, ProtocolSupport::Full)],
             request_response::Config::default()
-                .with_request_timeout(Duration::from_secs(60)),
+                .with_request_timeout(Duration::from_secs(30)),
+        );
+
+        let vote_protocol_str = StreamProtocol::try_from_owned(vote_protocol_id())
+            .expect("valid vote protocol string");
+        let vote_cbor_codec: CborCodec<VoteRequest, VoteResponse> = CborCodec::new(
+            16 * 1024 * 1024,
+            1024 * 1024,
+        );
+        let vote_protocol = request_response::Behaviour::with_codec(
+            vote_cbor_codec,
+            [(vote_protocol_str, ProtocolSupport::Full)],
+            request_response::Config::default()
+                .with_request_timeout(Duration::from_secs(3)),
         );
 
         // Identify protocol for peer info exchange
@@ -467,6 +518,7 @@ impl NetworkService {
         let behaviour = RinkuBehaviour { 
             gossipsub, 
             request_response,
+            vote_protocol,
             identify,
             mdns,
         };
@@ -474,9 +526,15 @@ impl NetworkService {
         let swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
             .with_tokio()
             .with_tcp(
-                tcp::Config::default(),
+                tcp::Config::default().nodelay(true),
                 noise::Config::new,
-                yamux::Config::default,
+                || {
+                    let mut cfg = yamux::Config::default();
+                    cfg.set_max_num_streams(1024);
+                    cfg.set_receive_window_size(16 * 1024 * 1024);
+                    cfg.set_max_buffer_size(16 * 1024 * 1024);
+                    cfg
+                },
             )?
             .with_behaviour(|_| behaviour)?
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
@@ -484,12 +542,14 @@ impl NetworkService {
 
         let topic = IdentTopic::new(protocol_topic());
 
-        let (message_tx, message_rx) = mpsc::channel(1000);
-        let (outbound_tx, outbound_rx) = mpsc::channel(1000);
-        // Sync request channels
+        let (message_tx, message_rx) = mpsc::channel(2000);
+        let (priority_message_tx, priority_message_rx) = mpsc::channel(200);
+        let (checkpoint_message_tx, checkpoint_message_rx) = mpsc::channel(50);
+        let (outbound_tx, outbound_rx) = mpsc::channel(300);
         let (sync_request_tx, sync_request_rx) = mpsc::channel(100);
         let (sync_incoming_tx, sync_incoming_rx) = mpsc::channel(100);
-        // Command channel for dial requests etc
+        let (vote_request_tx, vote_request_rx) = mpsc::channel(50);
+        let (vote_incoming_tx, vote_incoming_rx) = mpsc::channel(50);
         let (command_tx, command_rx) = mpsc::channel(100);
 
         let stats = Arc::new(RwLock::new(NetworkStatsInner {
@@ -497,6 +557,10 @@ impl NetworkService {
             messages_received: 0,
             bytes_sent: 0,
             bytes_received: 0,
+            last_logged_bytes_sent: 0,
+            last_logged_bytes_received: 0,
+            last_logged_msgs_published: 0,
+            last_logged_msgs_received: 0,
         }));
 
         let peers = Arc::new(RwLock::new(HashMap::new()));
@@ -507,10 +571,14 @@ impl NetworkService {
         let handle = NetworkHandle {
             outbound_tx,
             message_rx: Some(message_rx),
+            priority_message_rx: Some(priority_message_rx),
+            checkpoint_message_rx: Some(checkpoint_message_rx),
             peers: peers.clone(),
             local_peer_id: local_peer_id.to_string(),
             sync_request_tx,
             sync_incoming_rx: Some(sync_incoming_rx),
+            vote_request_tx,
+            vote_incoming_rx: Some(vote_incoming_rx),
             command_tx,
             stats: stats.clone(),
         };
@@ -522,11 +590,16 @@ impl NetworkService {
             config,
             stats,
             message_tx,
+            priority_message_tx,
+            checkpoint_message_tx,
             outbound_rx,
             peers,
             sync_request_rx,
             sync_incoming_tx,
             pending_requests: HashMap::new(),
+            vote_request_rx,
+            vote_incoming_tx,
+            pending_vote_requests: HashMap::new(),
             dos_config: DoSConfig::default(),
             handshake_config: HandshakeConfig::default(),
             banned_peers: Arc::new(RwLock::new(HashMap::new())),
@@ -535,6 +608,8 @@ impl NetworkService {
             command_rx,
             recently_dialed_pex: HashMap::new(),
             mesh_maintenance_counter: 0,
+            peer_last_addr: HashMap::new(),
+            reconnect_pending: Vec::new(),
         };
 
         Ok((service, handle))
@@ -574,11 +649,42 @@ impl NetworkService {
     async fn run_event_loop(&mut self) -> Result<()> {
         let mut mesh_maintenance_interval = tokio::time::interval(MESH_MAINTENANCE_INTERVAL);
         mesh_maintenance_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut reconnect_interval = tokio::time::interval(RECONNECT_CHECK_INTERVAL);
+        reconnect_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         
         loop {
+            while let Ok(cmd) = self.command_rx.try_recv() {
+                self.handle_command(cmd).await;
+            }
+
+            {
+                let mut batch: Vec<GossipMessage> = Vec::new();
+                for _ in 0..5 {
+                    match self.outbound_rx.try_recv() {
+                        Ok(msg) => batch.push(msg),
+                        Err(_) => break,
+                    }
+                }
+                if !batch.is_empty() {
+                    self.publish_batched(batch).await;
+                }
+            }
+
             tokio::select! {
-                Some(msg) = self.outbound_rx.recv() => {
-                    self.publish_message(&msg).await;
+                biased;
+
+                Some(cmd) = self.command_rx.recv() => {
+                    self.handle_command(cmd).await;
+                }
+                Some((peer_id, request, response_tx)) = self.vote_request_rx.recv() => {
+                    let request_id = self.swarm.behaviour_mut()
+                        .vote_protocol
+                        .send_request(&peer_id, request);
+                    self.pending_vote_requests.insert(request_id, PendingVoteRequest {
+                        peer_id,
+                        response_tx: Some(response_tx),
+                    });
+                    debug!("Sent vote request {:?} to {}", request_id, peer_id);
                 }
                 Some((peer_id, request, response_tx)) = self.sync_request_rx.recv() => {
                     let request_id = self.swarm.behaviour_mut()
@@ -590,21 +696,115 @@ impl NetworkService {
                     });
                     debug!("Sent sync request {:?} to {}", request_id, peer_id);
                 }
-                Some(cmd) = self.command_rx.recv() => {
-                    self.handle_command(cmd).await;
+                event = self.swarm.select_next_some() => {
+                    self.handle_swarm_event(event).await;
+                    for _ in 0..19 {
+                        while let Ok(cmd) = self.command_rx.try_recv() {
+                            self.handle_command(cmd).await;
+                        }
+                        match self.swarm.next().now_or_never() {
+                            Some(Some(event)) => self.handle_swarm_event(event).await,
+                            _ => break,
+                        }
+                    }
+                    let mut ob = Vec::new();
+                    for _ in 0..10 {
+                        match self.outbound_rx.try_recv() {
+                            Ok(msg) => ob.push(msg),
+                            Err(_) => break,
+                        }
+                    }
+                    if !ob.is_empty() {
+                        self.publish_batched(ob).await;
+                    }
+                }
+                Some(msg) = self.outbound_rx.recv() => {
+                    let mut batch = vec![msg];
+                    for _ in 0..4 {
+                        match self.outbound_rx.try_recv() {
+                            Ok(more) => batch.push(more),
+                            Err(_) => break,
+                        }
+                    }
+                    self.publish_batched(batch).await;
+                }
+                _ = reconnect_interval.tick() => {
+                    self.process_reconnect_queue();
                 }
                 _ = mesh_maintenance_interval.tick() => {
                     self.perform_mesh_maintenance().await;
                 }
-                event = self.swarm.select_next_some() => {
-                    self.handle_swarm_event(event).await;
+            }
+        }
+    }
+
+    fn process_reconnect_queue(&mut self) {
+        if self.reconnect_pending.is_empty() {
+            return;
+        }
+
+        let now = Instant::now();
+        let mut still_pending = Vec::new();
+
+        for (addr, retries, next_at) in std::mem::take(&mut self.reconnect_pending) {
+            if now < next_at {
+                still_pending.push((addr, retries, next_at));
+                continue;
+            }
+
+            let target_peer_id = addr.iter().find_map(|p| {
+                if let libp2p::multiaddr::Protocol::P2p(pid) = p {
+                    Some(pid)
+                } else {
+                    None
+                }
+            });
+
+            if let Some(pid) = target_peer_id {
+                if self.swarm.is_connected(&pid) {
+                    debug!("Reconnect: peer {} already reconnected, dropping from queue", pid);
+                    continue;
+                }
+            }
+
+            info!("Reconnect: re-dialing {} (attempt {}/{})", addr, retries + 1, MAX_RAPID_RECONNECTS);
+            match self.swarm.dial(addr.clone()) {
+                Ok(_) => {
+                    if retries + 1 < MAX_RAPID_RECONNECTS {
+                        still_pending.push((addr, retries + 1, now + RECONNECT_DELAY));
+                    } else {
+                        info!("Reconnect: max rapid retries reached for {}, falling back to mesh maintenance", addr);
+                    }
+                }
+                Err(e) => {
+                    warn!("Reconnect: failed to dial {}: {}", addr, e);
                 }
             }
         }
+
+        self.reconnect_pending = still_pending;
     }
     
     async fn perform_mesh_maintenance(&mut self) {
         self.mesh_maintenance_counter = self.mesh_maintenance_counter.wrapping_add(1);
+
+        if let Ok(mut stats) = self.stats.try_write() {
+            let delta_sent = stats.bytes_sent - stats.last_logged_bytes_sent;
+            let delta_recv = stats.bytes_received - stats.last_logged_bytes_received;
+            let delta_pub = stats.messages_published - stats.last_logged_msgs_published;
+            let delta_rcv = stats.messages_received - stats.last_logged_msgs_received;
+            if delta_sent > 0 || delta_recv > 0 {
+                info!(
+                    "Gossip throughput: {:.1}KB/s out ({} msgs/s), {:.1}KB/s in ({} msgs/s) | total: {}KB sent, {}KB recv",
+                    delta_sent as f64 / 5120.0, delta_pub / 5, delta_recv as f64 / 5120.0, delta_rcv / 5,
+                    stats.bytes_sent / 1024, stats.bytes_received / 1024
+                );
+            }
+            stats.last_logged_bytes_sent = stats.bytes_sent;
+            stats.last_logged_bytes_received = stats.bytes_received;
+            stats.last_logged_msgs_published = stats.messages_published;
+            stats.last_logged_msgs_received = stats.messages_received;
+        }
 
         let validated_peer_count = {
             let peers = self.peers.read().await;
@@ -663,6 +863,12 @@ impl NetworkService {
                     .map_err(|e| anyhow::anyhow!("Dial error: {}", e));
                 let _ = response_tx.send(result);
             }
+            NetworkCommand::SendVoteResponse(channel, response) => {
+                debug!("Sending vote response via command");
+                if let Err(e) = self.swarm.behaviour_mut().vote_protocol.send_response(channel, response) {
+                    warn!("Failed to send vote response: {:?}", e);
+                }
+            }
             NetworkCommand::SendSyncResponse(channel, response) => {
                 debug!("Sending sync response via command");
                 self.send_sync_response(channel, response);
@@ -682,10 +888,13 @@ impl NetworkService {
                     message_id, propagation_source
                 );
 
-                {
-                    let mut stats = self.stats.write().await;
+                let msg_size = message.data.len();
+                if let Ok(mut stats) = self.stats.try_write() {
                     stats.messages_received += 1;
-                    stats.bytes_received += message.data.len() as u64;
+                    stats.bytes_received += msg_size as u64;
+                }
+                if msg_size > 128 * 1024 {
+                    warn!("Large incoming gossip message: {}KB from {:?}", msg_size / 1024, propagation_source);
                 }
 
                 if !self.check_rate_limit_sync(&propagation_source) {
@@ -694,11 +903,14 @@ impl NetworkService {
                     return;
                 }
 
-                let allow_message = {
-                    let peers = self.peers.read().await;
-                    peers.get(&propagation_source)
+                let allow_message = match self.peers.try_read() {
+                    Ok(peers) => peers.get(&propagation_source)
                         .map(|p| p.handshake_validated)
-                        .unwrap_or(false)
+                        .unwrap_or(false),
+                    Err(_) => {
+                        debug!("Peers lock contended, allowing gossip from {}", propagation_source);
+                        true
+                    }
                 };
                 if !allow_message {
                     warn!("Dropping gossip from unhandshaked peer: {}", propagation_source);
@@ -707,12 +919,73 @@ impl NetworkService {
                     return;
                 }
 
-                if let Ok(gossip_msg) = serde_json::from_slice::<GossipMessage>(&message.data) {
-                    let _ = self.message_tx.send(gossip_msg).await;
+                match serde_json::from_slice::<GossipMessage>(&message.data) {
+                    Ok(gossip_msg) => {
+                    let msgs_to_route: Vec<GossipMessage> = match gossip_msg {
+                        GossipMessage::Batch { messages } => messages,
+                        other => vec![other],
+                    };
+                    for routed_msg in msgs_to_route {
+                    let is_checkpoint = matches!(&routed_msg, GossipMessage::CheckpointAnnouncement { .. });
+                    let is_priority = matches!(&routed_msg, GossipMessage::TxConfirmAck { .. } | GossipMessage::CheckpointIntent { .. });
+                    if is_checkpoint {
+                        match self.checkpoint_message_tx.try_send(routed_msg) {
+                            Ok(_) => {
+                                debug!("Routed checkpoint to dedicated channel from {}", propagation_source);
+                            },
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(msg)) => {
+                                warn!("Checkpoint channel full, falling back to priority channel from {}", propagation_source);
+                                match self.priority_message_tx.try_send(msg) {
+                                    Ok(_) => {
+                                        debug!("Checkpoint fallback to priority channel succeeded");
+                                    },
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(msg2)) => {
+                                        warn!("Checkpoint fallback: priority also full, falling back to regular channel");
+                                        if let Err(e) = self.message_tx.try_send(msg2) {
+                                            warn!("Checkpoint DROPPED — all channels full: {}", e);
+                                        }
+                                    },
+                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                        warn!("Checkpoint fallback: priority channel closed");
+                                    },
+                                }
+                            },
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                warn!("Checkpoint message channel closed");
+                            },
+                        }
+                    } else if is_priority {
+                        match self.priority_message_tx.try_send(routed_msg) {
+                            Ok(_) => {
+                                debug!("Routed priority message to priority channel from {}", propagation_source);
+                            },
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(msg)) => {
+                                warn!("Priority channel full, falling back to regular channel from {}", propagation_source);
+                                let _ = self.message_tx.try_send(msg);
+                            },
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                warn!("Priority message channel closed");
+                            },
+                        }
+                    } else {
+                        match self.message_tx.try_send(routed_msg) {
+                            Ok(_) => {},
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                warn!("Gossip message channel full, dropping message from {}", propagation_source);
+                            },
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                warn!("Gossip message channel closed");
+                            },
+                        }
+                    }
+                    }
+                    }
+                    Err(e) => {
+                        warn!("Failed to deserialize gossip message from {}: {} ({}B dropped)", propagation_source, e, message.data.len());
+                    }
                 }
 
-                {
-                    let mut peers = self.peers.write().await;
+                if let Ok(mut peers) = self.peers.try_write() {
                     if let Some(peer_stats) = peers.get_mut(&propagation_source) {
                         peer_stats.messages_received += 1;
                         peer_stats.last_seen = current_time_secs();
@@ -734,7 +1007,10 @@ impl NetworkService {
                     let now = current_time_secs();
                     let max_tokens = self.dos_config.max_rate_limit_tokens;
                     let saved_score = self.get_saved_peer_score_sync(&peer_id);
-                    let mut peer_map = self.peers.write().await;
+                    let mut peer_map = match self.peers.try_write() {
+                        Ok(p) => p,
+                        Err(_) => self.peers.write().await,
+                    };
                     peer_map.entry(peer_id).or_insert_with(|| PeerStats {
                         peer_id: peer_id.to_string(),
                         connected_at: now,
@@ -755,8 +1031,9 @@ impl NetworkService {
                     debug!("mDNS peer expired: {}", peer_id);
                     self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
                     
-                    let mut peer_map = self.peers.write().await;
-                    peer_map.remove(&peer_id);
+                    if let Ok(mut peer_map) = self.peers.try_write() {
+                        peer_map.remove(&peer_id);
+                    }
                 }
             }
 
@@ -775,16 +1052,31 @@ impl NetworkService {
                     return;
                 }
 
+                let remote_addr = endpoint.get_remote_address().clone();
+                self.peer_last_addr.insert(peer_id, remote_addr);
+
+                self.reconnect_pending.retain(|(addr, _, _)| {
+                    let matches = addr.iter().any(|p| {
+                        if let libp2p::multiaddr::Protocol::P2p(pid) = p {
+                            pid == peer_id
+                        } else {
+                            false
+                        }
+                    });
+                    !matches
+                });
+
                 info!("Connected to peer: {} via {:?}", peer_id, endpoint);
                 
-                // Add peer to GossipSub mesh immediately upon connection
-                // This is critical for non-mDNS environments (e.g., fly.io)
                 self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                 
                 let now = current_time_secs();
                 let max_tokens = self.dos_config.max_rate_limit_tokens;
                 let saved_score = self.get_saved_peer_score_sync(&peer_id);
-                let mut peers = self.peers.write().await;
+                let mut peers = match self.peers.try_write() {
+                    Ok(p) => p,
+                    Err(_) => self.peers.write().await,
+                };
                 peers.entry(peer_id).or_insert_with(|| PeerStats {
                     peer_id: peer_id_str,
                     connected_at: now,
@@ -812,12 +1104,39 @@ impl NetworkService {
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                 info!("Disconnected from peer: {} (cause: {:?})", peer_id, cause);
                 
-                // Remove from GossipSub mesh
                 self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
                 
-                let mut peers = self.peers.write().await;
-                if let Some(peer_stats) = peers.remove(&peer_id) {
-                    self.persist_peer_score_sync(&peer_id, peer_stats.score);
+                let was_validated;
+                {
+                    let mut peers = match self.peers.try_write() {
+                        Ok(p) => p,
+                        Err(_) => self.peers.write().await,
+                    };
+                    if let Some(peer_stats) = peers.remove(&peer_id) {
+                        was_validated = peer_stats.handshake_validated;
+                        self.persist_peer_score_sync(&peer_id, peer_stats.score);
+                    } else {
+                        was_validated = false;
+                    }
+                }
+
+                if was_validated {
+                    if let Some(addr) = self.peer_last_addr.get(&peer_id) {
+                        let reconnect_addr = addr.clone();
+                        let already_queued = self.reconnect_pending.iter().any(|(a, _, _)| {
+                            a.iter().any(|p| {
+                                if let libp2p::multiaddr::Protocol::P2p(pid) = p {
+                                    pid == peer_id
+                                } else {
+                                    false
+                                }
+                            })
+                        });
+                        if !already_queued {
+                            info!("Scheduling immediate reconnect to validated peer {} at {}", peer_id, reconnect_addr);
+                            self.reconnect_pending.push((reconnect_addr, 0, Instant::now()));
+                        }
+                    }
                 }
             }
 
@@ -832,7 +1151,6 @@ impl NetworkService {
                 match message {
                     request_response::Message::Request { request, channel, .. } => {
                         if !self.check_rate_limit_sync(&peer) {
-                            // Just reject request, don't penalize - high load is not misbehavior
                             debug!("Rate limit exceeded for sync request from: {}, rejecting", peer);
                             let _ = self.swarm.behaviour_mut().request_response.send_response(
                                 channel,
@@ -845,7 +1163,10 @@ impl NetworkService {
                             let pex_addrs_to_process = info.known_peer_addrs.clone();
                             match self.validate_handshake(info) {
                                 Ok(_) => {
-                                    let mut peers = self.peers.write().await;
+                                    let mut peers = match self.peers.try_write() {
+                                        Ok(p) => p,
+                                        Err(_) => self.peers.write().await,
+                                    };
                                     let saved_score = self.get_saved_peer_score_sync(&peer);
                                     let entry = peers.entry(peer).or_insert_with(|| PeerStats {
                                         peer_id: peer.to_string(),
@@ -886,11 +1207,18 @@ impl NetworkService {
                             return;
                         }
 
-                        let handshake_ok = {
-                            let peers = self.peers.read().await;
-                            peers.get(&peer)
+                        let handshake_ok = match self.peers.try_read() {
+                            Ok(peers) => peers.get(&peer)
                                 .map(|p| p.handshake_validated)
-                                .unwrap_or(false)
+                                .unwrap_or(false),
+                            Err(_) => {
+                                debug!("Peers lock contended for sync handshake check from {}, deferring", peer);
+                                let _ = self.swarm.behaviour_mut().request_response.send_response(
+                                    channel,
+                                    SyncResponse::Error { message: "Node busy, try again".to_string() }
+                                );
+                                return;
+                            }
                         };
                         if !handshake_ok {
                             warn!("Sync request rejected (handshake required) from {}", peer);
@@ -908,8 +1236,18 @@ impl NetworkService {
                             request,
                             response_channel: channel,
                         };
-                        if let Err(e) = self.sync_incoming_tx.send(incoming).await {
-                            warn!("Failed to forward sync request: {}", e);
+                        match self.sync_incoming_tx.try_send(incoming) {
+                            Ok(_) => {},
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(rejected)) => {
+                                warn!("Sync incoming channel full, rejecting request from {}", peer);
+                                let _ = self.swarm.behaviour_mut().request_response.send_response(
+                                    rejected.response_channel,
+                                    SyncResponse::Error { message: "Node busy, try again".to_string() }
+                                );
+                            },
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                warn!("Sync incoming channel closed");
+                            },
                         }
                     }
                     request_response::Message::Response { request_id, response } => {
@@ -920,7 +1258,10 @@ impl NetworkService {
                                 let pex_addrs = info.known_peer_addrs.clone();
                                 match self.validate_handshake(info) {
                                     Ok(_) => {
-                                        let mut peers = self.peers.write().await;
+                                        let mut peers = match self.peers.try_write() {
+                                            Ok(p) => p,
+                                            Err(_) => self.peers.write().await,
+                                        };
                                         if let Some(peer_stats) = peers.get_mut(&pending.peer_id) {
                                             peer_stats.handshake_validated = true;
                                             peer_stats.handshake_info = Some(info.clone());
@@ -972,6 +1313,83 @@ impl NetworkService {
                 warn!("Inbound sync request from {} failed: {:?}", peer, error);
             }
 
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::VoteProtocol(
+                request_response::Event::Message { peer, message }
+            )) => {
+                match message {
+                    request_response::Message::Request { request, channel, .. } => {
+                        let handshake_ok = match self.peers.try_read() {
+                            Ok(peers) => peers.get(&peer)
+                                .map(|p| p.handshake_validated)
+                                .unwrap_or(false),
+                            Err(_) => {
+                                debug!("Peers lock contended for vote handshake check from {}, deferring", peer);
+                                let _ = self.swarm.behaviour_mut().vote_protocol.send_response(
+                                    channel,
+                                    VoteResponse::Error { message: "Node busy, try again".to_string() }
+                                );
+                                return;
+                            }
+                        };
+                        if !handshake_ok {
+                            warn!("Vote request rejected (handshake required) from {}", peer);
+                            let _ = self.swarm.behaviour_mut().vote_protocol.send_response(
+                                channel,
+                                VoteResponse::Error { message: "Handshake required".to_string() }
+                            );
+                            return;
+                        }
+
+                        debug!("Received vote request from {}", peer);
+                        let incoming = IncomingVoteRequest {
+                            peer_id: peer.to_string(),
+                            request,
+                            response_channel: channel,
+                        };
+                        match self.vote_incoming_tx.try_send(incoming) {
+                            Ok(_) => {},
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(rejected)) => {
+                                warn!("Vote incoming channel full, rejecting request from {}", peer);
+                                let _ = self.swarm.behaviour_mut().vote_protocol.send_response(
+                                    rejected.response_channel,
+                                    VoteResponse::Error { message: "Node busy, try again".to_string() }
+                                );
+                            },
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                warn!("Vote incoming channel closed");
+                            },
+                        }
+                    }
+                    request_response::Message::Response { request_id, response } => {
+                        debug!("Received vote response for {:?}", request_id);
+                        if let Some(pending) = self.pending_vote_requests.remove(&request_id) {
+                            if let Some(response_tx) = pending.response_tx {
+                                let _ = response_tx.send(response);
+                            }
+                        }
+                    }
+                }
+            }
+
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::VoteProtocol(
+                request_response::Event::OutboundFailure { peer, request_id, error }
+            )) => {
+                warn!("Vote request to {} failed: {:?}", peer, error);
+                if let Some(pending) = self.pending_vote_requests.remove(&request_id) {
+                    if let Some(response_tx) = pending.response_tx {
+                        let _ = response_tx.send(VoteResponse::Error {
+                            message: format!("{:?}", error),
+                        });
+                    }
+                }
+            }
+
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::VoteProtocol(
+                request_response::Event::InboundFailure { peer, error, .. }
+            )) => {
+                warn!("Inbound vote request from {} failed: {:?}", peer, error);
+            }
+
             // Identify: received peer info
             SwarmEvent::Behaviour(RinkuBehaviourEvent::Identify(identify::Event::Received { peer_id, info, .. })) => {
                 info!(
@@ -1002,18 +1420,25 @@ impl NetworkService {
             Ok(data) => {
                 let data_len = data.len() as u64;
                 
+                if data_len > 128 * 1024 {
+                    warn!("Large gossip message: {}KB (type: {})", data_len / 1024, message.variant_name());
+                } else if data_len > 64 * 1024 {
+                    info!("Gossip message: {}KB (type: {})", data_len / 1024, message.variant_name());
+                }
+                
                 match self.swarm.behaviour_mut().gossipsub.publish(self.topic.clone(), data) {
                     Ok(_) => {
-                        let mut stats = self.stats.write().await;
-                        stats.messages_published += 1;
-                        stats.bytes_sent += data_len;
-                        debug!("Published message to network");
+                        if let Ok(mut stats) = self.stats.try_write() {
+                            stats.messages_published += 1;
+                            stats.bytes_sent += data_len;
+                        }
+                        debug!("Published message to network ({}B)", data_len);
                     }
                     Err(e) => {
                         if format!("{:?}", e).contains("Duplicate") {
-                            trace!("Message already published (duplicate)");
+                            warn!("Gossipsub publish DUPLICATE — message already seen by router (type: {})", message.variant_name());
                         } else if format!("{:?}", e).contains("InsufficientPeers") {
-                            trace!("No peers available to publish message");
+                            warn!("Gossipsub publish INSUFFICIENT_PEERS — no topic peers available (type: {})", message.variant_name());
                         } else {
                             warn!("Failed to publish message: {:?}", e);
                         }
@@ -1023,6 +1448,34 @@ impl NetworkService {
             Err(e) => {
                 warn!("Failed to serialize message: {}", e);
             }
+        }
+    }
+
+    async fn publish_batched(&mut self, messages: Vec<GossipMessage>) {
+        use crate::gossip::GossipMessage as GM;
+        if messages.is_empty() {
+            return;
+        }
+        let mut priority_msgs: Vec<GossipMessage> = Vec::new();
+        let mut regular_msgs: Vec<GossipMessage> = Vec::new();
+        for msg in messages {
+            let is_priority = matches!(&msg, GM::CheckpointAnnouncement { .. } | GM::TxConfirmAck { .. } | GM::CheckpointIntent { .. });
+            if is_priority {
+                priority_msgs.push(msg);
+            } else {
+                regular_msgs.push(msg);
+            }
+        }
+        for msg in priority_msgs {
+            self.publish_message(&msg).await;
+        }
+        if regular_msgs.len() <= 1 {
+            for msg in &regular_msgs {
+                self.publish_message(msg).await;
+            }
+        } else {
+            let batch = GM::Batch { messages: regular_msgs };
+            self.publish_message(&batch).await;
         }
     }
 
@@ -1146,12 +1599,11 @@ impl NetworkService {
         banned.retain(|_, ban| ban.expires_at > now);
     }
 
-    /// Check if connection limit is reached (non-blocking, returns false if lock contended)
     pub fn is_connection_limit_reached_sync(&self) -> bool {
         if let Ok(peers) = self.peers.try_read() {
             return peers.len() >= self.dos_config.max_connections;
         }
-        false
+        true
     }
 
     /// Check if connection limit is reached (async version)
@@ -1165,8 +1617,8 @@ impl NetworkService {
         let mut peers = match self.peers.try_write() {
             Ok(p) => p,
             Err(_) => {
-                warn!("Rate limit check blocked, rejecting request as precaution");
-                return false;
+                trace!("Rate limit check skipped (lock contended) for peer {}, allowing message", peer_id);
+                return true;
             }
         };
         
@@ -1482,25 +1934,34 @@ mod tests {
     }
 }
 
-/// Command to send to the network service
-#[derive(Debug)]
 pub enum NetworkCommand {
     Dial(Multiaddr, oneshot::Sender<Result<()>>),
     SendSyncResponse(ResponseChannel<SyncResponse>, SyncResponse),
+    SendVoteResponse(ResponseChannel<VoteResponse>, VoteResponse),
+}
+
+impl std::fmt::Debug for NetworkCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NetworkCommand::Dial(addr, _) => write!(f, "Dial({})", addr),
+            NetworkCommand::SendSyncResponse(_, _) => write!(f, "SendSyncResponse"),
+            NetworkCommand::SendVoteResponse(_, _) => write!(f, "SendVoteResponse"),
+        }
+    }
 }
 
 pub struct NetworkHandle {
     outbound_tx: mpsc::Sender<GossipMessage>,
     pub message_rx: Option<mpsc::Receiver<GossipMessage>>,
+    pub priority_message_rx: Option<mpsc::Receiver<GossipMessage>>,
+    pub checkpoint_message_rx: Option<mpsc::Receiver<GossipMessage>>,
     peers: Arc<RwLock<HashMap<PeerId, PeerStats>>>,
     local_peer_id: String,
-    /// Channel for sending sync requests
     sync_request_tx: mpsc::Sender<(PeerId, SyncRequest, oneshot::Sender<SyncResponse>)>,
-    /// Channel for receiving incoming sync requests (to be handled by application)
     pub sync_incoming_rx: Option<mpsc::Receiver<IncomingSyncRequest>>,
-    /// Channel for sending commands to the network service
+    vote_request_tx: mpsc::Sender<(PeerId, VoteRequest, oneshot::Sender<VoteResponse>)>,
+    pub vote_incoming_rx: Option<mpsc::Receiver<IncomingVoteRequest>>,
     command_tx: mpsc::Sender<NetworkCommand>,
-    /// Stats tracking
     stats: Arc<RwLock<NetworkStatsInner>>,
 }
 
@@ -1551,9 +2012,28 @@ impl NetworkHandle {
 
     /// Get list of connected peer IDs
     pub async fn get_connected_peer_ids(&self) -> Vec<String> {
+        match self.peers.try_read() {
+            Ok(peers) => peers.keys().map(|p| p.to_string()).collect(),
+            Err(_) => {
+                self.peers.read().await
+                    .keys()
+                    .map(|p| p.to_string())
+                    .collect()
+            }
+        }
+    }
+
+    pub async fn get_connected_validator_peer_ids(&self) -> Vec<String> {
         self.peers.read().await
-            .keys()
-            .map(|p| p.to_string())
+            .iter()
+            .filter(|(_, stats)| {
+                stats.handshake_validated
+                    && stats.handshake_info.as_ref()
+                        .and_then(|h| h.validator_address.as_ref())
+                        .map(|addr| !addr.is_empty())
+                        .unwrap_or(false)
+            })
+            .map(|(pid, _)| pid.to_string())
             .collect()
     }
 
@@ -1562,6 +2042,14 @@ impl NetworkHandle {
     /// used with async .recv() without holding the mutex.
     pub fn take_message_rx(&mut self) -> Option<mpsc::Receiver<GossipMessage>> {
         self.message_rx.take()
+    }
+
+    pub fn take_priority_message_rx(&mut self) -> Option<mpsc::Receiver<GossipMessage>> {
+        self.priority_message_rx.take()
+    }
+
+    pub fn take_checkpoint_message_rx(&mut self) -> Option<mpsc::Receiver<GossipMessage>> {
+        self.checkpoint_message_rx.take()
     }
 
     /// Take the sync request receiver out of this handle.
@@ -1596,8 +2084,15 @@ impl NetworkHandle {
         let peer_id: PeerId = peer_id.parse()
             .map_err(|e| anyhow::anyhow!("Invalid peer ID: {}", e))?;
         let (response_tx, response_rx) = oneshot::channel();
-        self.sync_request_tx.send((peer_id, request, response_tx)).await?;
-        Ok(response_rx)
+        match self.sync_request_tx.try_send((peer_id, request, response_tx)) {
+            Ok(_) => Ok(response_rx),
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                Err(anyhow::anyhow!("Sync request channel full"))
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                Err(anyhow::anyhow!("Sync request channel closed"))
+            }
+        }
     }
 
     /// Request a snapshot from a peer
@@ -1623,5 +2118,35 @@ impl NetworkHandle {
     /// Send handshake to peer
     pub async fn handshake(&self, peer_id: &str, info: PeerHandshake) -> Result<SyncResponse> {
         self.sync_request(peer_id, SyncRequest::Handshake(info)).await
+    }
+
+    pub fn take_vote_incoming_rx(&mut self) -> Option<mpsc::Receiver<IncomingVoteRequest>> {
+        self.vote_incoming_rx.take()
+    }
+
+    pub fn send_vote_response(&self, channel: ResponseChannel<VoteResponse>, response: VoteResponse) {
+        let _ = self.command_tx.try_send(NetworkCommand::SendVoteResponse(channel, response));
+    }
+
+    pub async fn send_vote_request(&self, peer_id: &str, request: VoteRequest) -> Result<oneshot::Receiver<VoteResponse>> {
+        let peer_id: PeerId = peer_id.parse()
+            .map_err(|e| anyhow::anyhow!("Invalid peer ID: {}", e))?;
+        let (response_tx, response_rx) = oneshot::channel();
+        match self.vote_request_tx.try_send((peer_id, request, response_tx)) {
+            Ok(_) => Ok(response_rx),
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                Err(anyhow::anyhow!("Vote request channel full"))
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                Err(anyhow::anyhow!("Vote request channel closed"))
+            }
+        }
+    }
+
+    pub async fn vote_request(&self, peer_id: &str, request: VoteRequest) -> Result<VoteResponse> {
+        let rx = self.send_vote_request(peer_id, request).await?;
+        let response = rx.await
+            .map_err(|_| anyhow::anyhow!("Vote request cancelled"))?;
+        Ok(response)
     }
 }

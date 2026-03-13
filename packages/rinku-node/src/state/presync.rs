@@ -113,7 +113,13 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
         .with_tcp(
             tcp::Config::default(),
             noise::Config::new,
-            yamux::Config::default,
+            || {
+                let mut cfg = yamux::Config::default();
+                cfg.set_max_num_streams(1024);
+                cfg.set_receive_window_size(16 * 1024 * 1024);
+                cfg.set_max_buffer_size(16 * 1024 * 1024);
+                cfg
+            },
         )
         .map(|builder| {
             builder.with_behaviour(|_| {

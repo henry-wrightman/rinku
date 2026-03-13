@@ -88,15 +88,17 @@ impl TransactionKind {
         self.partition_safety() == PartitionSafety::Safe
     }
 
-    pub fn allowed_during_partition(&self, partition_budget_remaining: Option<u64>, tx_cost: u64) -> bool {
+    pub fn allowed_during_partition(
+        &self,
+        partition_budget_remaining: Option<u64>,
+        tx_cost: u64,
+    ) -> bool {
         match self.partition_safety() {
             PartitionSafety::Safe => true,
-            PartitionSafety::BoundedSpend => {
-                match partition_budget_remaining {
-                    Some(budget) => tx_cost <= budget,
-                    None => true,
-                }
-            }
+            PartitionSafety::BoundedSpend => match partition_budget_remaining {
+                Some(budget) => tx_cost <= budget,
+                None => true,
+            },
             PartitionSafety::CpOnly => false,
         }
     }
@@ -151,11 +153,15 @@ pub struct FastPathFinality {
     pub registered_at_ms: u64,
     pub confirmed_at_ms: Option<u64>,
     pub checkpoint_height: Option<u64>,
+    #[serde(default)]
+    pub tx_created_at_ms: Option<u64>,
 }
 
 impl FastPathFinality {
     pub fn finality_time_ms(&self) -> Option<u64> {
-        self.confirmed_at_ms.map(|confirmed| confirmed.saturating_sub(self.registered_at_ms))
+        let start = self.tx_created_at_ms.unwrap_or(self.registered_at_ms);
+        self.confirmed_at_ms
+            .map(|confirmed| confirmed.saturating_sub(start))
     }
 }
 
@@ -206,14 +212,17 @@ impl Transaction {
         // Validators will only ACK if the transaction is valid (correct balance, nonce, etc.)
         true
     }
-    
+
     pub fn is_data_only(&self) -> bool {
-        self.amount == 0 && 
-        (self.memo.is_some() || self.references.is_some()) &&
-        !matches!(self.kind, Some(TransactionKind::Stake) | 
-                            Some(TransactionKind::Unstake) | 
-                            Some(TransactionKind::ClaimRewards) |
-                            Some(TransactionKind::Contract))
+        self.amount == 0
+            && (self.memo.is_some() || self.references.is_some())
+            && !matches!(
+                self.kind,
+                Some(TransactionKind::Stake)
+                    | Some(TransactionKind::Unstake)
+                    | Some(TransactionKind::ClaimRewards)
+                    | Some(TransactionKind::Contract)
+            )
     }
 }
 
@@ -221,7 +230,7 @@ impl SignedTransaction {
     pub fn is_fast_path_eligible(&self) -> bool {
         self.tx.is_fast_path_eligible()
     }
-    
+
     pub fn is_data_only(&self) -> bool {
         self.tx.is_data_only()
     }
@@ -281,22 +290,22 @@ pub fn from_micro_units(micro: u64) -> f64 {
 
 /// Self-contained proof of account state at a specific checkpoint
 /// This proof can be verified offline without querying any node
-/// 
+///
 /// ## Canonical Leaf Encoding (version 2+)
 /// Account leaves are hashed using the format:
 /// `SHA256("account:{address}:{balance_micro}:{nonce}:{staked_micro}")`
-/// 
+///
 /// Where:
 /// - `address`: lowercase hex account address (40 chars)
 /// - `balance_micro`: u64 micro-units (1 RKU = 100,000,000 micro-RKU)
 /// - `nonce`: u64 transaction counter
 /// - `staked_micro`: u64 micro-units of staked balance
-/// 
+///
 /// Example: `"account:abc123...def:1000000000:5:500000000"`
 /// represents 10.0 RKU balance, nonce 5, 5.0 RKU staked
-/// 
+///
 /// Internal nodes are hashed using: `SHA256("node:{left_hash}:{right_hash}")`
-/// 
+///
 /// ## Verification Steps
 /// 1. Reconstruct leaf hash: `SHA256("account:{address}:{balance_micro}:{nonce}:{staked_micro}")`
 /// 2. Walk merkle_proof siblings from leaf to root
@@ -326,7 +335,7 @@ pub struct AccountStateProof {
     /// Staked amount in RKU (f64) for display convenience.
     #[serde(default)]
     pub staked: f64,
-    
+
     // === REWARD STATE (v3+) - For deterministic cross-node synchronization ===
     /// Pending rewards in micro-units (u64). Used for direct sync instead of inference.
     #[serde(default)]
@@ -346,7 +355,7 @@ pub struct AccountStateProof {
     /// Total claimed rewards in RKU (f64) for display convenience.
     #[serde(default)]
     pub claimed_rewards_total: f64,
-    
+
     pub checkpoint_height: u64,
     pub checkpoint_hash: String,
     pub checkpoint_timestamp: u64,
@@ -388,7 +397,11 @@ pub struct Account {
     pub reputation_penalty: f64,
     #[serde(default)]
     pub penalty_decay_checkpoint: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "micro_serde_option")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "micro_serde_option"
+    )]
     pub partition_budget: Option<u64>,
     #[serde(default, with = "micro_serde")]
     pub partition_budget_spent: u64,
@@ -470,6 +483,15 @@ pub struct Validator {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ConvergenceCertificate {
+    pub total_stake: u64,
+    pub quorum_required: u64,
+    pub confirmed_at_ms: u64,
+    pub acks: Vec<FastPathAck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DagNode {
     pub hash: String,
     pub tx: SignedTransaction,
@@ -484,9 +506,9 @@ pub struct DagNode {
     #[serde(default)]
     pub partition_epoch: Option<u64>,
     #[serde(default)]
-    pub provisional_finality: bool,
-    #[serde(default)]
     pub rolled_back: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub convergence_certificate: Option<ConvergenceCertificate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -530,8 +552,8 @@ impl Default for GasConfig {
         Self {
             min_gas_price: 100_000,
             max_gas_price: 1_000_000_000,
-            target_txs_per_period: 1500,
-            adjustment_factor: 0.10,
+            target_txs_per_period: 600,
+            adjustment_factor: 0.125,
             period_duration_ms: 15000,
         }
     }
@@ -643,7 +665,7 @@ impl AggregatedWeight {
         }
         self.boost_stake_micro as f64 / self.total_network_stake_micro as f64
     }
-    
+
     /// Calculate suppress ratio (0.0 to 1.0)
     pub fn suppress_ratio(&self) -> f64 {
         if self.total_network_stake_micro == 0 {
@@ -651,7 +673,7 @@ impl AggregatedWeight {
         }
         self.suppress_stake_micro as f64 / self.total_network_stake_micro as f64
     }
-    
+
     /// Calculate net weight ratio (-1.0 to 1.0)
     pub fn net_weight_ratio(&self) -> f64 {
         if self.total_network_stake_micro == 0 {
@@ -659,7 +681,7 @@ impl AggregatedWeight {
         }
         self.net_weight as f64 / self.total_network_stake_micro as f64
     }
-    
+
     /// Trust score normalized to 0-100 scale (50 = neutral)
     pub fn trust_score(&self) -> u8 {
         let ratio = self.net_weight_ratio();
@@ -670,7 +692,7 @@ impl AggregatedWeight {
 
 /// Self-contained proof of a transaction's weight/trust score at a specific checkpoint.
 /// This proof can be verified offline without querying any node.
-/// 
+///
 /// ## Verification Steps:
 /// 1. Verify each attestation's BLS signature against known validator set
 /// 2. Verify stake amounts match validator registry at checkpoint
@@ -707,7 +729,12 @@ pub struct TransactionWeightProof {
 
 impl TransactionWeightProof {
     /// Create an empty/default weight proof for a transaction with no attestations
-    pub fn empty(tx_hash: String, checkpoint_height: u64, checkpoint_hash: String, checkpoint_timestamp: u64) -> Self {
+    pub fn empty(
+        tx_hash: String,
+        checkpoint_height: u64,
+        checkpoint_hash: String,
+        checkpoint_timestamp: u64,
+    ) -> Self {
         Self {
             version: 1,
             tx_hash,
@@ -752,4 +779,3 @@ pub struct WeightTrieLeaf {
     pub total_network_stake_micro: u64,
     pub attestation_count: u32,
 }
-

@@ -1,10 +1,11 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum FastPathExecResult {
+pub enum ConvergenceExecResult {
     Executed,
     AlreadyApplied,
     Rejected,
+    Deferred,
 }
 
 impl NodeState {
@@ -217,7 +218,8 @@ impl NodeState {
                     return Err(anyhow::anyhow!("Account does not exist"));
                 }
                 
-                let effective_balance = Self::get_effective_balance(&state, &tx.tx.from);
+                let (effective_balance, effective_nonce) =
+                    Self::get_effective_balance_and_nonce(&state, &tx.tx.from);
                 if effective_balance < required_balance {
                     tracing::warn!(
                         "Transaction rejected: insufficient effective balance. Have {:.6}, need {:.6} (amount: {:.6}, gas: {:.6})",
@@ -228,10 +230,9 @@ impl NodeState {
                         effective_balance, required_balance
                     ));
                 }
-                
-                let effective_nonce = Self::get_effective_nonce(&state, &tx.tx.from);
+
                 let confirmed_nonce = state.accounts.get(&tx.tx.from).map(|a| a.nonce).unwrap_or(0);
-                
+
                 if tx.tx.nonce < confirmed_nonce {
                     tracing::warn!(
                         "Transaction rejected: stale nonce. Confirmed nonce is {}, got {} (already finalized)",
@@ -242,7 +243,7 @@ impl NodeState {
                         confirmed_nonce, tx.tx.nonce
                     ));
                 }
-                
+
                 if tx.tx.nonce != effective_nonce {
                     tracing::debug!(
                         "Nonce mismatch for {}: expected effective {}, got {}",
@@ -326,12 +327,12 @@ impl NodeState {
             checkpoint_height: None,
             received_at_ms: Some(now_ms),
             partition_epoch: None,
-            provisional_finality: false,
             rolled_back: false,
+            convergence_certificate: None,
         };
 
         let mut state = self.inner.write().await;
-        
+
         if !is_system_tx {
             let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
             let required_balance = if is_stake_tx {
@@ -341,16 +342,15 @@ impl NodeState {
             } else {
                 tx.tx.amount + gas_fee
             };
-            
-            let effective_balance = Self::get_effective_balance(&state, &tx.tx.from);
+
+            let (effective_balance, effective_nonce) =
+                Self::get_effective_balance_and_nonce(&state, &tx.tx.from);
             if effective_balance < required_balance {
                 return Err(anyhow::anyhow!(
                     "Insufficient balance: have {:.6}, need {:.6}",
                     effective_balance, required_balance
                 ));
             }
-            
-            let effective_nonce = Self::get_effective_nonce(&state, &tx.tx.from);
             if tx.tx.nonce != effective_nonce {
                 return Err(anyhow::anyhow!(
                     "Invalid nonce: expected {}, got {}",
@@ -361,29 +361,32 @@ impl NodeState {
 
         state.dag.add_node(node)?;
 
-        // Gas price is updated at checkpoint finalization in stats.rs::update_gas_price_at_checkpoint
-        // This ensures all nodes compute gas from the same finalized transaction counts
-        
         drop(state);
 
         Ok(TransactionResult::Accepted)
     }
     
-    pub async fn execute_fast_path_transaction(&self, tx: &SignedTransaction) -> FastPathExecResult {
-        let gas_fee = {
-            let state = self.inner.read().await;
-            tx.tx.gas_price.unwrap_or(state.current_gas_price)
-        };
+    pub async fn execute_confirmed_transaction_state(&self, tx: &SignedTransaction) -> ConvergenceExecResult {
+        if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+            return ConvergenceExecResult::AlreadyApplied;
+        }
 
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
         let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
 
-        {
-            let state = self.inner.read().await;
+        let gas_fee;
 
-            if let Some(from_account) = state.accounts.get(&tx.tx.from) {
+        {
+            let mut state = self.inner.write().await;
+            gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+
+            {
+                let from_account = match state.accounts.get(&tx.tx.from) {
+                    Some(acc) => acc,
+                    None => return ConvergenceExecResult::Rejected,
+                };
                 let required = if is_stake_tx {
                     tx.tx.amount + gas_fee
                 } else if is_unstake_tx || is_claim_tx || is_contract_tx {
@@ -398,20 +401,80 @@ impl NodeState {
                         from_account.balance,
                         required
                     );
-                    return FastPathExecResult::Rejected;
+                    return ConvergenceExecResult::Rejected;
                 }
                 if tx.tx.nonce < from_account.nonce {
-                    return FastPathExecResult::AlreadyApplied;
+                    return ConvergenceExecResult::AlreadyApplied;
                 }
                 if tx.tx.nonce > from_account.nonce {
-                    return FastPathExecResult::Rejected;
+                    tracing::info!(
+                        "FastPath DEFERRED: {} nonce {} > expected {} (will cascade when nonce {} executes)",
+                        &tx.tx.from[..16.min(tx.tx.from.len())],
+                        tx.tx.nonce,
+                        from_account.nonce,
+                        from_account.nonce
+                    );
+                    return ConvergenceExecResult::Deferred;
                 }
-            } else {
-                return FastPathExecResult::Rejected;
             }
+
+            let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
+
+            if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
+                let tx_cost = if is_stake_tx {
+                    tx.tx.amount + gas_fee
+                } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                    gas_fee
+                } else {
+                    tx.tx.amount + gas_fee
+                };
+                from_account.balance -= tx_cost;
+                from_account.nonce = tx.tx.nonce + 1;
+
+                if is_in_partition && from_account.partition_budget.is_some() {
+                    from_account.partition_budget_spent += tx_cost;
+                }
+            }
+
+            if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
+                let to_account = state
+                    .accounts
+                    .entry(tx.tx.to.clone())
+                    .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
+                to_account.balance += tx.tx.amount;
+            }
+
+            state.total_burned += gas_fee / 2;
+            state.total_to_validators += gas_fee / 2;
+
+            state.total_transactions += 1;
+
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let tx_time_ms = if tx.tx.timestamp < 4_000_000_000 {
+                tx.tx.timestamp * 1000
+            } else {
+                tx.tx.timestamp
+            };
+            let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
+            const MAX_FINALITY_MS: u64 = 300_000;
+            if finality_time_ms <= MAX_FINALITY_MS {
+                state.finality_sum_ms += finality_time_ms;
+                state.finality_count += 1;
+                if finality_time_ms > state.finality_max_ms {
+                    state.finality_max_ms = finality_time_ms;
+                }
+                if state.finality_times_ms.len() >= 1000 {
+                    state.finality_times_ms.pop_front();
+                }
+                state.finality_times_ms.push_back(finality_time_ms);
+            }
+            state.convergence_executed_hashes.insert(tx.hash.clone());
         }
 
-        self.execute_finalized_transaction_core(tx).await;
+        self.execute_transaction_side_effects(tx).await;
 
         tracing::info!(
             "FastPath EXECUTED tx {} ({} -> {}, amount={}, gas={})",
@@ -422,30 +485,112 @@ impl NodeState {
             gas_fee
         );
 
-        FastPathExecResult::Executed
+        ConvergenceExecResult::Executed
     }
 
     pub async fn execute_finalized_transaction(&self, tx: &SignedTransaction) {
-        self.execute_finalized_transaction_core(tx).await;
-        self.execute_finalized_transaction_rewards(tx).await;
+        let applied = self.execute_finalized_transaction_core(tx).await;
+        if applied {
+            self.execute_finalized_transaction_rewards(tx).await;
+        }
     }
 
-    pub async fn execute_finalized_transactions_batch(&self, txs: &[SignedTransaction]) {
-        if txs.is_empty() {
+    pub async fn execute_finalized_transactions_batch(
+        &self,
+        txs: &[SignedTransaction],
+        convergence_already_executed: &std::collections::HashSet<String>,
+    ) {
+        let mut prev_deferred = {
+            let mut deferred = self.deferred_batch_txs.lock().await;
+            std::mem::take(&mut *deferred)
+        };
+
+        if txs.is_empty() && prev_deferred.is_empty() {
             return;
         }
 
+        const MAX_DEFERRED_RETRIES: u32 = 3;
+
+        let mut retry_counts = {
+            let counts = self.deferred_batch_retry_counts.lock().await;
+            counts.clone()
+        };
+
+        let mut expired_count = 0usize;
+        if !prev_deferred.is_empty() {
+            prev_deferred.retain(|dtx| {
+                if convergence_already_executed.contains(&dtx.hash) {
+                    return false;
+                }
+                let count = retry_counts.get(&dtx.hash).copied().unwrap_or(0);
+                if count >= MAX_DEFERRED_RETRIES {
+                    expired_count += 1;
+                    false
+                } else {
+                    true
+                }
+            });
+            if expired_count > 0 {
+                tracing::warn!(
+                    "Batch expired {} permanently-stuck deferred txs (>{} retries, {} remaining)",
+                    expired_count, MAX_DEFERRED_RETRIES, prev_deferred.len()
+                );
+            }
+        }
+
+        let mut all_txs: Vec<SignedTransaction> = Vec::new();
+        let mut convergence_skipped = 0usize;
+        for tx in txs {
+            if convergence_already_executed.contains(&tx.hash) {
+                convergence_skipped += 1;
+            } else {
+                all_txs.push(tx.clone());
+            }
+        }
+        let from_deferred = prev_deferred.len();
+        if !prev_deferred.is_empty() {
+            let existing: std::collections::HashSet<String> = all_txs.iter().map(|t| t.hash.clone()).collect();
+            for dtx in prev_deferred.drain(..) {
+                if !existing.contains(&dtx.hash) {
+                    all_txs.push(dtx);
+                }
+            }
+        }
+
+        all_txs.sort_by(|a, b| {
+            a.tx.from.cmp(&b.tx.from)
+                .then(a.tx.nonce.cmp(&b.tx.nonce))
+                .then(a.hash.cmp(&b.hash))
+        });
+
+        let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
+            let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = std::collections::HashMap::new();
+            for tx in &all_txs {
+                map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
+            }
+            map
+        };
+
         let batch_start = std::time::Instant::now();
-        let tx_count = txs.len();
-        let mut special_txs: Vec<&SignedTransaction> = Vec::new();
+        let total_finalized = all_txs.len() + convergence_skipped;
+        let mut executed_count = 0usize;
+        let mut new_deferred: Vec<SignedTransaction> = Vec::new();
+        let mut special_txs: Vec<SignedTransaction> = Vec::new();
+        let mut executed_hashes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut gap_skipped_senders: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         {
             let mut state = self.inner.write().await;
             let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
             let current_gas_price = state.current_gas_price;
 
-            for tx in txs {
+            for tx in &all_txs {
                 if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                    continue;
+                }
+
+                if gap_skipped_senders.contains(&tx.tx.from) {
+                    new_deferred.push(tx.clone());
                     continue;
                 }
 
@@ -456,14 +601,28 @@ impl NodeState {
                 let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
                 let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
 
+                let sender_exists = state.accounts.contains_key(&tx.tx.from);
+                let mut tx_applied = false;
+
                 if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-                    if tx.tx.nonce < from_account.nonce {
-                        tracing::debug!(
-                            "Skipping already-executed tx {} (tx_nonce={} < account_nonce={})",
-                            &tx.hash[..16.min(tx.hash.len())],
-                            tx.tx.nonce,
-                            from_account.nonce
-                        );
+                    if tx.tx.nonce != from_account.nonce {
+                        if tx.tx.nonce > from_account.nonce {
+                            let needed_nonce = from_account.nonce;
+                            if let Some(sender_nonces) = available_nonces.get(&tx.tx.from) {
+                                if !sender_nonces.contains(&needed_nonce) {
+                                    gap_skipped_senders.insert(tx.tx.from.clone());
+                                    tracing::info!(
+                                        "Batch GAP-SKIP sender {} — needs nonce {} but not in batch (have {:?}), deferring all",
+                                        &tx.tx.from[..16.min(tx.tx.from.len())],
+                                        needed_nonce,
+                                        sender_nonces.iter().take(5).collect::<Vec<_>>()
+                                    );
+                                    new_deferred.push(tx.clone());
+                                    continue;
+                                }
+                            }
+                            new_deferred.push(tx.clone());
+                        }
                         continue;
                     }
                     let tx_cost = if is_stake_tx {
@@ -473,29 +632,76 @@ impl NodeState {
                     } else {
                         tx.tx.amount + gas_fee
                     };
-                    from_account.balance = from_account.balance.saturating_sub(tx_cost);
+                    if from_account.balance < tx_cost {
+                        tracing::warn!(
+                            "Batch SKIP insufficient-balance tx {} from {} (bal={} < cost={})",
+                            &tx.hash[..16.min(tx.hash.len())],
+                            &tx.tx.from[..16.min(tx.tx.from.len())],
+                            from_account.balance,
+                            tx_cost
+                        );
+                        continue;
+                    }
+                    from_account.balance -= tx_cost;
                     from_account.nonce = tx.tx.nonce + 1;
+                    tx_applied = true;
 
                     if is_in_partition && from_account.partition_budget.is_some() {
                         from_account.partition_budget_spent += tx_cost;
                     }
                 }
 
-                if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                    let to_account = state
-                        .accounts
-                        .entry(tx.tx.to.clone())
-                        .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-                    to_account.balance += tx.tx.amount;
+                if tx_applied || !sender_exists {
+                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
+                        let to_account = state
+                            .accounts
+                            .entry(tx.tx.to.clone())
+                            .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
+                        to_account.balance += tx.tx.amount;
+                    }
+
+                    state.total_burned += gas_fee / 2;
+                    state.total_to_validators += gas_fee / 2;
+                    state.total_transactions += 1;
+                    executed_count += 1;
+                    executed_hashes.insert(tx.hash.clone());
                 }
 
-                state.total_burned += gas_fee / 2;
-                state.total_to_validators += gas_fee / 2;
-
-                if tx.tx.kind.is_some() && !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-                    special_txs.push(tx);
+                if (tx_applied || !sender_exists) && tx.tx.kind.is_some() && !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                    special_txs.push(tx.clone());
                 }
             }
+        }
+
+        if !new_deferred.is_empty() {
+            const MAX_DEFERRED: usize = 500;
+            if new_deferred.len() > MAX_DEFERRED {
+                tracing::warn!(
+                    "Batch deferred queue overflow: {} txs exceeds cap {}, dropping oldest",
+                    new_deferred.len(), MAX_DEFERRED
+                );
+                new_deferred.sort_by(|a, b| a.tx.nonce.cmp(&b.tx.nonce));
+                new_deferred.truncate(MAX_DEFERRED);
+            }
+            tracing::warn!(
+                "Batch deferred {} txs with future nonces (will retry on next checkpoint)",
+                new_deferred.len()
+            );
+        }
+
+        {
+            let final_hashes: std::collections::HashSet<&str> = new_deferred.iter().map(|t| t.hash.as_str()).collect();
+            for dtx in &new_deferred {
+                *retry_counts.entry(dtx.hash.clone()).or_insert(0) += 1;
+            }
+            retry_counts.retain(|hash, _| final_hashes.contains(hash.as_str()));
+        }
+
+        {
+            let mut deferred = self.deferred_batch_txs.lock().await;
+            *deferred = new_deferred;
+            let mut counts = self.deferred_batch_retry_counts.lock().await;
+            *counts = retry_counts;
         }
 
         if !special_txs.is_empty() {
@@ -587,7 +793,8 @@ impl NodeState {
         let reward_infos: Vec<TxRewardInfo> = {
             let state = self.inner.read().await;
             let current_gas_price = state.current_gas_price;
-            txs.iter()
+            all_txs.iter()
+                .filter(|tx| executed_hashes.contains(&tx.hash))
                 .filter(|tx| !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)))
                 .filter_map(|tx| {
                     let gas_fee = tx.tx.gas_price.unwrap_or(current_gas_price);
@@ -650,16 +857,52 @@ impl NodeState {
             }
         }
 
+        let newly_failed = all_txs.len().saturating_sub(executed_count);
+        if newly_failed > 0 && convergence_skipped == 0 {
+            tracing::warn!(
+                "Batch UNDERCOUNT: {} of {} finalized txs actually executed (skipped {})",
+                executed_count, all_txs.len(), newly_failed
+            );
+        }
         tracing::info!(
-            "Batch executed {} finalized txs in {:?} (single-lock)",
-            tx_count,
-            batch_start.elapsed()
+            "Batch executed {}/{} finalized txs in {:?} ({} convergence-pre-executed, {} from deferred, {} expired, {} gap-skipped senders)",
+            executed_count, total_finalized,
+            batch_start.elapsed(),
+            convergence_skipped, from_deferred, expired_count, gap_skipped_senders.len()
         );
     }
 
-    pub async fn execute_finalized_transaction_core(&self, tx: &SignedTransaction) {
-        if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+    pub async fn purge_stale_deferred_txs(&self) {
+        let mut deferred = self.deferred_batch_txs.lock().await;
+        if deferred.is_empty() {
             return;
+        }
+        let before = deferred.len();
+        {
+            let state = self.inner.read().await;
+            deferred.retain(|tx| {
+                if let Some(account) = state.accounts.get(&tx.tx.from) {
+                    tx.tx.nonce >= account.nonce
+                } else {
+                    true
+                }
+            });
+        }
+        let purged = before - deferred.len();
+        if purged > 0 {
+            let mut counts = self.deferred_batch_retry_counts.lock().await;
+            let remaining_hashes: std::collections::HashSet<&str> = deferred.iter().map(|t| t.hash.as_str()).collect();
+            counts.retain(|hash, _| remaining_hashes.contains(hash.as_str()));
+            tracing::info!(
+                "Purged {} stale deferred txs after proof sync ({} remaining)",
+                purged, deferred.len()
+            );
+        }
+    }
+
+    pub async fn execute_finalized_transaction_core(&self, tx: &SignedTransaction) -> bool {
+        if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+            return false;
         }
 
         let gas_fee = {
@@ -685,7 +928,7 @@ impl NodeState {
                             tx.tx.nonce,
                             from_account.nonce
                         );
-                        return;
+                        return false;
                     }
                     let tx_cost = if is_stake_tx {
                         tx.tx.amount + gas_fee
@@ -694,6 +937,15 @@ impl NodeState {
                     } else {
                         tx.tx.amount + gas_fee
                     };
+                    if from_account.balance < tx_cost {
+                        tracing::warn!(
+                            "Skipping insufficient-balance tx {} (bal={} < cost={})",
+                            &tx.hash[..16.min(tx.hash.len())],
+                            from_account.balance,
+                            tx_cost
+                        );
+                        return false;
+                    }
                     from_account.balance -= tx_cost;
                     from_account.nonce = tx.tx.nonce + 1;
 
@@ -713,8 +965,14 @@ impl NodeState {
             
             state.total_burned += gas_fee / 2;
             state.total_to_validators += gas_fee / 2;
+            state.total_transactions += 1;
         }
         
+        self.execute_transaction_side_effects(tx).await;
+        true
+    }
+
+    async fn execute_transaction_side_effects(&self, tx: &SignedTransaction) {
         if let Some(ref kind) = tx.tx.kind {
             use rinku_core::types::TransactionKind;
             let from_addr = &tx.tx.from;
@@ -1049,6 +1307,8 @@ impl NodeState {
             })
             .collect();
 
+        let _permit = self.dag_write_semaphore.acquire().await
+            .map_err(|e| anyhow::anyhow!("DAG write semaphore closed: {}", e))?;
         let mut state = self.inner.write().await;
         
         if state.dag.get_node(&tx.hash).is_some() {
@@ -1075,8 +1335,8 @@ impl NodeState {
             checkpoint_height: None,
             received_at_ms: Some(now_ms),
             partition_epoch: None,
-            provisional_finality: false,
             rolled_back: false,
+            convergence_certificate: None,
         };
 
         state.dag.add_node(node)?;
@@ -1120,9 +1380,18 @@ impl NodeState {
     
     pub async fn set_tx_checkpoint_height(&self, hash: &str, height: u64) {
         let mut state = self.inner.write().await;
+        let _ = state.dag.mark_finalized(hash, height);
+    }
+
+    pub async fn set_convergence_certificate(&self, hash: &str, finality: &rinku_core::types::FastPathFinality) {
+        let mut state = self.inner.write().await;
         if let Some(node) = state.dag.get_node_mut(hash) {
-            node.checkpoint_height = Some(height);
-            node.finalized = true;
+            node.convergence_certificate = Some(rinku_core::types::ConvergenceCertificate {
+                total_stake: finality.total_stake_acked,
+                quorum_required: finality.quorum_stake_required,
+                confirmed_at_ms: finality.confirmed_at_ms.unwrap_or(0),
+                acks: finality.acks.clone(),
+            });
         }
     }
     
@@ -1212,6 +1481,8 @@ impl NodeState {
         }
         
         state.checkpoints.sort_by_key(|c| c.height);
+        let sync_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        self.checkpoint_height_cache.store(sync_height, std::sync::atomic::Ordering::Relaxed);
         
         for tx_data in snapshot.recent_txs {
             let signed_tx = rinku_core::types::SignedTransaction {
@@ -1249,9 +1520,9 @@ impl NodeState {
                     finalized: false,
                     checkpoint_height: None,
                     received_at_ms: Some(now_dag),
-            partition_epoch: None,
-            provisional_finality: false,
+                    partition_epoch: None,
                     rolled_back: false,
+                    convergence_certificate: None,
                 };
                 let _ = state.dag.add_node(node);
             }
@@ -1262,53 +1533,74 @@ impl NodeState {
     }
 
     pub async fn force_add_transaction_for_vote(&self, tx: SignedTransaction) -> Result<()> {
-        let normalized_parents: Vec<String> = tx
-            .tx
-            .parents
-            .iter()
-            .map(|p| {
-                if p.starts_with("rinku://tx/h/") {
-                    p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
-                } else if p.starts_with("rinku://tx/") {
-                    p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
-                } else {
-                    p.clone()
-                }
-            })
-            .collect();
+        self.force_add_transactions_batch_for_vote(vec![tx]).await?;
+        Ok(())
+    }
 
-        let mut state = self.inner.write().await;
-        
-        if state.dag.get_node(&tx.hash).is_some() {
-            return Ok(());
+    pub async fn force_add_transactions_batch_for_vote(&self, txs: Vec<SignedTransaction>) -> Result<usize> {
+        if txs.is_empty() {
+            return Ok(0);
         }
-        
-        let existing_parents: Vec<String> = normalized_parents
-            .into_iter()
-            .filter(|p| p == "genesis" || state.dag.get_node(p).is_some())
-            .collect();
 
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
 
-        let node = rinku_core::types::DagNode {
-            hash: tx.hash.clone(),
-            tx: tx.clone(),
-            parents: existing_parents,
-            children: Vec::new(),
-            weight: 1.0,
-            finalized: false,
-            checkpoint_height: None,
-            received_at_ms: Some(now_ms),
-            partition_epoch: None,
-            provisional_finality: false,
-            rolled_back: false,
-        };
+        let prepared: Vec<(SignedTransaction, Vec<String>)> = txs.into_iter().map(|tx| {
+            let normalized_parents: Vec<String> = tx
+                .tx
+                .parents
+                .iter()
+                .map(|p| {
+                    if p.starts_with("rinku://tx/h/") {
+                        p.strip_prefix("rinku://tx/h/").unwrap_or(p).to_string()
+                    } else if p.starts_with("rinku://tx/") {
+                        p.strip_prefix("rinku://tx/").unwrap_or(p).to_string()
+                    } else {
+                        p.clone()
+                    }
+                })
+                .collect();
+            (tx, normalized_parents)
+        }).collect();
 
-        state.dag.add_node(node)?;
-        Ok(())
+        let mut state = self.inner.write().await;
+        let mut added = 0usize;
+
+        for (tx, normalized_parents) in prepared {
+            if state.dag.get_node(&tx.hash).is_some() {
+                continue;
+            }
+
+            let existing_parents: Vec<String> = normalized_parents
+                .into_iter()
+                .filter(|p| p == "genesis" || state.dag.get_node(p).is_some())
+                .collect();
+
+            let node = rinku_core::types::DagNode {
+                hash: tx.hash.clone(),
+                tx: tx.clone(),
+                parents: existing_parents,
+                children: Vec::new(),
+                weight: 1.0,
+                finalized: false,
+                checkpoint_height: None,
+                received_at_ms: Some(now_ms),
+                partition_epoch: None,
+                rolled_back: false,
+                convergence_certificate: None,
+            };
+
+            match state.dag.add_node(node) {
+                Ok(_) => { added += 1; }
+                Err(e) => {
+                    tracing::debug!("Batch force-add: failed to add tx {}: {}", &tx.hash[..16.min(tx.hash.len())], e);
+                }
+            }
+        }
+
+        Ok(added)
     }
 
     pub async fn add_transactions_batch(&self, txs: Vec<SignedTransaction>) -> Vec<Result<()>> {
@@ -1439,9 +1731,9 @@ impl NodeState {
                 finalized: false,
                 checkpoint_height: None,
                 received_at_ms: Some(now_ms),
-            partition_epoch: None,
-            provisional_finality: false,
+                partition_epoch: None,
                 rolled_back: false,
+                convergence_certificate: None,
             };
             
             let result = state

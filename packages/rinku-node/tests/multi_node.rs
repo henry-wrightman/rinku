@@ -66,8 +66,8 @@ fn create_dag_node(tx: SignedTransaction, weight: f64) -> DagNode {
         weight,
         received_at_ms: None,
         partition_epoch: None,
-        provisional_finality: false,
         rolled_back: false,
+        convergence_certificate: None,
     }
 }
 

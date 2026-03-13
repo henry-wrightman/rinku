@@ -603,7 +603,7 @@ async fn health() -> Json<HealthResponse> {
 async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusResponse> {
     let tips = state.get_tips().await;
     let (dag_size, _, _) = state.get_dag_stats().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let total_transactions = state.get_total_transactions().await;
     // Use rewards service for accurate staking data
     let rewards = state.rewards.read().await;
@@ -671,7 +671,7 @@ async fn get_bootstrap_info(State(state): State<NodeState>) -> Json<BootstrapInf
 async fn get_node_status(State(state): State<NodeState>) -> Json<NodeStatusResponse> {
     let tips = state.get_tips().await;
     let (dag_size, _, _) = state.get_dag_stats().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let total_transactions = state.get_total_transactions().await;
     // Use rewards service for accurate staking data
     let rewards = state.rewards.read().await;
@@ -759,7 +759,7 @@ async fn post_bootstrap(
 
     let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
     let total_available = all_txs.len();
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     
     let transactions: Vec<_> = all_txs.into_iter().take(limit).collect();
     let has_more = total_available > limit;
@@ -790,7 +790,7 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Result<Json<Snapsh
     info!("Snapshot sync request received");
     
     let snapshot = state.get_sync_snapshot().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     
     info!(
         "Snapshot sync response: {} accounts, {} validators, {} checkpoints, {} dag txs",
@@ -1242,7 +1242,7 @@ async fn handle_faucet_request(
                 if let (Some(addr), Some(_)) = (validator_addr, validator_stake) {
                     let stake = state.get_validator_stake(&addr).await.unwrap_or(0);
                     if stake > 0 {
-                        gossip.broadcast_fast_path_transaction(tx.clone(), &addr, stake).await;
+                        gossip.broadcast_convergence_transaction(tx.clone(), &addr, stake).await;
                         info!("Faucet tx {} to {} broadcast via FAST-PATH", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
                     } else {
                         gossip.broadcast_transaction(tx).await;
@@ -1317,7 +1317,7 @@ async fn get_faucet_stats(State(state): State<NodeState>) -> Json<FaucetStatsRes
 
 async fn get_stats(State(state): State<NodeState>) -> Json<StatsResponse> {
     let (dag_nodes, tips, accounts) = state.get_dag_stats().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let gas_price = state.get_gas_price().await;
     let total_supply = state.get_total_supply().await;
     let rewards = state.rewards.read().await;
@@ -1389,7 +1389,7 @@ async fn get_account_transactions_with_fast_path(
             
             let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
                 if let Some(gossip) = &api_state.gossip_service {
-                    match gossip.get_fast_path_status(&stx.hash).await {
+                    match gossip.get_convergence_status(&stx.hash).await {
                         Some(fp) => {
                             let status = match fp.status {
                                 rinku_core::types::FastPathStatus::Pending => "pending",
@@ -1402,7 +1402,7 @@ async fn get_account_transactions_with_fast_path(
                         None => {
                             if finalized {
                                 (Some("finalized".to_string()), None, None)
-                            } else if gossip.get_all_fast_path_executed().await.contains(&stx.hash) {
+                            } else if gossip.get_all_convergence_executed().await.contains(&stx.hash) {
                                 (Some("confirmed".to_string()), None, None)
                             } else {
                                 (None, None, None)
@@ -1718,26 +1718,19 @@ async fn submit_transaction(
             });
             // Broadcast to peers after successful local add
             if let Some(ref gossip) = api_state.gossip_service {
-                if is_fast_path_eligible {
-                    // Auto-detect: use fast-path for eligible transactions
-                    let (validator_addr, _) = api_state.node_state.get_validator_info().await;
-                    let validator_stake = if let Some(ref addr) = validator_addr {
-                        api_state.node_state.get_validator_stake(addr).await.unwrap_or(0)
-                    } else {
-                        0
-                    };
-                    
-                    if let Some(addr) = validator_addr {
-                        gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
-                        info!("Transaction {} broadcast via FAST-PATH", &inner.hash[..16.min(inner.hash.len())]);
-                    } else {
-                        // No validator identity, fall back to regular broadcast
-                        gossip.broadcast_transaction(tx).await;
-                        info!("Transaction {} broadcast to peers (no validator for fast-path)", &inner.hash[..16.min(inner.hash.len())]);
-                    }
+                let (validator_addr, _) = api_state.node_state.get_validator_info().await;
+                let validator_stake = if let Some(ref addr) = validator_addr {
+                    api_state.node_state.get_validator_stake(addr).await.unwrap_or(0)
+                } else {
+                    0
+                };
+                
+                if let Some(addr) = validator_addr {
+                    gossip.broadcast_convergence_transaction(tx.clone(), &addr, validator_stake).await;
+                    info!("Transaction {} broadcast via convergence protocol", &inner.hash[..16.min(inner.hash.len())]);
                 } else {
                     gossip.broadcast_transaction(tx).await;
-                    info!("Transaction {} broadcast to peers", &inner.hash[..16.min(inner.hash.len())]);
+                    info!("Transaction {} broadcast to peers (no validator identity)", &inner.hash[..16.min(inner.hash.len())]);
                 }
             }
             (
@@ -1842,7 +1835,7 @@ async fn submit_fast_path_transaction(
                 };
                 
                 if let Some(addr) = validator_addr {
-                    gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
+                    gossip.broadcast_convergence_transaction(tx.clone(), &addr, validator_stake).await;
                 } else {
                     gossip.broadcast_transaction(tx.clone()).await;
                 }
@@ -1890,12 +1883,12 @@ struct FastPathStatusResponse {
     finality_time_ms: Option<u64>,
 }
 
-async fn get_fast_path_status(
+async fn get_convergence_status(
     State(api_state): State<ApiState>,
     Path(hash): Path<String>,
 ) -> impl IntoResponse {
     if let Some(ref gossip) = api_state.gossip_service {
-        if let Some(finality) = gossip.get_fast_path_status(&hash).await {
+        if let Some(finality) = gossip.get_convergence_status(&hash).await {
             let quorum_percent = if finality.quorum_stake_required > 0 {
                 (finality.total_stake_acked * 100 / finality.quorum_stake_required) as u32
             } else {
@@ -1917,7 +1910,7 @@ async fn get_fast_path_status(
         }
         
         // Fallback: check fast-path executed set and DAG finalization
-        let fp_executed = gossip.get_all_fast_path_executed().await.contains(&hash);
+        let fp_executed = gossip.get_all_convergence_executed().await.contains(&hash);
         let is_finalized = {
             let state = api_state.node_state.inner.read().await;
             state.dag.get_node(&hash).map(|n| n.finalized).unwrap_or(false)
@@ -2023,17 +2016,31 @@ async fn submit_batch_transaction(
     let successful = results.iter().filter(|r| r.is_ok()).count();
     let failed = results.len() - successful;
 
-    // Broadcast successful transactions to peers
     if let Some(ref gossip) = api_state.gossip_service {
+        let (validator_addr, _) = api_state.node_state.get_validator_info().await;
+        let validator_stake = if let Some(ref addr) = validator_addr {
+            api_state.node_state.get_validator_stake(addr).await.unwrap_or(0)
+        } else {
+            0
+        };
+
         for (i, result) in results.iter().enumerate() {
             if result.is_ok() {
                 if let Some(tx) = txs_for_broadcast.get(i) {
-                    gossip.broadcast_transaction(tx.clone()).await;
+                    if let Some(ref addr) = validator_addr {
+                        if validator_stake > 0 {
+                            gossip.broadcast_convergence_transaction(tx.clone(), addr, validator_stake).await;
+                        } else {
+                            gossip.broadcast_transaction(tx.clone()).await;
+                        }
+                    } else {
+                        gossip.broadcast_transaction(tx.clone()).await;
+                    }
                 }
             }
         }
         if successful > 0 {
-            info!("Broadcast {} transactions to peers", successful);
+            info!("Broadcast {} transactions to peers via convergence", successful);
         }
     }
 
@@ -2077,7 +2084,7 @@ async fn get_dag(
         if let Some(ref gossip) = api_state.gossip_service {
             let mut statuses = std::collections::HashMap::new();
             for hash in &hashes {
-                if let Some(finality) = gossip.get_fast_path_status(hash).await {
+                if let Some(finality) = gossip.get_convergence_status(hash).await {
                     statuses.insert(hash.clone(), finality);
                 }
             }
@@ -2089,7 +2096,7 @@ async fn get_dag(
     // Get fast-path executed set for fallback status derivation
     let fp_executed: std::collections::HashSet<String> = 
         if let Some(ref gossip) = api_state.gossip_service {
-            gossip.get_all_fast_path_executed().await
+            gossip.get_all_convergence_executed().await
         } else {
             std::collections::HashSet::new()
         };
@@ -2367,7 +2374,7 @@ async fn get_finality_metrics(State(api_state): State<ApiState>) -> Json<Finalit
     
     // Get fast-path confirmation stats if available
     let avg_confirmation_ms = if let Some(ref gossip) = api_state.gossip_service {
-        gossip.get_fast_path_stats().await.avg_confirmation_ms
+        gossip.get_convergence_stats().await.avg_confirmation_ms
     } else {
         None
     };
@@ -2450,8 +2457,8 @@ async fn get_transaction(
         // Query fast-path status from GossipService
         let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
             if let Some(ref gossip) = api_state.gossip_service {
-                if let Some(fp) = gossip.get_fast_path_status(&hash).await {
-                    let is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Executed | rinku_core::types::FastPathStatus::Finalized);
+                if let Some(fp) = gossip.get_convergence_status(&hash).await {
+                    let _is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Executed | rinku_core::types::FastPathStatus::Finalized);
                     let status = match fp.status {
                         rinku_core::types::FastPathStatus::Confirmed => "confirmed",
                         rinku_core::types::FastPathStatus::Executed => "executed",
@@ -2568,7 +2575,7 @@ async fn get_transaction_replies(
         if let Some(ref gossip) = api_state.gossip_service {
             let mut statuses = std::collections::HashMap::new();
             for h in &reply_hashes {
-                if let Some(finality) = gossip.get_fast_path_status(h).await {
+                if let Some(finality) = gossip.get_convergence_status(h).await {
                     statuses.insert(h.clone(), finality);
                 }
             }
@@ -2775,7 +2782,7 @@ struct TokenomicsSupplyResponse {
 
 async fn get_tokenomics_supply(State(state): State<NodeState>) -> Json<TokenomicsSupplyResponse> {
     let total_supply = state.get_total_supply().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let (_, gas_burned, _, _) = state.get_gas_stats().await;
     
     // Get actual emission stats from emission service
@@ -2841,7 +2848,7 @@ struct EmissionResponse {
 }
 
 async fn get_tokenomics_emission(State(state): State<NodeState>) -> Json<EmissionResponse> {
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let emission = state.emission.read().await;
     let stats = emission.get_stats(checkpoint_height);
     
@@ -3181,7 +3188,7 @@ async fn verify_proof_endpoint(
     use crate::proofs::{decode_vo, verify_vo, decode_self_contained_proof, verify_self_contained_proof, decode_account_state_proof, verify_account_state_proof_detailed};
     
     let proof_url = req.proof_url.trim();
-    let current_checkpoint_height = state.get_checkpoint_height().await as u64;
+    let current_checkpoint_height = state.get_checkpoint_height() as u64;
     
     if proof_url.starts_with("rinku://vo/") {
         match decode_vo(proof_url) {
@@ -3335,22 +3342,54 @@ async fn generate_transaction_proof(
         }
     };
 
-    // Build validator leaves from checkpoint's validator signatures (not global state)
-    let validator_leaves: Vec<MerkleSumLeaf> = checkpoint
-        .validator_signatures
-        .iter()
-        .filter(|sig| sig.bls_public_key.is_some())
-        .enumerate()
-        .map(|(i, sig)| {
-            MerkleSumLeaf {
-                index: i,
-                address: sig.validator.clone(),
-                bls_public_key: sig.bls_public_key.clone().unwrap_or_default(),
-                weight_units: sig.weight,
-                weight: from_micro_units(sig.weight),
-            }
-        })
-        .collect();
+    let convergence_cert = state.get_convergence_certificate(&hash).await;
+
+    let (validator_leaves, acked_indices): (Vec<MerkleSumLeaf>, Vec<usize>) = if let Some(ref cert) = convergence_cert {
+        let validators = state.get_validators().await;
+        let acked_addrs: std::collections::HashSet<&str> = cert.acks.iter()
+            .map(|a| a.validator_address.as_str())
+            .collect();
+
+        let leaves: Vec<MerkleSumLeaf> = validators
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                MerkleSumLeaf {
+                    index: i,
+                    address: v.address.clone(),
+                    bls_public_key: v.bls_public_key.clone().unwrap_or_default(),
+                    weight_units: v.stake,
+                    weight: from_micro_units(v.stake),
+                }
+            })
+            .collect();
+
+        let indices: Vec<usize> = leaves.iter()
+            .enumerate()
+            .filter(|(_, leaf)| acked_addrs.contains(leaf.address.as_str()))
+            .map(|(i, _)| i)
+            .collect();
+
+        (leaves, indices)
+    } else {
+        let leaves: Vec<MerkleSumLeaf> = checkpoint
+            .validator_signatures
+            .iter()
+            .filter(|sig| sig.bls_public_key.is_some())
+            .enumerate()
+            .map(|(i, sig)| {
+                MerkleSumLeaf {
+                    index: i,
+                    address: sig.validator.clone(),
+                    bls_public_key: sig.bls_public_key.clone().unwrap_or_default(),
+                    weight_units: sig.weight,
+                    weight: from_micro_units(sig.weight),
+                }
+            })
+            .collect();
+        let indices: Vec<usize> = (0..leaves.len()).collect();
+        (leaves, indices)
+    };
 
     if validator_leaves.is_empty() {
         return Ok(Json(TransactionProofResponse {
@@ -3359,15 +3398,15 @@ async fn generate_transaction_proof(
             proof_url: None,
             proof_size_bytes: None,
             qr_viable: None,
-            error: Some("Checkpoint has no validators with BLS public keys".to_string()),
+            error: Some("No validators available for proof generation".to_string()),
         }));
     }
 
     let validator_tree = build_merkle_sum_tree(&validator_leaves);
 
-    // Generate membership proofs for all signers
-    let membership_proofs: Vec<_> = (0..validator_leaves.len())
-        .filter_map(|idx| get_merkle_sum_proof(&validator_leaves, idx))
+    let membership_proofs: Vec<_> = acked_indices
+        .iter()
+        .filter_map(|&idx| get_merkle_sum_proof(&validator_leaves, idx))
         .collect();
 
     let now_ms = std::time::SystemTime::now()
@@ -3404,7 +3443,7 @@ async fn generate_transaction_proof(
             .as_ref()
             .map(|b| URL_SAFE_NO_PAD.encode(b))
             .unwrap_or_default(),
-        signer_count: checkpoint.validator_signatures.len(),
+        signer_count: if convergence_cert.is_some() { acked_indices.len() } else { checkpoint.validator_signatures.len() },
         signer_membership_proofs: membership_proofs,
         validator_sum_tree_root: validator_tree.root,
         chain_id: None,
@@ -4097,7 +4136,7 @@ async fn get_metrics(State(state): State<NodeState>) -> String {
     use sysinfo::{System, Pid};
     
     let (dag_nodes, tips, accounts) = state.get_dag_stats().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let gas_price = state.get_gas_price().await;
     // Use rewards service for accurate staking data (not deprecated state.validators)
     let rewards = state.rewards.read().await;
@@ -4452,7 +4491,7 @@ pub async fn start_api_server(
         .route("/api/slashing/evidence", post(post_slashing_evidence))
         .route("/api/tx", post(submit_transaction))
         .route("/api/tx/fast", post(submit_fast_path_transaction))
-        .route("/api/tx/fast/:hash", get(get_fast_path_status))
+        .route("/api/tx/fast/:hash", get(get_convergence_status))
         .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))

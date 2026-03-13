@@ -164,7 +164,7 @@ impl NodeState {
             checkpoint_height: state.checkpoints.last().map(|cp| cp.height).unwrap_or(0),
             finalized_count,
             unfinalized_count,
-            total_transactions: state.total_transactions,
+            total_transactions: std::cmp::max(state.total_transactions, dag_nodes as u64),
             tips: state.dag.tips(),
             gas_price: state.current_gas_price,
             total_burned: state.total_burned,

@@ -137,4 +137,9 @@ impl NodeState {
             (false, None)
         }
     }
+
+    pub async fn get_convergence_certificate(&self, hash: &str) -> Option<rinku_core::types::ConvergenceCertificate> {
+        let state = self.inner.read().await;
+        state.dag.get_node(hash).and_then(|n| n.convergence_certificate.clone())
+    }
 }
