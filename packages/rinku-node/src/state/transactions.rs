@@ -357,6 +357,18 @@ impl NodeState {
                     effective_nonce, tx.tx.nonce
                 ));
             }
+        } else if tx.tx.from == "faucet" {
+            let effective_nonce = Self::get_effective_nonce(&state, &tx.tx.from);
+            if tx.tx.nonce != effective_nonce {
+                tracing::warn!(
+                    "Faucet nonce conflict: expected {}, got {} — concurrent faucet request collision",
+                    effective_nonce, tx.tx.nonce
+                );
+                return Err(anyhow::anyhow!(
+                    "Faucet nonce conflict: expected {}, got {}",
+                    effective_nonce, tx.tx.nonce
+                ));
+            }
         }
 
         state.dag.add_node(node)?;

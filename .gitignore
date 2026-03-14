@@ -35,3 +35,4 @@ rinku-node-bin
 .replit
 replit.md
 *wallet.json
+/logs/*

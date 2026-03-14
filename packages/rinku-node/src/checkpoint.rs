@@ -817,10 +817,9 @@ impl CheckpointService {
             rinku_core::types::from_micro_units(checkpoint_reward)
         );
         
-        let fp_executed = if let Some(ref gossip) = self.gossip_service {
-            gossip.get_all_convergence_executed().await
-        } else {
-            std::collections::HashSet::new()
+        let fp_executed = {
+            let state_guard = self.state.inner.read().await;
+            state_guard.convergence_executed_hashes.clone()
         };
 
         for tx in &txs_to_execute {
@@ -1303,10 +1302,9 @@ impl CheckpointService {
         }
         let affected_vec: Vec<String> = affected_addresses_for_proofs.into_iter().collect();
 
-        let convergence_executed = if let Some(ref gossip) = self.gossip_service {
-            gossip.get_all_convergence_executed().await
-        } else {
-            std::collections::HashSet::new()
+        let convergence_executed = {
+            let state_guard = self.state.inner.read().await;
+            state_guard.convergence_executed_hashes.clone()
         };
 
         let proofs_result = self.state.compute_state_root_and_proofs_at_height(

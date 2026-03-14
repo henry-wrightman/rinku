@@ -341,6 +341,11 @@ impl NodeState {
         state.accounts.get(address).map(|a| a.nonce).unwrap_or(0)
     }
 
+    pub async fn get_effective_nonce_for(&self, sender: &str) -> u64 {
+        let state = self.inner.read().await;
+        Self::get_effective_nonce(&state, sender)
+    }
+
     /// Sync account nonce from peer during delta sync.
     /// Only updates if the peer's nonce is greater (prevents regression).
     pub async fn sync_account_nonce(&self, address: &str, peer_nonce: u64) {

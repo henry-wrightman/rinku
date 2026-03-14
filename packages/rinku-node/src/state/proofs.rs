@@ -9,7 +9,12 @@ impl NodeState {
         let mut pending_gas = 0u64;
         let mut pending_count = 0u64;
 
+        let confirmed_nonce = state.accounts.get(sender).map(|a| a.nonce).unwrap_or(0);
+
         for node in state.dag.get_unfinalized_for_sender(sender) {
+            if node.tx.tx.nonce < confirmed_nonce {
+                continue;
+            }
             let gas = node.tx.tx.gas_price.unwrap_or(state.current_gas_price);
             pending_gas += gas;
 
@@ -731,11 +736,23 @@ impl NodeState {
                     
                     if account.nonce > proof.nonce && !nonce_corrupted {
                         tracing::debug!(
-                            "Skipping STATE SYNC for {} at checkpoint {}: local nonce {} > proof nonce {} (un-checkpointed txs)",
+                            "Skipping STATE SYNC for {} at checkpoint {}: local nonce {} > proof nonce {} (state ahead)",
                             &address[..16.min(address.len())],
                             proof.checkpoint_height,
                             account.nonce,
                             proof.nonce
+                        );
+                    } else if account.nonce == proof.nonce && !nonce_corrupted
+                              && account.balance >= proof.balance_micro
+                              && account.staked >= proof.staked_micro
+                    {
+                        tracing::debug!(
+                            "Skipping STATE SYNC for {} at checkpoint {}: nonce {} matches, local bal {} >= proof bal {} (preserving convergence credits)",
+                            &address[..16.min(address.len())],
+                            proof.checkpoint_height,
+                            account.nonce,
+                            account.balance,
+                            proof.balance_micro
                         );
                     } else {
                         if nonce_corrupted {

@@ -1197,9 +1197,7 @@ async fn handle_faucet_request(
         .map(|hash| format!("rinku://tx/h/{}", hash))
         .collect();
 
-    let faucet_account = state.get_account("faucet").await;
-    // Use current nonce (not +1) - add_transaction will increment it
-    let nonce = faucet_account.map(|a| a.nonce).unwrap_or(0);
+    let nonce = state.get_effective_nonce_for("faucet").await;
 
     let inner_tx = rinku_core::types::Transaction {
         from: "faucet".to_string(),

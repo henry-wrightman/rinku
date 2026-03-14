@@ -4141,28 +4141,19 @@ impl GossipService {
                 self.cascade_execute_next_nonce(&sender, executed_nonce).await;
             }
             crate::state::ConvergenceExecResult::AlreadyApplied => {
-                let sender = tx.tx.from.clone();
-                let executed_nonce = tx.tx.nonce;
                 tracing::info!(
-                    "FastPath: marking tx {} as executed (already applied via sync)",
-                    &tx.hash[..16.min(tx.hash.len())]
+                    "FastPath: tx {} has stale nonce (sender {} nonce {} already consumed by another tx)",
+                    &tx.hash[..16.min(tx.hash.len())],
+                    &tx.tx.from[..16.min(tx.tx.from.len())],
+                    tx.tx.nonce
                 );
                 {
                     let mut inner = self.inner.write().await;
                     inner.convergence_executed.insert(tx.hash.clone());
                     if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
-                        finality.status = rinku_core::types::FastPathStatus::Executed;
+                        finality.status = rinku_core::types::FastPathStatus::Finalized;
                     }
                 }
-                if let Some(ref eb) = self.event_bus {
-                    eb.publish(crate::events::NodeEvent::FastPathExecuted {
-                        hash: tx.hash.clone(),
-                        from: tx.tx.from.clone(),
-                        to: tx.tx.to.clone(),
-                        amount: from_micro_units(tx.tx.amount),
-                    });
-                }
-                self.cascade_execute_next_nonce(&sender, executed_nonce).await;
             }
             crate::state::ConvergenceExecResult::Deferred => {
                 const MAX_DEFERRED_PER_SENDER: usize = 50;
@@ -4226,16 +4217,19 @@ impl GossipService {
                 crate::state::ConvergenceExecResult::Executed
             }
             crate::state::ConvergenceExecResult::AlreadyApplied => {
-                let sender = tx.tx.from.clone();
-                let executed_nonce = tx.tx.nonce;
+                tracing::info!(
+                    "FastPath: tx {} has stale nonce (sender {} nonce {} already consumed by another tx)",
+                    &tx.hash[..16.min(tx.hash.len())],
+                    &tx.tx.from[..16.min(tx.tx.from.len())],
+                    tx.tx.nonce
+                );
                 {
                     let mut inner = self.inner.write().await;
                     inner.convergence_executed.insert(tx.hash.clone());
                     if let Some(finality) = inner.convergence_confirmed.get_mut(&tx.hash) {
-                        finality.status = rinku_core::types::FastPathStatus::Executed;
+                        finality.status = rinku_core::types::FastPathStatus::Finalized;
                     }
                 }
-                self.cascade_execute_next_nonce(&sender, executed_nonce).await;
                 crate::state::ConvergenceExecResult::AlreadyApplied
             }
             crate::state::ConvergenceExecResult::Deferred => {
@@ -4450,9 +4444,9 @@ impl GossipService {
     }
 
     async fn convergence_retry_sweep(&self) {
-        const RETRY_INTERVAL_MS: u128 = 2000;
-        const RETRY_STALE_THRESHOLD_MS: u64 = 2000;
-        const MAX_RETRIES_PER_TX: u8 = 3;
+        const RETRY_INTERVAL_MS: u128 = 500;
+        const RETRY_STALE_THRESHOLD_MS: u64 = 500;
+        const MAX_RETRIES_PER_TX: u8 = 6;
         const MAX_RETRY_BUDGET: usize = 50;
 
         let should_sweep = {

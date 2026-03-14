@@ -275,57 +275,52 @@ impl NodeState {
     pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint) -> anyhow::Result<()> {
         use rinku_core::merkle::MerkleTree;
         
-        let mut state = self.inner.write().await;
-        
-        // Validate this is the next expected checkpoint
-        // CRITICAL: Use actual last checkpoint height, NOT len() which breaks after pruning
-        let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
-        let expected_height = current_height + 1;
-        if checkpoint.height != expected_height {
-            return Err(anyhow::anyhow!(
-                "Checkpoint height mismatch: expected {}, got {} (current: {})",
-                expected_height,
-                checkpoint.height,
-                current_height
-            ));
-        }
-        
-        // Validate prev_hash linkage (critical for chain integrity)
-        if let Some(last_checkpoint) = state.checkpoints.last() {
-            let expected_prev = &last_checkpoint.hash;
-            let got_prev = checkpoint.previous_hash.as_deref().unwrap_or("");
-            if got_prev != expected_prev {
+        let unfinalized_hashes = {
+            let state = self.inner.read().await;
+            
+            let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+            let expected_height = current_height + 1;
+            if checkpoint.height != expected_height {
                 return Err(anyhow::anyhow!(
-                    "Checkpoint prev_hash mismatch: expected {}, got {}",
-                    &expected_prev[..16.min(expected_prev.len())],
-                    &got_prev[..16.min(got_prev.len())]
+                    "Checkpoint height mismatch: expected {}, got {} (current: {})",
+                    expected_height,
+                    checkpoint.height,
+                    current_height
                 ));
             }
-        }
-        
-        // Get our unfinalized transactions and compute merkle root
-        // CRITICAL: Apply same propagation grace period as checkpoint creation
-        // Only include transactions older than 5 seconds for merkle root calculation
-        // This ensures leader and followers compute the same merkle root
-        use crate::config::PROPAGATION_GRACE_MS;
-        
-        let now_ms_filter = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let cutoff_time = now_ms_filter.saturating_sub(PROPAGATION_GRACE_MS);
-        
-        let mut unfinalized_hashes: Vec<String> = state
-            .dag
-            .get_unfinalized_nodes()
-            .iter()
-            .filter(|n| n.tx.tx.timestamp <= cutoff_time)
-            .map(|n| n.hash.clone())
-            .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
-            .collect();
-        
-        // Sort for deterministic merkle root (must match leader's computation)
-        unfinalized_hashes.sort();
+            
+            if let Some(last_checkpoint) = state.checkpoints.last() {
+                let expected_prev = &last_checkpoint.hash;
+                let got_prev = checkpoint.previous_hash.as_deref().unwrap_or("");
+                if got_prev != expected_prev {
+                    return Err(anyhow::anyhow!(
+                        "Checkpoint prev_hash mismatch: expected {}, got {}",
+                        &expected_prev[..16.min(expected_prev.len())],
+                        &got_prev[..16.min(got_prev.len())]
+                    ));
+                }
+            }
+            
+            use crate::config::PROPAGATION_GRACE_MS;
+            
+            let now_ms_filter = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let cutoff_time = now_ms_filter.saturating_sub(PROPAGATION_GRACE_MS);
+            
+            let mut hashes: Vec<String> = state
+                .dag
+                .get_unfinalized_nodes()
+                .iter()
+                .filter(|n| n.tx.tx.timestamp <= cutoff_time)
+                .map(|n| n.hash.clone())
+                .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+                .collect();
+            
+            hashes.sort();
+            hashes
+        };
         
         let our_merkle_root = if unfinalized_hashes.is_empty() {
             "0".repeat(64)
@@ -337,6 +332,29 @@ impl NodeState {
             }
         };
         
+        let mut state = self.inner.write().await;
+        
+        let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        if checkpoint.height != current_height + 1 {
+            return Err(anyhow::anyhow!(
+                "Checkpoint height changed during merkle computation: expected {}, got {}",
+                current_height + 1,
+                checkpoint.height
+            ));
+        }
+        
+        if let Some(last_checkpoint) = state.checkpoints.last() {
+            let expected_prev = &last_checkpoint.hash;
+            let got_prev = checkpoint.previous_hash.as_deref().unwrap_or("");
+            if got_prev != expected_prev {
+                return Err(anyhow::anyhow!(
+                    "Checkpoint prev_hash changed during merkle computation: expected {}, got {}",
+                    &expected_prev[..16.min(expected_prev.len())],
+                    &got_prev[..16.min(got_prev.len())]
+                ));
+            }
+        }
+        
         let height = checkpoint.height;
         let finalized_count;
         
@@ -345,13 +363,10 @@ impl NodeState {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         
-        // SAFE FINALIZATION: Only finalize if our transaction set matches the leader's
-        // FINALITY-FIRST MODEL: Collect transactions for execution after marking finalized
         let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
         let mut convergence_already_executed: std::collections::HashSet<String> = std::collections::HashSet::new();
         
         if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
-            // Our unfinalized set matches the checkpoint - safe to finalize
             for hash in &unfinalized_hashes {
                 if state.convergence_executed_hashes.remove(hash) {
                     convergence_already_executed.insert(hash.clone());
@@ -375,8 +390,6 @@ impl NodeState {
                 finalized_count
             );
         } else if our_merkle_root != checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
-            // Merkle root mismatch - we have different transactions than the leader
-            // Sync mechanism will reconcile the difference
             finalized_count = 0;
             tracing::info!(
                 "Applied checkpoint {} at height {} (merkle mismatch: ours={} theirs={}, {} unfinalized)",
@@ -387,7 +400,6 @@ impl NodeState {
                 unfinalized_hashes.len()
             );
         } else {
-            // No unfinalized transactions
             finalized_count = 0;
             tracing::info!(
                 "Applied checkpoint {} at height {} (no unfinalized txs)",
@@ -396,13 +408,11 @@ impl NodeState {
             );
         }
         
-        // Add the checkpoint
         state.checkpoints.push(checkpoint.clone());
         state.last_checkpoint_time_ms = now_ms;
         
         self.checkpoint_height_cache.store(height, std::sync::atomic::Ordering::Relaxed);
         
-        // Release state lock before executing transactions
         drop(state);
         
         if finalized_count > 0 {
