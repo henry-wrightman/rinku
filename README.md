@@ -1,8 +1,8 @@
 # Rinku - DAG-Based Distributed Ledger For Mesh-Native Systems
 
-[![Rust CI](https://github.com/rinku-ledger/rinku/actions/workflows/rust.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/rust.yml)
-[![Node.js CI](https://github.com/rinku-ledger/rinku/actions/workflows/node.js.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/node.js.yml)
-[![Network Health](https://github.com/rinku-ledger/rinku/actions/workflows/network-health.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/network-health.yml)
+[![Rust CI](https://github.com/henry-wrightman/rinku/actions/workflows/rust.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/rust.yml)
+[![Node.js CI](https://github.com/henry-wrightman/rinku/actions/workflows/node.js.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/node.js.yml)
+[![Network Health](https://github.com/henry-wrightman/rinku/actions/workflows/network-health.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/network-health.yml)
 [![Protocol](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fversion&query=%24.protocolVersion&label=protocol&color=blue&cacheSeconds=300)](https://rinkuchan.com)
 [![Checkpoints](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fnetwork%2Fstats&query=%24.checkpointCount&label=checkpoints&color=blue&cacheSeconds=60)](https://rinkuchan.com)
 [![Finality](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fnetwork%2Fstats&query=%24.finalityRatio&label=finality&color=brightgreen&suffix=%25&cacheSeconds=60)](https://rinkuchan.com)
