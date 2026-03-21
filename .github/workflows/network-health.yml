@@ -2,8 +2,8 @@ name: Network Health
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # every 15 minutes
-  workflow_dispatch:         # allow manual trigger
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 jobs:
   health-check:
@@ -36,7 +36,6 @@ jobs:
 
           echo "Checkpoint heights — genesis: $genesis_height, val-1: $val1_height, val-2: $val2_height"
 
-          # Allow up to 2 checkpoint lag between nodes
           max_diff=2
           diff1=$(( genesis_height - val1_height ))
           diff2=$(( genesis_height - val2_height ))
