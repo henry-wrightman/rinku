@@ -14,14 +14,16 @@
 
 ---
 
-A DAG-based distributed ledger with tunable consistency, designed for mesh-native and partition-prone environments. Delivers CP-like checkpoint finality during normal operation, provisional availability during partitions, and deterministic merge reconciliation when connectivity is restored. Self-contained VerifiableObject proofs enable offline verification without RPC infrastructure.
+A DAG-based distributed ledger with tunable consistency, designed for mesh-native and partition-prone environments. Delivers CP-like checkpoint finality during normal operation, provisional availability during partitions, and deterministic merge reconciliation when connectivity is restored. Self-contained VerifiableObject proofs enable offline verification without RPC infrastructure. It's also pure ai slop.
+
+[whitepaper](https://rinkuchan.com/rinku.pdf)
 
 ## Quick Start
 
 ### Prerequisites
 
 - **Rust** (1.75+) - Install via [rustup](https://rustup.rs/)
-- **Node.js** (18+) - For the explorer and faucet
+- **Node.js** (18+) - For the explorer
 
 ### Build the Node
 
@@ -325,6 +327,11 @@ cargo test
 # TypeScript tests
 npm test
 ```
+
+---
+
+### Documentation
+
 
 ---
 
