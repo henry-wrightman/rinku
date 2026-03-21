@@ -12,19 +12,19 @@ jobs:
     steps:
       - name: Check genesis node
         run: |
-          response=$(curl --silent --fail --max-time 10 https://rinku-genesis.fly.dev/api/health)
+          response=$(curl --silent --fail --max-time 10 https://rinku-genesis.fly.dev/health)
           echo "Genesis: $response"
           echo "$response" | grep -q '"status":"ok"'
 
       - name: Check validator-1
         run: |
-          response=$(curl --silent --fail --max-time 10 https://rinku-validator-1.fly.dev/api/health)
+          response=$(curl --silent --fail --max-time 10 https://rinku-validator-1.fly.dev/health)
           echo "Validator-1: $response"
           echo "$response" | grep -q '"status":"ok"'
 
       - name: Check validator-2
         run: |
-          response=$(curl --silent --fail --max-time 10 https://rinku-validator-2.fly.dev/api/health)
+          response=$(curl --silent --fail --max-time 10 https://rinku-validator-2.fly.dev/health)
           echo "Validator-2: $response"
           echo "$response" | grep -q '"status":"ok"'
 
