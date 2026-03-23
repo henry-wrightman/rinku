@@ -608,6 +608,7 @@ mod tests {
             to_checkpoint: 2,
             tx_checkpoint_heights,
             validators: Vec::new(),
+            precomputed_proofs: Vec::new(),
         };
         let result = verify_delta(&delta);
         assert_eq!(result, VerificationResult::Valid);
