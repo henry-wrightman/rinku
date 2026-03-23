@@ -2,8 +2,11 @@
 
 [![Rust CI](https://github.com/henry-wrightman/rinku/actions/workflows/rust.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/rust.yml)
 [![Node.js CI](https://github.com/henry-wrightman/rinku/actions/workflows/node.js.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/node.js.yml)
+<<<<<<< feature/enhancements
 [![Coverage (Rust)](https://codecov.io/gh/henry-wrightman/rinku/branch/main/graph/badge.svg?flag=rust)](https://codecov.io/gh/henry-wrightman/rinku)
 [![Coverage (Node)](https://codecov.io/gh/henry-wrightman/rinku/branch/main/graph/badge.svg?flag=node)](https://codecov.io/gh/henry-wrightman/rinku)
+=======
+>>>>>>> main
 [![Network Health](https://github.com/henry-wrightman/rinku/actions/workflows/network-health.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/network-health.yml)
 [![Protocol](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fversion&query=%24.protocolVersion&label=protocol&color=blue&cacheSeconds=300)](https://rinkuchan.com)
 [![Checkpoints](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fnetwork%2Fstats&query=%24.checkpointCount&label=checkpoints&color=blue&cacheSeconds=60)](https://rinkuchan.com)
@@ -16,7 +19,9 @@
 
 ---
 
-A DAG-based distributed ledger with tunable consistency, designed for mesh-native and partition-prone environments. Delivers CP-like checkpoint finality during normal operation, provisional availability during partitions, and deterministic merge reconciliation when connectivity is restored. Self-contained VerifiableObject proofs enable offline verification without RPC infrastructure.
+A DAG-based distributed ledger with tunable consistency, designed for mesh-native and partition-prone environments. Delivers CP-like checkpoint finality during normal operation, provisional availability during partitions, and deterministic merge reconciliation when connectivity is restored. Self-contained VerifiableObject proofs enable offline verification without RPC infrastructure. It's also pure ai slop.
+
+[whitepaper](https://rinkuchan.com/rinku.pdf)
 
 **note**: Most of the code is AI-generated, due to the fact that a) i'm too retarded for rust & b) no time.
 
