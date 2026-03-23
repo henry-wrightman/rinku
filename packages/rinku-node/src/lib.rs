@@ -10,6 +10,7 @@ pub mod contract_storage;
 pub mod contracts;
 pub mod dag_pruning;
 pub mod emission;
+pub mod erasure;
 pub mod events;
 pub mod fast_path;
 pub mod fork_remediation;

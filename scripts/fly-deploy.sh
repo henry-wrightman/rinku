@@ -555,10 +555,10 @@ deploy_fresh() {
     
     check_fly_auth
     
-    log_info "Step 1: Creating/preparing apps..."
-    create_app_if_needed "$GENESIS_APP"
-    create_app_if_needed "$VALIDATOR1_APP"
-    create_app_if_needed "$VALIDATOR2_APP"
+    # log_info "Step 1: Creating/preparing apps..."
+    # create_app_if_needed "$GENESIS_APP"
+    # create_app_if_needed "$VALIDATOR1_APP"
+    # create_app_if_needed "$VALIDATOR2_APP"
     # create_app_if_needed "$RELAYER1_APP"
     
     log_info "Step 2: Allocating IPv4 addresses..."

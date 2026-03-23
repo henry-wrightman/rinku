@@ -100,6 +100,7 @@ struct AccountResponse {
     fingerprint: String,
     balance: f64,
     nonce: u64,
+    effective_nonce: u64,
     staked: f64,
 }
 
@@ -1356,16 +1357,20 @@ async fn get_account(
     Path(address): Path<String>,
 ) -> impl IntoResponse {
     match state.get_account(&address).await {
-        Some(account) => (
-            StatusCode::OK,
-            Json(AccountResponse {
-                fingerprint: account.address,
-                balance: from_micro_units(account.balance),
-                nonce: account.nonce,
-                staked: from_micro_units(account.staked),
-            }),
-        )
-            .into_response(),
+        Some(account) => {
+            let effective_nonce = state.get_effective_nonce_for(&account.address).await;
+            (
+                StatusCode::OK,
+                Json(AccountResponse {
+                    fingerprint: account.address,
+                    balance: from_micro_units(account.balance),
+                    nonce: account.nonce,
+                    effective_nonce,
+                    staked: from_micro_units(account.staked),
+                }),
+            )
+                .into_response()
+        }
         None => ApiError::not_found("Account not found").into_response(),
     }
 }
@@ -2191,8 +2196,9 @@ async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> 
         accounts: accounts
             .into_iter()
             .map(|a| AccountResponse {
-                fingerprint: a.address,
+                fingerprint: a.address.clone(),
                 balance: from_micro_units(a.balance),
+                effective_nonce: a.nonce,
                 nonce: a.nonce,
                 staked: from_micro_units(a.staked),
             })

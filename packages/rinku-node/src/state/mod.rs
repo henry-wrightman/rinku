@@ -144,7 +144,9 @@ pub struct StateInner {
     pub weight_trie: Option<WeightTrie>,
     pub partition_state: partition::PartitionState,
     pub checkpoint_accounts_snapshot: Option<(u64, HashMap<String, (u64, u64, u64)>)>,
+    pub pre_checkpoint_accounts_snapshot: Option<(u64, HashMap<String, (u64, u64, u64)>)>,
     pub convergence_executed_hashes: std::collections::HashSet<String>,
+    pub convergence_executed_order: VecDeque<String>,
 }
 
 #[derive(Clone)]
@@ -166,6 +168,7 @@ pub struct NodeState {
 pub struct StateRootWithProofs {
     pub state_root: String,
     pub proofs: std::collections::HashMap<String, rinku_core::types::AccountStateProof>,
+    pub executed_tx_hashes: std::collections::HashSet<String>,
 }
 
 impl NodeState {
@@ -321,7 +324,9 @@ impl NodeState {
                     },
                     partition_state: partition::PartitionState::default(),
                     checkpoint_accounts_snapshot: None,
+                    pre_checkpoint_accounts_snapshot: None,
                     convergence_executed_hashes: std::collections::HashSet::new(),
+                    convergence_executed_order: VecDeque::new(),
                 }
             } else {
                 if let Some(snapshot) = presync::try_presync_from_peers(&config.p2p.bootstrap_peers, config.is_genesis_node).await {
@@ -414,7 +419,9 @@ impl NodeState {
                         weight_trie: Some(WeightTrie::new()),
                         partition_state: partition::PartitionState::default(),
                         checkpoint_accounts_snapshot: None,
+                        pre_checkpoint_accounts_snapshot: None,
                         convergence_executed_hashes: std::collections::HashSet::new(),
+                        convergence_executed_order: VecDeque::new(),
                     };
                     
                     let mut emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
@@ -613,7 +620,9 @@ impl NodeState {
                     weight_trie: Some(WeightTrie::new()),
                     partition_state: partition::PartitionState::default(),
                     checkpoint_accounts_snapshot: None,
+                    pre_checkpoint_accounts_snapshot: None,
                     convergence_executed_hashes: std::collections::HashSet::new(),
+                    convergence_executed_order: VecDeque::new(),
                 }
             };
 

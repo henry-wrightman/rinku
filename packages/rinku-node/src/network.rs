@@ -18,15 +18,31 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::{debug, info, trace, warn};
 
 use crate::gossip::GossipMessage;
 
-fn protocol_topic() -> String {
+fn topic_critical() -> String {
     let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
-    format!("rinku/{}", major)
+    format!("rinku/{}/critical", major)
+}
+
+fn topic_consensus() -> String {
+    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    format!("rinku/{}/consensus", major)
+}
+
+fn topic_data() -> String {
+    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    format!("rinku/{}/data", major)
+}
+
+fn topic_general() -> String {
+    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    format!("rinku/{}/general", major)
 }
 
 fn sync_protocol_id() -> String {
@@ -176,9 +192,10 @@ pub struct DeltaData {
     pub to_checkpoint: u64,
     #[serde(default)]
     pub tx_checkpoint_heights: std::collections::HashMap<String, u64>,
-    /// Validators for bidirectional validator sync
     #[serde(default)]
     pub validators: Vec<ValidatorData>,
+    #[serde(default)]
+    pub precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -405,7 +422,10 @@ pub struct IncomingSyncRequest {
 pub struct NetworkService {
     local_peer_id: PeerId,
     swarm: Swarm<RinkuBehaviour>,
-    topic: IdentTopic,
+    topic_critical: IdentTopic,
+    topic_consensus: IdentTopic,
+    topic_data: IdentTopic,
+    topic_general: IdentTopic,
     config: NetworkConfig,
     stats: Arc<RwLock<NetworkStatsInner>>,
     message_tx: mpsc::Sender<GossipMessage>,
@@ -435,6 +455,8 @@ pub struct NetworkService {
     mesh_maintenance_counter: u32,
     peer_last_addr: HashMap<PeerId, Multiaddr>,
     reconnect_pending: Vec<(Multiaddr, usize, Instant)>,
+    outbound_buffer: Vec<GossipMessage>,
+    shared_checkpoint_height: Arc<AtomicU64>,
 }
 
 struct NetworkStatsInner {
@@ -457,7 +479,7 @@ impl NetworkService {
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(HEARTBEAT_INTERVAL)
-            .validation_mode(ValidationMode::Strict)
+            .validation_mode(ValidationMode::Permissive)
             .message_id_fn(|msg| {
                 use sha2::{Sha256, Digest};
                 let mut hasher = Sha256::new();
@@ -506,7 +528,7 @@ impl NetworkService {
             vote_cbor_codec,
             [(vote_protocol_str, ProtocolSupport::Full)],
             request_response::Config::default()
-                .with_request_timeout(Duration::from_secs(3)),
+                .with_request_timeout(Duration::from_secs(5)),
         );
 
         // Identify protocol for peer info exchange
@@ -540,10 +562,13 @@ impl NetworkService {
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(600)))
             .build();
 
-        let topic = IdentTopic::new(protocol_topic());
+        let t_critical = IdentTopic::new(topic_critical());
+        let t_consensus = IdentTopic::new(topic_consensus());
+        let t_data = IdentTopic::new(topic_data());
+        let t_general = IdentTopic::new(topic_general());
 
         let (message_tx, message_rx) = mpsc::channel(2000);
-        let (priority_message_tx, priority_message_rx) = mpsc::channel(200);
+        let (priority_message_tx, priority_message_rx) = mpsc::channel(2000);
         let (checkpoint_message_tx, checkpoint_message_rx) = mpsc::channel(50);
         let (outbound_tx, outbound_rx) = mpsc::channel(300);
         let (sync_request_tx, sync_request_rx) = mpsc::channel(100);
@@ -568,6 +593,8 @@ impl NetworkService {
         let peer_scores_path = config.data_dir.as_ref().map(|d| format!("{}/peer_scores.json", d));
         let peer_scores = Arc::new(RwLock::new(load_peer_scores(&peer_scores_path)));
 
+        let shared_checkpoint_height = Arc::new(AtomicU64::new(0));
+
         let handle = NetworkHandle {
             outbound_tx,
             message_rx: Some(message_rx),
@@ -581,12 +608,16 @@ impl NetworkService {
             vote_incoming_rx: Some(vote_incoming_rx),
             command_tx,
             stats: stats.clone(),
+            shared_checkpoint_height: shared_checkpoint_height.clone(),
         };
 
         let service = Self {
             local_peer_id,
             swarm,
-            topic,
+            topic_critical: t_critical,
+            topic_consensus: t_consensus,
+            topic_data: t_data,
+            topic_general: t_general,
             config,
             stats,
             message_tx,
@@ -610,6 +641,8 @@ impl NetworkService {
             mesh_maintenance_counter: 0,
             peer_last_addr: HashMap::new(),
             reconnect_pending: Vec::new(),
+            outbound_buffer: Vec::with_capacity(64),
+            shared_checkpoint_height,
         };
 
         Ok((service, handle))
@@ -623,7 +656,10 @@ impl NetworkService {
         let listen_addr: Multiaddr = self.config.listen_addr.parse()?;
         self.swarm.listen_on(listen_addr)?;
 
-        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic)?;
+        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_critical)?;
+        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_consensus)?;
+        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_data)?;
+        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_general)?;
 
         for peer_addr in &self.config.bootstrap_peers {
             if let Ok(addr) = peer_addr.parse::<Multiaddr>() {
@@ -646,28 +682,57 @@ impl NetworkService {
         self.run_event_loop().await
     }
 
+    const COALESCE_INTERVAL_MS: u64 = 25;
+    const OUTBOUND_BUFFER_CAP: usize = 200;
+
+    fn drain_outbound_to_buffer(&mut self) {
+        while let Ok(msg) = self.outbound_rx.try_recv() {
+            self.outbound_buffer.push(msg);
+            if self.outbound_buffer.len() >= Self::OUTBOUND_BUFFER_CAP {
+                break;
+            }
+        }
+    }
+
+    fn has_critical_in_buffer(&self) -> bool {
+        self.outbound_buffer.iter().any(|m| matches!(m,
+            GossipMessage::CheckpointAnnouncement { .. } |
+            GossipMessage::CheckpointIntent { .. } |
+            GossipMessage::DaChunk { .. }
+        ))
+    }
+
+    async fn flush_outbound_buffer(&mut self) {
+        if self.outbound_buffer.is_empty() {
+            return;
+        }
+        let batch = std::mem::take(&mut self.outbound_buffer);
+        self.outbound_buffer = Vec::with_capacity(64);
+        self.publish_batched(batch).await;
+    }
+
     async fn run_event_loop(&mut self) -> Result<()> {
         let mut mesh_maintenance_interval = tokio::time::interval(MESH_MAINTENANCE_INTERVAL);
         mesh_maintenance_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut reconnect_interval = tokio::time::interval(RECONNECT_CHECK_INTERVAL);
         reconnect_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut last_coalesce_flush = Instant::now();
+        let coalesce_dur = std::time::Duration::from_millis(Self::COALESCE_INTERVAL_MS);
         
         loop {
             while let Ok(cmd) = self.command_rx.try_recv() {
                 self.handle_command(cmd).await;
             }
 
-            {
-                let mut batch: Vec<GossipMessage> = Vec::new();
-                for _ in 0..5 {
-                    match self.outbound_rx.try_recv() {
-                        Ok(msg) => batch.push(msg),
-                        Err(_) => break,
-                    }
-                }
-                if !batch.is_empty() {
-                    self.publish_batched(batch).await;
-                }
+            self.drain_outbound_to_buffer();
+
+            let should_flush = self.has_critical_in_buffer()
+                || self.outbound_buffer.len() >= Self::OUTBOUND_BUFFER_CAP
+                || (!self.outbound_buffer.is_empty() && last_coalesce_flush.elapsed() >= coalesce_dur);
+
+            if should_flush {
+                self.flush_outbound_buffer().await;
+                last_coalesce_flush = Instant::now();
             }
 
             tokio::select! {
@@ -707,26 +772,19 @@ impl NetworkService {
                             _ => break,
                         }
                     }
-                    let mut ob = Vec::new();
-                    for _ in 0..10 {
-                        match self.outbound_rx.try_recv() {
-                            Ok(msg) => ob.push(msg),
-                            Err(_) => break,
-                        }
-                    }
-                    if !ob.is_empty() {
-                        self.publish_batched(ob).await;
-                    }
                 }
                 Some(msg) = self.outbound_rx.recv() => {
-                    let mut batch = vec![msg];
-                    for _ in 0..4 {
-                        match self.outbound_rx.try_recv() {
-                            Ok(more) => batch.push(more),
-                            Err(_) => break,
-                        }
+                    self.outbound_buffer.push(msg);
+                    self.drain_outbound_to_buffer();
+                    if self.has_critical_in_buffer() || self.outbound_buffer.len() >= Self::OUTBOUND_BUFFER_CAP {
+                        self.flush_outbound_buffer().await;
+                        last_coalesce_flush = Instant::now();
                     }
-                    self.publish_batched(batch).await;
+                }
+                _ = tokio::time::sleep_until(tokio::time::Instant::from_std(last_coalesce_flush + coalesce_dur)), if !self.outbound_buffer.is_empty() => {
+                    self.drain_outbound_to_buffer();
+                    self.flush_outbound_buffer().await;
+                    last_coalesce_flush = Instant::now();
                 }
                 _ = reconnect_interval.tick() => {
                     self.process_reconnect_queue();
@@ -927,7 +985,7 @@ impl NetworkService {
                     };
                     for routed_msg in msgs_to_route {
                     let is_checkpoint = matches!(&routed_msg, GossipMessage::CheckpointAnnouncement { .. });
-                    let is_priority = matches!(&routed_msg, GossipMessage::TxConfirmAck { .. } | GossipMessage::CheckpointIntent { .. });
+                    let is_priority = matches!(&routed_msg, GossipMessage::TxConfirmAck { .. } | GossipMessage::CheckpointIntent { .. } | GossipMessage::LeaderTimeout { .. } | GossipMessage::DaChunk { .. });
                     if is_checkpoint {
                         match self.checkpoint_message_tx.try_send(routed_msg) {
                             Ok(_) => {
@@ -1415,18 +1473,33 @@ impl NetworkService {
         }
     }
 
-    async fn publish_message(&mut self, message: &GossipMessage) {
+    fn message_topic(&self, message: &GossipMessage) -> &IdentTopic {
+        use crate::gossip::GossipMessage as GM;
+        match message {
+            GM::CheckpointIntent { .. }
+            | GM::CheckpointAnnouncement { .. } => &self.topic_critical,
+
+            GM::TxConfirmAck { .. }
+            | GM::TxConfirmBroadcast { .. } => &self.topic_consensus,
+
+            GM::DaChunk { .. } => &self.topic_data,
+
+            _ => &self.topic_general,
+        }
+    }
+
+    async fn publish_to_topic(&mut self, topic: IdentTopic, message: &GossipMessage) {
         match serde_json::to_vec(message) {
             Ok(data) => {
                 let data_len = data.len() as u64;
-                
+
                 if data_len > 128 * 1024 {
-                    warn!("Large gossip message: {}KB (type: {})", data_len / 1024, message.variant_name());
+                    warn!("Large gossip message: {}KB (type: {}, topic: {})", data_len / 1024, message.variant_name(), topic);
                 } else if data_len > 64 * 1024 {
-                    info!("Gossip message: {}KB (type: {})", data_len / 1024, message.variant_name());
+                    info!("Gossip message: {}KB (type: {}, topic: {})", data_len / 1024, message.variant_name(), topic);
                 }
-                
-                match self.swarm.behaviour_mut().gossipsub.publish(self.topic.clone(), data) {
+
+                match self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
                     Ok(_) => {
                         if let Ok(mut stats) = self.stats.try_write() {
                             stats.messages_published += 1;
@@ -1451,31 +1524,64 @@ impl NetworkService {
         }
     }
 
+    async fn publish_message(&mut self, message: &GossipMessage) {
+        let topic = self.message_topic(message).clone();
+        self.publish_to_topic(topic, message).await;
+    }
+
     async fn publish_batched(&mut self, messages: Vec<GossipMessage>) {
         use crate::gossip::GossipMessage as GM;
         if messages.is_empty() {
             return;
         }
-        let mut priority_msgs: Vec<GossipMessage> = Vec::new();
-        let mut regular_msgs: Vec<GossipMessage> = Vec::new();
+        let total = messages.len();
+        let mut critical_msgs: Vec<GossipMessage> = Vec::new();
+        let mut consensus_msgs: Vec<GossipMessage> = Vec::new();
+        let mut data_msgs: Vec<GossipMessage> = Vec::new();
+        let mut general_msgs: Vec<GossipMessage> = Vec::new();
         for msg in messages {
-            let is_priority = matches!(&msg, GM::CheckpointAnnouncement { .. } | GM::TxConfirmAck { .. } | GM::CheckpointIntent { .. });
-            if is_priority {
-                priority_msgs.push(msg);
-            } else {
-                regular_msgs.push(msg);
+            match &msg {
+                GM::CheckpointIntent { .. }
+                | GM::CheckpointAnnouncement { .. } => critical_msgs.push(msg),
+
+                GM::TxConfirmAck { .. }
+                | GM::TxConfirmBroadcast { .. } => consensus_msgs.push(msg),
+
+                GM::DaChunk { .. } => data_msgs.push(msg),
+
+                _ => general_msgs.push(msg),
             }
         }
-        for msg in priority_msgs {
-            self.publish_message(&msg).await;
+        let c_count = critical_msgs.len();
+        let s_count = consensus_msgs.len();
+        let d_count = data_msgs.len();
+        let g_count = general_msgs.len();
+        for msg in critical_msgs {
+            self.publish_to_topic(self.topic_critical.clone(), &msg).await;
         }
-        if regular_msgs.len() <= 1 {
-            for msg in &regular_msgs {
-                self.publish_message(msg).await;
+        if s_count <= 1 {
+            for msg in &consensus_msgs {
+                self.publish_to_topic(self.topic_consensus.clone(), msg).await;
             }
         } else {
-            let batch = GM::Batch { messages: regular_msgs };
-            self.publish_message(&batch).await;
+            let batch = GM::Batch { messages: consensus_msgs };
+            self.publish_to_topic(self.topic_consensus.clone(), &batch).await;
+        }
+        for msg in data_msgs {
+            self.publish_to_topic(self.topic_data.clone(), &msg).await;
+        }
+        if g_count <= 1 {
+            for msg in &general_msgs {
+                self.publish_to_topic(self.topic_general.clone(), msg).await;
+            }
+        } else {
+            let batch = GM::Batch { messages: general_msgs };
+            self.publish_to_topic(self.topic_general.clone(), &batch).await;
+        }
+        if total > 3 {
+            let publishes = c_count + d_count + (if s_count > 1 { 1 } else { s_count }) + (if g_count > 1 { 1 } else { g_count });
+            debug!("Coalesced {} msgs into {} publishes (C:{} S:{} D:{} G:{})",
+                total, publishes, c_count, s_count, d_count, g_count);
         }
     }
 
@@ -1666,14 +1772,15 @@ impl NetworkService {
     }
 
     /// Create a handshake info for this node, including known peer addresses for PEX
-    pub fn create_handshake(&self, checkpoint_height: u64, validator_address: Option<String>) -> PeerHandshake {
+    pub fn create_handshake(&self, _checkpoint_height: u64, validator_address: Option<String>) -> PeerHandshake {
         let known_peer_addrs = self.collect_known_peer_addrs();
+        let real_height = self.shared_checkpoint_height.load(Ordering::Relaxed);
         PeerHandshake {
             protocol_version: self.handshake_config.protocol_version.clone(),
             chain_id: self.handshake_config.chain_id.clone(),
             network_id: self.handshake_config.network_id.clone(),
             node_id: self.local_peer_id.to_string(),
-            checkpoint_height,
+            checkpoint_height: real_height,
             validator_address,
             capabilities: vec!["sync".to_string(), "gossip".to_string(), "proofs".to_string()],
             known_peer_addrs,
@@ -1963,12 +2070,22 @@ pub struct NetworkHandle {
     pub vote_incoming_rx: Option<mpsc::Receiver<IncomingVoteRequest>>,
     command_tx: mpsc::Sender<NetworkCommand>,
     stats: Arc<RwLock<NetworkStatsInner>>,
+    shared_checkpoint_height: Arc<AtomicU64>,
 }
 
 impl NetworkHandle {
     pub async fn broadcast(&self, message: GossipMessage) -> Result<()> {
         self.outbound_tx.send(message).await?;
         Ok(())
+    }
+
+    pub fn try_broadcast(&self, message: GossipMessage) -> Result<()> {
+        self.outbound_tx.try_send(message).map_err(|e| anyhow::anyhow!("outbound full: {}", e))?;
+        Ok(())
+    }
+
+    pub fn update_checkpoint_height(&self, height: u64) {
+        self.shared_checkpoint_height.store(height, Ordering::Relaxed);
     }
 
     pub async fn get_peer_count(&self) -> usize {

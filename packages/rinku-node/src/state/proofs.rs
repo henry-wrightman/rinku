@@ -29,29 +29,51 @@ impl NodeState {
         (pending_amount, pending_gas, pending_count)
     }
 
-    /// Get effective balance AND nonce for a sender in a single pass (no double scan)
-    /// Returns (effective_balance, effective_nonce)
+    /// Get effective balance AND nonce for a sender.
+    /// Balance accounts for ALL pending txs (funds are reserved).
+    /// Nonce only counts *contiguous* pending nonces to avoid gap deadlocks.
     pub(crate) fn get_effective_balance_and_nonce(state: &StateInner, sender: &str) -> (u64, u64) {
         let (confirmed_balance, confirmed_nonce) = state
             .accounts
             .get(sender)
             .map(|a| (a.balance, a.nonce))
             .unwrap_or((0, 0));
-        let (pending_amount, pending_gas, pending_count) =
+        let (pending_amount, pending_gas, _) =
             Self::get_pending_stats_for_sender(state, sender);
         let effective_balance = confirmed_balance
             .saturating_sub(pending_amount)
             .saturating_sub(pending_gas);
-        let effective_nonce = confirmed_nonce + pending_count;
+        let effective_nonce = Self::get_effective_nonce(state, sender);
         (effective_balance, effective_nonce)
     }
 
-    /// Get the expected nonce for a sender, accounting for pending (unfinalized) transactions
-    /// effective_nonce = confirmed_nonce + pending_tx_count
+    /// Get the expected nonce for a sender, accounting for pending (unfinalized) transactions.
+    /// Only counts *contiguous* pending nonces starting from confirmed_nonce to avoid
+    /// nonce-gap deadlocks: if nonce N is lost but N+1..N+K are in the DAG, we return N
+    /// (not N+K) so the sender re-submits the missing nonce and unblocks the chain.
     pub(crate) fn get_effective_nonce(state: &StateInner, sender: &str) -> u64 {
         let confirmed_nonce = state.accounts.get(sender).map(|a| a.nonce).unwrap_or(0);
-        let (_, _, pending_count) = Self::get_pending_stats_for_sender(state, sender);
-        confirmed_nonce + pending_count
+
+        let mut pending_nonces: Vec<u64> = state
+            .dag
+            .get_unfinalized_for_sender(sender)
+            .iter()
+            .map(|node| node.tx.tx.nonce)
+            .filter(|&n| n >= confirmed_nonce)
+            .collect();
+        pending_nonces.sort_unstable();
+        pending_nonces.dedup();
+
+        let mut contiguous = 0u64;
+        for &nonce in &pending_nonces {
+            if nonce == confirmed_nonce + contiguous {
+                contiguous += 1;
+            } else {
+                break;
+            }
+        }
+
+        confirmed_nonce + contiguous
     }
 
     /// Get effective balance for a sender, accounting for pending (unfinalized) transactions
@@ -140,16 +162,115 @@ impl NodeState {
         
         let state = self.inner.read().await;
         
-        // Get the current gas price from state (used as fallback for tx without explicit gas_price)
-        // CRITICAL: Must match execute_finalized_transaction which uses state.current_gas_price
         let current_gas_price = state.current_gas_price;
         
-        // Clone accounts into a mutable HashMap for simulation
         let mut simulated_accounts: HashMap<String, (u64, u64, u64)> = state.accounts.iter()
             .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
             .collect();
         
-        drop(state); // Release state lock before acquiring rewards lock
+        if !skip_hashes.is_empty() {
+            let mut convergence_txs: Vec<rinku_core::SignedTransaction> = Vec::new();
+            for hash in skip_hashes.iter() {
+                if let Some(node) = state.dag.get_node(hash) {
+                    convergence_txs.push(node.tx.clone());
+                }
+            }
+            convergence_txs.sort_by(|a, b| {
+                a.tx.from.cmp(&b.tx.from)
+                    .then(b.tx.nonce.cmp(&a.tx.nonce))
+            });
+            let mut undo_count = 0usize;
+            for tx in &convergence_txs {
+                if matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Consolidation)) {
+                    continue;
+                }
+                let fee = tx.tx.gas_price.unwrap_or(current_gas_price);
+                let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Stake));
+                let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Unstake));
+                let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::ClaimRewards));
+                let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Contract));
+                let tx_cost = if is_stake_tx {
+                    tx.tx.amount + fee
+                } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                    fee
+                } else {
+                    tx.tx.amount + fee
+                };
+                if let Some(sender) = simulated_accounts.get_mut(&tx.tx.from) {
+                    sender.0 += tx_cost;
+                    sender.1 = tx.tx.nonce;
+                    undo_count += 1;
+                }
+                if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
+                    if !tx.tx.to.is_empty() {
+                        if let Some(receiver) = simulated_accounts.get_mut(&tx.tx.to) {
+                            receiver.0 = receiver.0.saturating_sub(tx.tx.amount);
+                        }
+                    }
+                }
+                if is_stake_tx {
+                    if let Some(staker) = simulated_accounts.get_mut(&tx.tx.from) {
+                        staker.2 = staker.2.saturating_sub(tx.tx.amount);
+                    }
+                }
+            }
+            if undo_count > 0 {
+                tracing::info!(
+                    "Proof computation: undid {} convergence fast-path effects to get clean base",
+                    undo_count
+                );
+            }
+        }
+        
+        struct TxParentInfo {
+            tx_hash: String,
+            reward_base: u64,
+            first_parent_hash: Option<String>,
+            witness_parents: Vec<(String, String)>,
+        }
+        let tx_parent_infos: Vec<TxParentInfo> = pending_txs.iter()
+            .filter(|tx| !matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Consolidation)))
+            .filter_map(|tx| {
+                let gas_fee = tx.tx.gas_price.unwrap_or(current_gas_price);
+                let reward_base = tx.tx.amount + gas_fee;
+                if reward_base == 0 {
+                    return None;
+                }
+                fn normalize_parent(p: &str) -> &str {
+                    if p.starts_with("rinku://tx/h/") {
+                        p.strip_prefix("rinku://tx/h/").unwrap_or(p)
+                    } else if p.starts_with("rinku://tx/") {
+                        p.strip_prefix("rinku://tx/").unwrap_or(p)
+                    } else {
+                        p
+                    }
+                }
+                let first_parent_hash = tx.tx.parents.first().map(|p| normalize_parent(p).to_string());
+                let witness_parents: Vec<(String, String)> = tx.tx.parents.iter()
+                    .filter_map(|parent_ref| {
+                        let ph = normalize_parent(parent_ref);
+                        state.dag.get_node(ph).and_then(|node| {
+                            let creator = node.tx.tx.from.clone();
+                            if creator != tx.tx.from {
+                                Some((format!("rinku://tx/h/{}", ph), creator))
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                    .collect();
+                Some(TxParentInfo {
+                    tx_hash: tx.hash.clone(),
+                    reward_base,
+                    first_parent_hash,
+                    witness_parents,
+                })
+            })
+            .collect();
+
+        let node_validator_address = state.node_validator_address.clone();
+        
+        drop(state);
         
         // Get pending rewards and stake amounts snapshot for claim/unstake simulation
         // CRITICAL: Must use rewards service as source of truth to match execute_finalized_transaction
@@ -170,7 +291,16 @@ impl NodeState {
         let mut simulated_reward_state: HashMap<String, (u64, u64, Option<u64>, u64)> = HashMap::new();
         
         // Collect reward state for all affected addresses
-        for address in affected_addresses {
+        let mut all_reward_addresses: std::collections::HashSet<String> = affected_addresses.iter().cloned().collect();
+        for info in &tx_parent_infos {
+            for (_, creator) in &info.witness_parents {
+                all_reward_addresses.insert(creator.clone());
+            }
+        }
+        if let Some(ref v) = node_validator_address {
+            all_reward_addresses.insert(v.clone());
+        }
+        for address in &all_reward_addresses {
             let pending = rewards.get_pending_rewards(address);
             let stake_info = rewards.get_stake(address);
             let (staked_at, last_reward_at) = stake_info
@@ -182,22 +312,22 @@ impl NodeState {
                 (pending, staked_at, last_reward_at, claimed_total)
             );
         }
+        let tip_pct = rewards.get_config().tip_reward_percent;
+        let witness_pct = rewards.get_config().witness_reward_percent;
         drop(rewards);
-        
-        // Apply pending transactions to simulated state
-        // This must match execute_finalized_transactions_batch exactly!
-        // CRITICAL: Sort by (sender, nonce) to ensure nonce-correct execution order
+
         let mut sorted_txs: Vec<&SignedTransaction> = pending_txs.iter().collect();
         sorted_txs.sort_by(|a, b| {
             a.tx.from.cmp(&b.tx.from)
                 .then(a.tx.nonce.cmp(&b.tx.nonce))
                 .then(a.hash.cmp(&b.hash))
         });
-        for tx in &sorted_txs {
-            if skip_hashes.contains(&tx.hash) {
-                continue;
-            }
+        let mut executed_tx_hashes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut balance_deferred_indices: Vec<usize> = Vec::new();
+
+        for (idx, tx) in sorted_txs.iter().enumerate() {
             if matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Consolidation)) {
+                executed_tx_hashes.insert(tx.hash.clone());
                 continue;
             }
             let from = &tx.tx.from;
@@ -225,6 +355,7 @@ impl NodeState {
                     amount + fee
                 };
                 if sender.0 < tx_cost {
+                    balance_deferred_indices.push(idx);
                     continue;
                 }
                 sender.0 -= tx_cost;
@@ -233,6 +364,7 @@ impl NodeState {
             }
             
             if tx_applied || !sender_exists {
+                executed_tx_hashes.insert(tx.hash.clone());
                 if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
                     if let Some(receiver) = simulated_accounts.get_mut(to) {
                         receiver.0 += amount;
@@ -301,6 +433,153 @@ impl NodeState {
                 }
             }
         }
+
+        for _retry_pass in 0..5 {
+            if balance_deferred_indices.is_empty() {
+                break;
+            }
+
+            let mut still_deferred: Vec<usize> = Vec::new();
+            let mut made_progress = false;
+
+            for &idx in &balance_deferred_indices {
+                let tx = sorted_txs[idx];
+                if executed_tx_hashes.contains(&tx.hash) {
+                    continue;
+                }
+
+                let from = &tx.tx.from;
+                let to = &tx.tx.to;
+                let amount = tx.tx.amount;
+                let fee = tx.tx.gas_price.unwrap_or(current_gas_price);
+
+                let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Stake));
+                let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Unstake));
+                let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::ClaimRewards));
+                let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Contract));
+
+                let sender_exists = simulated_accounts.contains_key(from);
+                let mut tx_applied = false;
+
+                if let Some(sender) = simulated_accounts.get_mut(from) {
+                    if tx.tx.nonce != sender.1 {
+                        still_deferred.push(idx);
+                        continue;
+                    }
+                    let tx_cost = if is_stake_tx {
+                        amount + fee
+                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                        fee
+                    } else {
+                        amount + fee
+                    };
+                    if sender.0 < tx_cost {
+                        still_deferred.push(idx);
+                        continue;
+                    }
+                    sender.0 -= tx_cost;
+                    sender.1 = tx.tx.nonce + 1;
+                    tx_applied = true;
+                }
+
+                if tx_applied || !sender_exists {
+                    executed_tx_hashes.insert(tx.hash.clone());
+                    made_progress = true;
+                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
+                        if let Some(receiver) = simulated_accounts.get_mut(to) {
+                            receiver.0 += amount;
+                        } else {
+                            simulated_accounts.insert(to.clone(), (amount, 0, 0));
+                        }
+                    }
+                }
+
+                if tx_applied || !sender_exists {
+                    if is_stake_tx {
+                        if let Some(staker) = simulated_accounts.get_mut(from) {
+                            staker.2 += amount;
+                        }
+                        if let Some(reward_state) = simulated_reward_state.get_mut(from) {
+                            if reward_state.1 == 0 {
+                                reward_state.1 = tx.tx.timestamp;
+                            }
+                        } else {
+                            simulated_reward_state.insert(from.clone(), (0, tx.tx.timestamp, None, 0));
+                        }
+                    } else if is_unstake_tx {
+                        if let Some(rewards_stake) = stake_amounts_snapshot.get(from) {
+                            if let Some(staker) = simulated_accounts.get_mut(from) {
+                                staker.0 += rewards_stake;
+                                staker.2 = 0;
+                            }
+                        } else {
+                            if let Some(staker) = simulated_accounts.get_mut(from) {
+                                let unstaked = staker.2;
+                                staker.0 += unstaked;
+                                staker.2 = 0;
+                            }
+                        }
+                    } else if is_claim_tx {
+                        if let Some(claimed) = pending_rewards_snapshot.get(from) {
+                            if *claimed > 0 {
+                                if let Some(claimer) = simulated_accounts.get_mut(from) {
+                                    claimer.0 += claimed;
+                                    if let Some(reward_state) = simulated_reward_state.get_mut(from) {
+                                        reward_state.0 = 0;
+                                        reward_state.3 += claimed;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if made_progress {
+                tracing::info!(
+                    "Proof simulation cross-sender retry: executed {} more txs ({} still pending)",
+                    balance_deferred_indices.len() - still_deferred.len(), still_deferred.len()
+                );
+            }
+
+            balance_deferred_indices = still_deferred;
+            if !made_progress {
+                break;
+            }
+        }
+
+        {
+            let mut sim_tip_witness_total = 0u64;
+            for info in &tx_parent_infos {
+                if !executed_tx_hashes.contains(&info.tx_hash) {
+                    continue;
+                }
+                if let Some(ref validator) = node_validator_address {
+                    if info.first_parent_hash.is_some() {
+                        let tip_amount = (info.reward_base as f64 * tip_pct).round() as u64;
+                        if tip_amount > 0 {
+                            let entry = simulated_reward_state.entry(validator.clone()).or_insert((0, 0, None, 0));
+                            entry.0 += tip_amount;
+                            sim_tip_witness_total += tip_amount;
+                        }
+                    }
+                }
+                for (_, creator) in &info.witness_parents {
+                    let witness_amount = (info.reward_base as f64 * witness_pct).round() as u64;
+                    if witness_amount > 0 {
+                        let entry = simulated_reward_state.entry(creator.clone()).or_insert((0, 0, None, 0));
+                        entry.0 += witness_amount;
+                        sim_tip_witness_total += witness_amount;
+                    }
+                }
+            }
+            if sim_tip_witness_total > 0 {
+                tracing::info!(
+                    "Proof computation: simulated {} micro-RKU tip/witness rewards for {} executed txs",
+                    sim_tip_witness_total, executed_tx_hashes.len()
+                );
+            }
+        }
         
         // Get sorted accounts for deterministic ordering
         let mut account_entries: Vec<_> = simulated_accounts.iter().collect();
@@ -329,6 +608,7 @@ impl NodeState {
             return StateRootWithProofs {
                 state_root: "0".repeat(64),
                 proofs: HashMap::new(),
+                executed_tx_hashes,
             };
         }
         
@@ -400,7 +680,14 @@ impl NodeState {
             state.checkpoint_accounts_snapshot = Some((height, simulated_accounts));
         }
         
-        StateRootWithProofs { state_root, proofs }
+        let skipped = sorted_txs.len() - executed_tx_hashes.len();
+        if skipped > 0 {
+            tracing::warn!(
+                "Proof simulation: {}/{} TXs skipped (nonce gaps or insufficient balance)",
+                skipped, sorted_txs.len()
+            );
+        }
+        StateRootWithProofs { state_root, proofs, executed_tx_hashes }
     }
 
     /// Normalize f64 to 8 decimal places for consistent hashing (matches sync_verification)
@@ -724,84 +1011,39 @@ impl NodeState {
         
         {
             let mut state = self.inner.write().await;
+            let mut sync_count = 0usize;
             for (address, proof) in proofs {
                 let is_v3_proof = proof.version >= 3;
                 
                 if let Some(account) = state.accounts.get_mut(address) {
-                    // Detect corrupted nonces: sequential nonces should never exceed ~1 billion
-                    // (even at 1000 TPS for 30 years). Values >= 1 trillion are timestamp artifacts
-                    // from the old tip consolidator bug (nonce = timestamp_ms).
-                    const NONCE_CORRUPTION_THRESHOLD: u64 = 1_000_000_000_000;
-                    let nonce_corrupted = account.nonce >= NONCE_CORRUPTION_THRESHOLD;
+                    let balance_diff = account.balance.abs_diff(proof.balance_micro);
+                    let staked_diff = account.staked.abs_diff(proof.staked_micro);
                     
-                    if account.nonce > proof.nonce && !nonce_corrupted {
-                        tracing::debug!(
-                            "Skipping STATE SYNC for {} at checkpoint {}: local nonce {} > proof nonce {} (state ahead)",
+                    if balance_diff > 0 || staked_diff > 0 || account.nonce != proof.nonce {
+                        tracing::warn!(
+                            "STATE SYNC for {} at checkpoint {}: local(bal={}, nonce={}, stk={}) -> leader(bal={}, nonce={}, stk={})",
                             &address[..16.min(address.len())],
                             proof.checkpoint_height,
-                            account.nonce,
-                            proof.nonce
+                            account.balance, account.nonce, account.staked,
+                            proof.balance_micro, proof.nonce, proof.staked_micro
                         );
-                    } else if account.nonce == proof.nonce && !nonce_corrupted
-                              && account.balance >= proof.balance_micro
-                              && account.staked >= proof.staked_micro
-                    {
-                        tracing::debug!(
-                            "Skipping STATE SYNC for {} at checkpoint {}: nonce {} matches, local bal {} >= proof bal {} (preserving convergence credits)",
-                            &address[..16.min(address.len())],
-                            proof.checkpoint_height,
-                            account.nonce,
-                            account.balance,
-                            proof.balance_micro
-                        );
-                    } else {
-                        if nonce_corrupted {
-                            tracing::warn!(
-                                "NONCE REPAIR for {} at checkpoint {}: corrupted nonce {} -> leader nonce {}",
-                                &address[..16.min(address.len())],
-                                proof.checkpoint_height,
-                                account.nonce,
-                                proof.nonce
-                            );
-                        }
-                        let balance_diff = account.balance.abs_diff(proof.balance_micro);
-                        let staked_diff = account.staked.abs_diff(proof.staked_micro);
-                        
-                        if balance_diff > 0 || staked_diff > 0 || account.nonce != proof.nonce {
-                            tracing::warn!(
-                                "STATE SYNC for {} at checkpoint {}: local(bal={}, nonce={}, stk={}) -> leader(bal={}, nonce={}, stk={})",
-                                &address[..16.min(address.len())],
-                                proof.checkpoint_height,
-                                account.balance, account.nonce, account.staked,
-                                proof.balance_micro, proof.nonce, proof.staked_micro
-                            );
-                            account.balance = proof.balance_micro;
-                            account.nonce = proof.nonce;
-                            account.staked = proof.staked_micro;
-                            if is_v3_proof {
-                                rewards_to_sync.push((
-                                    address.clone(),
-                                    proof.pending_rewards_micro,
-                                    proof.staked_at,
-                                    proof.last_reward_at,
-                                    proof.claimed_rewards_total_micro,
-                                    proof.staked_micro
-                                ));
-                            }
-                        } else {
-                            tracing::info!(
-                                "Storing precomputed proof for {} at checkpoint {}: balance={}, nonce={}, staked={}",
-                                &address[..16.min(address.len())],
-                                proof.checkpoint_height,
-                                proof.balance_micro,
-                                proof.nonce,
-                                proof.staked_micro
-                            );
-                        }
+                        sync_count += 1;
+                    }
+                    account.balance = proof.balance_micro;
+                    account.nonce = proof.nonce;
+                    account.staked = proof.staked_micro;
+                    if is_v3_proof {
+                        rewards_to_sync.push((
+                            address.clone(),
+                            proof.pending_rewards_micro,
+                            proof.staked_at,
+                            proof.last_reward_at,
+                            proof.claimed_rewards_total_micro,
+                            proof.staked_micro
+                        ));
                     }
                     account.latest_balance_proof = Some(proof.clone());
                 } else {
-                    // Account doesn't exist locally - create it from leader's proof
                     tracing::info!(
                         "Creating account {} from leader proof at checkpoint {}: balance={}, nonce={}, staked={}",
                         &address[..16.min(address.len())],
@@ -816,7 +1058,7 @@ impl NodeState {
                     new_account.staked = proof.staked_micro;
                     new_account.latest_balance_proof = Some(proof.clone());
                     state.accounts.insert(address.clone(), new_account);
-                    if proof.version >= 3 && proof.staked_micro > 0 {
+                    if is_v3_proof {
                         rewards_to_sync.push((
                             address.clone(),
                             proof.pending_rewards_micro,
@@ -827,6 +1069,15 @@ impl NodeState {
                         ));
                     }
                 }
+            }
+            let cleared_convergence = state.convergence_executed_hashes.len();
+            state.convergence_executed_hashes.clear();
+            state.convergence_executed_order.clear();
+            if sync_count > 0 || cleared_convergence > 0 {
+                tracing::info!(
+                    "Proof sync complete: {} accounts corrected, cleared {} stale convergence effects",
+                    sync_count, cleared_convergence
+                );
             }
         } // Release state lock
         

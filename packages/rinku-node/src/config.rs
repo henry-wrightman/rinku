@@ -23,15 +23,9 @@ pub const TRANSACTION_TTL_MS: u64 = 120_000; // 120 seconds
 /// How often to scan and prune expired transactions
 pub const MEMPOOL_CLEANUP_INTERVAL_MS: u64 = 30_000; // 30 seconds
 
-/// Graceful degradation threshold (tip count)
-/// When DAG tips exceed this, enter degraded mode: only accept validator/system transactions
-/// User transactions are rejected with 503 until tips drop below threshold
-pub const DEGRADED_MODE_THRESHOLD: usize = 1000;
+pub const DEGRADED_MODE_THRESHOLD: usize = 500;
 
-/// Hard backpressure threshold (tip count)
-/// When DAG tips exceed this, reject ALL transactions including validator txs
-/// This is the last line of defense before node overload
-pub const MAX_TIPS_BACKPRESSURE: usize = 500;
+pub const MAX_TIPS_BACKPRESSURE: usize = 1000;
 
 #[derive(Debug, Clone)]
 pub struct GenesisValidator {

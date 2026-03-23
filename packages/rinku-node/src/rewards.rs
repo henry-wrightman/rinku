@@ -675,6 +675,22 @@ impl RewardsService {
         self.add_pending_reward(address, amount);
     }
 
+    pub fn reverse_reward(&mut self, address: &str, amount: u64) {
+        if let Some(pending) = self.pending_rewards.get_mut(address) {
+            *pending = pending.saturating_sub(amount);
+        }
+        if let Some(lifetime) = self.lifetime_rewards.get_mut(address) {
+            lifetime.stake_rewards = lifetime.stake_rewards.saturating_sub(amount);
+        }
+        if let Some(rewards) = self.rewards.get_mut(address) {
+            if let Some(pos) = rewards.iter().rposition(|r| {
+                matches!(r, Reward::Stake(sr) if sr.amount == amount)
+            }) {
+                rewards.remove(pos);
+            }
+        }
+    }
+
     fn add_pending_reward(&mut self, address: &str, amount: u64) {
         let pending = self.pending_rewards.entry(address.to_string()).or_insert(0);
         *pending += amount;

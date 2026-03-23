@@ -35,9 +35,53 @@ const DURATION_S = parseInt(
     "300"
 );
 
+const MAX_CONCURRENT_REQUESTS = (() => {
+  const raw = parseInt(
+    process.argv.find((a) => a.startsWith("--concurrency="))?.split("=")[1] ||
+      process.env.MAX_CONCURRENT_REQUESTS ||
+      "50"
+  );
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 50;
+})();
+
 const FAUCET_AMOUNT = 100;
 const FETCH_TIMEOUT_MS = 10000;
-const WS_CONFIRM_TIMEOUT_MS = 15000;
+const WS_CONFIRM_TIMEOUT_MS = 5000;
+
+class Semaphore {
+  private current = 0;
+  private queue: (() => void)[] = [];
+
+  constructor(private max: number) {}
+
+  async acquire(): Promise<void> {
+    if (this.current < this.max) {
+      this.current++;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.queue.push(() => {
+        this.current++;
+        resolve();
+      });
+    });
+  }
+
+  release(): void {
+    if (this.current <= 0) return;
+    this.current--;
+    if (this.queue.length > 0) {
+      const next = this.queue.shift()!;
+      next();
+    }
+  }
+
+  get inflight(): number {
+    return this.current;
+  }
+}
+
+const httpSemaphore = new Semaphore(MAX_CONCURRENT_REQUESTS);
 
 interface AccountSlot {
   wallet: Wallet;
@@ -90,16 +134,21 @@ function log(msg: string) {
   console.log(`[${ts}] ${msg}`);
 }
 
-function fetchWithTimeout(
+async function fetchWithTimeout(
   url: string,
   options: RequestInit = {},
   timeoutMs: number = FETCH_TIMEOUT_MS
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
-    clearTimeout(timeout)
-  );
+  await httpSemaphore.acquire();
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    return await fetch(url, { ...options, signal: controller.signal }).finally(() =>
+      clearTimeout(timeout)
+    );
+  } finally {
+    httpSemaphore.release();
+  }
 }
 
 function assignNodeUrl(index: number): string {
@@ -116,7 +165,7 @@ async function fetchGasPrice(): Promise<number> {
     if (res.ok) {
       const data = (await res.json()) as { current: number };
       if (typeof data.current === "number") {
-        currentGasPrice = data.current;
+        currentGasPrice = data.current * 1.15;
       }
     }
   } catch {}
@@ -147,8 +196,8 @@ async function queryNonce(
       3000
     );
     if (res.ok) {
-      const data = (await res.json()) as { nonce?: number };
-      return data.nonce ?? 0;
+      const data = (await res.json()) as { effective_nonce?: number; nonce?: number };
+      return data.effective_nonce ?? data.nonce ?? 0;
     }
   } catch {}
   return 0;
@@ -164,8 +213,8 @@ async function queryHighestNonce(fingerprint: string): Promise<number> {
         3000
       );
       if (res.ok) {
-        const data = (await res.json()) as { nonce?: number };
-        return data.nonce ?? 0;
+        const data = (await res.json()) as { effective_nonce?: number; nonce?: number };
+        return data.effective_nonce ?? data.nonce ?? 0;
       }
       return 0;
     })
@@ -197,15 +246,38 @@ async function queryBalance(
   return 0;
 }
 
+const tipCache = new Map<string, { tips: string[]; at: number }>();
+const tipInflight = new Map<string, Promise<string[]>>();
+const TIP_CACHE_TTL_MS = 500;
+
 async function getTipParents(nodeUrl: string): Promise<string[]> {
+  const cached = tipCache.get(nodeUrl);
+  if (cached && Date.now() - cached.at < TIP_CACHE_TTL_MS) {
+    return cached.tips;
+  }
+  const existing = tipInflight.get(nodeUrl);
+  if (existing) return existing;
+
+  const p = (async () => {
+    try {
+      const res = await fetchWithTimeout(`${nodeUrl}/api/tips`, {}, 3000);
+      if (res.ok) {
+        const data = (await res.json()) as { tips: string[] };
+        const tips = (data.tips || []).slice(0, 2).map((h) => `rinku://tx/h/${h}`);
+        tipCache.set(nodeUrl, { tips, at: Date.now() });
+        return tips;
+      }
+    } catch {}
+    if (cached) return cached.tips;
+    return [];
+  })();
+
+  tipInflight.set(nodeUrl, p);
   try {
-    const res = await fetchWithTimeout(`${nodeUrl}/api/tips`, {}, 3000);
-    if (res.ok) {
-      const data = (await res.json()) as { tips: string[] };
-      return (data.tips || []).slice(0, 2).map((h) => `rinku://tx/h/${h}`);
-    }
-  } catch {}
-  return [];
+    return await p;
+  } finally {
+    tipInflight.delete(nodeUrl);
+  }
 }
 
 function connectWS(nodeUrl: string): WebSocket {
@@ -221,7 +293,7 @@ function connectWS(nodeUrl: string): WebSocket {
       const msg = JSON.parse(raw.toString());
       if (!msg.type || !msg.data) return;
 
-      if (msg.type === "FastPathConfirmed" || msg.type === "FastPathExecuted") {
+      if (msg.type === "FastPathExecuted") {
         const hash = msg.data.hash as string;
         if (!hash) return;
 
@@ -317,12 +389,57 @@ async function wallet_resync(slot: AccountSlot): Promise<void> {
   slot.balance = await slot.wallet.getBalance();
 }
 
+async function postTxWithRetry(
+  url: string,
+  body: string,
+  senderFingerprint: string,
+  expectedNonce: number
+): Promise<Response> {
+  try {
+    return await fetchWithTimeout(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  } catch (firstErr: any) {
+    const msg = firstErr?.message || "";
+    const isTransient =
+      msg.includes("fetch failed") || msg.includes("aborted");
+    if (!isTransient) throw firstErr;
+
+    await new Promise((r) => setTimeout(r, 50 + Math.random() * 100));
+
+    try {
+      const confirmedNonce = await queryHighestNonce(senderFingerprint);
+      if (confirmedNonce > expectedNonce) {
+        throw Object.assign(new Error("TX likely succeeded (nonce advanced)"), {
+          likelySucceeded: true,
+          confirmedNonce,
+        });
+      }
+    } catch (nonceErr: any) {
+      if (nonceErr?.likelySucceeded) throw nonceErr;
+    }
+
+    return await fetchWithTimeout(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  }
+}
+
 async function sendTransaction(
   sender: AccountSlot,
   recipient: AccountSlot,
   amount: number
 ): Promise<boolean> {
   try {
+    const freshNonce = await queryNonce(sender.fingerprint, sender.nodeUrl);
+    if (freshNonce > 0 && freshNonce !== sender.nonce) {
+      sender.nonce = freshNonce;
+    }
+
     const tipUrls = await getTipParents(sender.nodeUrl);
     const fee = currentGasPrice;
 
@@ -336,11 +453,13 @@ async function sendTransaction(
     });
 
     const publicKey = await sender.wallet.getPublicKey();
-    const res = await fetchWithTimeout(`${sender.nodeUrl}/api/tx`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tx: signedTx, publicKey: Array.from(publicKey) }),
-    });
+    const txBody = JSON.stringify({ tx: signedTx, publicKey: Array.from(publicKey) });
+    const res = await postTxWithRetry(
+      `${sender.nodeUrl}/api/tx`,
+      txBody,
+      sender.fingerprint,
+      sender.nonce
+    );
 
     if (res.ok) {
       const data = (await res.json()) as { hash?: string };
@@ -358,12 +477,23 @@ async function sendTransaction(
       const sentAt = Date.now();
       pendingConfirmations.set(hash, { sentAt, slot: sender });
 
-      sender.pendingTimer = setTimeout(() => {
-        if (pendingConfirmations.has(hash)) {
-          pendingConfirmations.delete(hash);
+      sender.pendingTimer = setTimeout(async () => {
+        if (!pendingConfirmations.has(hash)) return;
+        pendingConfirmations.delete(hash);
+        sender.pendingHash = null;
+        stats.txTimedOut++;
+        try {
+          await new Promise((r) => setTimeout(r, 500));
+          let confirmedNonce = await queryNonce(sender.fingerprint, sender.nodeUrl);
+          if (confirmedNonce <= 0) {
+            confirmedNonce = await queryHighestNonce(sender.fingerprint);
+          }
+          if (confirmedNonce > 0) {
+            sender.nonce = confirmedNonce;
+          }
+        } catch {
+        } finally {
           sender.busy = false;
-          sender.pendingHash = null;
-          stats.txTimedOut++;
           if (sender.pendingResolve) {
             sender.pendingResolve(false);
             sender.pendingResolve = null;
@@ -378,10 +508,18 @@ async function sendTransaction(
       };
       const errMsg = errData.error || "";
 
-      if (errMsg.toLowerCase().includes("nonce")) {
-        const match = errMsg.match(/expected\s+(\d+)/i);
-        if (match) {
-          sender.nonce = parseInt(match[1], 10);
+      if (errMsg.toLowerCase().includes("gas price too low")) {
+        const minMatch = errMsg.match(/minimum is ([\d.]+)/);
+        if (minMatch) {
+          currentGasPrice = parseFloat(minMatch[1]) * 1.15;
+        } else {
+          fetchGasPrice();
+        }
+      } else if (errMsg.toLowerCase().includes("nonce")) {
+        await new Promise((r) => setTimeout(r, 300));
+        const expectedMatch = errMsg.match(/expected\s+(\d+)/i);
+        if (expectedMatch) {
+          sender.nonce = parseInt(expectedMatch[1], 10);
         } else {
           sender.nonce = await queryHighestNonce(sender.fingerprint);
         }
@@ -396,6 +534,15 @@ async function sendTransaction(
       return false;
     }
   } catch (err: any) {
+    if (err?.likelySucceeded) {
+      sender.nonce = err.confirmedNonce;
+      sender.balance -= amount + currentGasPrice;
+      recipient.balance += amount;
+      sender.txCount++;
+      stats.txSent++;
+      stats.txConfirmed++;
+      return true;
+    }
     log(`TX error (${sender.fingerprint.slice(0, 12)}): ${(err?.message || "").slice(0, 80)}`);
     stats.txFailed++;
     stats.errors++;
@@ -444,7 +591,7 @@ function reportStats() {
     `STATS | sent=${stats.txSent} confirmed=${stats.txConfirmed} failed=${stats.txFailed} timedOut=${stats.txTimedOut} ` +
       `| TPS: ${windowTps.toFixed(1)} (window) ${overallTps.toFixed(1)} (overall) ` +
       `| latency p50=${p50}ms p95=${p95}ms p99=${p99}ms max=${max}ms ` +
-      `| busy=${busyCount}/${accounts.length} pending=${pendingCount} ` +
+      `| busy=${busyCount}/${accounts.length} pending=${pendingCount} inflight=${httpSemaphore.inflight}/${MAX_CONCURRENT_REQUESTS} ` +
       `| gas=${currentGasPrice.toFixed(4)}`
   );
 
@@ -484,7 +631,7 @@ async function runRealisticMode() {
       }
 
       const recipient = pickRandomOther(accounts, slot);
-      const amount = Math.floor(Math.random() * 3) + 1;
+      const amount = Math.max(0.001, Number((Math.random() * 0.99).toFixed(3)));
 
       const sent = await sendTransaction(slot, recipient, amount);
       if (sent) {
@@ -550,6 +697,7 @@ async function main() {
   log(`Mode: ${MODE}`);
   log(`Nodes: ${NODE_URLS.join(", ")}`);
   log(`Accounts: ${ACCOUNT_COUNT}`);
+  log(`Max concurrent HTTP requests: ${MAX_CONCURRENT_REQUESTS}`);
   if (MODE === "stress") log(`Target TPS: ${TARGET_TPS}`);
   log(`Duration: ${DURATION_S}s`);
   log("");
@@ -604,7 +752,7 @@ async function main() {
     reportStats();
   }, 5000);
 
-  const gasInterval = setInterval(fetchGasPrice, 10000);
+  const gasInterval = setInterval(fetchGasPrice, 2000);
 
   const refillInterval = setInterval(refillLowBalances, 30000);
 

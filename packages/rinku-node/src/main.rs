@@ -18,6 +18,7 @@ mod dag_pruning;
 #[cfg(feature = "wasm")]
 mod wasm_runtime;
 mod emission;
+mod erasure;
 mod events;
 mod websocket;
 mod fast_path;

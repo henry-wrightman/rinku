@@ -184,7 +184,7 @@ impl RedbStorage {
     }
 
     pub fn put_dag<T: Serialize>(&self, key: &[u8], value: &T) -> Result<()> {
-        let data = bincode::serialize(value)?;
+        let data = serde_json::to_vec(value)?;
         let db = self.db_read();
         let write_txn = db.begin_write()?;
         {
@@ -201,7 +201,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_DAG)?;
         match table.get(key)? {
             Some(data) => {
-                let value: T = bincode::deserialize(data.value())?;
+                let value: T = serde_json::from_slice(data.value())?;
                 Ok(Some(value))
             }
             None => Ok(None),
@@ -220,7 +220,7 @@ impl RedbStorage {
     }
 
     pub fn put_checkpoint<T: Serialize>(&self, key: &[u8], value: &T) -> Result<()> {
-        let data = bincode::serialize(value)?;
+        let data = serde_json::to_vec(value)?;
         let db = self.db_read();
         let write_txn = db.begin_write()?;
         {
@@ -237,7 +237,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_CHECKPOINTS)?;
         match table.get(key)? {
             Some(data) => {
-                let value: T = bincode::deserialize(data.value())?;
+                let value: T = serde_json::from_slice(data.value())?;
                 Ok(Some(value))
             }
             None => Ok(None),
@@ -416,7 +416,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_DAG)?;
         for entry in table.iter()? {
             let (key, value) = entry?;
-            if let Ok(v) = bincode::deserialize::<T>(value.value()) {
+            if let Ok(v) = serde_json::from_slice::<T>(value.value()) {
                 callback(key.value().to_vec(), v);
             }
         }
@@ -433,7 +433,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_CHECKPOINTS)?;
         for entry in table.iter()? {
             let (key, value) = entry?;
-            if let Ok(v) = bincode::deserialize::<T>(value.value()) {
+            if let Ok(v) = serde_json::from_slice::<T>(value.value()) {
                 callback(key.value().to_vec(), v);
             }
         }

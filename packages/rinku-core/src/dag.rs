@@ -432,6 +432,55 @@ impl Dag {
         }
     }
 
+    pub fn mark_finalized_deferred_cleanup(&mut self, hash: &str, checkpoint_height: u64) -> Result<(), DagError> {
+        if let Some(node) = self.get_node_mut(hash) {
+            node.finalized = true;
+            node.checkpoint_height = Some(checkpoint_height);
+            self.unfinalized.remove(hash);
+            Ok(())
+        } else {
+            Err(DagError::NodeNotFound(hash.to_string()))
+        }
+    }
+
+    pub fn unmark_finalized_batch(&mut self, hashes: &[String]) -> usize {
+        let mut count = 0;
+        let mut to_restore: Vec<(String, String)> = Vec::new();
+        for hash in hashes {
+            if let Some(node) = self.get_node_mut(hash) {
+                if node.finalized {
+                    node.finalized = false;
+                    node.checkpoint_height = None;
+                    let sender = node.tx.tx.from.clone();
+                    to_restore.push((hash.clone(), sender));
+                    count += 1;
+                }
+            }
+        }
+        for (hash, sender) in to_restore {
+            self.unfinalized.insert(hash.clone());
+            self.sender_unfinalized
+                .entry(sender)
+                .or_default()
+                .insert(hash);
+        }
+        count
+    }
+
+    pub fn cleanup_sender_unfinalized_batch(&mut self, hashes: &[String]) {
+        for hash in hashes {
+            if let Some(node) = self.get_node(hash) {
+                let sender = node.tx.tx.from.clone();
+                if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
+                    set.remove(hash);
+                    if set.is_empty() {
+                        self.sender_unfinalized.remove(&sender);
+                    }
+                }
+            }
+        }
+    }
+
     /// Batch mark multiple transactions as finalized (optimized for checkpoint creation)
     /// Returns the number of transactions successfully marked
     pub fn mark_finalized_batch(&mut self, hashes: &[String], checkpoint_height: u64) -> usize {
@@ -474,8 +523,8 @@ impl Dag {
     }
 
     pub fn prune_finalized_before(&mut self, min_checkpoint_height: u64) -> usize {
-        let unfinalized_ancestors: std::collections::HashSet<String> = {
-            let mut ancestors = std::collections::HashSet::new();
+        let unfinalized_ancestors: HashSet<String> = {
+            let mut ancestors = HashSet::new();
             for hash in &self.unfinalized {
                 if let Some(idx) = self.hash_to_index.get(hash) {
                     if let Some(node) = self.graph.node_weight(*idx) {
@@ -488,32 +537,67 @@ impl Dag {
             ancestors
         };
 
-        let to_remove: Vec<NodeIndex> = self
+        let hashes_to_remove: Vec<String> = self
             .graph
             .node_indices()
-            .filter(|idx| {
-                self.graph.node_weight(*idx).map_or(false, |node| {
-                    node.finalized
+            .filter_map(|idx| {
+                self.graph.node_weight(idx).and_then(|node| {
+                    if node.finalized
                         && node.checkpoint_height.map_or(false, |h| h < min_checkpoint_height)
                         && !self.tips.contains(&node.hash)
                         && !unfinalized_ancestors.contains(&node.hash)
+                    {
+                        Some(node.hash.clone())
+                    } else {
+                        None
+                    }
                 })
             })
             .collect();
 
-        let count = to_remove.len();
-        for idx in to_remove.into_iter().rev() {
-            if let Some(node) = self.graph.node_weight(idx) {
-                let hash = node.hash.clone();
-                self.hash_to_index.remove(&hash);
-                self.tips.remove(&hash);
-            }
-            self.graph.remove_node(idx);
-        }
+        let count = hashes_to_remove.len();
+        for hash in &hashes_to_remove {
+            if let Some(idx) = self.hash_to_index.remove(hash) {
+                self.tips.remove(hash);
 
-        if count > 0 {
-            self.rebuild_index();
-            self.rebuild_tips();
+                if let Some(node) = self.graph.node_weight(idx) {
+                    let sender = node.tx.tx.from.clone();
+                    if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
+                        set.remove(hash);
+                        if set.is_empty() {
+                            self.sender_unfinalized.remove(&sender);
+                        }
+                    }
+                }
+
+                let parent_hashes: Vec<String> = self.graph.node_weight(idx)
+                    .map(|n| n.parents.clone())
+                    .unwrap_or_default();
+
+                for parent_hash in &parent_hashes {
+                    if let Some(&pidx) = self.hash_to_index.get(parent_hash) {
+                        if let Some(parent_node) = self.graph.node_weight_mut(pidx) {
+                            parent_node.children.retain(|c| c != hash);
+                            if parent_node.children.is_empty() {
+                                self.tips.insert(parent_hash.clone());
+                            }
+                        }
+                    }
+                }
+
+                let last_idx = NodeIndex::new(self.graph.node_count() - 1);
+                let swapped_hash = if idx != last_idx {
+                    self.graph.node_weight(last_idx).map(|n| n.hash.clone())
+                } else {
+                    None
+                };
+
+                self.graph.remove_node(idx);
+
+                if let Some(sh) = swapped_hash {
+                    self.hash_to_index.insert(sh, idx);
+                }
+            }
         }
         count
     }
@@ -635,6 +719,68 @@ impl Dag {
                 }
             }
         }
+    }
+
+    pub fn evict_finalized_before(&mut self, boundary_height: u64) -> usize {
+        let to_evict: Vec<String> = self.graph.node_weights()
+            .filter(|node| {
+                node.finalized
+                    && node.checkpoint_height.map_or(false, |h| h < boundary_height)
+                    && node.children.iter().all(|child_hash| {
+                        self.hash_to_index.get(child_hash)
+                            .and_then(|&idx| self.graph.node_weight(idx))
+                            .map_or(true, |child| child.finalized)
+                    })
+            })
+            .map(|node| node.hash.clone())
+            .collect();
+
+        if to_evict.is_empty() {
+            return 0;
+        }
+
+        let count = to_evict.len();
+
+        let evict_set: std::collections::HashSet<&str> = to_evict.iter().map(|s| s.as_str()).collect();
+
+        let mut indices_to_remove: Vec<petgraph::graph::NodeIndex> = to_evict.iter()
+            .filter_map(|hash| self.hash_to_index.get(hash).copied())
+            .collect();
+        indices_to_remove.sort_by(|a, b| b.index().cmp(&a.index()));
+
+        for idx in indices_to_remove {
+            self.graph.remove_node(idx);
+        }
+
+        self.hash_to_index.clear();
+        self.unfinalized.clear();
+        self.sender_unfinalized.clear();
+        self.tips.clear();
+
+        for idx in self.graph.node_indices() {
+            if let Some(node) = self.graph.node_weight_mut(idx) {
+                node.children.retain(|c| !evict_set.contains(c.as_str()));
+                node.parents.retain(|p| !evict_set.contains(p.as_str()));
+            }
+        }
+
+        for idx in self.graph.node_indices() {
+            if let Some(node) = self.graph.node_weight(idx) {
+                self.hash_to_index.insert(node.hash.clone(), idx);
+                if !node.finalized {
+                    self.unfinalized.insert(node.hash.clone());
+                    self.sender_unfinalized
+                        .entry(node.tx.tx.from.clone())
+                        .or_default()
+                        .insert(node.hash.clone());
+                }
+                if node.children.is_empty() {
+                    self.tips.insert(node.hash.clone());
+                }
+            }
+        }
+
+        count
     }
 
     pub fn calculate_cumulative_weight(&self, hash: &str) -> f64 {
