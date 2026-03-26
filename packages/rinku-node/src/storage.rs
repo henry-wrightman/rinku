@@ -496,6 +496,28 @@ impl RedbStorage {
         
         {
             let mut table = write_txn.open_table(TABLE_DAG)?;
+            let current_hashes: std::collections::HashSet<&[u8]> = dag_entries.iter()
+                .map(|e| e.tx.hash.as_bytes())
+                .collect();
+            let stale_keys: Vec<Vec<u8>> = {
+                let mut keys = Vec::new();
+                let iter = table.iter()?;
+                for result in iter {
+                    if let Ok((key, _)) = result {
+                        let k = key.value().to_vec();
+                        if !current_hashes.contains(k.as_slice()) {
+                            keys.push(k);
+                        }
+                    }
+                }
+                keys
+            };
+            if !stale_keys.is_empty() {
+                debug!("Cleaning {} stale TABLE_DAG entries (keeping {})", stale_keys.len(), dag_entries.len());
+                for key in &stale_keys {
+                    table.remove(key.as_slice())?;
+                }
+            }
             for entry in dag_entries {
                 let data = serde_json::to_vec(entry)?;
                 table.insert(entry.tx.hash.as_bytes(), data.as_slice())?;

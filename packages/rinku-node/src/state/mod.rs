@@ -145,8 +145,19 @@ pub struct StateInner {
     pub partition_state: partition::PartitionState,
     pub checkpoint_accounts_snapshot: Option<(u64, HashMap<String, (u64, u64, u64)>)>,
     pub pre_checkpoint_accounts_snapshot: Option<(u64, HashMap<String, (u64, u64, u64)>)>,
-    pub convergence_executed_hashes: std::collections::HashSet<String>,
+    pub convergence_executed_txs: HashMap<String, ConvergenceUndoEntry>,
     pub convergence_executed_order: VecDeque<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConvergenceUndoEntry {
+    pub from: String,
+    pub to: String,
+    pub amount: u64,
+    pub nonce: u64,
+    pub gas_price: Option<u64>,
+    pub kind: Option<rinku_core::types::TransactionKind>,
+    pub hash: String,
 }
 
 #[derive(Clone)]
@@ -325,7 +336,7 @@ impl NodeState {
                     partition_state: partition::PartitionState::default(),
                     checkpoint_accounts_snapshot: None,
                     pre_checkpoint_accounts_snapshot: None,
-                    convergence_executed_hashes: std::collections::HashSet::new(),
+                    convergence_executed_txs: HashMap::new(),
                     convergence_executed_order: VecDeque::new(),
                 }
             } else {
@@ -420,7 +431,7 @@ impl NodeState {
                         partition_state: partition::PartitionState::default(),
                         checkpoint_accounts_snapshot: None,
                         pre_checkpoint_accounts_snapshot: None,
-                        convergence_executed_hashes: std::collections::HashSet::new(),
+                        convergence_executed_txs: HashMap::new(),
                         convergence_executed_order: VecDeque::new(),
                     };
                     
@@ -621,7 +632,7 @@ impl NodeState {
                     partition_state: partition::PartitionState::default(),
                     checkpoint_accounts_snapshot: None,
                     pre_checkpoint_accounts_snapshot: None,
-                    convergence_executed_hashes: std::collections::HashSet::new(),
+                    convergence_executed_txs: HashMap::new(),
                     convergence_executed_order: VecDeque::new(),
                 }
             };

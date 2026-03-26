@@ -506,6 +506,16 @@ impl NodeState {
             self.execute_transaction_side_effects(tx).await;
         }
 
+        if matches!(
+            tx.tx.kind,
+            Some(rinku_core::types::TransactionKind::Stake)
+                | Some(rinku_core::types::TransactionKind::Unstake)
+                | Some(rinku_core::types::TransactionKind::ClaimRewards)
+        ) {
+            let mut rewards = self.rewards.write().await;
+            rewards.register_stake_dedup(&tx.hash);
+        }
+
         tracing::info!(
             "FastPath EXECUTED tx {} ({} -> {}, amount={}, gas={}, kind={:?})",
             &tx.hash[..16.min(tx.hash.len())],
@@ -523,9 +533,9 @@ impl NodeState {
         &self,
         txs: &[SignedTransaction],
     ) -> Vec<ConvergenceBatchExecEntry> {
-        let mut results = Vec::with_capacity(txs.len());
-        let mut skipped_senders: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut results_map: std::collections::HashMap<usize, ConvergenceBatchExecEntry> = std::collections::HashMap::with_capacity(txs.len());
         let mut contract_txs: Vec<SignedTransaction> = Vec::new();
+        let mut executed_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
         {
             let mut state = self.inner.write().await;
@@ -534,9 +544,214 @@ impl NodeState {
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
 
-            for tx in txs {
-                if skipped_senders.contains(&tx.tx.from) {
-                    results.push(ConvergenceBatchExecEntry {
+            const MAX_PASSES: usize = 4;
+            let mut pass = 0;
+            let mut progress = true;
+
+            while progress && pass < MAX_PASSES {
+                progress = false;
+                pass += 1;
+                let mut skipped_senders: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+                for (idx, tx) in txs.iter().enumerate() {
+                    if executed_indices.contains(&idx) {
+                        continue;
+                    }
+
+                    if skipped_senders.contains(&tx.tx.from) {
+                        continue;
+                    }
+
+                    if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                        results_map.insert(idx, ConvergenceBatchExecEntry {
+                            hash: tx.hash.clone(),
+                            result: ConvergenceExecResult::AlreadyApplied,
+                            from_addr: tx.tx.from.clone(),
+                            to_addr: tx.tx.to.clone(),
+                            amount: tx.tx.amount,
+                            from_account: None,
+                            to_account: None,
+                        });
+                        executed_indices.insert(idx);
+                        continue;
+                    }
+
+                    let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+                    let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                    let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                    let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
+
+                    let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+
+                    let result = {
+                        let from_account = match state.accounts.get(&tx.tx.from) {
+                            Some(acc) => acc,
+                            None => {
+                                results_map.insert(idx, ConvergenceBatchExecEntry {
+                                    hash: tx.hash.clone(),
+                                    result: ConvergenceExecResult::Rejected,
+                                    from_addr: tx.tx.from.clone(),
+                                    to_addr: tx.tx.to.clone(),
+                                    amount: tx.tx.amount,
+                                    from_account: None,
+                                    to_account: None,
+                                });
+                                executed_indices.insert(idx);
+                                continue;
+                            }
+                        };
+                        let required = if is_stake_tx {
+                            tx.tx.amount + gas_fee
+                        } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                            gas_fee
+                        } else {
+                            tx.tx.amount + gas_fee
+                        };
+                        if from_account.balance < required {
+                            ConvergenceExecResult::Rejected
+                        } else if tx.tx.nonce < from_account.nonce {
+                            ConvergenceExecResult::AlreadyApplied
+                        } else if tx.tx.nonce > from_account.nonce {
+                            ConvergenceExecResult::Deferred
+                        } else {
+                            ConvergenceExecResult::Executed
+                        }
+                    };
+
+                    if matches!(result, ConvergenceExecResult::Deferred) {
+                        skipped_senders.insert(tx.tx.from.clone());
+                        continue;
+                    }
+
+                    if !matches!(result, ConvergenceExecResult::Executed) {
+                        results_map.insert(idx, ConvergenceBatchExecEntry {
+                            hash: tx.hash.clone(),
+                            result,
+                            from_addr: tx.tx.from.clone(),
+                            to_addr: tx.tx.to.clone(),
+                            amount: tx.tx.amount,
+                            from_account: None,
+                            to_account: None,
+                        });
+                        executed_indices.insert(idx);
+                        continue;
+                    }
+
+                    let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
+
+                    if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
+                        let tx_cost = if is_stake_tx {
+                            tx.tx.amount + gas_fee
+                        } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                            gas_fee
+                        } else {
+                            tx.tx.amount + gas_fee
+                        };
+                        from_account.balance -= tx_cost;
+                        from_account.nonce = tx.tx.nonce + 1;
+
+                        if is_in_partition && from_account.partition_budget.is_some() {
+                            from_account.partition_budget_spent += tx_cost;
+                        }
+                    }
+
+                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
+                        let to_account = state
+                            .accounts
+                            .entry(tx.tx.to.clone())
+                            .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
+                        to_account.balance += tx.tx.amount;
+                    }
+
+                    if is_stake_tx {
+                        if let Some(staker) = state.accounts.get_mut(&tx.tx.from) {
+                            staker.staked += tx.tx.amount;
+                        }
+                    }
+
+                    state.total_burned += gas_fee / 2;
+                    state.total_to_validators += gas_fee / 2;
+                    state.total_transactions += 1;
+
+                    let tx_time_ms = if tx.tx.timestamp < 4_000_000_000 {
+                        tx.tx.timestamp * 1000
+                    } else {
+                        tx.tx.timestamp
+                    };
+                    let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
+                    const MAX_FINALITY_MS: u64 = 300_000;
+                    if finality_time_ms <= MAX_FINALITY_MS {
+                        state.finality_sum_ms += finality_time_ms;
+                        state.finality_count += 1;
+                        if finality_time_ms > state.finality_max_ms {
+                            state.finality_max_ms = finality_time_ms;
+                        }
+                        if state.finality_times_ms.len() >= 1000 {
+                            state.finality_times_ms.pop_front();
+                        }
+                        state.finality_times_ms.push_back(finality_time_ms);
+                    }
+
+                    if !state.convergence_executed_txs.contains_key(&tx.hash) {
+                        state.convergence_executed_txs.insert(tx.hash.clone(), super::ConvergenceUndoEntry {
+                            from: tx.tx.from.clone(),
+                            to: tx.tx.to.clone(),
+                            amount: tx.tx.amount,
+                            nonce: tx.tx.nonce,
+                            gas_price: tx.tx.gas_price,
+                            kind: tx.tx.kind.clone(),
+                            hash: tx.hash.clone(),
+                        });
+                        state.convergence_executed_order.push_back(tx.hash.clone());
+                        const CONVERGENCE_EXECUTED_CAP: usize = 10_000;
+                        while state.convergence_executed_txs.len() > CONVERGENCE_EXECUTED_CAP {
+                            if let Some(oldest) = state.convergence_executed_order.pop_front() {
+                                state.convergence_executed_txs.remove(&oldest);
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    if is_contract_tx {
+                        contract_txs.push(tx.clone());
+                    }
+
+                    let from_snap = state.accounts.get(&tx.tx.from).cloned();
+                    let to_snap = if !tx.tx.to.is_empty() {
+                        state.accounts.get(&tx.tx.to).cloned()
+                    } else {
+                        None
+                    };
+
+                    tracing::info!(
+                        "FastPath EXECUTED tx {} ({} -> {}, amount={}, gas={}, kind={:?})",
+                        &tx.hash[..16.min(tx.hash.len())],
+                        &tx.tx.from[..16.min(tx.tx.from.len())],
+                        &tx.tx.to[..16.min(tx.tx.to.len())],
+                        tx.tx.amount,
+                        gas_fee,
+                        tx.tx.kind
+                    );
+
+                    results_map.insert(idx, ConvergenceBatchExecEntry {
+                        hash: tx.hash.clone(),
+                        result: ConvergenceExecResult::Executed,
+                        from_addr: tx.tx.from.clone(),
+                        to_addr: tx.tx.to.clone(),
+                        amount: tx.tx.amount,
+                        from_account: from_snap,
+                        to_account: to_snap,
+                    });
+
+                    executed_indices.insert(idx);
+                    progress = true;
+                }
+            }
+
+            for (idx, tx) in txs.iter().enumerate() {
+                if !executed_indices.contains(&idx) {
+                    results_map.insert(idx, ConvergenceBatchExecEntry {
                         hash: tx.hash.clone(),
                         result: ConvergenceExecResult::Deferred,
                         from_addr: tx.tx.from.clone(),
@@ -545,187 +760,46 @@ impl NodeState {
                         from_account: None,
                         to_account: None,
                     });
-                    continue;
                 }
+            }
 
-                if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-                    results.push(ConvergenceBatchExecEntry {
-                        hash: tx.hash.clone(),
-                        result: ConvergenceExecResult::AlreadyApplied,
-                        from_addr: tx.tx.from.clone(),
-                        to_addr: tx.tx.to.clone(),
-                        amount: tx.tx.amount,
-                        from_account: None,
-                        to_account: None,
-                    });
-                    continue;
-                }
-
-                let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-                let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
-
-                let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
-
-                let result = {
-                    let from_account = match state.accounts.get(&tx.tx.from) {
-                        Some(acc) => acc,
-                        None => {
-                            results.push(ConvergenceBatchExecEntry {
-                                hash: tx.hash.clone(),
-                                result: ConvergenceExecResult::Rejected,
-                                from_addr: tx.tx.from.clone(),
-                                to_addr: tx.tx.to.clone(),
-                                amount: tx.tx.amount,
-                                from_account: None,
-                                to_account: None,
-                            });
-                            continue;
-                        }
-                    };
-                    let required = if is_stake_tx {
-                        tx.tx.amount + gas_fee
-                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                        gas_fee
-                    } else {
-                        tx.tx.amount + gas_fee
-                    };
-                    if from_account.balance < required {
-                        ConvergenceExecResult::Rejected
-                    } else if tx.tx.nonce < from_account.nonce {
-                        ConvergenceExecResult::AlreadyApplied
-                    } else if tx.tx.nonce > from_account.nonce {
-                        ConvergenceExecResult::Deferred
-                    } else {
-                        ConvergenceExecResult::Executed
-                    }
-                };
-
-                if matches!(result, ConvergenceExecResult::Deferred) {
-                    skipped_senders.insert(tx.tx.from.clone());
-                    results.push(ConvergenceBatchExecEntry {
-                        hash: tx.hash.clone(),
-                        result,
-                        from_addr: tx.tx.from.clone(),
-                        to_addr: tx.tx.to.clone(),
-                        amount: tx.tx.amount,
-                        from_account: None,
-                        to_account: None,
-                    });
-                    continue;
-                }
-
-                if !matches!(result, ConvergenceExecResult::Executed) {
-                    results.push(ConvergenceBatchExecEntry {
-                        hash: tx.hash.clone(),
-                        result,
-                        from_addr: tx.tx.from.clone(),
-                        to_addr: tx.tx.to.clone(),
-                        amount: tx.tx.amount,
-                        from_account: None,
-                        to_account: None,
-                    });
-                    continue;
-                }
-
-                let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
-
-                if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-                    let tx_cost = if is_stake_tx {
-                        tx.tx.amount + gas_fee
-                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                        gas_fee
-                    } else {
-                        tx.tx.amount + gas_fee
-                    };
-                    from_account.balance -= tx_cost;
-                    from_account.nonce = tx.tx.nonce + 1;
-
-                    if is_in_partition && from_account.partition_budget.is_some() {
-                        from_account.partition_budget_spent += tx_cost;
-                    }
-                }
-
-                if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                    let to_account = state
-                        .accounts
-                        .entry(tx.tx.to.clone())
-                        .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-                    to_account.balance += tx.tx.amount;
-                }
-
-                if is_stake_tx {
-                    if let Some(staker) = state.accounts.get_mut(&tx.tx.from) {
-                        staker.staked += tx.tx.amount;
-                    }
-                }
-
-                state.total_burned += gas_fee / 2;
-                state.total_to_validators += gas_fee / 2;
-                state.total_transactions += 1;
-
-                let tx_time_ms = if tx.tx.timestamp < 4_000_000_000 {
-                    tx.tx.timestamp * 1000
-                } else {
-                    tx.tx.timestamp
-                };
-                let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
-                const MAX_FINALITY_MS: u64 = 300_000;
-                if finality_time_ms <= MAX_FINALITY_MS {
-                    state.finality_sum_ms += finality_time_ms;
-                    state.finality_count += 1;
-                    if finality_time_ms > state.finality_max_ms {
-                        state.finality_max_ms = finality_time_ms;
-                    }
-                    if state.finality_times_ms.len() >= 1000 {
-                        state.finality_times_ms.pop_front();
-                    }
-                    state.finality_times_ms.push_back(finality_time_ms);
-                }
-
-                if state.convergence_executed_hashes.insert(tx.hash.clone()) {
-                    state.convergence_executed_order.push_back(tx.hash.clone());
-                    const CONVERGENCE_EXECUTED_CAP: usize = 10_000;
-                    while state.convergence_executed_hashes.len() > CONVERGENCE_EXECUTED_CAP {
-                        if let Some(oldest) = state.convergence_executed_order.pop_front() {
-                            state.convergence_executed_hashes.remove(&oldest);
-                        } else {
-                            break;
-                        }
-                    }
-                }
-
-                if is_contract_tx {
-                    contract_txs.push(tx.clone());
-                }
-
-                let from_snap = state.accounts.get(&tx.tx.from).cloned();
-                let to_snap = if !tx.tx.to.is_empty() {
-                    state.accounts.get(&tx.tx.to).cloned()
-                } else {
-                    None
-                };
-
+            if pass > 1 {
                 tracing::info!(
-                    "FastPath EXECUTED tx {} ({} -> {}, amount={}, gas={}, kind={:?})",
-                    &tx.hash[..16.min(tx.hash.len())],
-                    &tx.tx.from[..16.min(tx.tx.from.len())],
-                    &tx.tx.to[..16.min(tx.tx.to.len())],
-                    tx.tx.amount,
-                    gas_fee,
-                    tx.tx.kind
+                    "Convergence multi-pass: resolved nonce chains in {} passes ({} executed, {} still deferred)",
+                    pass, executed_indices.len(), txs.len() - executed_indices.len()
                 );
+            }
+        }
 
-                results.push(ConvergenceBatchExecEntry {
-                    hash: tx.hash.clone(),
-                    result: ConvergenceExecResult::Executed,
-                    from_addr: tx.tx.from.clone(),
-                    to_addr: tx.tx.to.clone(),
-                    amount: tx.tx.amount,
-                    from_account: from_snap,
-                    to_account: to_snap,
-                });
+        let mut results: Vec<ConvergenceBatchExecEntry> = (0..txs.len())
+            .filter_map(|i| results_map.remove(&i))
+            .collect();
+
+        {
+            let stake_txs_to_register: Vec<(String, u64, String, rinku_core::types::TransactionKind)> = txs
+                .iter()
+                .zip(results.iter())
+                .filter(|(tx, entry)| {
+                    matches!(entry.result, ConvergenceExecResult::Executed)
+                        && matches!(
+                            tx.tx.kind,
+                            Some(rinku_core::types::TransactionKind::Stake)
+                                | Some(rinku_core::types::TransactionKind::Unstake)
+                                | Some(rinku_core::types::TransactionKind::ClaimRewards)
+                        )
+                })
+                .map(|(tx, _)| (tx.tx.from.clone(), tx.tx.amount, tx.hash.clone(), tx.tx.kind.clone().unwrap()))
+                .collect();
+
+            if !stake_txs_to_register.is_empty() {
+                let mut rewards = self.rewards.write().await;
+                for (from, amount, hash, kind) in &stake_txs_to_register {
+                    if matches!(kind, rinku_core::types::TransactionKind::Stake) {
+                        let _ = rewards.stake(from, *amount, hash);
+                    } else {
+                        rewards.register_stake_dedup(hash);
+                    }
+                }
             }
         }
 
@@ -1081,7 +1155,7 @@ impl NodeState {
     pub async fn process_batch_special_txs_with_skip(
         &self,
         special_txs: &[SignedTransaction],
-        convergence_executed_hashes: &std::collections::HashSet<String>,
+        skip_hashes: &std::collections::HashSet<String>,
     ) {
         if special_txs.is_empty() {
             return;
@@ -1094,12 +1168,15 @@ impl NodeState {
         {
             let mut rewards = self.rewards.write().await;
             for tx in special_txs {
+                if skip_hashes.contains(&tx.hash) {
+                    continue;
+                }
                 use rinku_core::types::TransactionKind;
                 let from_addr = &tx.tx.from;
 
                 match tx.tx.kind.as_ref().unwrap() {
                     TransactionKind::Stake => {
-                        if let Err(e) = rewards.stake(from_addr, tx.tx.amount) {
+                        if let Err(e) = rewards.stake(from_addr, tx.tx.amount, &tx.hash) {
                             tracing::warn!("Failed to process stake tx: {}", e);
                         } else {
                             if let Some(p) = rewards.get_stake(from_addr) {
@@ -1151,7 +1228,7 @@ impl NodeState {
 
         for tx in special_txs {
             if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract)) {
-                if convergence_executed_hashes.contains(&tx.hash) {
+                if skip_hashes.contains(&tx.hash) {
                     tracing::debug!(
                         "Skipping contract re-execution for convergence-executed tx {}",
                         &tx.hash[..16.min(tx.hash.len())]
@@ -1330,6 +1407,29 @@ impl NodeState {
         }
     }
 
+    pub async fn purge_zombie_dag_txs(&self) {
+        let mut state = self.inner.write().await;
+        let unfinalized = state.dag.get_unfinalized_nodes();
+        let mut zombie_hashes: Vec<String> = Vec::new();
+        for node in &unfinalized {
+            let account_nonce = state.accounts.get(&node.tx.tx.from).map(|a| a.nonce).unwrap_or(0);
+            if node.tx.tx.nonce < account_nonce && !state.convergence_executed_txs.contains_key(&node.hash) {
+                zombie_hashes.push(node.hash.clone());
+            }
+        }
+        if !zombie_hashes.is_empty() {
+            let height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
+            for zh in &zombie_hashes {
+                state.dag.mark_finalized_deferred_cleanup(zh, height);
+            }
+            state.dag.cleanup_sender_unfinalized_batch(&zombie_hashes);
+            tracing::info!(
+                "Purged {} zombie txs from DAG (stale nonce, not convergence-tracked)",
+                zombie_hashes.len()
+            );
+        }
+    }
+
     pub async fn execute_finalized_transaction_core(&self, tx: &SignedTransaction) -> bool {
         if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
             return false;
@@ -1412,7 +1512,7 @@ impl NodeState {
                 TransactionKind::Stake => {
                     let stake_update: Option<(u64, u64)> = {
                         let mut rewards = self.rewards.write().await;
-                        if let Err(e) = rewards.stake(from_addr, stake_amount) {
+                        if let Err(e) = rewards.stake(from_addr, stake_amount, &tx.hash) {
                             tracing::warn!("Failed to process stake tx: {}", e);
                             None
                         } else {

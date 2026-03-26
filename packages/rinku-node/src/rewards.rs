@@ -158,6 +158,8 @@ pub struct RewardsService {
     witnessed_txs: HashMap<String, u64>,
     witnessed_queue: Vec<WitnessedEntry>,
     witnessed_queue_head: usize,
+    processed_stake_tx_hashes: std::collections::HashSet<String>,
+    processed_stake_tx_order: std::collections::VecDeque<String>,
 }
 
 impl RewardsService {
@@ -172,6 +174,8 @@ impl RewardsService {
             witnessed_txs: HashMap::new(),
             witnessed_queue: Vec::new(),
             witnessed_queue_head: 0,
+            processed_stake_tx_hashes: std::collections::HashSet::new(),
+            processed_stake_tx_order: std::collections::VecDeque::new(),
         }
     }
 
@@ -308,7 +312,7 @@ impl RewardsService {
         }
     }
 
-    pub fn stake(&mut self, staker: &str, amount: u64) -> Result<StakePosition, String> {
+    pub fn stake(&mut self, staker: &str, amount: u64, tx_hash: &str) -> Result<StakePosition, String> {
         if amount < self.config.min_stake_amount {
             return Err(format!(
                 "Minimum stake amount is {} RKU",
@@ -316,14 +320,44 @@ impl RewardsService {
             ));
         }
 
+        if !tx_hash.is_empty() && self.processed_stake_tx_hashes.contains(tx_hash) {
+            tracing::warn!(
+                "STAKE DEDUP: skipping duplicate rewards.stake() for tx {} staker {} amount {}",
+                &tx_hash[..16.min(tx_hash.len())],
+                &staker[..16.min(staker.len())],
+                amount
+            );
+            if let Some(existing) = self.stakes.get(staker) {
+                return Ok(existing.clone());
+            }
+        }
+
         let now = current_time_ms();
 
         if let Some(existing) = self.stakes.get_mut(staker) {
+            tracing::info!(
+                "STAKE ADD: {} adding {} to existing {} (total will be {}) tx={}",
+                &staker[..16.min(staker.len())],
+                amount,
+                existing.amount,
+                existing.amount + amount,
+                if tx_hash.is_empty() { "genesis" } else { &tx_hash[..16.min(tx_hash.len())] }
+            );
             existing.amount += amount;
             existing.staked_at = now;
+            if !tx_hash.is_empty() {
+                self.processed_stake_tx_hashes.insert(tx_hash.to_string());
+                self.processed_stake_tx_order.push_back(tx_hash.to_string());
+            }
             return Ok(existing.clone());
         }
 
+        tracing::info!(
+            "STAKE NEW: {} staking {} tx={}",
+            &staker[..16.min(staker.len())],
+            amount,
+            if tx_hash.is_empty() { "genesis" } else { &tx_hash[..16.min(tx_hash.len())] }
+        );
         let position = StakePosition {
             staker: staker.to_string(),
             amount,
@@ -331,8 +365,64 @@ impl RewardsService {
             last_reward_at: None,
         };
         self.stakes.insert(staker.to_string(), position.clone());
+        if !tx_hash.is_empty() {
+            self.processed_stake_tx_hashes.insert(tx_hash.to_string());
+            self.processed_stake_tx_order.push_back(tx_hash.to_string());
+        }
+
+        const MAX_PROCESSED_HASHES: usize = 50_000;
+        while self.processed_stake_tx_hashes.len() > MAX_PROCESSED_HASHES {
+            if let Some(oldest) = self.processed_stake_tx_order.pop_front() {
+                self.processed_stake_tx_hashes.remove(&oldest);
+            } else {
+                break;
+            }
+        }
 
         Ok(position)
+    }
+
+    pub fn register_stake_dedup(&mut self, tx_hash: &str) {
+        if tx_hash.is_empty() || self.processed_stake_tx_hashes.contains(tx_hash) {
+            return;
+        }
+        self.processed_stake_tx_hashes.insert(tx_hash.to_string());
+        self.processed_stake_tx_order.push_back(tx_hash.to_string());
+        const MAX_PROCESSED_HASHES: usize = 50_000;
+        while self.processed_stake_tx_hashes.len() > MAX_PROCESSED_HASHES {
+            if let Some(oldest) = self.processed_stake_tx_order.pop_front() {
+                self.processed_stake_tx_hashes.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn sync_stake_amount(&mut self, staker: &str, canonical_amount: u64) {
+        if let Some(existing) = self.stakes.get_mut(staker) {
+            if existing.amount != canonical_amount {
+                tracing::info!(
+                    "STAKE SYNC: {} rewards.stakes {} -> {} (canonical account.staked)",
+                    &staker[..16.min(staker.len())],
+                    existing.amount,
+                    canonical_amount
+                );
+                existing.amount = canonical_amount;
+            }
+        } else if canonical_amount > 0 {
+            tracing::info!(
+                "STAKE SYNC CREATE: {} creating rewards.stakes entry with amount {} (canonical account.staked, no prior entry)",
+                &staker[..16.min(staker.len())],
+                canonical_amount
+            );
+            let position = StakePosition {
+                staker: staker.to_string(),
+                amount: canonical_amount,
+                staked_at: current_time_ms(),
+                last_reward_at: None,
+            };
+            self.stakes.insert(staker.to_string(), position);
+        }
     }
 
     pub fn unstake(&mut self, staker: &str) -> Result<u64, String> {
@@ -361,6 +451,10 @@ impl RewardsService {
 
     pub fn get_stake(&self, staker: &str) -> Option<&StakePosition> {
         self.stakes.get(staker)
+    }
+
+    pub fn get_stake_mut(&mut self, staker: &str) -> Option<&mut StakePosition> {
+        self.stakes.get_mut(staker)
     }
 
     pub fn update_stake(&mut self, staker: &str, new_amount: u64) {
@@ -929,7 +1023,7 @@ mod tests {
     fn test_stake_and_unstake() {
         let mut service = RewardsService::new(RewardConfig::default());
 
-        let result = service.stake("validator1", to_micro_units(1000.0));
+        let result = service.stake("validator1", to_micro_units(1000.0), "test_tx_hash_1");
         assert!(result.is_ok());
 
         let stake = service.get_stake("validator1");

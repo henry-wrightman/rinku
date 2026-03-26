@@ -394,11 +394,13 @@ impl NodeState {
 
             let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
             let mut convergence_already_executed: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut convergence_already_executed_entries: Vec<super::ConvergenceUndoEntry> = Vec::new();
 
             if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                 for hash in &unfinalized_hashes {
-                    if state.convergence_executed_hashes.remove(hash) {
+                    if let Some(entry) = state.convergence_executed_txs.remove(hash) {
                         convergence_already_executed.insert(hash.clone());
+                        convergence_already_executed_entries.push(entry);
                     }
 
                     if let Some(node) = state.dag.get_node(hash) {
@@ -412,15 +414,14 @@ impl NodeState {
                     let _ = state.dag.mark_finalized_deferred_cleanup(hash, height);
                 }
                 while let Some(front) = state.convergence_executed_order.front() {
-                    if !state.convergence_executed_hashes.contains(front) {
+                    if !state.convergence_executed_txs.contains_key(front) {
                         state.convergence_executed_order.pop_front();
                     } else {
                         break;
                     }
                 }
-                if state.convergence_executed_order.len() > state.convergence_executed_hashes.len() * 2 + 100 {
-                    let live_set = &state.convergence_executed_hashes;
-                    let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| live_set.contains(h.as_str())).cloned().collect();
+                if state.convergence_executed_order.len() > state.convergence_executed_txs.len() * 2 + 100 {
+                    let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| state.convergence_executed_txs.contains_key(h.as_str())).cloned().collect();
                     state.convergence_executed_order = compacted;
                 }
                 finalized_count = unfinalized_hashes.len();
@@ -484,23 +485,16 @@ impl NodeState {
                 map
             };
 
-            let non_finalized_convergence_hashes: std::collections::HashSet<String> =
-                state.convergence_executed_hashes.iter().cloned().collect();
+            let non_finalized_convergence: Vec<super::ConvergenceUndoEntry> =
+                state.convergence_executed_txs.values().cloned().collect();
 
             {
-                let mut undo_hashes: Vec<String> = non_finalized_convergence_hashes.iter().cloned().collect();
-                undo_hashes.extend(convergence_already_executed.iter().cloned());
+                let mut all_undo: Vec<&super::ConvergenceUndoEntry> = non_finalized_convergence.iter().collect();
+                all_undo.extend(convergence_already_executed_entries.iter());
 
-                let mut undo_txs: Vec<rinku_core::SignedTransaction> = Vec::new();
-                for hash in &undo_hashes {
-                    if let Some(node) = state.dag.get_node(hash) {
-                        undo_txs.push(node.tx.clone());
-                    }
-                }
-
-                undo_txs.sort_by(|a, b| {
-                    a.tx.from.cmp(&b.tx.from)
-                        .then(b.tx.nonce.cmp(&a.tx.nonce))
+                all_undo.sort_by(|a, b| {
+                    a.from.cmp(&b.from)
+                        .then(b.nonce.cmp(&a.nonce))
                 });
 
                 let current_gas_price = state.current_gas_price;
@@ -508,40 +502,40 @@ impl NodeState {
                 let mut undo_burned = 0u64;
                 let mut undo_to_validators = 0u64;
                 let mut undo_tx_count = 0u64;
-                for tx in &undo_txs {
-                    if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                for entry in &all_undo {
+                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
                         continue;
                     }
-                    let fee = tx.tx.gas_price.unwrap_or(current_gas_price);
-                    let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-                    let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                    let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                    let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
+                    let fee = entry.gas_price.unwrap_or(current_gas_price);
+                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
+                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
                     let tx_cost = if is_stake_tx {
-                        tx.tx.amount + fee
+                        entry.amount + fee
                     } else if is_unstake_tx || is_claim_tx || is_contract_tx {
                         fee
                     } else {
-                        tx.tx.amount + fee
+                        entry.amount + fee
                     };
-                    if let Some(sender) = state.accounts.get_mut(&tx.tx.from) {
+                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
                         sender.balance += tx_cost;
-                        sender.nonce = tx.tx.nonce;
+                        sender.nonce = entry.nonce;
                         undo_count += 1;
                         undo_burned += fee / 2;
                         undo_to_validators += fee / 2;
                         undo_tx_count += 1;
                     }
                     if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                        if !tx.tx.to.is_empty() {
-                            if let Some(receiver) = state.accounts.get_mut(&tx.tx.to) {
-                                receiver.balance = receiver.balance.saturating_sub(tx.tx.amount);
+                        if !entry.to.is_empty() {
+                            if let Some(receiver) = state.accounts.get_mut(&entry.to) {
+                                receiver.balance = receiver.balance.saturating_sub(entry.amount);
                             }
                         }
                     }
                     if is_stake_tx {
-                        if let Some(staker) = state.accounts.get_mut(&tx.tx.from) {
-                            staker.staked = staker.staked.saturating_sub(tx.tx.amount);
+                        if let Some(staker) = state.accounts.get_mut(&entry.from) {
+                            staker.staked = staker.staked.saturating_sub(entry.amount);
                         }
                     }
                 }
@@ -557,22 +551,17 @@ impl NodeState {
                     );
                 }
 
-                state.convergence_executed_hashes.clear();
+                state.convergence_executed_txs.clear();
                 state.convergence_executed_order.clear();
             }
 
             let batch_result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
 
-            if !non_finalized_convergence_hashes.is_empty() {
-                let mut reapply_txs: Vec<rinku_core::SignedTransaction> = Vec::new();
-                for hash in &non_finalized_convergence_hashes {
-                    if let Some(node) = state.dag.get_node(hash) {
-                        reapply_txs.push(node.tx.clone());
-                    }
-                }
-                reapply_txs.sort_by(|a, b| {
-                    a.tx.from.cmp(&b.tx.from)
-                        .then(a.tx.nonce.cmp(&b.tx.nonce))
+            if !non_finalized_convergence.is_empty() {
+                let mut reapply_entries: Vec<&super::ConvergenceUndoEntry> = non_finalized_convergence.iter().collect();
+                reapply_entries.sort_by(|a, b| {
+                    a.from.cmp(&b.from)
+                        .then(a.nonce.cmp(&b.nonce))
                 });
 
                 let current_gas_price = state.current_gas_price;
@@ -580,27 +569,27 @@ impl NodeState {
                 let mut reapply_burned = 0u64;
                 let mut reapply_to_validators = 0u64;
                 let mut reapply_tx_count = 0u64;
-                for tx in &reapply_txs {
-                    if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                for entry in &reapply_entries {
+                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
                         continue;
                     }
-                    let fee = tx.tx.gas_price.unwrap_or(current_gas_price);
-                    let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-                    let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                    let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                    let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
+                    let fee = entry.gas_price.unwrap_or(current_gas_price);
+                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
+                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
                     let tx_cost = if is_stake_tx {
-                        tx.tx.amount + fee
+                        entry.amount + fee
                     } else if is_unstake_tx || is_claim_tx || is_contract_tx {
                         fee
                     } else {
-                        tx.tx.amount + fee
+                        entry.amount + fee
                     };
                     let mut applied = false;
-                    if let Some(sender) = state.accounts.get_mut(&tx.tx.from) {
-                        if tx.tx.nonce == sender.nonce && sender.balance >= tx_cost {
+                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
+                        if entry.nonce >= sender.nonce && sender.balance >= tx_cost {
                             sender.balance -= tx_cost;
-                            sender.nonce = tx.tx.nonce + 1;
+                            sender.nonce = entry.nonce + 1;
                             applied = true;
                         }
                     }
@@ -609,18 +598,18 @@ impl NodeState {
                         reapply_burned += fee / 2;
                         reapply_to_validators += fee / 2;
                         reapply_tx_count += 1;
-                        state.convergence_executed_hashes.insert(tx.hash.clone());
-                        state.convergence_executed_order.push_back(tx.hash.clone());
+                        state.convergence_executed_txs.insert(entry.hash.clone(), (*entry).clone());
+                        state.convergence_executed_order.push_back(entry.hash.clone());
                         if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                            if !tx.tx.to.is_empty() {
-                                if let Some(receiver) = state.accounts.get_mut(&tx.tx.to) {
-                                    receiver.balance += tx.tx.amount;
+                            if !entry.to.is_empty() {
+                                if let Some(receiver) = state.accounts.get_mut(&entry.to) {
+                                    receiver.balance += entry.amount;
                                 }
                             }
                         }
                         if is_stake_tx {
-                            if let Some(staker) = state.accounts.get_mut(&tx.tx.from) {
-                                staker.staked += tx.tx.amount;
+                            if let Some(staker) = state.accounts.get_mut(&entry.from) {
+                                staker.staked += entry.amount;
                             }
                         }
                     }
@@ -667,6 +656,16 @@ impl NodeState {
 
         let has_special = !batch_result.special_txs.is_empty();
         self.process_batch_special_txs_with_skip(&batch_result.special_txs, &convergence_already_executed).await;
+
+        {
+            let state = self.inner.read().await;
+            let mut rewards = self.rewards.write().await;
+            for (addr, account) in &state.accounts {
+                if account.staked > 0 {
+                    rewards.sync_stake_amount(addr, account.staked);
+                }
+            }
+        }
 
         if has_special && finalized_count > 0 {
             let mut state = self.inner.write().await;
@@ -736,7 +735,7 @@ impl NodeState {
         }
 
         let t_phase1 = std::time::Instant::now();
-        let (txs_to_execute, mut convergence_already_executed, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, checkpoint_now_ms) = {
+        let (txs_to_execute, mut convergence_already_executed, convergence_already_executed_entries, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, checkpoint_now_ms) = {
             let mut state = self.inner.write().await;
 
             let local_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -763,6 +762,7 @@ impl NodeState {
 
             let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
             let mut convergence_already_executed: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut convergence_already_executed_entries: Vec<super::ConvergenceUndoEntry> = Vec::new();
             let mut missing_tx_count = 0usize;
 
             let finalized_count = if !finalized_tx_hashes.is_empty() {
@@ -770,8 +770,9 @@ impl NodeState {
                 let mut missing = 0;
 
                 for hash in &finalized_tx_hashes {
-                    if state.convergence_executed_hashes.remove(hash) {
+                    if let Some(entry) = state.convergence_executed_txs.remove(hash) {
                         convergence_already_executed.insert(hash.clone());
+                        convergence_already_executed_entries.push(entry);
                     }
 
                     if let Some(node) = state.dag.get_node(hash) {
@@ -788,15 +789,14 @@ impl NodeState {
                     }
                 }
                 while let Some(front) = state.convergence_executed_order.front() {
-                    if !state.convergence_executed_hashes.contains(front) {
+                    if !state.convergence_executed_txs.contains_key(front) {
                         state.convergence_executed_order.pop_front();
                     } else {
                         break;
                     }
                 }
-                if state.convergence_executed_order.len() > state.convergence_executed_hashes.len() * 2 + 100 {
-                    let live_set = &state.convergence_executed_hashes;
-                    let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| live_set.contains(h.as_str())).cloned().collect();
+                if state.convergence_executed_order.len() > state.convergence_executed_txs.len() * 2 + 100 {
+                    let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| state.convergence_executed_txs.contains_key(h.as_str())).cloned().collect();
                     state.convergence_executed_order = compacted;
                 }
 
@@ -852,8 +852,9 @@ impl NodeState {
 
                 if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                     for hash in &unfinalized_hashes {
-                        if state.convergence_executed_hashes.remove(hash) {
+                        if let Some(entry) = state.convergence_executed_txs.remove(hash) {
                             convergence_already_executed.insert(hash.clone());
+                            convergence_already_executed_entries.push(entry);
                         }
 
                         if let Some(node) = state.dag.get_node(hash) {
@@ -867,15 +868,14 @@ impl NodeState {
                         let _ = state.dag.mark_finalized_deferred_cleanup(hash, height);
                     }
                     while let Some(front) = state.convergence_executed_order.front() {
-                        if !state.convergence_executed_hashes.contains(front) {
+                        if !state.convergence_executed_txs.contains_key(front) {
                             state.convergence_executed_order.pop_front();
                         } else {
                             break;
                         }
                     }
-                    if state.convergence_executed_order.len() > state.convergence_executed_hashes.len() * 2 + 100 {
-                        let live_set = &state.convergence_executed_hashes;
-                        let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| live_set.contains(h.as_str())).cloned().collect();
+                    if state.convergence_executed_order.len() > state.convergence_executed_txs.len() * 2 + 100 {
+                        let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| state.convergence_executed_txs.contains_key(h.as_str())).cloned().collect();
                         state.convergence_executed_order = compacted;
                     }
                     tracing::info!(
@@ -897,7 +897,7 @@ impl NodeState {
 
             let finalized_hashes_for_cleanup: Vec<String> = txs_to_execute.iter().map(|tx| tx.hash.clone()).collect();
 
-            (txs_to_execute, convergence_already_executed, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, now_ms)
+            (txs_to_execute, convergence_already_executed, convergence_already_executed_entries, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, now_ms)
         };
         let phase1_ms = t_phase1.elapsed().as_millis();
 
@@ -941,23 +941,16 @@ impl NodeState {
             state.last_checkpoint_time_ms = checkpoint_now_ms;
             self.checkpoint_height_cache.store(checkpoint.height, std::sync::atomic::Ordering::Relaxed);
 
-            let non_finalized_convergence_hashes: std::collections::HashSet<String> =
-                state.convergence_executed_hashes.iter().cloned().collect();
+            let non_finalized_convergence: Vec<super::ConvergenceUndoEntry> =
+                state.convergence_executed_txs.values().cloned().collect();
 
             {
-                let mut undo_hashes: Vec<String> = non_finalized_convergence_hashes.iter().cloned().collect();
-                undo_hashes.extend(convergence_already_executed.iter().cloned());
+                let mut all_undo: Vec<&super::ConvergenceUndoEntry> = non_finalized_convergence.iter().collect();
+                all_undo.extend(convergence_already_executed_entries.iter());
 
-                let mut undo_txs: Vec<rinku_core::SignedTransaction> = Vec::new();
-                for hash in &undo_hashes {
-                    if let Some(node) = state.dag.get_node(hash) {
-                        undo_txs.push(node.tx.clone());
-                    }
-                }
-
-                undo_txs.sort_by(|a, b| {
-                    a.tx.from.cmp(&b.tx.from)
-                        .then(b.tx.nonce.cmp(&a.tx.nonce))
+                all_undo.sort_by(|a, b| {
+                    a.from.cmp(&b.from)
+                        .then(b.nonce.cmp(&a.nonce))
                 });
 
                 let current_gas_price = state.current_gas_price;
@@ -965,40 +958,40 @@ impl NodeState {
                 let mut undo_burned = 0u64;
                 let mut undo_to_validators = 0u64;
                 let mut undo_tx_count = 0u64;
-                for tx in &undo_txs {
-                    if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                for entry in &all_undo {
+                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
                         continue;
                     }
-                    let fee = tx.tx.gas_price.unwrap_or(current_gas_price);
-                    let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-                    let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                    let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                    let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
+                    let fee = entry.gas_price.unwrap_or(current_gas_price);
+                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
+                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
                     let tx_cost = if is_stake_tx {
-                        tx.tx.amount + fee
+                        entry.amount + fee
                     } else if is_unstake_tx || is_claim_tx || is_contract_tx {
                         fee
                     } else {
-                        tx.tx.amount + fee
+                        entry.amount + fee
                     };
-                    if let Some(sender) = state.accounts.get_mut(&tx.tx.from) {
+                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
                         sender.balance += tx_cost;
-                        sender.nonce = tx.tx.nonce;
+                        sender.nonce = entry.nonce;
                         undo_count += 1;
                         undo_burned += fee / 2;
                         undo_to_validators += fee / 2;
                         undo_tx_count += 1;
                     }
                     if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                        if !tx.tx.to.is_empty() {
-                            if let Some(receiver) = state.accounts.get_mut(&tx.tx.to) {
-                                receiver.balance = receiver.balance.saturating_sub(tx.tx.amount);
+                        if !entry.to.is_empty() {
+                            if let Some(receiver) = state.accounts.get_mut(&entry.to) {
+                                receiver.balance = receiver.balance.saturating_sub(entry.amount);
                             }
                         }
                     }
                     if is_stake_tx {
-                        if let Some(staker) = state.accounts.get_mut(&tx.tx.from) {
-                            staker.staked = staker.staked.saturating_sub(tx.tx.amount);
+                        if let Some(staker) = state.accounts.get_mut(&entry.from) {
+                            staker.staked = staker.staked.saturating_sub(entry.amount);
                         }
                     }
                 }
@@ -1014,22 +1007,17 @@ impl NodeState {
                     );
                 }
 
-                state.convergence_executed_hashes.clear();
+                state.convergence_executed_txs.clear();
                 state.convergence_executed_order.clear();
             }
 
             let result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
 
-            if !non_finalized_convergence_hashes.is_empty() {
-                let mut reapply_txs: Vec<rinku_core::SignedTransaction> = Vec::new();
-                for hash in &non_finalized_convergence_hashes {
-                    if let Some(node) = state.dag.get_node(hash) {
-                        reapply_txs.push(node.tx.clone());
-                    }
-                }
-                reapply_txs.sort_by(|a, b| {
-                    a.tx.from.cmp(&b.tx.from)
-                        .then(a.tx.nonce.cmp(&b.tx.nonce))
+            if !non_finalized_convergence.is_empty() {
+                let mut reapply_entries: Vec<&super::ConvergenceUndoEntry> = non_finalized_convergence.iter().collect();
+                reapply_entries.sort_by(|a, b| {
+                    a.from.cmp(&b.from)
+                        .then(a.nonce.cmp(&b.nonce))
                 });
 
                 let current_gas_price = state.current_gas_price;
@@ -1037,27 +1025,27 @@ impl NodeState {
                 let mut reapply_burned = 0u64;
                 let mut reapply_to_validators = 0u64;
                 let mut reapply_tx_count = 0u64;
-                for tx in &reapply_txs {
-                    if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                for entry in &reapply_entries {
+                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
                         continue;
                     }
-                    let fee = tx.tx.gas_price.unwrap_or(current_gas_price);
-                    let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-                    let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                    let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                    let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
+                    let fee = entry.gas_price.unwrap_or(current_gas_price);
+                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
+                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
                     let tx_cost = if is_stake_tx {
-                        tx.tx.amount + fee
+                        entry.amount + fee
                     } else if is_unstake_tx || is_claim_tx || is_contract_tx {
                         fee
                     } else {
-                        tx.tx.amount + fee
+                        entry.amount + fee
                     };
                     let mut applied = false;
-                    if let Some(sender) = state.accounts.get_mut(&tx.tx.from) {
-                        if tx.tx.nonce == sender.nonce && sender.balance >= tx_cost {
+                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
+                        if entry.nonce >= sender.nonce && sender.balance >= tx_cost {
                             sender.balance -= tx_cost;
-                            sender.nonce = tx.tx.nonce + 1;
+                            sender.nonce = entry.nonce + 1;
                             applied = true;
                         }
                     }
@@ -1066,18 +1054,18 @@ impl NodeState {
                         reapply_burned += fee / 2;
                         reapply_to_validators += fee / 2;
                         reapply_tx_count += 1;
-                        state.convergence_executed_hashes.insert(tx.hash.clone());
-                        state.convergence_executed_order.push_back(tx.hash.clone());
+                        state.convergence_executed_txs.insert(entry.hash.clone(), (*entry).clone());
+                        state.convergence_executed_order.push_back(entry.hash.clone());
                         if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                            if !tx.tx.to.is_empty() {
-                                if let Some(receiver) = state.accounts.get_mut(&tx.tx.to) {
-                                    receiver.balance += tx.tx.amount;
+                            if !entry.to.is_empty() {
+                                if let Some(receiver) = state.accounts.get_mut(&entry.to) {
+                                    receiver.balance += entry.amount;
                                 }
                             }
                         }
                         if is_stake_tx {
-                            if let Some(staker) = state.accounts.get_mut(&tx.tx.from) {
-                                staker.staked += tx.tx.amount;
+                            if let Some(staker) = state.accounts.get_mut(&entry.from) {
+                                staker.staked += entry.amount;
                             }
                         }
                     }
@@ -1138,6 +1126,16 @@ impl NodeState {
 
         let has_special = !batch_result.special_txs.is_empty();
         self.process_batch_special_txs_with_skip(&batch_result.special_txs, &convergence_already_executed).await;
+
+        {
+            let state = self.inner.read().await;
+            let mut rewards = self.rewards.write().await;
+            for (addr, account) in &state.accounts {
+                if account.staked > 0 {
+                    rewards.sync_stake_amount(addr, account.staked);
+                }
+            }
+        }
 
         if has_special && missing_tx_count == 0 {
             let mut state = self.inner.write().await;
@@ -1231,7 +1229,7 @@ impl NodeState {
 
         state.pre_checkpoint_accounts_snapshot = None;
         state.checkpoint_accounts_snapshot = None;
-        state.convergence_executed_hashes.clear();
+        state.convergence_executed_txs.clear();
         state.convergence_executed_order.clear();
 
         let new_height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);

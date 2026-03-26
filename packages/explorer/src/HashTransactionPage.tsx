@@ -509,13 +509,13 @@ function HashTransactionPage() {
                 </span>
               </div>
               <div className="meta-row">
-                <span className="label">checkpoint</span>
+                <span className="label">snapshot</span>
                 <span className="value mono">
                   {truncate(prunedInfo.checkpointId, 16)}
                 </span>
               </div>
               <div className="meta-row">
-                <span className="label">checkpoint height</span>
+                <span className="label">snapshot height</span>
                 <span className="value">{prunedInfo.checkpointHeight}</span>
               </div>
               <div className="meta-row">
@@ -526,7 +526,7 @@ function HashTransactionPage() {
             <div className="tx-note" style={{ marginTop: 16 }}>
               <p>
                 Pruned transactions are still part of the permanent ledger. The
-                checkpoint contains a Merkle root that cryptographically proves
+                snapshot contains a Merkle root that cryptographically proves
                 this transaction existed.
               </p>
               <p style={{ marginTop: 12 }}>
@@ -694,12 +694,12 @@ function HashTransactionPage() {
               className="value"
               style={{ color: tx.finalized ? "#a3be8c" : "#ebcb8b" }}
             >
-              {tx.finalized ? "finalized" : "pending"}
+              {tx.finalized ? "anchored" : "pending"}
             </span>
           </div>
           {tx.amount === 0 && (tx.memo || tx.references) && !tx.finalized && (
             <div className="meta-row">
-              <span className="label">fast-path</span>
+              <span className="label">convergence</span>
               <span className="value" style={{ color: "#88c0d0" }}>
                 eligible (~200ms finality)
               </span>
@@ -719,7 +719,7 @@ function HashTransactionPage() {
           {tx.finality && (
             <>
               <div className="meta-row">
-                <span className="label">checkpoint</span>
+                <span className="label">snapshot</span>
                 <span className="value mono">
                   {truncate(tx.finality.checkpointId, 16)}
                 </span>

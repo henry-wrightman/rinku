@@ -77,7 +77,6 @@ export function ChatTab({ onWalletOpen }: ChatTabProps) {
       to,
       amount: 0,
       kind: "transfer",
-      gasPrice: 0.001,
       memo,
     });
   };
@@ -457,21 +456,29 @@ export function ChatTab({ onWalletOpen }: ChatTabProps) {
     }
   }, [wallet, myAddress, activePeer]);
 
-  const { status: wsStatus, lastEvent: wsLastEvent } = useWebSocketContext();
-  const lastChatRef = useRef(wsLastEvent);
+  const { status: wsStatus, lastBatch } = useWebSocketContext();
+  const lastBatchIdRef = useRef(0);
+  const chatRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!wallet) return;
     scanForMessages();
+    return () => {
+      if (chatRefreshRef.current) clearTimeout(chatRefreshRef.current);
+    };
   }, [wallet, scanForMessages]);
 
   useEffect(() => {
-    if (!wallet || !wsLastEvent || wsLastEvent === lastChatRef.current) return;
-    lastChatRef.current = wsLastEvent;
-    if (wsLastEvent.type === 'FastPathExecuted' || wsLastEvent.type === 'NewTransaction') {
-      scanForMessages();
+    if (!wallet || !lastBatch || lastBatch.id === lastBatchIdRef.current) return;
+    lastBatchIdRef.current = lastBatch.id;
+    const relevant = lastBatch.items.some(e => e.type === 'FastPathExecuted' || e.type === 'NewTransaction');
+    if (relevant && !chatRefreshRef.current) {
+      chatRefreshRef.current = setTimeout(() => {
+        chatRefreshRef.current = null;
+        scanForMessages();
+      }, 500);
     }
-  }, [wallet, wsLastEvent, scanForMessages]);
+  }, [wallet, lastBatch, scanForMessages]);
 
   useEffect(() => {
     if (!wallet || wsStatus === 'connected') return;

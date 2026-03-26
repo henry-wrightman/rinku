@@ -114,8 +114,11 @@ export function Header({
         </span>
         <span className={`status-text`}>[testnet]</span>
         {protocolVersion && (
-          <span className="status-text" title={`Node: v${nodeVersion || "?"}`}>
-            v{protocolVersion}
+          <span
+            className="status-text"
+            title={`Node version: ${nodeVersion || "?"}`}
+          >
+            {protocolVersion}
           </span>
         )}
         {peersConnected !== undefined && (

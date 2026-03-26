@@ -57,11 +57,16 @@ export interface NodeEvent {
   data: NodeEventData;
 }
 
+export interface EventBatch {
+  id: number;
+  items: NodeEvent[];
+}
+
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
 export interface UseWebSocketReturn {
   status: ConnectionStatus;
-  lastEvent: NodeEvent | null;
+  lastBatch: EventBatch | null;
   events: NodeEvent[];
   send: (message: string) => void;
 }
@@ -92,13 +97,32 @@ function getWsUrl(): string {
 
 export function useWebSocket(): UseWebSocketReturn {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const [lastEvent, setLastEvent] = useState<NodeEvent | null>(null);
+  const [lastBatch, setLastBatch] = useState<EventBatch | null>(null);
   const [events, setEvents] = useState<NodeEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const backoffRef = useRef(INITIAL_BACKOFF);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+
+  const eventBufferRef = useRef<NodeEvent[]>([]);
+  const rafRef = useRef<number | null>(null);
+  const batchSeqRef = useRef(0);
+
+  const flushEvents = useCallback(() => {
+    rafRef.current = null;
+    if (!mountedRef.current) return;
+    const buffered = eventBufferRef.current;
+    if (buffered.length === 0) return;
+    eventBufferRef.current = [];
+
+    batchSeqRef.current += 1;
+    setLastBatch({ id: batchSeqRef.current, items: buffered });
+    setEvents((prev) => {
+      const next = [...buffered, ...prev];
+      return next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next;
+    });
+  }, []);
 
   const clearTimers = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -109,7 +133,19 @@ export function useWebSocket(): UseWebSocketReturn {
       clearInterval(heartbeatTimerRef.current);
       heartbeatTimerRef.current = null;
     }
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
   }, []);
+
+  const flushAndClear = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    flushEvents();
+  }, [flushEvents]);
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
@@ -141,11 +177,10 @@ export function useWebSocket(): UseWebSocketReturn {
         try {
           const parsed = JSON.parse(event.data) as NodeEvent;
           if (parsed.type && parsed.data) {
-            setLastEvent(parsed);
-            setEvents((prev) => {
-              const next = [parsed, ...prev];
-              return next.length > MAX_EVENTS ? next.slice(0, MAX_EVENTS) : next;
-            });
+            eventBufferRef.current.push(parsed);
+            if (rafRef.current === null) {
+              rafRef.current = requestAnimationFrame(flushEvents);
+            }
           }
         } catch {
         }
@@ -154,6 +189,7 @@ export function useWebSocket(): UseWebSocketReturn {
       ws.onclose = () => {
         if (!mountedRef.current) return;
         wsRef.current = null;
+        flushAndClear();
         clearTimers();
         setStatus('reconnecting');
 
@@ -182,7 +218,7 @@ export function useWebSocket(): UseWebSocketReturn {
         }
       }, delay);
     }
-  }, [clearTimers]);
+  }, [clearTimers, flushEvents, flushAndClear]);
 
   const send = useCallback((message: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -196,6 +232,7 @@ export function useWebSocket(): UseWebSocketReturn {
 
     return () => {
       mountedRef.current = false;
+      flushAndClear();
       clearTimers();
       if (wsRef.current) {
         wsRef.current.onclose = null;
@@ -203,7 +240,7 @@ export function useWebSocket(): UseWebSocketReturn {
         wsRef.current = null;
       }
     };
-  }, [connect, clearTimers]);
+  }, [connect, clearTimers, flushAndClear]);
 
-  return { status, lastEvent, events, send };
+  return { status, lastBatch, events, send };
 }

@@ -150,21 +150,41 @@ function AccountPage() {
     fetchAccountData();
   }, [fetchAccountData]);
 
-  const { status: wsStatus, lastEvent } = useWebSocketContext();
-  const lastEventRef = useRef(lastEvent);
+  const { status: wsStatus, lastBatch } = useWebSocketContext();
+  const lastBatchIdRef = useRef(0);
+  const acctRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!lastEvent || lastEvent === lastEventRef.current) return;
-    lastEventRef.current = lastEvent;
-    if (lastEvent.type === 'AccountUpdated') {
-      const data = lastEvent.data as { address: string };
-      if (data.address === address) {
-        fetchAccountData();
+    if (!lastBatch || lastBatch.id === lastBatchIdRef.current) return;
+    lastBatchIdRef.current = lastBatch.id;
+    let shouldRefresh = false;
+    for (const evt of lastBatch.items) {
+      if (evt.type === 'AccountUpdated') {
+        const data = evt.data as { address: string };
+        if (data.address === address) {
+          shouldRefresh = true;
+          break;
+        }
+      } else if (evt.type === 'FastPathExecuted' || evt.type === 'CheckpointCreated') {
+        shouldRefresh = true;
+        break;
       }
-    } else if (lastEvent.type === 'FastPathExecuted' || lastEvent.type === 'CheckpointCreated') {
-      fetchAccountData();
     }
-  }, [lastEvent, address]);
+    if (shouldRefresh && !acctRefreshRef.current) {
+      acctRefreshRef.current = setTimeout(() => {
+        acctRefreshRef.current = null;
+        fetchAccountData();
+      }, 250);
+    }
+  }, [lastBatch, address]);
+
+  useEffect(() => {
+    return () => {
+      if (acctRefreshRef.current) {
+        clearTimeout(acctRefreshRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (wsStatus === 'connected') return;

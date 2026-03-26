@@ -129,34 +129,27 @@ impl NodeState {
     /// Compute state root with pending transactions applied (without modifying actual state)
     /// This is used by checkpoint creation to get the correct post-execution state root
     /// before actually executing the transactions
-    pub async fn compute_state_root_with_pending_txs(&self, pending_txs: &[rinku_core::SignedTransaction], skip_hashes: &std::collections::HashSet<String>) -> String {
-        self.compute_state_root_and_proofs(pending_txs, &[], None, "", skip_hashes).await.state_root
+    pub async fn compute_state_root_with_pending_txs(&self, pending_txs: &[rinku_core::SignedTransaction], convergence_undo: &[super::ConvergenceUndoEntry]) -> String {
+        self.compute_state_root_and_proofs(pending_txs, &[], None, "", convergence_undo).await.state_root
     }
 
-    /// Compute state root AND proofs at proposal time using checkpoint height only.
-    /// CRITICAL: This ensures proofs are computed from the SAME state snapshot as the state root,
-    /// preventing FastPath race conditions where transactions executed between proposal and quorum
-    /// would cause double-counting in proof values.
     pub async fn compute_state_root_and_proofs_at_height(
         &self,
         pending_txs: &[rinku_core::SignedTransaction],
         affected_addresses: &[String],
         height: u64,
-        skip_hashes: &std::collections::HashSet<String>,
+        convergence_undo: &[super::ConvergenceUndoEntry],
     ) -> StateRootWithProofs {
-        self.compute_state_root_and_proofs(pending_txs, affected_addresses, Some(height), "", skip_hashes).await
+        self.compute_state_root_and_proofs(pending_txs, affected_addresses, Some(height), "", convergence_undo).await
     }
     
-    /// Compute state root AND precomputed proofs for affected addresses
-    /// CRITICAL: Proofs must be computed from the same simulated account set used for state_root
-    /// to ensure merkle proof verification will succeed
     pub async fn compute_state_root_and_proofs(
         &self,
         pending_txs: &[rinku_core::SignedTransaction],
         affected_addresses: &[String],
         checkpoint_height: Option<u64>,
         tx_hash: &str,
-        skip_hashes: &std::collections::HashSet<String>,
+        convergence_undo: &[super::ConvergenceUndoEntry],
     ) -> StateRootWithProofs {
         use std::collections::HashMap;
         
@@ -168,49 +161,44 @@ impl NodeState {
             .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
             .collect();
         
-        if !skip_hashes.is_empty() {
-            let mut convergence_txs: Vec<rinku_core::SignedTransaction> = Vec::new();
-            for hash in skip_hashes.iter() {
-                if let Some(node) = state.dag.get_node(hash) {
-                    convergence_txs.push(node.tx.clone());
-                }
-            }
-            convergence_txs.sort_by(|a, b| {
-                a.tx.from.cmp(&b.tx.from)
-                    .then(b.tx.nonce.cmp(&a.tx.nonce))
+        if !convergence_undo.is_empty() {
+            let mut sorted_undo: Vec<&super::ConvergenceUndoEntry> = convergence_undo.iter().collect();
+            sorted_undo.sort_by(|a, b| {
+                a.from.cmp(&b.from)
+                    .then(b.nonce.cmp(&a.nonce))
             });
             let mut undo_count = 0usize;
-            for tx in &convergence_txs {
-                if matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Consolidation)) {
+            for entry in &sorted_undo {
+                if matches!(entry.kind, Some(rinku_core::TransactionKind::Consolidation)) {
                     continue;
                 }
-                let fee = tx.tx.gas_price.unwrap_or(current_gas_price);
-                let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Stake));
-                let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Unstake));
-                let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::ClaimRewards));
-                let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::TransactionKind::Contract));
+                let fee = entry.gas_price.unwrap_or(current_gas_price);
+                let is_stake_tx = matches!(entry.kind, Some(rinku_core::TransactionKind::Stake));
+                let is_unstake_tx = matches!(entry.kind, Some(rinku_core::TransactionKind::Unstake));
+                let is_claim_tx = matches!(entry.kind, Some(rinku_core::TransactionKind::ClaimRewards));
+                let is_contract_tx = matches!(entry.kind, Some(rinku_core::TransactionKind::Contract));
                 let tx_cost = if is_stake_tx {
-                    tx.tx.amount + fee
+                    entry.amount + fee
                 } else if is_unstake_tx || is_claim_tx || is_contract_tx {
                     fee
                 } else {
-                    tx.tx.amount + fee
+                    entry.amount + fee
                 };
-                if let Some(sender) = simulated_accounts.get_mut(&tx.tx.from) {
+                if let Some(sender) = simulated_accounts.get_mut(&entry.from) {
                     sender.0 += tx_cost;
-                    sender.1 = tx.tx.nonce;
+                    sender.1 = entry.nonce;
                     undo_count += 1;
                 }
                 if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                    if !tx.tx.to.is_empty() {
-                        if let Some(receiver) = simulated_accounts.get_mut(&tx.tx.to) {
-                            receiver.0 = receiver.0.saturating_sub(tx.tx.amount);
+                    if !entry.to.is_empty() {
+                        if let Some(receiver) = simulated_accounts.get_mut(&entry.to) {
+                            receiver.0 = receiver.0.saturating_sub(entry.amount);
                         }
                     }
                 }
                 if is_stake_tx {
-                    if let Some(staker) = simulated_accounts.get_mut(&tx.tx.from) {
-                        staker.2 = staker.2.saturating_sub(tx.tx.amount);
+                    if let Some(staker) = simulated_accounts.get_mut(&entry.from) {
+                        staker.2 = staker.2.saturating_sub(entry.amount);
                     }
                 }
             }
@@ -1007,10 +995,74 @@ impl NodeState {
     ) {
         // First pass: sync account state and collect addresses needing RewardsService sync
         // For v3 proofs, we now have authoritative reward state: (address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount)
-        let mut rewards_to_sync: Vec<(String, u64, u64, Option<u64>, u64, u64)> = Vec::new();
-        
-        {
+        let (rewards_to_sync, convergence_stake_adjustments) = {
+            let mut rewards_to_sync: Vec<(String, u64, u64, Option<u64>, u64, u64)> = Vec::new();
             let mut state = self.inner.write().await;
+
+            let convergence_count = state.convergence_executed_txs.len();
+            let convergence_undo_entries: Vec<super::ConvergenceUndoEntry> = if convergence_count > 0 {
+                let mut undo_entries: Vec<super::ConvergenceUndoEntry> = state.convergence_executed_txs.values().cloned().collect();
+                undo_entries.sort_by(|a, b| {
+                    a.from.cmp(&b.from)
+                        .then(b.nonce.cmp(&a.nonce))
+                });
+
+                let current_gas_price = state.current_gas_price;
+                let mut undo_count = 0usize;
+                let mut undo_burned = 0u64;
+                let mut undo_to_validators = 0u64;
+                let mut undo_tx_count = 0u64;
+                for entry in &undo_entries {
+                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                        continue;
+                    }
+                    let fee = entry.gas_price.unwrap_or(current_gas_price);
+                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
+                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
+                    let tx_cost = if is_stake_tx {
+                        entry.amount + fee
+                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                        fee
+                    } else {
+                        entry.amount + fee
+                    };
+                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
+                        sender.balance += tx_cost;
+                        sender.nonce = entry.nonce;
+                        undo_count += 1;
+                        undo_burned += fee / 2;
+                        undo_to_validators += fee / 2;
+                        undo_tx_count += 1;
+                    }
+                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
+                        if !entry.to.is_empty() {
+                            if let Some(receiver) = state.accounts.get_mut(&entry.to) {
+                                receiver.balance = receiver.balance.saturating_sub(entry.amount);
+                            }
+                        }
+                    }
+                    if is_stake_tx {
+                        if let Some(staker) = state.accounts.get_mut(&entry.from) {
+                            staker.staked = staker.staked.saturating_sub(entry.amount);
+                        }
+                    }
+                }
+                state.total_burned = state.total_burned.saturating_sub(undo_burned);
+                state.total_to_validators = state.total_to_validators.saturating_sub(undo_to_validators);
+                state.total_transactions = state.total_transactions.saturating_sub(undo_tx_count);
+                if undo_count > 0 {
+                    tracing::info!(
+                        "Proof sync: undid {} convergence effects before account correction (burned={}, validators={}, txs={})",
+                        undo_count, undo_burned, undo_to_validators, undo_tx_count
+                    );
+                }
+                undo_entries
+            } else {
+                Vec::new()
+            };
+
             let mut sync_count = 0usize;
             for (address, proof) in proofs {
                 let is_v3_proof = proof.version >= 3;
@@ -1070,22 +1122,124 @@ impl NodeState {
                     }
                 }
             }
-            let cleared_convergence = state.convergence_executed_hashes.len();
-            state.convergence_executed_hashes.clear();
+            let mut reapply_count = 0usize;
+            let mut reapply_burned = 0u64;
+            let mut reapply_to_validators = 0u64;
+            let mut reapply_tx_count = 0u64;
+            let mut surviving_entries: Vec<super::ConvergenceUndoEntry> = Vec::new();
+
+            if !convergence_undo_entries.is_empty() {
+                let mut reapply_entries = convergence_undo_entries.clone();
+                reapply_entries.sort_by(|a, b| {
+                    a.from.cmp(&b.from)
+                        .then(a.nonce.cmp(&b.nonce))
+                });
+
+                let current_gas_price = state.current_gas_price;
+                for entry in &reapply_entries {
+                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                        continue;
+                    }
+                    let fee = entry.gas_price.unwrap_or(current_gas_price);
+                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
+                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
+                    let tx_cost = if is_stake_tx {
+                        entry.amount + fee
+                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                        fee
+                    } else {
+                        entry.amount + fee
+                    };
+                    let mut applied = false;
+                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
+                        if entry.nonce >= sender.nonce && sender.balance >= tx_cost {
+                            if entry.nonce > sender.nonce {
+                                tracing::info!(
+                                    "Proof sync re-apply: bridging nonce gap for {} ({} -> {}, gap={})",
+                                    &entry.from[..16.min(entry.from.len())],
+                                    sender.nonce, entry.nonce,
+                                    entry.nonce - sender.nonce
+                                );
+                            }
+                            sender.balance -= tx_cost;
+                            sender.nonce = entry.nonce + 1;
+                            applied = true;
+                        }
+                    }
+                    if applied {
+                        reapply_count += 1;
+                        reapply_burned += fee / 2;
+                        reapply_to_validators += fee / 2;
+                        reapply_tx_count += 1;
+                        surviving_entries.push(entry.clone());
+                        if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
+                            if !entry.to.is_empty() {
+                                if let Some(receiver) = state.accounts.get_mut(&entry.to) {
+                                    receiver.balance += entry.amount;
+                                }
+                            }
+                        }
+                        if is_stake_tx {
+                            if let Some(staker) = state.accounts.get_mut(&entry.from) {
+                                staker.staked += entry.amount;
+                            }
+                        }
+                    }
+                }
+                state.total_burned += reapply_burned;
+                state.total_to_validators += reapply_to_validators;
+                state.total_transactions += reapply_tx_count;
+            }
+
+            state.convergence_executed_txs.clear();
             state.convergence_executed_order.clear();
-            if sync_count > 0 || cleared_convergence > 0 {
+            for entry in &surviving_entries {
+                state.convergence_executed_txs.insert(entry.hash.clone(), entry.clone());
+                state.convergence_executed_order.push_back(entry.hash.clone());
+            }
+
+            if sync_count > 0 || convergence_count > 0 {
                 tracing::info!(
-                    "Proof sync complete: {} accounts corrected, cleared {} stale convergence effects",
-                    sync_count, cleared_convergence
+                    "Proof sync complete: {} accounts corrected, undid {} convergence effects, re-applied {} non-finalized (burned={}, validators={}, txs={})",
+                    sync_count, convergence_count, reapply_count, reapply_burned, reapply_to_validators, reapply_tx_count
                 );
             }
-        } // Release state lock
+            let convergence_stake_adjustments: Vec<(String, u64)> = surviving_entries.iter()
+                .filter(|e| matches!(e.kind, Some(rinku_core::types::TransactionKind::Stake)))
+                .map(|e| (e.from.clone(), e.amount))
+                .collect();
+
+            (rewards_to_sync, convergence_stake_adjustments)
+        }; // Release state lock
         
-        // Second pass: sync RewardsService for accounts with divergence using authoritative v3 values
         if !rewards_to_sync.is_empty() {
             let mut rewards = self.rewards.write().await;
-            for (address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount) in rewards_to_sync {
-                rewards.sync_from_leader_v3(&address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount);
+            for (address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount) in &rewards_to_sync {
+                rewards.sync_from_leader_v3(address, *pending_rewards, *staked_at, *last_reward_at, *claimed_total, *staked_amount);
+            }
+            for (address, convergence_amount) in &convergence_stake_adjustments {
+                if let Some(existing) = rewards.get_stake_mut(address) {
+                    existing.amount += convergence_amount;
+                    tracing::info!(
+                        "Proof sync: adjusted rewards.stakes for {} by +{} for re-applied convergence (new total={})",
+                        &address[..16.min(address.len())],
+                        convergence_amount,
+                        existing.amount
+                    );
+                } else {
+                    rewards.sync_stake_amount(address, *convergence_amount);
+                }
+            }
+        } else if !convergence_stake_adjustments.is_empty() {
+            let mut rewards = self.rewards.write().await;
+            for (address, convergence_amount) in &convergence_stake_adjustments {
+                if let Some(existing) = rewards.get_stake_mut(address) {
+                    existing.amount += convergence_amount;
+                } else {
+                    rewards.sync_stake_amount(address, *convergence_amount);
+                }
             }
         }
     }

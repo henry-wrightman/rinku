@@ -158,21 +158,29 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
     }
   }, [contractId, activeRoom]);
 
-  const { status: wsStatus, lastEvent } = useWebSocketContext();
-  const lastChatRoomRef = useRef(lastEvent);
+  const { status: wsStatus, lastBatch } = useWebSocketContext();
+  const lastBatchIdRef = useRef(0);
+  const chatRoomRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!contractId) return;
     fetchContractState();
+    return () => {
+      if (chatRoomRefreshRef.current) clearTimeout(chatRoomRefreshRef.current);
+    };
   }, [contractId, fetchContractState]);
 
   useEffect(() => {
-    if (!contractId || !lastEvent || lastEvent === lastChatRoomRef.current) return;
-    lastChatRoomRef.current = lastEvent;
-    if (lastEvent.type === 'FastPathExecuted' || lastEvent.type === 'CheckpointCreated') {
-      fetchContractState();
+    if (!contractId || !lastBatch || lastBatch.id === lastBatchIdRef.current) return;
+    lastBatchIdRef.current = lastBatch.id;
+    const relevant = lastBatch.items.some(e => e.type === 'FastPathExecuted' || e.type === 'CheckpointCreated');
+    if (relevant && !chatRoomRefreshRef.current) {
+      chatRoomRefreshRef.current = setTimeout(() => {
+        chatRoomRefreshRef.current = null;
+        fetchContractState();
+      }, 500);
     }
-  }, [lastEvent, contractId, fetchContractState]);
+  }, [lastBatch, contractId, fetchContractState]);
 
   useEffect(() => {
     if (!contractId || wsStatus === 'connected') return;

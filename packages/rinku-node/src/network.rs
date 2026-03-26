@@ -698,7 +698,9 @@ impl NetworkService {
         self.outbound_buffer.iter().any(|m| matches!(m,
             GossipMessage::CheckpointAnnouncement { .. } |
             GossipMessage::CheckpointIntent { .. } |
-            GossipMessage::DaChunk { .. }
+            GossipMessage::DaChunk { .. } |
+            GossipMessage::QccVoteRequest { .. } |
+            GossipMessage::QccVoteCast { .. }
         ))
     }
 
@@ -763,9 +765,15 @@ impl NetworkService {
                 }
                 event = self.swarm.select_next_some() => {
                     self.handle_swarm_event(event).await;
-                    for _ in 0..19 {
+                    let drain_start = Instant::now();
+                    const MAX_DRAIN_EVENTS: usize = 5;
+                    const MAX_DRAIN_MS: u128 = 50;
+                    for _ in 0..MAX_DRAIN_EVENTS {
                         while let Ok(cmd) = self.command_rx.try_recv() {
                             self.handle_command(cmd).await;
+                        }
+                        if drain_start.elapsed().as_millis() >= MAX_DRAIN_MS {
+                            break;
                         }
                         match self.swarm.next().now_or_never() {
                             Some(Some(event)) => self.handle_swarm_event(event).await,
@@ -985,7 +993,7 @@ impl NetworkService {
                     };
                     for routed_msg in msgs_to_route {
                     let is_checkpoint = matches!(&routed_msg, GossipMessage::CheckpointAnnouncement { .. });
-                    let is_priority = matches!(&routed_msg, GossipMessage::TxConfirmAck { .. } | GossipMessage::CheckpointIntent { .. } | GossipMessage::LeaderTimeout { .. } | GossipMessage::DaChunk { .. });
+                    let is_priority = matches!(&routed_msg, GossipMessage::TxConfirmBroadcast { .. } | GossipMessage::TxConfirmAck { .. } | GossipMessage::CheckpointIntent { .. } | GossipMessage::LeaderTimeout { .. } | GossipMessage::DaChunk { .. } | GossipMessage::QccVoteRequest { .. } | GossipMessage::QccVoteCast { .. } | GossipMessage::CheckpointSignature { .. });
                     if is_checkpoint {
                         match self.checkpoint_message_tx.try_send(routed_msg) {
                             Ok(_) => {
@@ -1477,10 +1485,14 @@ impl NetworkService {
         use crate::gossip::GossipMessage as GM;
         match message {
             GM::CheckpointIntent { .. }
-            | GM::CheckpointAnnouncement { .. } => &self.topic_critical,
+            | GM::CheckpointAnnouncement { .. }
+            | GM::LeaderTimeout { .. }
+            | GM::CheckpointSignature { .. } => &self.topic_critical,
 
             GM::TxConfirmAck { .. }
-            | GM::TxConfirmBroadcast { .. } => &self.topic_consensus,
+            | GM::TxConfirmBroadcast { .. }
+            | GM::QccVoteRequest { .. }
+            | GM::QccVoteCast { .. } => &self.topic_consensus,
 
             GM::DaChunk { .. } => &self.topic_data,
 

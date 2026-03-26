@@ -435,7 +435,7 @@ async fn main() -> Result<()> {
             let mut registered = 0;
             for (address, _) in &genesis_seed {
                 if rewards.get_stake(address).is_none() {
-                    if let Ok(_) = rewards.stake(address, GENESIS_VALIDATOR_STAKE) {
+                    if let Ok(_) = rewards.stake(address, GENESIS_VALIDATOR_STAKE, "") {
                         registered += 1;
                     }
                 }
@@ -503,7 +503,7 @@ async fn main() -> Result<()> {
                         let mut rewards = state.rewards.write().await;
                         for (address, _) in &genesis_seed {
                             if rewards.get_stake(address).is_none() {
-                                let _ = rewards.stake(address, GENESIS_VALIDATOR_STAKE);
+                                let _ = rewards.stake(address, GENESIS_VALIDATOR_STAKE, "");
                             }
                         }
                     }

@@ -96,20 +96,28 @@ export function ContractsTab() {
     }
   };
 
-  const { status: wsStatus, lastEvent } = useWebSocketContext();
-  const lastContractRef = useRef(lastEvent);
+  const { status: wsStatus, lastBatch } = useWebSocketContext();
+  const lastBatchIdRef = useRef(0);
+  const contractRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetchContracts();
+    return () => {
+      if (contractRefreshRef.current) clearTimeout(contractRefreshRef.current);
+    };
   }, []);
 
   useEffect(() => {
-    if (!lastEvent || lastEvent === lastContractRef.current) return;
-    lastContractRef.current = lastEvent;
-    if (lastEvent.type === 'CheckpointCreated' || lastEvent.type === 'FastPathExecuted') {
-      fetchContracts();
+    if (!lastBatch || lastBatch.id === lastBatchIdRef.current) return;
+    lastBatchIdRef.current = lastBatch.id;
+    const relevant = lastBatch.items.some(e => e.type === 'CheckpointCreated' || e.type === 'FastPathExecuted');
+    if (relevant && !contractRefreshRef.current) {
+      contractRefreshRef.current = setTimeout(() => {
+        contractRefreshRef.current = null;
+        fetchContracts();
+      }, 500);
     }
-  }, [lastEvent]);
+  }, [lastBatch]);
 
   useEffect(() => {
     if (wsStatus === 'connected') return;

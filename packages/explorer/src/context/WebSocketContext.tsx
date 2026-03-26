@@ -3,13 +3,14 @@ import {
   useContext,
   useState,
   useEffect,
-  useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 import {
   useWebSocket,
   type NodeEvent,
   type NodeEventType,
+  type EventBatch,
   type ConnectionStatus,
 } from '../hooks/useWebSocket';
 
@@ -20,7 +21,7 @@ interface WebSocketSummary {
 
 interface WebSocketContextType {
   status: ConnectionStatus;
-  lastEvent: NodeEvent | null;
+  lastBatch: EventBatch | null;
   events: NodeEvent[];
   summary: WebSocketSummary;
   send: (message: string) => void;
@@ -29,37 +30,39 @@ interface WebSocketContextType {
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
-  const { status, lastEvent, events, send } = useWebSocket();
+  const { status, lastBatch, events, send } = useWebSocket();
   const [summary, setSummary] = useState<WebSocketSummary>({
     lastCheckpointHeight: null,
     recentTxCount: 0,
   });
 
   useEffect(() => {
-    if (!lastEvent) return;
+    if (!lastBatch) return;
 
     setSummary((prev) => {
       const next = { ...prev };
 
-      if (lastEvent.type === 'CheckpointCreated') {
-        const data = lastEvent.data as { height: number };
-        next.lastCheckpointHeight = data.height;
-      }
+      for (const evt of lastBatch.items) {
+        if (evt.type === 'CheckpointCreated') {
+          const data = evt.data as { height: number };
+          next.lastCheckpointHeight = data.height;
+        }
 
-      if (
-        lastEvent.type === 'NewTransaction' ||
-        lastEvent.type === 'FastPathConfirmed' ||
-        lastEvent.type === 'FastPathExecuted'
-      ) {
-        next.recentTxCount = prev.recentTxCount + 1;
+        if (
+          evt.type === 'NewTransaction' ||
+          evt.type === 'FastPathConfirmed' ||
+          evt.type === 'FastPathExecuted'
+        ) {
+          next.recentTxCount = prev.recentTxCount + 1;
+        }
       }
 
       return next;
     });
-  }, [lastEvent]);
+  }, [lastBatch]);
 
   return (
-    <WebSocketContext.Provider value={{ status, lastEvent, events, summary, send }}>
+    <WebSocketContext.Provider value={{ status, lastBatch, events, summary, send }}>
       {children}
     </WebSocketContext.Provider>
   );
@@ -74,14 +77,18 @@ export function useWebSocketContext(): WebSocketContextType {
 }
 
 export function useNodeEvent(type: NodeEventType): NodeEvent | null {
-  const { lastEvent } = useWebSocketContext();
+  const { lastBatch } = useWebSocketContext();
   const [matched, setMatched] = useState<NodeEvent | null>(null);
+  const lastBatchIdRef = useRef<number>(0);
 
   useEffect(() => {
-    if (lastEvent && lastEvent.type === type) {
-      setMatched(lastEvent);
+    if (!lastBatch || lastBatch.id === lastBatchIdRef.current) return;
+    lastBatchIdRef.current = lastBatch.id;
+    const found = lastBatch.items.find((e) => e.type === type);
+    if (found) {
+      setMatched(found);
     }
-  }, [lastEvent, type]);
+  }, [lastBatch, type]);
 
   return matched;
 }
