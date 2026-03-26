@@ -17,7 +17,7 @@ jobs:
         with:
           tool: cargo-tarpaulin
       - name: Run tarpaulin
-        run: cargo tarpaulin --workspace --out Lcov --output-dir coverage/rust --exclude-packages rinku-contract-sdk
+        run: cargo tarpaulin --workspace --out Lcov --output-dir coverage/rust -- --exclude-packages rinku-contract-sdk
       - name: Upload Rust coverage
         uses: codecov/codecov-action@v4
         with:
