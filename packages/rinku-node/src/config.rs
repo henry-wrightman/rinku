@@ -7,7 +7,7 @@ use tracing::{info, warn};
 /// Transactions must be at least this old to be included in checkpoints
 /// This gives time for transactions to propagate to all validators before finalization
 /// Reduces merkle root mismatches due to transaction propagation delays during high volume
-pub const PROPAGATION_GRACE_MS: u64 = 200;
+pub const PROPAGATION_GRACE_MS: u64 = 500;
 
 /// Maximum allowed future timestamp offset for transactions (in milliseconds)
 /// Transactions with timestamps more than this far in the future are rejected
@@ -23,9 +23,9 @@ pub const TRANSACTION_TTL_MS: u64 = 120_000; // 120 seconds
 /// How often to scan and prune expired transactions
 pub const MEMPOOL_CLEANUP_INTERVAL_MS: u64 = 30_000; // 30 seconds
 
-pub const DEGRADED_MODE_THRESHOLD: usize = 500;
+pub const DEGRADED_MODE_THRESHOLD: usize = 4000;
 
-pub const MAX_TIPS_BACKPRESSURE: usize = 1000;
+pub const MAX_TIPS_BACKPRESSURE: usize = 5000;
 
 #[derive(Debug, Clone)]
 pub struct GenesisValidator {
@@ -212,7 +212,7 @@ impl NodeConfig {
             checkpoint_interval_ms: env::var("CHECKPOINT_INTERVAL_MS")
                 .ok()
                 .and_then(|n| n.parse().ok())
-                .unwrap_or(5000),
+                .unwrap_or(2000),
             gossip_interval_ms: env::var("GOSSIP_INTERVAL_MS")
                 .ok()
                 .and_then(|n| n.parse().ok())

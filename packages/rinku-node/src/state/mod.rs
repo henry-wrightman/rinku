@@ -147,6 +147,7 @@ pub struct StateInner {
     pub pre_checkpoint_accounts_snapshot: Option<(u64, HashMap<String, (u64, u64, u64)>)>,
     pub convergence_executed_txs: HashMap<String, ConvergenceUndoEntry>,
     pub convergence_executed_order: VecDeque<String>,
+    pub convergence_overlay: HashMap<String, ConvergenceAccountOverlay>,
 }
 
 #[derive(Clone, Debug)]
@@ -158,6 +159,240 @@ pub struct ConvergenceUndoEntry {
     pub gas_price: Option<u64>,
     pub kind: Option<rinku_core::types::TransactionKind>,
     pub hash: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConvergenceAccountOverlay {
+    pub balance: u64,
+    pub nonce: u64,
+    pub staked: u64,
+    pub partition_budget_spent: u64,
+}
+
+impl StateInner {
+    pub fn selective_convergence_overlay_update(
+        &mut self,
+        finalized_convergence_hashes: &std::collections::HashSet<String>,
+        changed_canonical_accounts: &std::collections::HashSet<String>,
+        height: u64,
+        skip_reapply: bool,
+    ) -> (usize, usize) {
+        let mut affected_senders: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for hash in finalized_convergence_hashes {
+            if let Some(entry) = self.convergence_executed_txs.remove(hash) {
+                affected_senders.insert(entry.from.clone());
+                if !entry.to.is_empty() {
+                    affected_senders.insert(entry.to.clone());
+                }
+            }
+        }
+
+        if !finalized_convergence_hashes.is_empty() {
+            while let Some(front) = self.convergence_executed_order.front() {
+                if !self.convergence_executed_txs.contains_key(front) {
+                    self.convergence_executed_order.pop_front();
+                } else {
+                    break;
+                }
+            }
+            if self.convergence_executed_order.len() > self.convergence_executed_txs.len() * 2 + 100 {
+                let compacted: VecDeque<String> = self.convergence_executed_order
+                    .iter()
+                    .filter(|h| self.convergence_executed_txs.contains_key(h.as_str()))
+                    .cloned()
+                    .collect();
+                self.convergence_executed_order = compacted;
+            }
+        }
+
+        if self.convergence_executed_txs.is_empty() {
+            let cleared = self.convergence_overlay.len();
+            self.convergence_overlay.clear();
+            return (cleared, 0);
+        }
+
+        if skip_reapply {
+            let cleared = self.convergence_overlay.len();
+            self.convergence_overlay.clear();
+            self.convergence_executed_txs.clear();
+            self.convergence_executed_order.clear();
+            return (cleared, 0);
+        }
+
+        let mut accounts_needing_rebuild: std::collections::HashSet<String> = affected_senders
+            .iter()
+            .chain(changed_canonical_accounts.iter())
+            .cloned()
+            .collect();
+
+        let mut prev_size = 0;
+        while accounts_needing_rebuild.len() != prev_size {
+            prev_size = accounts_needing_rebuild.len();
+            for entry in self.convergence_executed_txs.values() {
+                let from_in = accounts_needing_rebuild.contains(&entry.from);
+                let to_in = !entry.to.is_empty() && accounts_needing_rebuild.contains(&entry.to);
+                if from_in || to_in {
+                    accounts_needing_rebuild.insert(entry.from.clone());
+                    if !entry.to.is_empty() {
+                        accounts_needing_rebuild.insert(entry.to.clone());
+                    }
+                }
+            }
+        }
+
+        if accounts_needing_rebuild.is_empty() {
+            return (0, 0);
+        }
+
+        let mut cleared = 0usize;
+        for addr in &accounts_needing_rebuild {
+            if self.convergence_overlay.remove(addr).is_some() {
+                cleared += 1;
+            }
+        }
+
+        let affected_hashes: Vec<String> = self.convergence_executed_txs.keys()
+            .filter(|h| {
+                if let Some(e) = self.convergence_executed_txs.get(h.as_str()) {
+                    accounts_needing_rebuild.contains(&e.from) || (!e.to.is_empty() && accounts_needing_rebuild.contains(&e.to))
+                } else {
+                    false
+                }
+            })
+            .cloned()
+            .collect();
+
+        let mut entries_to_replay: Vec<ConvergenceUndoEntry> = affected_hashes.iter()
+            .filter_map(|h| self.convergence_executed_txs.get(h).cloned())
+            .collect();
+        entries_to_replay.sort_by(|a, b| a.from.cmp(&b.from).then(a.nonce.cmp(&b.nonce)));
+
+        for h in &affected_hashes {
+            self.convergence_executed_txs.remove(h);
+        }
+        self.convergence_executed_order.retain(|h| !affected_hashes.contains(h));
+
+        let reapply_count = Self::replay_convergence_entries(&mut self.convergence_overlay, &mut self.convergence_executed_txs, &mut self.convergence_executed_order, &self.accounts, self.current_gas_price, &entries_to_replay, true);
+
+        const MAX_CONVERGENCE_POOL: usize = 500;
+        if self.convergence_executed_txs.len() > MAX_CONVERGENCE_POOL {
+            let excess = self.convergence_executed_txs.len() - MAX_CONVERGENCE_POOL;
+            let mut removed = 0usize;
+            while removed < excess {
+                if let Some(oldest_hash) = self.convergence_executed_order.pop_front() {
+                    self.convergence_executed_txs.remove(&oldest_hash);
+                    removed += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        (cleared, reapply_count)
+    }
+
+    pub fn replay_convergence_entries(
+        overlay: &mut HashMap<String, ConvergenceAccountOverlay>,
+        executed_txs: &mut HashMap<String, ConvergenceUndoEntry>,
+        executed_order: &mut VecDeque<String>,
+        accounts: &HashMap<String, rinku_core::types::Account>,
+        current_gas_price: u64,
+        entries: &[ConvergenceUndoEntry],
+        insert_to_tracking: bool,
+    ) -> usize {
+        let mut reapply_count = 0usize;
+        for entry in entries {
+            if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                continue;
+            }
+            let fee = entry.gas_price.unwrap_or(current_gas_price);
+            let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
+            let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
+            let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+            let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
+            let tx_cost = if is_stake_tx {
+                entry.amount + fee
+            } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                fee
+            } else {
+                entry.amount + fee
+            };
+
+            let (base_balance, base_nonce, base_staked) = if let Some(ov) = overlay.get(&entry.from) {
+                (ov.balance, ov.nonce, ov.staked)
+            } else if let Some(acc) = accounts.get(&entry.from) {
+                (acc.balance, acc.nonce, acc.staked)
+            } else {
+                continue;
+            };
+
+            if entry.nonce >= base_nonce && base_balance >= tx_cost {
+                let pbs = accounts.get(&entry.from).map(|a| a.partition_budget_spent).unwrap_or(0);
+                let from_ov = overlay.entry(entry.from.clone()).or_insert_with(|| {
+                    ConvergenceAccountOverlay {
+                        balance: base_balance,
+                        nonce: base_nonce,
+                        staked: base_staked,
+                        partition_budget_spent: pbs,
+                    }
+                });
+                from_ov.balance = from_ov.balance.saturating_sub(tx_cost);
+                from_ov.nonce = entry.nonce + 1;
+                if is_stake_tx {
+                    from_ov.staked += entry.amount;
+                }
+
+                if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx && !entry.to.is_empty() {
+                    let (to_bal, to_n, to_s) = if let Some(ov) = overlay.get(&entry.to) {
+                        (ov.balance, ov.nonce, ov.staked)
+                    } else if let Some(acc) = accounts.get(&entry.to) {
+                        (acc.balance, acc.nonce, acc.staked)
+                    } else {
+                        (0, 0, 0)
+                    };
+                    let to_ov = overlay.entry(entry.to.clone()).or_insert_with(|| {
+                        ConvergenceAccountOverlay {
+                            balance: to_bal,
+                            nonce: to_n,
+                            staked: to_s,
+                            partition_budget_spent: 0,
+                        }
+                    });
+                    to_ov.balance += entry.amount;
+                }
+
+                reapply_count += 1;
+                if insert_to_tracking {
+                    executed_txs.insert(entry.hash.clone(), entry.clone());
+                    executed_order.push_back(entry.hash.clone());
+                }
+            }
+        }
+        reapply_count
+    }
+
+    pub fn compute_changed_accounts(
+        &self,
+        pre_snapshot: &HashMap<String, (u64, u64, u64)>,
+    ) -> std::collections::HashSet<String> {
+        let mut changed = std::collections::HashSet::new();
+        for (addr, (old_bal, old_nonce, old_staked)) in pre_snapshot {
+            if let Some(acc) = self.accounts.get(addr) {
+                if acc.balance != *old_bal || acc.nonce != *old_nonce || acc.staked != *old_staked {
+                    changed.insert(addr.clone());
+                }
+            } else {
+                changed.insert(addr.clone());
+            }
+        }
+        for addr in self.accounts.keys() {
+            if !pre_snapshot.contains_key(addr) {
+                changed.insert(addr.clone());
+            }
+        }
+        changed
+    }
 }
 
 #[derive(Clone)]
@@ -338,6 +573,7 @@ impl NodeState {
                     pre_checkpoint_accounts_snapshot: None,
                     convergence_executed_txs: HashMap::new(),
                     convergence_executed_order: VecDeque::new(),
+                    convergence_overlay: HashMap::new(),
                 }
             } else {
                 if let Some(snapshot) = presync::try_presync_from_peers(&config.p2p.bootstrap_peers, config.is_genesis_node).await {
@@ -433,6 +669,7 @@ impl NodeState {
                         pre_checkpoint_accounts_snapshot: None,
                         convergence_executed_txs: HashMap::new(),
                         convergence_executed_order: VecDeque::new(),
+                        convergence_overlay: HashMap::new(),
                     };
                     
                     let mut emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
@@ -634,6 +871,7 @@ impl NodeState {
                     pre_checkpoint_accounts_snapshot: None,
                     convergence_executed_txs: HashMap::new(),
                     convergence_executed_order: VecDeque::new(),
+                    convergence_overlay: HashMap::new(),
                 }
             };
 

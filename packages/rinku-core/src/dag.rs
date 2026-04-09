@@ -2,7 +2,7 @@ use crate::types::DagNode;
 use petgraph::graph::{DiGraph, NodeIndex};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use thiserror::Error;
 
 /// Maximum number of tips to sample for new transactions (Sparse DAG Sampling)
@@ -26,12 +26,9 @@ pub struct Dag {
     graph: DiGraph<DagNode, ()>,
     hash_to_index: HashMap<String, NodeIndex>,
     tips: HashSet<String>,
-    /// Index of unfinalized transaction hashes for O(1) lookup
-    /// This avoids O(n) DAG scan when creating checkpoints
     unfinalized: HashSet<String>,
-    /// Per-sender index of unfinalized tx hashes for O(1) sender-scoped lookups
-    /// Avoids O(N_total_unfinalized) scan when computing effective balance/nonce
     sender_unfinalized: HashMap<String, HashSet<String>>,
+    finalized_by_height: BTreeMap<u64, HashSet<String>>,
     max_nodes: usize,
 }
 
@@ -43,6 +40,7 @@ impl Dag {
             tips: HashSet::new(),
             unfinalized: HashSet::new(),
             sender_unfinalized: HashMap::new(),
+            finalized_by_height: BTreeMap::new(),
             max_nodes,
         }
     }
@@ -62,6 +60,7 @@ impl Dag {
         }
 
         let is_finalized = node.finalized;
+        let checkpoint_height = node.checkpoint_height;
         let sender = node.tx.tx.from.clone();
         let node_idx = self.graph.add_node(node);
         self.hash_to_index.insert(hash.clone(), node_idx);
@@ -71,6 +70,8 @@ impl Dag {
                 .entry(sender)
                 .or_default()
                 .insert(hash.clone());
+        } else if let Some(h) = checkpoint_height {
+            self.finalized_by_height.entry(h).or_default().insert(hash.clone());
         }
 
         for parent_hash in &parents {
@@ -118,6 +119,7 @@ impl Dag {
             .count();
 
         let is_finalized = node.finalized;
+        let checkpoint_height = node.checkpoint_height;
         let sender = node.tx.tx.from.clone();
         let node_idx = self.graph.add_node(node);
         self.hash_to_index.insert(hash.clone(), node_idx);
@@ -127,6 +129,8 @@ impl Dag {
                 .entry(sender)
                 .or_default()
                 .insert(hash.clone());
+        } else if let Some(h) = checkpoint_height {
+            self.finalized_by_height.entry(h).or_default().insert(hash.clone());
         }
 
         let mut linked_parents = 0;
@@ -304,6 +308,14 @@ impl Dag {
         self.graph.node_weights().collect()
     }
 
+    pub fn has_finalized_before(&self, min_checkpoint_height: u64) -> bool {
+        if let Some((&lowest_h, _)) = self.finalized_by_height.iter().next() {
+            lowest_h < min_checkpoint_height
+        } else {
+            false
+        }
+    }
+
     /// Get immutable iterator over all nodes
     pub fn nodes(&self) -> impl Iterator<Item = &DagNode> {
         self.graph.node_weights()
@@ -417,9 +429,21 @@ impl Dag {
     pub fn mark_finalized(&mut self, hash: &str, checkpoint_height: u64) -> Result<(), DagError> {
         if let Some(node) = self.get_node_mut(hash) {
             let sender = node.tx.tx.from.clone();
+            let old_cp_h = if node.finalized { node.checkpoint_height } else { None };
             node.finalized = true;
             node.checkpoint_height = Some(checkpoint_height);
+            if let Some(old_h) = old_cp_h {
+                if old_h != checkpoint_height {
+                    if let Some(set) = self.finalized_by_height.get_mut(&old_h) {
+                        set.remove(hash);
+                        if set.is_empty() {
+                            self.finalized_by_height.remove(&old_h);
+                        }
+                    }
+                }
+            }
             self.unfinalized.remove(hash);
+            self.finalized_by_height.entry(checkpoint_height).or_default().insert(hash.to_string());
             if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
                 set.remove(hash);
                 if set.is_empty() {
@@ -434,9 +458,21 @@ impl Dag {
 
     pub fn mark_finalized_deferred_cleanup(&mut self, hash: &str, checkpoint_height: u64) -> Result<(), DagError> {
         if let Some(node) = self.get_node_mut(hash) {
+            let old_cp_h = if node.finalized { node.checkpoint_height } else { None };
             node.finalized = true;
             node.checkpoint_height = Some(checkpoint_height);
+            if let Some(old_h) = old_cp_h {
+                if old_h != checkpoint_height {
+                    if let Some(set) = self.finalized_by_height.get_mut(&old_h) {
+                        set.remove(hash);
+                        if set.is_empty() {
+                            self.finalized_by_height.remove(&old_h);
+                        }
+                    }
+                }
+            }
             self.unfinalized.remove(hash);
+            self.finalized_by_height.entry(checkpoint_height).or_default().insert(hash.to_string());
             Ok(())
         } else {
             Err(DagError::NodeNotFound(hash.to_string()))
@@ -445,19 +481,28 @@ impl Dag {
 
     pub fn unmark_finalized_batch(&mut self, hashes: &[String]) -> usize {
         let mut count = 0;
-        let mut to_restore: Vec<(String, String)> = Vec::new();
+        let mut to_restore: Vec<(String, String, Option<u64>)> = Vec::new();
         for hash in hashes {
             if let Some(node) = self.get_node_mut(hash) {
                 if node.finalized {
+                    let cp_h = node.checkpoint_height;
                     node.finalized = false;
                     node.checkpoint_height = None;
                     let sender = node.tx.tx.from.clone();
-                    to_restore.push((hash.clone(), sender));
+                    to_restore.push((hash.clone(), sender, cp_h));
                     count += 1;
                 }
             }
         }
-        for (hash, sender) in to_restore {
+        for (hash, sender, cp_h) in to_restore {
+            if let Some(h) = cp_h {
+                if let Some(set) = self.finalized_by_height.get_mut(&h) {
+                    set.remove(&hash);
+                    if set.is_empty() {
+                        self.finalized_by_height.remove(&h);
+                    }
+                }
+            }
             self.unfinalized.insert(hash.clone());
             self.sender_unfinalized
                 .entry(sender)
@@ -486,16 +531,38 @@ impl Dag {
     pub fn mark_finalized_batch(&mut self, hashes: &[String], checkpoint_height: u64) -> usize {
         let mut count = 0;
         let mut senders_to_remove: Vec<(String, String)> = Vec::new();
+        let mut finalized_hashes: Vec<String> = Vec::new();
+        let mut old_heights_to_clean: Vec<(u64, String)> = Vec::new();
         for hash in hashes {
             if let Some(node) = self.get_node_mut(hash) {
                 senders_to_remove.push((node.tx.tx.from.clone(), hash.clone()));
+                if node.finalized {
+                    if let Some(old_h) = node.checkpoint_height {
+                        if old_h != checkpoint_height {
+                            old_heights_to_clean.push((old_h, hash.clone()));
+                        }
+                    }
+                }
                 node.finalized = true;
                 node.checkpoint_height = Some(checkpoint_height);
+                finalized_hashes.push(hash.clone());
                 count += 1;
             }
         }
+        for (old_h, hash) in old_heights_to_clean {
+            if let Some(set) = self.finalized_by_height.get_mut(&old_h) {
+                set.remove(&hash);
+                if set.is_empty() {
+                    self.finalized_by_height.remove(&old_h);
+                }
+            }
+        }
+        let height_set = self.finalized_by_height.entry(checkpoint_height).or_default();
         for hash in hashes {
             self.unfinalized.remove(hash);
+        }
+        for hash in finalized_hashes {
+            height_set.insert(hash);
         }
         for (sender, hash) in senders_to_remove {
             if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
@@ -512,8 +579,17 @@ impl Dag {
     pub fn unfinalize(&mut self, hash: &str) {
         if let Some(node) = self.get_node_mut(hash) {
             let sender = node.tx.tx.from.clone();
+            let cp_h = node.checkpoint_height;
             node.finalized = false;
             node.checkpoint_height = None;
+            if let Some(h) = cp_h {
+                if let Some(set) = self.finalized_by_height.get_mut(&h) {
+                    set.remove(hash);
+                    if set.is_empty() {
+                        self.finalized_by_height.remove(&h);
+                    }
+                }
+            }
             self.unfinalized.insert(hash.to_string());
             self.sender_unfinalized
                 .entry(sender)
@@ -537,23 +613,21 @@ impl Dag {
             ancestors
         };
 
-        let hashes_to_remove: Vec<String> = self
-            .graph
-            .node_indices()
-            .filter_map(|idx| {
-                self.graph.node_weight(idx).and_then(|node| {
-                    if node.finalized
-                        && node.checkpoint_height.map_or(false, |h| h < min_checkpoint_height)
-                        && !self.tips.contains(&node.hash)
-                        && !unfinalized_ancestors.contains(&node.hash)
-                    {
-                        Some(node.hash.clone())
-                    } else {
-                        None
-                    }
-                })
-            })
+        let heights_to_prune: Vec<u64> = self.finalized_by_height
+            .range(..min_checkpoint_height)
+            .map(|(&h, _)| h)
             .collect();
+
+        let mut hashes_to_remove: Vec<String> = Vec::new();
+        for h in &heights_to_prune {
+            if let Some(set) = self.finalized_by_height.get(h) {
+                for hash in set {
+                    if !self.tips.contains(hash) && !unfinalized_ancestors.contains(hash) {
+                        hashes_to_remove.push(hash.clone());
+                    }
+                }
+            }
+        }
 
         let count = hashes_to_remove.len();
         for hash in &hashes_to_remove {
@@ -599,6 +673,18 @@ impl Dag {
                 }
             }
         }
+
+        for h in &heights_to_prune {
+            if let Some(set) = self.finalized_by_height.get_mut(h) {
+                for hash in &hashes_to_remove {
+                    set.remove(hash);
+                }
+                if set.is_empty() {
+                    self.finalized_by_height.remove(h);
+                }
+            }
+        }
+
         count
     }
 
@@ -707,6 +793,7 @@ impl Dag {
         self.hash_to_index.clear();
         self.unfinalized.clear();
         self.sender_unfinalized.clear();
+        self.finalized_by_height.clear();
         for idx in self.graph.node_indices() {
             if let Some(node) = self.graph.node_weight(idx) {
                 self.hash_to_index.insert(node.hash.clone(), idx);
@@ -716,6 +803,8 @@ impl Dag {
                         .entry(node.tx.tx.from.clone())
                         .or_default()
                         .insert(node.hash.clone());
+                } else if let Some(h) = node.checkpoint_height {
+                    self.finalized_by_height.entry(h).or_default().insert(node.hash.clone());
                 }
             }
         }
@@ -755,6 +844,7 @@ impl Dag {
         self.hash_to_index.clear();
         self.unfinalized.clear();
         self.sender_unfinalized.clear();
+        self.finalized_by_height.clear();
         self.tips.clear();
 
         for idx in self.graph.node_indices() {
@@ -773,6 +863,8 @@ impl Dag {
                         .entry(node.tx.tx.from.clone())
                         .or_default()
                         .insert(node.hash.clone());
+                } else if let Some(h) = node.checkpoint_height {
+                    self.finalized_by_height.entry(h).or_default().insert(node.hash.clone());
                 }
                 if node.children.is_empty() {
                     self.tips.insert(node.hash.clone());
@@ -807,10 +899,19 @@ impl Dag {
         self.unfinalized.remove(hash);
         if let Some(node) = self.graph.node_weight(idx) {
             let sender = node.tx.tx.from.clone();
+            let cp_h = node.checkpoint_height;
             if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
                 set.remove(hash);
                 if set.is_empty() {
                     self.sender_unfinalized.remove(&sender);
+                }
+            }
+            if let Some(h) = cp_h {
+                if let Some(set) = self.finalized_by_height.get_mut(&h) {
+                    set.remove(hash);
+                    if set.is_empty() {
+                        self.finalized_by_height.remove(&h);
+                    }
                 }
             }
         }

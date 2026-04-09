@@ -396,139 +396,6 @@ impl NodeState {
         Ok(TransactionResult::Accepted)
     }
     
-    pub async fn execute_confirmed_transaction_state(&self, tx: &SignedTransaction) -> ConvergenceExecResult {
-        if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-            return ConvergenceExecResult::AlreadyApplied;
-        }
-
-        let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-        let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
-        let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-        let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
-
-        let gas_fee;
-
-        {
-            let mut state = self.inner.write().await;
-            gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
-
-            {
-                let from_account = match state.accounts.get(&tx.tx.from) {
-                    Some(acc) => acc,
-                    None => return ConvergenceExecResult::Rejected,
-                };
-                let required = if is_stake_tx {
-                    tx.tx.amount + gas_fee
-                } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                    gas_fee
-                } else {
-                    tx.tx.amount + gas_fee
-                };
-                if from_account.balance < required {
-                    tracing::warn!(
-                        "FastPath execution rejected: {} insufficient balance ({} < {})",
-                        &tx.tx.from[..16.min(tx.tx.from.len())],
-                        from_account.balance,
-                        required
-                    );
-                    return ConvergenceExecResult::Rejected;
-                }
-                if tx.tx.nonce < from_account.nonce {
-                    return ConvergenceExecResult::AlreadyApplied;
-                }
-                if tx.tx.nonce > from_account.nonce {
-                    return ConvergenceExecResult::Deferred;
-                }
-            }
-
-            let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
-
-            if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-                let tx_cost = if is_stake_tx {
-                    tx.tx.amount + gas_fee
-                } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                    gas_fee
-                } else {
-                    tx.tx.amount + gas_fee
-                };
-                from_account.balance -= tx_cost;
-                from_account.nonce = tx.tx.nonce + 1;
-
-                if is_in_partition && from_account.partition_budget.is_some() {
-                    from_account.partition_budget_spent += tx_cost;
-                }
-            }
-
-            if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                let to_account = state
-                    .accounts
-                    .entry(tx.tx.to.clone())
-                    .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-                to_account.balance += tx.tx.amount;
-            }
-
-            if is_stake_tx {
-                if let Some(staker) = state.accounts.get_mut(&tx.tx.from) {
-                    staker.staked += tx.tx.amount;
-                }
-            }
-
-            state.total_burned += gas_fee / 2;
-            state.total_to_validators += gas_fee / 2;
-
-            state.total_transactions += 1;
-
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let tx_time_ms = if tx.tx.timestamp < 4_000_000_000 {
-                tx.tx.timestamp * 1000
-            } else {
-                tx.tx.timestamp
-            };
-            let finality_time_ms = now_ms.saturating_sub(tx_time_ms);
-            const MAX_FINALITY_MS: u64 = 300_000;
-            if finality_time_ms <= MAX_FINALITY_MS {
-                state.finality_sum_ms += finality_time_ms;
-                state.finality_count += 1;
-                if finality_time_ms > state.finality_max_ms {
-                    state.finality_max_ms = finality_time_ms;
-                }
-                if state.finality_times_ms.len() >= 1000 {
-                    state.finality_times_ms.pop_front();
-                }
-                state.finality_times_ms.push_back(finality_time_ms);
-            }
-        }
-
-        if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract)) {
-            self.execute_transaction_side_effects(tx).await;
-        }
-
-        if matches!(
-            tx.tx.kind,
-            Some(rinku_core::types::TransactionKind::Stake)
-                | Some(rinku_core::types::TransactionKind::Unstake)
-                | Some(rinku_core::types::TransactionKind::ClaimRewards)
-        ) {
-            let mut rewards = self.rewards.write().await;
-            rewards.register_stake_dedup(&tx.hash);
-        }
-
-        tracing::info!(
-            "FastPath EXECUTED tx {} ({} -> {}, amount={}, gas={}, kind={:?})",
-            &tx.hash[..16.min(tx.hash.len())],
-            &tx.tx.from[..16.min(tx.tx.from.len())],
-            &tx.tx.to[..16.min(tx.tx.to.len())],
-            tx.tx.amount,
-            gas_fee,
-            tx.tx.kind
-        );
-
-        ConvergenceExecResult::Executed
-    }
-
     pub async fn execute_confirmed_batch(
         &self,
         txs: &[SignedTransaction],
@@ -538,7 +405,12 @@ impl NodeState {
         let mut executed_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
         {
+            let lock_start = std::time::Instant::now();
             let mut state = self.inner.write().await;
+            let lock_ms = lock_start.elapsed().as_millis();
+            if lock_ms > 5 {
+                tracing::info!("RCC-LOCK: convergence batch write lock acquired in {}ms ({} txs)", lock_ms, txs.len());
+            }
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
@@ -583,39 +455,39 @@ impl NodeState {
 
                     let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
 
-                    let result = {
-                        let from_account = match state.accounts.get(&tx.tx.from) {
-                            Some(acc) => acc,
-                            None => {
-                                results_map.insert(idx, ConvergenceBatchExecEntry {
-                                    hash: tx.hash.clone(),
-                                    result: ConvergenceExecResult::Rejected,
-                                    from_addr: tx.tx.from.clone(),
-                                    to_addr: tx.tx.to.clone(),
-                                    amount: tx.tx.amount,
-                                    from_account: None,
-                                    to_account: None,
-                                });
-                                executed_indices.insert(idx);
-                                continue;
-                            }
-                        };
-                        let required = if is_stake_tx {
-                            tx.tx.amount + gas_fee
-                        } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                            gas_fee
-                        } else {
-                            tx.tx.amount + gas_fee
-                        };
-                        if from_account.balance < required {
-                            ConvergenceExecResult::Rejected
-                        } else if tx.tx.nonce < from_account.nonce {
-                            ConvergenceExecResult::AlreadyApplied
-                        } else if tx.tx.nonce > from_account.nonce {
-                            ConvergenceExecResult::Deferred
-                        } else {
-                            ConvergenceExecResult::Executed
-                        }
+                    let (ov_balance, ov_nonce, ov_staked) = if let Some(ov) = state.convergence_overlay.get(&tx.tx.from) {
+                        (ov.balance, ov.nonce, ov.staked)
+                    } else if let Some(acc) = state.accounts.get(&tx.tx.from) {
+                        (acc.balance, acc.nonce, acc.staked)
+                    } else {
+                        results_map.insert(idx, ConvergenceBatchExecEntry {
+                            hash: tx.hash.clone(),
+                            result: ConvergenceExecResult::Rejected,
+                            from_addr: tx.tx.from.clone(),
+                            to_addr: tx.tx.to.clone(),
+                            amount: tx.tx.amount,
+                            from_account: None,
+                            to_account: None,
+                        });
+                        executed_indices.insert(idx);
+                        continue;
+                    };
+
+                    let required = if is_stake_tx {
+                        tx.tx.amount + gas_fee
+                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                        gas_fee
+                    } else {
+                        tx.tx.amount + gas_fee
+                    };
+                    let result = if ov_balance < required {
+                        ConvergenceExecResult::Rejected
+                    } else if tx.tx.nonce < ov_nonce {
+                        ConvergenceExecResult::AlreadyApplied
+                    } else if tx.tx.nonce > ov_nonce {
+                        ConvergenceExecResult::Deferred
+                    } else {
+                        ConvergenceExecResult::Executed
                     };
 
                     if matches!(result, ConvergenceExecResult::Deferred) {
@@ -639,39 +511,54 @@ impl NodeState {
 
                     let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
 
-                    if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
-                        let tx_cost = if is_stake_tx {
-                            tx.tx.amount + gas_fee
-                        } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                            gas_fee
+                    let tx_cost = if is_stake_tx {
+                        tx.tx.amount + gas_fee
+                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                        gas_fee
+                    } else {
+                        tx.tx.amount + gas_fee
+                    };
+
+                    {
+                        let pbs = state.accounts.get(&tx.tx.from).map(|a| a.partition_budget_spent).unwrap_or(0);
+                        let from_ov = state.convergence_overlay.entry(tx.tx.from.clone()).or_insert_with(|| {
+                            super::ConvergenceAccountOverlay {
+                                balance: ov_balance,
+                                nonce: ov_nonce,
+                                staked: ov_staked,
+                                partition_budget_spent: pbs,
+                            }
+                        });
+                        from_ov.balance = from_ov.balance.saturating_sub(tx_cost);
+                        from_ov.nonce = tx.tx.nonce + 1;
+
+                        if is_in_partition {
+                            from_ov.partition_budget_spent += tx_cost;
+                        }
+
+                        if is_stake_tx {
+                            from_ov.staked += tx.tx.amount;
+                        }
+                    }
+
+                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx && !tx.tx.to.is_empty() {
+                        let (to_balance, to_nonce, to_staked) = if let Some(ov) = state.convergence_overlay.get(&tx.tx.to) {
+                            (ov.balance, ov.nonce, ov.staked)
+                        } else if let Some(acc) = state.accounts.get(&tx.tx.to) {
+                            (acc.balance, acc.nonce, acc.staked)
                         } else {
-                            tx.tx.amount + gas_fee
+                            (0, 0, 0)
                         };
-                        from_account.balance -= tx_cost;
-                        from_account.nonce = tx.tx.nonce + 1;
-
-                        if is_in_partition && from_account.partition_budget.is_some() {
-                            from_account.partition_budget_spent += tx_cost;
-                        }
+                        let to_ov = state.convergence_overlay.entry(tx.tx.to.clone()).or_insert_with(|| {
+                            super::ConvergenceAccountOverlay {
+                                balance: to_balance,
+                                nonce: to_nonce,
+                                staked: to_staked,
+                                partition_budget_spent: 0,
+                            }
+                        });
+                        to_ov.balance += tx.tx.amount;
                     }
-
-                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                        let to_account = state
-                            .accounts
-                            .entry(tx.tx.to.clone())
-                            .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
-                        to_account.balance += tx.tx.amount;
-                    }
-
-                    if is_stake_tx {
-                        if let Some(staker) = state.accounts.get_mut(&tx.tx.from) {
-                            staker.staked += tx.tx.amount;
-                        }
-                    }
-
-                    state.total_burned += gas_fee / 2;
-                    state.total_to_validators += gas_fee / 2;
-                    state.total_transactions += 1;
 
                     let tx_time_ms = if tx.tx.timestamp < 4_000_000_000 {
                         tx.tx.timestamp * 1000
@@ -703,7 +590,7 @@ impl NodeState {
                             hash: tx.hash.clone(),
                         });
                         state.convergence_executed_order.push_back(tx.hash.clone());
-                        const CONVERGENCE_EXECUTED_CAP: usize = 10_000;
+                        const CONVERGENCE_EXECUTED_CAP: usize = 500;
                         while state.convergence_executed_txs.len() > CONVERGENCE_EXECUTED_CAP {
                             if let Some(oldest) = state.convergence_executed_order.pop_front() {
                                 state.convergence_executed_txs.remove(&oldest);
@@ -769,6 +656,21 @@ impl NodeState {
                     pass, executed_indices.len(), txs.len() - executed_indices.len()
                 );
             }
+
+            let executed_count = results_map.values().filter(|e| matches!(e.result, ConvergenceExecResult::Executed)).count();
+            let deferred_count = results_map.values().filter(|e| matches!(e.result, ConvergenceExecResult::Deferred)).count();
+            let rejected_count = results_map.values().filter(|e| matches!(e.result, ConvergenceExecResult::Rejected)).count();
+            let already_applied_count = results_map.values().filter(|e| matches!(e.result, ConvergenceExecResult::AlreadyApplied)).count();
+            let overlay_size = state.convergence_overlay.len();
+            let batch_ms = lock_start.elapsed().as_millis();
+            let batch_size = txs.len();
+            let batch_passes = pass;
+            drop(state);
+            tracing::info!(
+                "CONVERGENCE-BATCH: {} txs → executed={} deferred={} rejected={} already_applied={} | passes={} overlay_size={} lock_held={}ms",
+                batch_size, executed_count, deferred_count, rejected_count, already_applied_count,
+                batch_passes, overlay_size, batch_ms
+            );
         }
 
         let mut results: Vec<ConvergenceBatchExecEntry> = (0..txs.len())
@@ -841,6 +743,37 @@ impl NodeState {
     ) -> BatchCoreResult {
         let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
         let current_gas_price = state.current_gas_price;
+
+        for (sender_addr, sender_nonces) in available_nonces {
+            if let Some(account) = state.accounts.get_mut(sender_addr) {
+                if let Some(&first_nonce) = sender_nonces.iter().next() {
+                    if first_nonce > account.nonce {
+                        if let Some(overlay) = state.convergence_overlay.get(sender_addr) {
+                            if overlay.nonce >= first_nonce {
+                                tracing::info!(
+                                    "CONVERGENCE-NONCE-ADVANCE (batch): sender {} nonce {} -> {} (overlay nonce: {}, bridging {} gap nonces)",
+                                    &sender_addr[..16.min(sender_addr.len())],
+                                    account.nonce, first_nonce, overlay.nonce, first_nonce - account.nonce
+                                );
+                                account.nonce = first_nonce;
+                            } else {
+                                tracing::info!(
+                                    "NONCE-GAP-SKIP (batch): sender {} has gap — account nonce {} but first tx nonce {} (overlay nonce {} doesn't cover, deferring)",
+                                    &sender_addr[..16.min(sender_addr.len())],
+                                    account.nonce, first_nonce, overlay.nonce
+                                );
+                            }
+                        } else {
+                            tracing::info!(
+                                "NONCE-GAP-SKIP (batch): sender {} has gap — account nonce {} but first tx nonce {} (no overlay, deferring {} gap txs)",
+                                &sender_addr[..16.min(sender_addr.len())],
+                                account.nonce, first_nonce, first_nonce - account.nonce
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         let mut executed_count = 0usize;
         let mut new_deferred: Vec<SignedTransaction> = Vec::new();
@@ -1163,14 +1096,12 @@ impl NodeState {
 
         let mut unstake_credits: Vec<(String, u64)> = Vec::new();
         let mut claim_credits: Vec<(String, u64)> = Vec::new();
-        let mut stake_updates: Vec<(String, u64, u64)> = Vec::new();
+        let mut finalized_stake_deltas: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
 
         {
             let mut rewards = self.rewards.write().await;
             for tx in special_txs {
-                if skip_hashes.contains(&tx.hash) {
-                    continue;
-                }
+                let is_convergence_pre_executed = skip_hashes.contains(&tx.hash);
                 use rinku_core::types::TransactionKind;
                 let from_addr = &tx.tx.from;
 
@@ -1178,15 +1109,27 @@ impl NodeState {
                     TransactionKind::Stake => {
                         if let Err(e) = rewards.stake(from_addr, tx.tx.amount, &tx.hash) {
                             tracing::warn!("Failed to process stake tx: {}", e);
-                        } else {
-                            if let Some(p) = rewards.get_stake(from_addr) {
-                                stake_updates.push((from_addr.clone(), p.amount, p.staked_at));
-                            }
+                        }
+                        let staked_at = rewards.get_stake(from_addr).map(|p| p.staked_at).unwrap_or(0);
+                        finalized_stake_deltas.entry(from_addr.clone())
+                            .and_modify(|d: &mut (u64, u64)| d.0 += tx.tx.amount)
+                            .or_insert((tx.tx.amount, staked_at));
+                        if is_convergence_pre_executed {
+                            tracing::info!(
+                                "STAKE-FINALIZE: convergence-pre-executed stake for {} amount={} — applying to finalized state",
+                                &from_addr[..16.min(from_addr.len())], tx.tx.amount
+                            );
                         }
                     }
                     TransactionKind::Unstake => {
                         match rewards.unstake(from_addr) {
                             Ok(amount) => {
+                                if is_convergence_pre_executed {
+                                    tracing::info!(
+                                        "UNSTAKE-FINALIZE: convergence-pre-executed unstake for {} — crediting {} to finalized state",
+                                        &from_addr[..16.min(from_addr.len())], amount
+                                    );
+                                }
                                 unstake_credits.push((from_addr.clone(), amount));
                             }
                             Err(e) => {
@@ -1197,6 +1140,12 @@ impl NodeState {
                     TransactionKind::ClaimRewards => {
                         let claimed = rewards.claim_rewards(from_addr);
                         if claimed > 0 {
+                            if is_convergence_pre_executed {
+                                tracing::info!(
+                                    "CLAIM-FINALIZE: convergence-pre-executed claim for {} — crediting {} to finalized state",
+                                    &from_addr[..16.min(from_addr.len())], claimed
+                                );
+                            }
                             claim_credits.push((from_addr.clone(), claimed));
                         }
                     }
@@ -1205,7 +1154,7 @@ impl NodeState {
             }
         }
 
-        if !unstake_credits.is_empty() || !claim_credits.is_empty() || !stake_updates.is_empty() {
+        if !unstake_credits.is_empty() || !claim_credits.is_empty() || !finalized_stake_deltas.is_empty() {
             let mut state = self.inner.write().await;
             for (addr, amount) in &unstake_credits {
                 if let Some(account) = state.accounts.get_mut(addr) {
@@ -1218,9 +1167,9 @@ impl NodeState {
                     account.balance += claimed;
                 }
             }
-            for (addr, amount, staked_at) in &stake_updates {
+            for (addr, (delta_amount, staked_at)) in &finalized_stake_deltas {
                 if let Some(account) = state.accounts.get_mut(addr) {
-                    account.staked = *amount;
+                    account.staked += delta_amount;
                     account.first_seen = *staked_at / 1000;
                 }
             }
@@ -1450,6 +1399,7 @@ impl NodeState {
             let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
 
             {
+                let sender_overlay_nonce = state.convergence_overlay.get(&tx.tx.from).map(|ov| ov.nonce);
                 if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
                     if tx.tx.nonce < from_account.nonce {
                         tracing::debug!(
@@ -1459,6 +1409,37 @@ impl NodeState {
                             from_account.nonce
                         );
                         return false;
+                    }
+                    if tx.tx.nonce > from_account.nonce {
+                        if let Some(ov_nonce) = sender_overlay_nonce {
+                            if ov_nonce >= tx.tx.nonce {
+                                tracing::info!(
+                                    "CONVERGENCE-NONCE-ADVANCE (finalize): sender {} nonce {} -> {} (overlay nonce: {})",
+                                    &tx.tx.from[..16.min(tx.tx.from.len())],
+                                    from_account.nonce, tx.tx.nonce, ov_nonce
+                                );
+                                from_account.nonce = tx.tx.nonce;
+                            } else {
+                                tracing::info!(
+                                    "Skipping future-nonce tx {} (tx_nonce={} > account_nonce={}, overlay_nonce={}, gap={})",
+                                    &tx.hash[..16.min(tx.hash.len())],
+                                    tx.tx.nonce,
+                                    from_account.nonce,
+                                    ov_nonce,
+                                    tx.tx.nonce - from_account.nonce
+                                );
+                                return false;
+                            }
+                        } else {
+                            tracing::info!(
+                                "Skipping future-nonce tx {} (tx_nonce={} > account_nonce={}, no overlay, gap={})",
+                                &tx.hash[..16.min(tx.hash.len())],
+                                tx.tx.nonce,
+                                from_account.nonce,
+                                tx.tx.nonce - from_account.nonce
+                            );
+                            return false;
+                        }
                     }
                     let tx_cost = if is_stake_tx {
                         tx.tx.amount + gas_fee

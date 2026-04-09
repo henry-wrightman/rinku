@@ -100,7 +100,18 @@ export function DAGTab({
   );
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const pinnedNodeRef = useRef<DAGNode | null>(null);
   const prevHashesRef = useRef<Set<string>>(new Set());
+
+  const expandRow = useCallback((node: DAGNode | null) => {
+    if (node) {
+      pinnedNodeRef.current = node;
+      setExpandedHash(node.hash);
+    } else {
+      pinnedNodeRef.current = null;
+      setExpandedHash(null);
+    }
+  }, []);
 
   useEffect(() => {
     const currentHashes = new Set(nodes.map((n) => n.hash));
@@ -167,7 +178,18 @@ export function DAGTab({
     }
   }, []);
 
-  if (nodes.length === 0) {
+  if (expandedHash) {
+    const found = nodes.find((n) => n.hash === expandedHash);
+    if (found) {
+      pinnedNodeRef.current = found;
+    }
+  }
+
+  const pinned = pinnedNodeRef.current;
+  const hasPinnedInPage = pinned && nodes.some((n) => n.hash === pinned.hash);
+  const effectiveNodes = pinned && !hasPinnedInPage ? [pinned, ...nodes] : nodes;
+
+  if (effectiveNodes.length === 0) {
     return <div className="empty">no transactions yet</div>;
   }
 
@@ -192,7 +214,7 @@ export function DAGTab({
   };
 
   const grouped = new Map<string, DAGNode[]>();
-  for (const node of nodes) {
+  for (const node of effectiveNodes) {
     const key = node.kind || "transfer";
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(node);
@@ -219,6 +241,7 @@ export function DAGTab({
   const renderRow = (node: DAGNode) => {
     const isNew = newHashes.has(node.hash);
     const isExpanded = expandedHash === node.hash;
+    const isPinned = isExpanded && pinned?.hash === node.hash && !hasPinnedInPage;
     const st = statusInfo(node);
     const kc = kindColor(node.kind);
     const kl = kindLabel(node.kind);
@@ -227,9 +250,9 @@ export function DAGTab({
     return (
       <div
         key={node.hash}
-        className={`tx-row ${isNew ? "tx-new" : ""} ${st.cls}`}
+        className={`tx-row ${isNew ? "tx-new" : ""} ${isPinned ? "tx-pinned" : ""} ${st.cls}`}
         style={{ borderLeftColor: kc }}
-        onClick={() => setExpandedHash(isExpanded ? null : node.hash)}
+        onClick={() => expandRow(isExpanded ? null : node)}
       >
         <div className="tx-row-main">
           <span className="tx-kind" style={{ color: kc }}>
@@ -350,6 +373,11 @@ export function DAGTab({
         const isGroupExpanded = expandedGroups.has(g.kind);
         const cap = isGroupExpanded ? g.nodes.length : MAX_VISIBLE_PER_GROUP;
         const visible = g.nodes.slice(0, cap);
+        const pinnedInGroup = pinned && !hasPinnedInPage && (pinned.kind || "transfer") === g.kind
+          && !visible.some((n) => n.hash === pinned.hash);
+        if (pinnedInGroup) {
+          visible.unshift(pinned);
+        }
         const hidden = g.nodes.length - visible.length;
 
         return (

@@ -35,6 +35,43 @@ struct AcceptedVote {
 }
 const DYNAMIC_TX_CAP_DEFAULT: usize = 50;
 
+struct PendingQcc {
+    checkpoint: Checkpoint,
+    hashes: Vec<String>,
+    txs_to_execute: Vec<SignedTransaction>,
+    reward_distributions: Vec<(String, u64)>,
+    checkpoint_reward: u64,
+    finalized_proofs: std::collections::HashMap<String, rinku_core::types::AccountStateProof>,
+    convergence_executed: std::collections::HashSet<String>,
+    height: u64,
+    now_ms: u64,
+    is_partitioned: bool,
+    partition_info: crate::state::partition::PartitionState,
+    finality_sum: u64,
+    finality_count: u64,
+    finality_max: u64,
+    finality_times: Vec<u64>,
+    t_overall: std::time::Instant,
+    t_gather_ms: u128,
+    t_proof_ms: u128,
+    t_weight_ms: u128,
+    qcc_handle: tokio::task::JoinHandle<Option<(Vec<ValidatorSignature>, Vec<u8>, Vec<u8>)>>,
+    qcc_spawned_at: std::time::Instant,
+}
+
+struct QccRetryData {
+    checkpoint: Checkpoint,
+    hashes: Vec<String>,
+    txs_to_execute: Vec<SignedTransaction>,
+    reward_distributions: Vec<(String, u64)>,
+    checkpoint_reward: u64,
+    finalized_proofs: std::collections::HashMap<String, rinku_core::types::AccountStateProof>,
+    convergence_executed: std::collections::HashSet<String>,
+    height: u64,
+    is_partitioned: bool,
+    partition_info: crate::state::partition::PartitionState,
+}
+
 pub struct CheckpointService {
     state: NodeState,
     interval_ms: u64,
@@ -63,22 +100,397 @@ pub struct CheckpointService {
     leader_wait_ticks: u32,
     leader_wait_height: u64,
     last_delta_sync_catch_up: Option<std::time::Instant>,
+    consecutive_gap_one_ticks: u32,
+    consecutive_behind_yields: u32,
     consecutive_qcc_failures: u32,
     qcc_failure_height: u64,
     qcc_yielded_height: u64,
+    convergence_yield_start: Option<std::time::Instant>,
+    pending_qcc: Option<PendingQcc>,
+    qcc_retry_data: Option<QccRetryData>,
+    last_checkpoint_applied_at: Option<std::time::Instant>,
+    last_own_proposal_time_ms: u64,
+    tick_counter: u64,
+    total_checkpoints_produced: u64,
+    total_qcc_wait_ms: u128,
+    total_qcc_pickup_delay_ms: u128,
+    last_dashboard_at: std::time::Instant,
 }
 
 const FORK_RECOVERY_THRESHOLD: u32 = 3;
-const LEADER_SKIP_BASE_TICKS: u32 = 2;
-const LEADER_SKIP_STAGGER_TICKS: u32 = 2;
-const LEADER_INTENT_EXTENSION_TICKS: u32 = 5;
-const POST_SYNC_COOLDOWN_TICKS: u64 = 10;
-const LEADER_POST_SYNC_MAX_DEFER_TICKS: u64 = 2;
-const MIN_INTER_CHECKPOINT_MS: u64 = 3000;
+const LEADER_SKIP_BASE_TICKS: u32 = 3;
+const LEADER_SKIP_STAGGER_TICKS: u32 = 1;
+const LEADER_INTENT_EXTENSION_TICKS: u32 = 2;
+const MAX_CHECKPOINT_TXS: usize = 300;
+const POST_SYNC_COOLDOWN_MS: u64 = 500;
+const LEADER_POST_SYNC_MAX_DEFER_MS: u64 = 500;
+const MIN_INTER_CHECKPOINT_MS: u64 = 4000;
 const QCC_SELF_YIELD_THRESHOLD: u32 = 2;
 
 // Use centralized constant from config
 use crate::config::PROPAGATION_GRACE_MS;
+
+const PARALLEL_QCC_DEADLINE_MS: u64 = 4000;
+
+#[cfg(feature = "p2p")]
+async fn collect_qcc_standalone(
+    checkpoint: Checkpoint,
+    finalized_tx_hashes: &[String],
+    gossip_service: Option<Arc<crate::gossip::GossipService>>,
+    network_handle: Option<Arc<NetworkHandle>>,
+    validator_identity: Option<Arc<RwLock<ValidatorIdentityService>>>,
+    validator_address: &str,
+    checkpoint_height_cache: Arc<std::sync::atomic::AtomicU64>,
+) -> Option<(Vec<ValidatorSignature>, Vec<u8>, Vec<u8>)> {
+    let total_stake = if let Some(ref identity) = validator_identity {
+        let identity_guard = identity.read().await;
+        identity_guard.active_validators().iter().map(|(_, v)| v.effective_stake).sum::<u64>()
+    } else {
+        return None;
+    };
+
+    if total_stake == 0 {
+        return None;
+    }
+
+    let quorum_threshold = (total_stake * 2 + 2) / 3;
+
+    let mut collected_sigs: Vec<ValidatorSignature> = checkpoint.validator_signatures.clone();
+    let mut sig_bytes_list: Vec<Vec<u8>> = Vec::new();
+    let mut signer_addresses: Vec<String> = vec![validator_address.to_string()];
+
+    let our_canonical_stake = if let Some(ref identity) = validator_identity {
+        let identity_guard = identity.read().await;
+        identity_guard.active_validators()
+            .iter()
+            .find(|(addr, _)| *addr == validator_address)
+            .map(|(_, v)| v.effective_stake)
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let mut collected_stake: u64 = our_canonical_stake;
+
+    for sig in &checkpoint.validator_signatures {
+        if let Ok(decoded) = URL_SAFE_NO_PAD.decode(&sig.signature) {
+            sig_bytes_list.push(decoded);
+        }
+    }
+
+    info!(
+        "QCC-PIPELINE: Collecting votes for checkpoint {} at height {} (our_canonical_stake={}, quorum={}/{})",
+        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+        checkpoint.height, our_canonical_stake, quorum_threshold, total_stake
+    );
+
+    if let Some(ref gossip) = gossip_service {
+        let (vote_tx, mut vote_rx) = tokio::sync::mpsc::channel::<crate::gossip::QccGossipVote>(32);
+        gossip.set_qcc_vote_channel(vote_tx).await;
+
+        gossip.broadcast_qcc_vote_request(
+            checkpoint.height,
+            &checkpoint.hash,
+            &checkpoint.tx_merkle_root,
+            &checkpoint.state_root,
+            validator_address,
+            finalized_tx_hashes,
+        ).await;
+
+        let mut fallback_futs: Option<FuturesUnordered<_>> = {
+            if let Some(ref network_handle) = network_handle {
+                let peer_ids = network_handle.get_connected_peer_ids().await;
+                if !peer_ids.is_empty() {
+                    let vote_request = CheckpointVoteRequest {
+                        checkpoint_hash: checkpoint.hash.clone(),
+                        height: checkpoint.height,
+                        tx_merkle_root: checkpoint.tx_merkle_root.clone(),
+                        state_root: checkpoint.state_root.clone(),
+                        finalized_tx_hashes: finalized_tx_hashes.to_vec(),
+                        finalized_transactions: vec![],
+                    };
+                    let timeout_dur = std::time::Duration::from_millis(PARALLEL_QCC_DEADLINE_MS.saturating_sub(200));
+                    let futs: FuturesUnordered<_> = peer_ids.iter().map(|peer_id| {
+                        let pid = peer_id.clone();
+                        let nh = Arc::clone(network_handle);
+                        let req = VoteRequest::CheckpointVote(vote_request.clone());
+                        let td = timeout_dur;
+                        async move {
+                            match tokio::time::timeout(td, nh.vote_request(&pid, req)).await {
+                                Ok(Ok(response)) => (pid, Some(response)),
+                                Ok(Err(e)) => {
+                                    warn!("QCC-RR: Vote request to {} failed: {}", &pid[..16.min(pid.len())], e);
+                                    (pid, None)
+                                }
+                                Err(_) => {
+                                    warn!("QCC-RR: Vote request to {} timed out", &pid[..16.min(pid.len())]);
+                                    (pid, None)
+                                }
+                            }
+                        }
+                    }).collect();
+                    info!(
+                        "QCC-PIPELINE-PARALLEL: Launched gossip + request-response to {} peers (deadline={}ms)",
+                        peer_ids.len(), PARALLEL_QCC_DEADLINE_MS
+                    );
+                    Some(futs)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        let deadline = tokio::time::Instant::now()
+            + tokio::time::Duration::from_millis(PARALLEL_QCC_DEADLINE_MS);
+
+        let mut gossip_votes = 0u32;
+        let mut rr_votes = 0u32;
+        let qcc_start = std::time::Instant::now();
+
+        loop {
+            if collected_stake >= quorum_threshold {
+                let quorum_ms = qcc_start.elapsed().as_millis();
+                let voter_list: Vec<String> = signer_addresses.iter().map(|a| {
+                    format!("{}({})", &a[..12.min(a.len())], collected_sigs.iter().find(|s| &s.validator == a).map(|s| s.weight).unwrap_or(0))
+                }).collect();
+                info!(
+                    "QCC-PIPELINE: Quorum reached for height {} ({}/{} stake, {} sigs, gossip={}, rr={}) in {}ms voters=[{}]",
+                    checkpoint.height, collected_stake, total_stake, collected_sigs.len(),
+                    gossip_votes, rr_votes, quorum_ms, voter_list.join(", ")
+                );
+                break;
+            }
+
+            let current_height = checkpoint_height_cache.load(std::sync::atomic::Ordering::Relaxed);
+            if current_height >= checkpoint.height {
+                gossip.clear_qcc_vote_channel().await;
+                info!("QCC-PIPELINE: Aborting — height {} already committed", checkpoint.height);
+                return None;
+            }
+
+            tokio::select! {
+                result = vote_rx.recv() => {
+                    match result {
+                        Some(vote) => {
+                            if vote.height != checkpoint.height || vote.checkpoint_hash != checkpoint.hash {
+                                continue;
+                            }
+                            if signer_addresses.contains(&vote.validator_address) {
+                                continue;
+                            }
+                            if let Some(accepted) = verify_vote_standalone(
+                                &vote.validator_address,
+                                &vote.bls_public_key,
+                                &vote.signature,
+                                &checkpoint.hash,
+                                &validator_identity,
+                            ).await {
+                                collected_stake += accepted.canonical_stake;
+                                signer_addresses.push(vote.validator_address.clone());
+                                sig_bytes_list.push(accepted.sig_bytes);
+                                collected_sigs.push(ValidatorSignature {
+                                    validator: vote.validator_address,
+                                    signature: vote.signature,
+                                    weight: accepted.canonical_stake,
+                                    bls_public_key: Some(vote.bls_public_key),
+                                });
+                                gossip_votes += 1;
+                                info!(
+                                    "QCC-PIPELINE-GOSSIP: Valid vote (canonical_stake={}, accumulated={}/{})",
+                                    accepted.canonical_stake, collected_stake, quorum_threshold
+                                );
+                            }
+                        }
+                        None => {}
+                    }
+                }
+
+                result = async {
+                    if let Some(ref mut futs) = fallback_futs {
+                        futs.next().await
+                    } else {
+                        std::future::pending().await
+                    }
+                } => {
+                    if let Some((peer_id, maybe_response)) = result {
+                        if let Some(response) = maybe_response {
+                            match response {
+                                VoteResponse::CheckpointVote(Some(vote)) => {
+                                    if signer_addresses.contains(&vote.validator_address) {
+                                        continue;
+                                    }
+                                    if let Some(accepted) = verify_vote_standalone(
+                                        &vote.validator_address,
+                                        &vote.bls_public_key,
+                                        &vote.signature,
+                                        &checkpoint.hash,
+                                        &validator_identity,
+                                    ).await {
+                                        collected_stake += accepted.canonical_stake;
+                                        signer_addresses.push(vote.validator_address.clone());
+                                        sig_bytes_list.push(accepted.sig_bytes);
+                                        collected_sigs.push(ValidatorSignature {
+                                            validator: vote.validator_address,
+                                            signature: vote.signature,
+                                            weight: accepted.canonical_stake,
+                                            bls_public_key: Some(vote.bls_public_key),
+                                        });
+                                        rr_votes += 1;
+                                        info!(
+                                            "QCC-PIPELINE-RR: Valid vote from {} (canonical_stake={}, accumulated={}/{})",
+                                            &peer_id[..16.min(peer_id.len())],
+                                            accepted.canonical_stake, collected_stake, quorum_threshold
+                                        );
+                                    }
+                                }
+                                VoteResponse::CheckpointVote(None) => {}
+                                VoteResponse::Error { message } => {
+                                    warn!("QCC-RR: Vote error from {}: {}", &peer_id[..16.min(peer_id.len())], message);
+                                }
+                            }
+                        }
+                    } else {
+                        fallback_futs = None;
+                    }
+                }
+
+                _ = tokio::time::sleep_until(deadline) => {
+                    info!(
+                        "QCC-PIPELINE: Deadline reached ({}ms) — collected {}/{} stake (gossip={}, rr={})",
+                        PARALLEL_QCC_DEADLINE_MS, collected_stake, quorum_threshold,
+                        gossip_votes, rr_votes
+                    );
+                    break;
+                }
+            }
+        }
+
+        gossip.clear_qcc_vote_channel().await;
+
+        if collected_stake < quorum_threshold {
+            if let Some(ref nh) = network_handle {
+                let peers = nh.get_connected_peers().await;
+                let mut heights: Vec<u64> = peers.iter()
+                    .filter(|p| p.handshake_validated)
+                    .filter_map(|p| p.handshake_info.as_ref())
+                    .map(|h| h.checkpoint_height)
+                    .collect();
+                if !heights.is_empty() {
+                    heights.sort_unstable();
+                    let median = heights[heights.len() / 2];
+                    if median > checkpoint.height {
+                        warn!(
+                            "QCC-PIPELINE: Aborting — behind peers (network={}, our checkpoint={})",
+                            median, checkpoint.height
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+
+    if collected_stake < quorum_threshold {
+        let voter_list: Vec<String> = signer_addresses.iter().map(|a| {
+            format!("{}({})", &a[..12.min(a.len())], collected_sigs.iter().find(|s| &s.validator == a).map(|s| s.weight).unwrap_or(0))
+        }).collect();
+        warn!(
+            "QCC-PIPELINE: Failed to reach quorum for height {} ({}/{} stake, need {}, got {} votes) voters=[{}]",
+            checkpoint.height, collected_stake, total_stake, quorum_threshold, collected_sigs.len(),
+            voter_list.join(", ")
+        );
+        return None;
+    }
+
+    let aggregated_sig = match aggregate_signatures(&sig_bytes_list) {
+        Ok(agg) => agg,
+        Err(e) => {
+            warn!("QCC-PIPELINE: BLS aggregation failed for height {}: {}", checkpoint.height, e);
+            return None;
+        }
+    };
+
+    let sorted_validators: Vec<String> = if let Some(ref identity) = validator_identity {
+        let identity_guard = identity.read().await;
+        let mut addrs: Vec<String> = identity_guard.active_validators()
+            .iter()
+            .filter(|(_, v)| !v.bls_public_key.is_empty())
+            .map(|(addr, _)| addr.clone())
+            .collect();
+        addrs.sort();
+        addrs
+    } else {
+        signer_addresses.clone()
+    };
+
+    let total_validators = sorted_validators.len();
+    let signer_indices: Vec<usize> = signer_addresses.iter()
+        .filter_map(|addr| sorted_validators.iter().position(|a| a == addr))
+        .collect();
+
+    let bitmap = create_signer_bitmap(&signer_indices, total_validators);
+
+    Some((collected_sigs, aggregated_sig, bitmap))
+}
+
+#[cfg(feature = "p2p")]
+async fn verify_vote_standalone(
+    validator_address: &str,
+    bls_public_key: &str,
+    signature: &str,
+    checkpoint_hash: &str,
+    validator_identity: &Option<Arc<RwLock<ValidatorIdentityService>>>,
+) -> Option<AcceptedVote> {
+    let checkpoint_hash_bytes = match hex::decode(checkpoint_hash) {
+        Ok(b) => b,
+        Err(_) => return None,
+    };
+    let bls_pub_bytes = match URL_SAFE_NO_PAD.decode(bls_public_key) {
+        Ok(b) => b,
+        Err(_) => {
+            warn!("QCC: Invalid BLS public key from {}", &validator_address[..16.min(validator_address.len())]);
+            return None;
+        }
+    };
+    let sig_bytes = match URL_SAFE_NO_PAD.decode(signature) {
+        Ok(b) => b,
+        Err(_) => return None,
+    };
+
+    if !bls_verify(&checkpoint_hash_bytes, &sig_bytes, &bls_pub_bytes) {
+        warn!("QCC: Invalid BLS signature from {} — rejecting", &validator_address[..16.min(validator_address.len())]);
+        return None;
+    }
+
+    let (canonical_stake, canonical_bls_key) = if let Some(ref identity) = validator_identity {
+        let identity_guard = identity.read().await;
+        identity_guard.active_validators()
+            .iter()
+            .find(|(addr, _)| *addr == validator_address)
+            .map(|(_, v)| (v.effective_stake, v.bls_public_key_base64()))
+            .unwrap_or((0, String::new()))
+    } else {
+        (0, String::new())
+    };
+
+    if !canonical_bls_key.is_empty() && canonical_bls_key != bls_public_key {
+        warn!(
+            "QCC: Vote from {} has BLS key mismatch — rejecting",
+            &validator_address[..16.min(validator_address.len())]
+        );
+        return None;
+    }
+    if canonical_stake == 0 {
+        warn!("QCC: Vote from {} has zero canonical stake — ignoring", &validator_address[..16.min(validator_address.len())]);
+        return None;
+    }
+
+    Some(AcceptedVote {
+        canonical_stake,
+        sig_bytes,
+    })
+}
 
 impl CheckpointService {
     pub fn new(
@@ -119,9 +531,21 @@ impl CheckpointService {
             leader_wait_ticks: 0,
             leader_wait_height: 0,
             last_delta_sync_catch_up: None,
+            consecutive_gap_one_ticks: 0,
+            consecutive_behind_yields: 0,
             consecutive_qcc_failures: 0,
             qcc_failure_height: 0,
             qcc_yielded_height: 0,
+            convergence_yield_start: None,
+            pending_qcc: None,
+            qcc_retry_data: None,
+            last_checkpoint_applied_at: None,
+            last_own_proposal_time_ms: 0,
+            tick_counter: 0,
+            total_checkpoints_produced: 0,
+            total_qcc_wait_ms: 0,
+            total_qcc_pickup_delay_ms: 0,
+            last_dashboard_at: std::time::Instant::now(),
         }
     }
     
@@ -218,12 +642,53 @@ impl CheckpointService {
     pub async fn start(mut self) -> Result<()> {
         self.sign_genesis_checkpoint().await;
         
-        let mut ticker = tokio::time::interval(tokio::time::Duration::from_millis(self.interval_ms));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        ticker.tick().await;
+        let tick_duration = tokio::time::Duration::from_millis(self.interval_ms);
+        let qcc_poll_duration = tokio::time::Duration::from_millis(50);
+        let mut next_full_tick = tokio::time::Instant::now() + tick_duration;
 
         loop {
-            ticker.tick().await;
+            let qcc_already_finished = self.pending_qcc
+                .as_ref()
+                .map(|p| p.qcc_handle.is_finished())
+                .unwrap_or(false);
+
+            if qcc_already_finished {
+                let qcc_pickup_start = std::time::Instant::now();
+                if let Err(e) = self.check_pending_qcc().await {
+                    tracing::warn!("QCC early-pickup failed: {}", e);
+                }
+                let pickup_ms = qcc_pickup_start.elapsed().as_millis();
+                info!(
+                    "RCC-QCC-WAKEUP: QCC picked up in {}ms (next full tick in {}ms)",
+                    pickup_ms,
+                    next_full_tick.saturating_duration_since(tokio::time::Instant::now()).as_millis()
+                );
+            }
+
+            let qcc_pending_unfinished = self.pending_qcc
+                .as_ref()
+                .map(|p| !p.qcc_handle.is_finished())
+                .unwrap_or(false);
+
+            if qcc_pending_unfinished {
+                let wait = std::cmp::min(
+                    qcc_poll_duration,
+                    next_full_tick.saturating_duration_since(tokio::time::Instant::now()),
+                );
+                tokio::time::sleep(wait).await;
+            } else {
+                tokio::time::sleep_until(next_full_tick).await;
+            }
+
+            let now = tokio::time::Instant::now();
+            let is_full_tick = now >= next_full_tick;
+            if !is_full_tick {
+                continue;
+            }
+            next_full_tick = now + tick_duration;
+
+            self.tick_counter += 1;
+            let tick_start = std::time::Instant::now();
 
             if let Some(ref validator_identity) = self.validator_identity {
                 let result = validator_identity.write().await.process_epoch_transition();
@@ -236,8 +701,76 @@ impl CheckpointService {
                 }
             }
 
+            let had_pending_qcc = self.pending_qcc.is_some();
+            let pending_height = self.pending_qcc.as_ref().map(|p| p.height).unwrap_or(0);
+            let pending_qcc_finished = self.pending_qcc.as_ref().map(|p| p.qcc_handle.is_finished()).unwrap_or(false);
+            let pending_qcc_wait = self.pending_qcc.as_ref().map(|p| p.qcc_spawned_at.elapsed().as_millis()).unwrap_or(0);
+
             if let Err(e) = self.create_state_snapshot().await {
                 tracing::warn!("State snapshot failed: {}", e);
+            }
+
+            let tick_elapsed = tick_start.elapsed().as_millis();
+            let new_pending = self.pending_qcc.is_some();
+            let current_height = self.state.get_checkpoint_height();
+
+            if tick_elapsed > 50 || had_pending_qcc {
+                let convergence_pool_size = {
+                    let state = self.state.inner.read().await;
+                    state.convergence_executed_txs.len()
+                };
+                info!(
+                    "RCC-TICK #{}: {}ms | height={} | pending_qcc: before={} after={} | qcc_h={} qcc_finished={} qcc_age={}ms | convergence_pool={} | produced={}",
+                    self.tick_counter, tick_elapsed, current_height,
+                    had_pending_qcc, new_pending, pending_height,
+                    pending_qcc_finished, pending_qcc_wait,
+                    convergence_pool_size, self.total_checkpoints_produced
+                );
+            }
+
+            const DASHBOARD_INTERVAL_SECS: u64 = 15;
+            if self.last_dashboard_at.elapsed().as_secs() >= DASHBOARD_INTERVAL_SECS {
+                let (_tps, tps_short, tps_long) = self.state.get_dynamic_tps().await;
+                let (convergence_pool_size, overlay_size, accounts_count) = {
+                    let state = self.state.inner.read().await;
+                    (state.convergence_executed_txs.len(), state.convergence_overlay.len(), state.accounts.len())
+                };
+                let gossip_stats = if let Some(ref gossip) = self.gossip_service {
+                    let stats = gossip.get_convergence_stats().await;
+                    format!(
+                        "pending={} confirmed={}",
+                        stats.pending_count, stats.confirmed_count
+                    )
+                } else {
+                    "no-gossip".to_string()
+                };
+                let avg_qcc_ms = if self.total_checkpoints_produced > 0 {
+                    self.total_qcc_wait_ms / self.total_checkpoints_produced as u128
+                } else {
+                    0
+                };
+                let avg_pickup_delay = if self.total_checkpoints_produced > 0 {
+                    self.total_qcc_pickup_delay_ms / self.total_checkpoints_produced as u128
+                } else {
+                    0
+                };
+                let cadence = self.last_checkpoint_applied_at
+                    .map(|t| format!("{}ms ago", t.elapsed().as_millis()))
+                    .unwrap_or_else(|| "never".to_string());
+                let peer_health_summary = if let Some(ref gossip) = self.gossip_service {
+                    gossip.get_peer_health_summary().await
+                } else {
+                    "no-gossip".to_string()
+                };
+                info!(
+                    "RCC-DASHBOARD: height={} tps_15s={:.1} tps_60s={:.1} | checkpoints_produced={} avg_qcc={}ms avg_pickup_delay={}ms qcc_failures={} | convergence_pool={} overlay={} accounts={} {} | {} | last_checkpoint={} | tick_interval={}ms yielded_h={}",
+                    current_height, tps_short, tps_long,
+                    self.total_checkpoints_produced, avg_qcc_ms, avg_pickup_delay,
+                    self.consecutive_qcc_failures,
+                    convergence_pool_size, overlay_size, accounts_count, gossip_stats, peer_health_summary, cadence,
+                    self.interval_ms, self.qcc_yielded_height
+                );
+                self.last_dashboard_at = std::time::Instant::now();
             }
             
             let prune_count = self.pruning_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -251,8 +784,7 @@ impl CheckpointService {
                     let finalized_hashes: std::collections::HashSet<String> = {
                         let state_guard = self.state.inner.read().await;
                         state_guard.dag
-                            .get_all_nodes()
-                            .iter()
+                            .nodes()
                             .filter(|n| n.finalized)
                             .map(|n| n.hash.clone())
                             .collect()
@@ -282,15 +814,21 @@ impl CheckpointService {
             {
                 let current_height = self.state.get_checkpoint_height();
                 if current_height > IN_MEMORY_RETENTION {
-                    let mut state_guard = self.state.inner.write().await;
-                    let pruned = state_guard.dag.prune_finalized_before(current_height - IN_MEMORY_RETENTION);
-                    let remaining = state_guard.dag.node_count();
-                    drop(state_guard);
-                    if pruned > 0 {
-                        info!(
-                            "DAG in-memory prune: {} finalized nodes removed, {} remaining",
-                            pruned, remaining
-                        );
+                    let has_pruneable = {
+                        let state_guard = self.state.inner.read().await;
+                        state_guard.dag.has_finalized_before(current_height - IN_MEMORY_RETENTION)
+                    };
+                    if has_pruneable {
+                        let mut state_guard = self.state.inner.write().await;
+                        let pruned = state_guard.dag.prune_finalized_before(current_height - IN_MEMORY_RETENTION);
+                        let remaining = state_guard.dag.node_count();
+                        drop(state_guard);
+                        if pruned > 0 {
+                            info!(
+                                "DAG in-memory prune: {} finalized nodes removed, {} remaining",
+                                pruned, remaining
+                            );
+                        }
                     }
                 }
             }
@@ -386,8 +924,12 @@ impl CheckpointService {
         self.fetch_and_apply_peer_checkpoint_with_timeout(_height, 3000).await
     }
 
+    async fn fetch_and_apply_peer_checkpoint_medium(&self, _height: u64) -> bool {
+        self.fetch_and_apply_peer_checkpoint_with_timeout(_height, 2200).await
+    }
+
     async fn fetch_and_apply_peer_checkpoint_fast(&self, _height: u64) -> bool {
-        self.fetch_and_apply_peer_checkpoint_with_timeout(_height, 500).await
+        self.fetch_and_apply_peer_checkpoint_with_timeout(_height, 1500).await
     }
 
     #[cfg(feature = "p2p")]
@@ -476,11 +1018,11 @@ impl CheckpointService {
                                 match tokio::time::timeout(td, nh.vote_request(&pid, req)).await {
                                     Ok(Ok(response)) => (pid, Some(response)),
                                     Ok(Err(e)) => {
-                                        debug!("QCC-RR: Vote request to {} failed: {}", &pid[..16.min(pid.len())], e);
+                                        warn!("QCC-RR: Vote request to {} failed: {}", &pid[..16.min(pid.len())], e);
                                         (pid, None)
                                     }
                                     Err(_) => {
-                                        debug!("QCC-RR: Vote request to {} timed out", &pid[..16.min(pid.len())]);
+                                        warn!("QCC-RR: Vote request to {} timed out", &pid[..16.min(pid.len())]);
                                         (pid, None)
                                     }
                                 }
@@ -509,10 +1051,13 @@ impl CheckpointService {
 
             loop {
                 if collected_stake >= quorum_threshold {
+                    let voter_list: Vec<String> = signer_addresses.iter().map(|a| {
+                        format!("{}({})", &a[..12.min(a.len())], collected_sigs.iter().find(|s| &s.validator == a).map(|s| s.weight).unwrap_or(0))
+                    }).collect();
                     info!(
-                        "QCC-PARALLEL: Quorum reached for height {} ({}/{} stake, {} sigs, gossip={}, rr={})",
+                        "QCC-PARALLEL: Quorum reached for height {} ({}/{} stake, {} sigs, gossip={}, rr={}) voters=[{}]",
                         checkpoint.height, collected_stake, total_stake, collected_sigs.len(),
-                        gossip_votes, rr_votes
+                        gossip_votes, rr_votes, voter_list.join(", ")
                     );
                     break;
                 }
@@ -602,7 +1147,7 @@ impl CheckpointService {
                                     }
                                     VoteResponse::CheckpointVote(None) => {}
                                     VoteResponse::Error { message } => {
-                                        debug!("QCC-RR: Vote error from {}: {}", &peer_id[..16.min(peer_id.len())], message);
+                                        warn!("QCC-RR: Vote error from {}: {}", &peer_id[..16.min(peer_id.len())], message);
                                     }
                                 }
                             }
@@ -639,9 +1184,13 @@ impl CheckpointService {
         }
 
         if collected_stake < quorum_threshold {
+            let voter_list: Vec<String> = signer_addresses.iter().map(|a| {
+                format!("{}({})", &a[..12.min(a.len())], collected_sigs.iter().find(|s| &s.validator == a).map(|s| s.weight).unwrap_or(0))
+            }).collect();
             warn!(
-                "QCC: Failed to reach quorum for height {} ({}/{} stake, need {}, got {} votes)",
-                checkpoint.height, collected_stake, total_stake, quorum_threshold, collected_sigs.len()
+                "QCC: Failed to reach quorum for height {} ({}/{} stake, need {}, got {} votes) voters=[{}]",
+                checkpoint.height, collected_stake, total_stake, quorum_threshold, collected_sigs.len(),
+                voter_list.join(", ")
             );
             return None;
         }
@@ -675,6 +1224,495 @@ impl CheckpointService {
         let bitmap = create_signer_bitmap(&signer_indices, total_validators);
 
         Some((collected_sigs, aggregated_sig, bitmap))
+    }
+
+    async fn check_pending_qcc(&mut self) -> Result<bool> {
+        let pending = match self.pending_qcc.take() {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+
+        if pending.qcc_handle.is_finished() {
+            let qcc_actual_ms = pending.qcc_spawned_at.elapsed().as_millis();
+            let qcc_result = match pending.qcc_handle.await {
+                Ok(result) => result,
+                Err(e) => {
+                    warn!("QCC task panicked for height {}: {}", pending.height, e);
+                    None
+                }
+            };
+            let t_qcc_ms = pending.t_overall.elapsed().as_millis().saturating_sub(
+                pending.t_gather_ms + pending.t_proof_ms + pending.t_weight_ms
+            );
+            let pickup_delay_ms = t_qcc_ms.saturating_sub(qcc_actual_ms);
+
+            match qcc_result {
+                Some((sigs, agg_sig, bitmap)) => {
+                    self.consecutive_qcc_failures = 0;
+                    self.qcc_retry_data = None;
+                    self.qcc_yielded_height = 0;
+                    self.convergence_yield_start = None;
+                    let checkpoint = Checkpoint {
+                        validator_signatures: sigs,
+                        aggregated_signature: Some(URL_SAFE_NO_PAD.encode(&agg_sig)),
+                        signer_bitmap: Some(bitmap),
+                        ..pending.checkpoint
+                    };
+                    info!(
+                        "QCC-PIPELINE: Checkpoint {} certified with {} validator signatures (qcc={}ms, actual={}ms, pickup_delay={}ms)",
+                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                        checkpoint.validator_signatures.len(),
+                        t_qcc_ms, qcc_actual_ms, pickup_delay_ms
+                    );
+                    self.apply_certified_checkpoint(
+                        checkpoint,
+                        pending.hashes,
+                        pending.txs_to_execute,
+                        pending.reward_distributions,
+                        pending.checkpoint_reward,
+                        pending.finalized_proofs,
+                        pending.convergence_executed,
+                        pending.height,
+                        pending.now_ms,
+                        pending.is_partitioned,
+                        pending.partition_info,
+                        pending.finality_sum,
+                        pending.finality_count,
+                        pending.finality_max,
+                        pending.finality_times,
+                        pending.t_overall,
+                        pending.t_gather_ms,
+                        pending.t_proof_ms,
+                        pending.t_weight_ms,
+                        t_qcc_ms,
+                        qcc_actual_ms,
+                    ).await?;
+                    return Ok(true);
+                }
+                None => {
+                    let new_height = self.state.get_checkpoint_height();
+                    if new_height >= pending.height {
+                        info!(
+                            "QCC-PIPELINE: Vote collection aborted — height {} already committed",
+                            pending.height
+                        );
+                    } else {
+                        self.consecutive_qcc_failures += 1;
+                        warn!(
+                            "QCC-PIPELINE: No quorum for checkpoint at height {} — rolling back emission (failure {}/{})",
+                            pending.height, self.consecutive_qcc_failures, QCC_SELF_YIELD_THRESHOLD
+                        );
+                        if self.consecutive_qcc_failures < QCC_SELF_YIELD_THRESHOLD {
+                            warn!(
+                                "QCC-RETRY: Caching checkpoint {} at height {} for idempotent retry (hash={})",
+                                pending.height,
+                                self.consecutive_qcc_failures,
+                                &pending.checkpoint.hash[..16.min(pending.checkpoint.hash.len())]
+                            );
+                            self.qcc_retry_data = Some(QccRetryData {
+                                checkpoint: pending.checkpoint.clone(),
+                                hashes: pending.hashes.clone(),
+                                txs_to_execute: pending.txs_to_execute.clone(),
+                                reward_distributions: pending.reward_distributions.clone(),
+                                checkpoint_reward: pending.checkpoint_reward,
+                                finalized_proofs: pending.finalized_proofs.clone(),
+                                convergence_executed: pending.convergence_executed.clone(),
+                                height: pending.height,
+                                is_partitioned: pending.is_partitioned,
+                                partition_info: pending.partition_info.clone(),
+                            });
+                        } else {
+                            self.qcc_retry_data = None;
+                        }
+                        #[cfg(feature = "p2p")]
+                        if let Some(ref gossip) = self.gossip_service {
+                            gossip.clear_vote_lock_for_height(pending.height).await;
+                            warn!(
+                                "QCC-PIPELINE: Cleared vote lock at height {} after QCC failure — allowing new proposals",
+                                pending.height
+                            );
+                        }
+                        {
+                            let mut emission = self.state.emission.write().await;
+                            emission.rollback_to_height(pending.height.saturating_sub(1));
+                        }
+                        if !pending.reward_distributions.is_empty() {
+                            let mut rewards = self.state.rewards.write().await;
+                            for (addr, amount) in &pending.reward_distributions {
+                                rewards.reverse_reward(addr, *amount);
+                            }
+                            info!(
+                                "QCC-PIPELINE: Reversed {} reward distributions for aborted height {}",
+                                pending.reward_distributions.len(), pending.height
+                            );
+                        }
+                        if self.consecutive_qcc_failures >= QCC_SELF_YIELD_THRESHOLD {
+                            warn!(
+                                "QCC-PIPELINE SELF-YIELD: {} consecutive failures at height {} — broadcasting timeout",
+                                self.consecutive_qcc_failures, pending.height
+                            );
+                            self.qcc_yielded_height = pending.height;
+                            if let Some(ref gossip) = self.gossip_service {
+                                let our_stake = {
+                                    let state = self.state.inner.read().await;
+                                    state.validators.get(&self.validator_address)
+                                        .map(|v| v.stake)
+                                        .unwrap_or(0)
+                                };
+                                gossip.broadcast_leader_timeout(pending.height, &self.validator_address, our_stake).await;
+                            }
+                        }
+                    }
+                    return Ok(true);
+                }
+            }
+        } else {
+            let elapsed = pending.t_overall.elapsed().as_millis();
+            if elapsed > 8000 {
+                warn!(
+                    "QCC-PIPELINE: Pending QCC for height {} has been running for {}ms — aborting",
+                    pending.height, elapsed
+                );
+                pending.qcc_handle.abort();
+                self.consecutive_qcc_failures += 1;
+                warn!(
+                    "QCC-PIPELINE TIMEOUT: Aborting QCC for height {} after {}ms (failure {}/{})",
+                    pending.height, elapsed, self.consecutive_qcc_failures, QCC_SELF_YIELD_THRESHOLD
+                );
+                if self.consecutive_qcc_failures < QCC_SELF_YIELD_THRESHOLD {
+                    warn!(
+                        "QCC-RETRY: Caching checkpoint (timeout) at height {} for idempotent retry (hash={})",
+                        pending.height,
+                        &pending.checkpoint.hash[..16.min(pending.checkpoint.hash.len())]
+                    );
+                    self.qcc_retry_data = Some(QccRetryData {
+                        checkpoint: pending.checkpoint.clone(),
+                        hashes: pending.hashes.clone(),
+                        txs_to_execute: pending.txs_to_execute.clone(),
+                        reward_distributions: pending.reward_distributions.clone(),
+                        checkpoint_reward: pending.checkpoint_reward,
+                        finalized_proofs: pending.finalized_proofs.clone(),
+                        convergence_executed: pending.convergence_executed.clone(),
+                        height: pending.height,
+                        is_partitioned: pending.is_partitioned,
+                        partition_info: pending.partition_info.clone(),
+                    });
+                } else {
+                    self.qcc_retry_data = None;
+                }
+                #[cfg(feature = "p2p")]
+                if let Some(ref gossip) = self.gossip_service {
+                    gossip.clear_vote_lock_for_height(pending.height).await;
+                    warn!(
+                        "QCC-PIPELINE: Cleared vote lock at height {} after QCC timeout — allowing new proposals",
+                        pending.height
+                    );
+                }
+                {
+                    let mut emission = self.state.emission.write().await;
+                    emission.rollback_to_height(pending.height.saturating_sub(1));
+                }
+                if !pending.reward_distributions.is_empty() {
+                    let mut rewards = self.state.rewards.write().await;
+                    for (addr, amount) in &pending.reward_distributions {
+                        rewards.reverse_reward(addr, *amount);
+                    }
+                }
+                if self.consecutive_qcc_failures >= QCC_SELF_YIELD_THRESHOLD {
+                    warn!(
+                        "QCC-PIPELINE SELF-YIELD (timeout): {} consecutive failures at height {} — broadcasting timeout",
+                        self.consecutive_qcc_failures, pending.height
+                    );
+                    self.qcc_yielded_height = pending.height;
+                    if let Some(ref gossip) = self.gossip_service {
+                        let our_stake = {
+                            let state = self.state.inner.read().await;
+                            state.validators.get(&self.validator_address)
+                                .map(|v| v.stake)
+                                .unwrap_or(0)
+                        };
+                        gossip.broadcast_leader_timeout(pending.height, &self.validator_address, our_stake).await;
+                    }
+                }
+                return Ok(true);
+            }
+            self.pending_qcc = Some(pending);
+            return Ok(false);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn apply_certified_checkpoint(
+        &mut self,
+        checkpoint: Checkpoint,
+        hashes: Vec<String>,
+        txs_to_execute: Vec<SignedTransaction>,
+        reward_distributions: Vec<(String, u64)>,
+        checkpoint_reward: u64,
+        finalized_proofs: std::collections::HashMap<String, rinku_core::types::AccountStateProof>,
+        _convergence_executed: std::collections::HashSet<String>,
+        height: u64,
+        now_ms: u64,
+        is_partitioned: bool,
+        partition_info: crate::state::partition::PartitionState,
+        finality_sum: u64,
+        finality_count: u64,
+        finality_max: u64,
+        finality_times: Vec<u64>,
+        t_overall: std::time::Instant,
+        t_gather_ms: u128,
+        t_proof_ms: u128,
+        t_weight_ms: u128,
+        t_qcc_ms: u128,
+        qcc_actual_ms: u128,
+    ) -> Result<()> {
+        let lock_start = std::time::Instant::now();
+        let mut state = self.state.inner.write().await;
+        let lock_wait_ms = lock_start.elapsed().as_millis();
+        if lock_wait_ms > 5 {
+            info!("RCC-LOCK: write lock acquired in {}ms for checkpoint h={}", lock_wait_ms, height);
+        }
+        let current_tip = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
+        if current_tip + 1 != height {
+            drop(state);
+            info!(
+                "QCC-PIPELINE ABORT: Local tip advanced to {} while QCC ran for checkpoint {} — another node produced it first",
+                current_tip, height
+            );
+            return Ok(());
+        }
+        let pre_snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
+            .accounts
+            .iter()
+            .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
+            .collect();
+        state.pre_checkpoint_accounts_snapshot = Some((height, pre_snapshot));
+        state.checkpoints.push(checkpoint.clone());
+        state.last_checkpoint_time_ms = now_ms;
+        self.last_own_proposal_time_ms = now_ms;
+        self.state.checkpoint_height_cache.store(checkpoint.height, std::sync::atomic::Ordering::Relaxed);
+        state.finality_sum_ms += finality_sum;
+        state.finality_count += finality_count;
+        if finality_max > state.finality_max_ms {
+            state.finality_max_ms = finality_max;
+        }
+        for finality_time in &finality_times {
+            if state.finality_times_ms.len() >= 1000 {
+                state.finality_times_ms.pop_front();
+            }
+            state.finality_times_ms.push_back(*finality_time);
+        }
+
+        let _finalized = state.dag.mark_finalized_batch(&hashes, height);
+
+        let convergence_already_executed: std::collections::HashSet<String> = hashes.iter()
+            .filter(|h| state.convergence_executed_txs.contains_key(h.as_str()))
+            .cloned()
+            .collect();
+
+        let mut all_txs = txs_to_execute.clone();
+        all_txs.sort_by(|a, b| {
+            a.tx.from.cmp(&b.tx.from)
+                .then(a.tx.nonce.cmp(&b.tx.nonce))
+                .then(a.hash.cmp(&b.hash))
+        });
+
+        let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
+            let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = std::collections::HashMap::new();
+            for tx in &all_txs {
+                if !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                    map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
+                }
+            }
+            map
+        };
+
+        let batch_result = crate::state::NodeState::execute_batch_inline(&mut state, &all_txs, &available_nonces);
+
+        {
+            let pre_snap: std::collections::HashMap<String, (u64, u64, u64)> = state.pre_checkpoint_accounts_snapshot
+                .as_ref()
+                .map(|(_, s)| s.clone())
+                .unwrap_or_default();
+            let changed_accounts = state.compute_changed_accounts(&pre_snap);
+            let (cleared, replayed) = state.selective_convergence_overlay_update(
+                &convergence_already_executed,
+                &changed_accounts,
+                height,
+                false,
+            );
+            if cleared > 0 || replayed > 0 {
+                tracing::info!(
+                    "Proposer checkpoint h={}: selective convergence update — cleared {} overlay entries, replayed {} (changed_accounts={}, finalized_conv={})",
+                    height, cleared, replayed, changed_accounts.len(), convergence_already_executed.len()
+                );
+            }
+        }
+
+        let cleanup_hashes: Vec<String> = hashes.iter()
+            .filter(|h| batch_result.executed_hashes.contains(h.as_str()) || convergence_already_executed.contains(h.as_str()))
+            .cloned()
+            .collect();
+        if !cleanup_hashes.is_empty() {
+            state.dag.cleanup_sender_unfinalized_batch(&cleanup_hashes);
+        }
+
+        {
+            let snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
+                .accounts
+                .iter()
+                .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
+                .collect();
+            state.checkpoint_accounts_snapshot = Some((height, snapshot));
+        }
+
+        if is_partitioned {
+            for hash in &hashes {
+                if let Some(node) = state.dag.get_node_mut(hash) {
+                    node.partition_epoch = partition_info.current_epoch;
+                }
+            }
+        }
+
+        let snapshot_finalized_count = hashes.len() as u64;
+        drop(state);
+
+        if snapshot_finalized_count > 0 {
+            self.state.record_finalized_batch(snapshot_finalized_count).await;
+        }
+
+        self.total_checkpoints_produced += 1;
+        self.total_qcc_wait_ms += qcc_actual_ms;
+        self.total_qcc_pickup_delay_ms += t_qcc_ms.saturating_sub(qcc_actual_ms);
+        let cadence_ms = self.last_checkpoint_applied_at
+            .map(|t| t.elapsed().as_millis())
+            .unwrap_or(0);
+        self.last_checkpoint_applied_at = Some(std::time::Instant::now());
+
+        let total_ms = t_overall.elapsed().as_millis();
+        info!(
+            "Created checkpoint {} h={} ({} txs, {:.6} RKU, {}ms total) | gather={}ms proof={}ms weight={}ms qcc={}ms finalize={}ms lock={}ms cadence={}ms [PIPELINED]",
+            &checkpoint.hash[..16],
+            height,
+            hashes.len(),
+            rinku_core::types::from_micro_units(checkpoint_reward),
+            total_ms,
+            t_gather_ms,
+            t_proof_ms,
+            t_weight_ms,
+            t_qcc_ms,
+            total_ms.saturating_sub(t_gather_ms + t_proof_ms + t_weight_ms + t_qcc_ms),
+            lock_wait_ms,
+            cadence_ms
+        );
+
+        #[cfg(feature = "p2p")]
+        if let Some(ref nh) = self.network_handle {
+            nh.update_checkpoint_height(height);
+        }
+
+        if let Some(ref eb) = self.event_bus {
+            let vr: Vec<(String, f64)> = reward_distributions.iter()
+                .map(|(addr, amt)| (addr.clone(), rinku_core::types::from_micro_units(*amt)))
+                .collect();
+            eb.publish(crate::events::NodeEvent::CheckpointCreated {
+                hash: checkpoint.hash.clone(),
+                height,
+                txs_finalized: hashes.len(),
+                reward: rinku_core::types::from_micro_units(checkpoint_reward),
+                validator_rewards: vr,
+            });
+        }
+
+        let proof_tx_hash = hashes.first()
+            .cloned()
+            .unwrap_or_else(|| checkpoint.hash.clone());
+
+        let mut final_proofs = finalized_proofs;
+        for proof in final_proofs.values_mut() {
+            proof.checkpoint_hash = checkpoint.hash.clone();
+            proof.checkpoint_timestamp = checkpoint.timestamp;
+            proof.bls_aggregated_sig = checkpoint.aggregated_signature.clone();
+            proof.bls_signer_bitmap = checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b));
+            proof.tx_hash = proof_tx_hash.clone();
+        }
+
+        self.state.store_batch_deferred(batch_result.new_deferred, std::collections::HashMap::new()).await;
+
+        self.state.process_batch_special_txs_with_skip(&batch_result.special_txs, &convergence_already_executed).await;
+
+        {
+            let state = self.state.inner.read().await;
+            let mut rewards = self.state.rewards.write().await;
+            for (addr, account) in &state.accounts {
+                if account.staked > 0 {
+                    rewards.sync_stake_amount(addr, account.staked);
+                }
+            }
+        }
+
+        self.state.process_batch_reward_infos(&all_txs, &batch_result.executed_hashes).await;
+
+        tracing::info!(
+            "Proposer checkpoint h={} batch executed {}/{} txs ({} convergence-pre-executed, {} gap-skipped senders)",
+            height,
+            batch_result.executed_count, all_txs.len(),
+            convergence_already_executed.len(), batch_result.gap_skipped_senders.len()
+        );
+
+        self.state.store_precomputed_proofs(&final_proofs).await;
+
+        if let Some(ref consensus) = self.consensus_service {
+            let participating_validators: Vec<String> = checkpoint.validator_signatures
+                .iter()
+                .map(|sig| sig.validator.clone())
+                .collect();
+            let mut consensus_guard = consensus.write().await;
+            consensus_guard.track_liveness(height, &participating_validators).await;
+        }
+
+        if let Some(ref gossip) = self.gossip_service {
+            let proofs_vec: Vec<rinku_core::types::AccountStateProof> =
+                final_proofs.values().cloned().collect();
+            gossip.broadcast_checkpoint(
+                checkpoint.clone(),
+                hashes.clone(),
+                txs_to_execute.clone(),
+                proofs_vec.clone(),
+            ).await;
+
+            #[cfg(feature = "p2p")]
+            if let Some(ref network) = self.network_handle {
+                let push_data = CheckpointPushData {
+                    checkpoint,
+                    finalized_tx_hashes: hashes.clone(),
+                    finalized_transactions: txs_to_execute,
+                    precomputed_proofs: proofs_vec,
+                };
+                let peer_ids = network.get_connected_peer_ids().await;
+                let peer_count = peer_ids.len();
+                let net = network.clone();
+                tokio::spawn(async move {
+                    let mut sent = 0usize;
+                    for peer_id in &peer_ids {
+                        let request = SyncRequest::CheckpointPush(push_data.clone());
+                        match net.send_sync_request(peer_id, request).await {
+                            Ok(_rx) => { sent += 1; }
+                            Err(e) => {
+                                debug!("Failed to push snapshot to {}: {}", &peer_id[..12.min(peer_id.len())], e);
+                            }
+                        }
+                    }
+                    if sent > 0 {
+                        info!("Pushed state snapshot to {}/{} peers via sync channel", sent, peer_count);
+                    }
+                });
+            }
+
+            gossip.cleanup_finalized_full(&hashes, height).await;
+        }
+
+        Ok(())
     }
 
     async fn verify_and_accept_vote(
@@ -759,22 +1797,38 @@ impl CheckpointService {
                         nh.request_delta(&peer_id, from_cp),
                     ).await;
                     match result {
-                        Ok(r) => Some((peer_id, r)),
+                        Ok(r) => (peer_id, Some(r), false),
                         Err(_) => {
                             warn!("Delta sync request to peer {} timed out after {}ms", &peer_id[..16.min(peer_id.len())], t_ms);
-                            None
+                            (peer_id, None, true)
                         }
                     }
                 }
             }).collect();
 
-            while let Some(item) = futs.next().await {
-                let (peer_id, result) = match item {
-                    Some(pair) => pair,
+            let fetch_start = std::time::Instant::now();
+            let mut peers_tried = 0u32;
+            let mut peers_timeout = 0u32;
+            let mut peers_error = 0u32;
+
+            while let Some((peer_id, maybe_result, timed_out)) = futs.next().await {
+                peers_tried += 1;
+                if timed_out {
+                    peers_timeout += 1;
+                    if let Some(ref gossip) = self.gossip_service {
+                        gossip.record_peer_sync_failure(&peer_id[..16.min(peer_id.len())]).await;
+                    }
+                    continue;
+                }
+                let result = match maybe_result {
+                    Some(r) => r,
                     None => continue,
                 };
                 match result {
                     Ok(SyncResponse::Delta(delta)) => {
+                        if let Some(ref gossip) = self.gossip_service {
+                            gossip.record_peer_sync_success(&peer_id[..16.min(peer_id.len())]).await;
+                        }
                         if !delta.transactions.is_empty() {
                             let mut ingested = 0u64;
                             for tx_data in &delta.transactions {
@@ -810,6 +1864,29 @@ impl CheckpointService {
                                 );
                             }
                         }
+
+                        let delta_tx_map: std::collections::HashMap<String, SignedTransaction> = delta.transactions.iter().map(|td| {
+                            let stx = SignedTransaction {
+                                tx: rinku_core::types::Transaction {
+                                    from: td.from.clone(),
+                                    to: td.to.clone(),
+                                    amount: td.amount,
+                                    nonce: td.nonce,
+                                    timestamp: td.timestamp,
+                                    parents: td.parents.clone(),
+                                    kind: None,
+                                    gas_limit: None,
+                                    gas_price: Some(td.gas_price),
+                                    data: None,
+                                    signature: Some(td.signature.clone()),
+                                    memo: td.memo.clone(),
+                                    references: td.references.clone(),
+                                },
+                                hash: td.hash.clone(),
+                                signature: td.signature.clone(),
+                            };
+                            (td.hash.clone(), stx)
+                        }).collect();
 
                         let mut sorted_cps: Vec<&CheckpointData> = delta.new_checkpoints.iter().collect();
                         sorted_cps.sort_by_key(|c| c.height);
@@ -855,7 +1932,7 @@ impl CheckpointService {
                             }
 
                             let finalized_tx_hashes = checkpoint.finalized_tx_hashes.clone();
-                            match self.state.apply_checkpoint_with_finalized_hashes(
+                            match self.state.apply_checkpoint_catching_up(
                                 checkpoint.clone(),
                                 finalized_tx_hashes,
                             ).await {
@@ -871,6 +1948,22 @@ impl CheckpointService {
                                     applied_count += 1;
                                     if let Some(ref gossip) = self.gossip_service {
                                         gossip.remove_finalized_from_convergence(&checkpoint.finalized_tx_hashes).await;
+                                        let cp_txs: Vec<SignedTransaction> = checkpoint.finalized_tx_hashes.iter()
+                                            .filter_map(|h| delta_tx_map.get(h).cloned())
+                                            .collect();
+                                        let cp_proofs: Vec<rinku_core::types::AccountStateProof> = delta.precomputed_proofs.iter()
+                                            .filter(|p| p.checkpoint_height == checkpoint.height)
+                                            .cloned()
+                                            .collect();
+                                        gossip.cache_checkpoint_data(
+                                            checkpoint.height,
+                                            crate::gossip::CachedCheckpointData {
+                                                checkpoint: checkpoint.clone(),
+                                                finalized_tx_hashes: checkpoint.finalized_tx_hashes.clone(),
+                                                finalized_transactions: cp_txs,
+                                                precomputed_proofs: cp_proofs,
+                                            },
+                                        ).await;
                                     }
                                     info!(
                                         "Applied recovered checkpoint {} at height {} from delta sync",
@@ -913,17 +2006,29 @@ impl CheckpointService {
                             if let Some(ref gossip) = self.gossip_service {
                                 gossip.drain_checkpoint_buffer().await;
                             }
+                            let fetch_ms = fetch_start.elapsed().as_millis();
+                            info!(
+                                "DELTA-FETCH: success in {}ms from peer {} | peers: tried={} timeout={} error={} | applied {} checkpoints to h={}",
+                                fetch_ms, &peer_id[..16.min(peer_id.len())], peers_tried, peers_timeout, peers_error, applied_count, new_height
+                            );
                             return true;
                         }
                     }
                     Ok(_) => {
+                        peers_error += 1;
                         warn!("P2P peer {} returned unexpected response for delta", &peer_id[..16.min(peer_id.len())]);
                     }
                     Err(e) => {
+                        peers_error += 1;
                         warn!("Failed to request delta from p2p peer {}: {}", &peer_id[..16.min(peer_id.len())], e);
                     }
                 }
             }
+            let fetch_ms = fetch_start.elapsed().as_millis();
+            info!(
+                "DELTA-FETCH: completed in {}ms | peers: tried={} timeout={} error={} | no checkpoint applied",
+                fetch_ms, peers_tried, peers_timeout, peers_error
+            );
         }
         false
     }
@@ -1512,23 +2617,33 @@ impl CheckpointService {
     }
 
     async fn create_state_snapshot(&mut self) -> Result<()> {
-        let (height, previous_hash, local_checkpoint_height, last_cp_time) = {
+        if self.pending_qcc.is_some() {
+            let resolved = self.check_pending_qcc().await?;
+            if !resolved {
+                if let Some(ref gossip) = self.gossip_service {
+                    gossip.drain_checkpoint_buffer().await;
+                }
+                return Ok(());
+            }
+        }
+
+        let (height, previous_hash, mut local_checkpoint_height) = {
             let state = self.state.inner.read().await;
             let current_height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
             let height = current_height + 1;
             let previous_hash = state.checkpoints.last().map(|c| c.hash.clone());
-            (height, previous_hash, current_height, state.last_checkpoint_time_ms)
+            (height, previous_hash, current_height)
         };
 
-        if last_cp_time > 0 {
+        if self.last_own_proposal_time_ms > 0 {
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64;
-            let elapsed = now_ms.saturating_sub(last_cp_time);
+            let elapsed = now_ms.saturating_sub(self.last_own_proposal_time_ms);
             if elapsed < MIN_INTER_CHECKPOINT_MS {
                 debug!(
-                    "Inter-checkpoint cooldown: {}ms since last checkpoint (min {}ms) — skipping height {}",
+                    "Inter-checkpoint cooldown: {}ms since last own proposal (min {}ms) — skipping height {}",
                     elapsed, MIN_INTER_CHECKPOINT_MS, height
                 );
                 return Ok(());
@@ -1537,28 +2652,63 @@ impl CheckpointService {
 
         #[cfg(feature = "p2p")]
         {
-            if let Some(network_median) = self.get_network_consensus_height().await {
-                let behind = network_median.saturating_sub(local_checkpoint_height);
-                if behind >= 1 {
+            if let Some(ref gossip) = self.gossip_service {
+                gossip.drain_checkpoint_buffer().await;
+                let buffered_height = self.state.get_checkpoint_height();
+                if buffered_height > local_checkpoint_height {
+                    self.last_delta_sync_catch_up = Some(std::time::Instant::now());
                     info!(
-                        "BEHIND PEERS: local height {} vs network best {} (gap={}) — attempting sync before proposing",
-                        local_checkpoint_height, network_median, behind
+                        "Proactive buffer drain advanced height {} -> {} before behind-peers check",
+                        local_checkpoint_height, buffered_height
                     );
+                    local_checkpoint_height = buffered_height;
+                }
+            }
 
-                    let we_are_leader = self.is_snapshot_proposer(height).await;
-                    if we_are_leader {
-                        if let Some(ref gossip) = self.gossip_service {
-                            let our_stake = {
-                                let state = self.state.inner.read().await;
-                                state.validators.get(&self.validator_address)
-                                    .map(|v| v.stake)
-                                    .unwrap_or(0)
-                            };
-                            info!(
-                                "BEHIND PEERS SELF-YIELD: we are elected leader for height {} but behind by {} — broadcasting leader timeout so backups can skip immediately",
-                                height, behind
-                            );
-                            gossip.broadcast_leader_timeout(height, &self.validator_address, our_stake).await;
+            if let Some(network_median) = self.get_network_consensus_height().await {
+                let mut behind = network_median.saturating_sub(local_checkpoint_height);
+                if behind >= 1 {
+                    if behind >= 2 {
+                        {
+                            let mut state = self.state.inner.write().await;
+                            let overlay_size = state.convergence_overlay.len();
+                            let executed_size = state.convergence_executed_txs.len();
+                            if overlay_size > 0 || executed_size > 0 {
+                                state.convergence_overlay.clear();
+                                state.convergence_executed_txs.clear();
+                                state.convergence_executed_order.clear();
+                                info!(
+                                    "BEHIND PEERS: flushed convergence overlay ({} overlay, {} executed) — checkpoint sync will rebuild",
+                                    overlay_size, executed_size
+                                );
+                            }
+                        }
+
+                        let we_are_leader = self.is_snapshot_proposer(height).await;
+                        if we_are_leader {
+                            self.consecutive_behind_yields += 1;
+                            if let Some(ref gossip) = self.gossip_service {
+                                let our_stake = {
+                                    let state = self.state.inner.read().await;
+                                    state.validators.get(&self.validator_address)
+                                        .map(|v| v.stake)
+                                        .unwrap_or(0)
+                                };
+                                if self.consecutive_behind_yields <= 2 {
+                                    info!(
+                                        "BEHIND PEERS SELF-YIELD: we are elected leader for height {} but behind by {} (yield {}) — broadcasting leader timeout so backups can skip immediately",
+                                        height, behind, self.consecutive_behind_yields
+                                    );
+                                    gossip.broadcast_leader_timeout(height, &self.validator_address, our_stake).await;
+                                } else {
+                                    info!(
+                                        "BEHIND PEERS SELF-YIELD: we are elected leader for height {} but behind by {} (yield {}) — suppressing timeout spam, attempting delta sync recovery",
+                                        height, behind, self.consecutive_behind_yields
+                                    );
+                                }
+                            }
+                        } else {
+                            self.consecutive_behind_yields = 0;
                         }
                     }
 
@@ -1567,6 +2717,7 @@ impl CheckpointService {
                         let new_height = self.state.get_checkpoint_height();
                         if new_height > local_checkpoint_height {
                             self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                            self.consecutive_behind_yields = 0;
                             info!(
                                 "BEHIND PEERS: buffer drain advanced {} -> {} (gap closed to {})",
                                 local_checkpoint_height, new_height, network_median.saturating_sub(new_height)
@@ -1574,69 +2725,179 @@ impl CheckpointService {
                             return Ok(());
                         }
                     }
-                    let sync_start = std::time::Instant::now();
-                    const MAX_CATCH_UP_ROUNDS: usize = 15;
-                    const CATCH_UP_DEADLINE_MS: u128 = 12000;
-                    let mut rounds = 0;
-                    let mut consecutive_failures = 0u32;
-                    while rounds < MAX_CATCH_UP_ROUNDS && sync_start.elapsed().as_millis() < CATCH_UP_DEADLINE_MS {
-                        let current_height = self.state.get_checkpoint_height();
-                        let remaining_gap = network_median.saturating_sub(current_height);
-                        if remaining_gap == 0 {
-                            break;
-                        }
-                        let timeout_ms = if remaining_gap > 5 { 5000 } else { 3000 };
-                        if self.fetch_and_apply_peer_checkpoint_with_timeout(current_height + 1, timeout_ms).await {
+
+                    if behind == 1 {
+                        self.consecutive_gap_one_ticks += 1;
+                        let fetch_timeout = if self.consecutive_gap_one_ticks <= 1 { 800 } else { 2500 };
+                        info!(
+                            "BEHIND PEERS: local height {} vs network best {} (gap=1, tick {}) — immediate targeted fetch (timeout={}ms)",
+                            local_checkpoint_height, network_median, self.consecutive_gap_one_ticks, fetch_timeout
+                        );
+                        if self.fetch_and_apply_peer_checkpoint_with_timeout(local_checkpoint_height + 1, fetch_timeout).await {
                             self.last_delta_sync_catch_up = Some(std::time::Instant::now());
-                            let new_height = self.state.get_checkpoint_height();
+                            self.consecutive_gap_one_ticks = 0;
+                            self.consecutive_behind_yields = 0;
                             info!(
-                                "BEHIND PEERS: delta sync round {} recovered to height {} (gap={})",
-                                rounds + 1, new_height, network_median.saturating_sub(new_height)
+                                "BEHIND PEERS: targeted fetch recovered to height {}",
+                                self.state.get_checkpoint_height()
                             );
-                            if let Some(ref gossip) = self.gossip_service {
-                                gossip.drain_checkpoint_buffer().await;
-                            }
-                            rounds += 1;
-                            consecutive_failures = 0;
                         } else {
-                            consecutive_failures += 1;
                             if let Some(ref gossip) = self.gossip_service {
                                 gossip.drain_checkpoint_buffer().await;
-                                let after_drain = self.state.get_checkpoint_height();
-                                if after_drain > current_height {
+                                let post_drain = self.state.get_checkpoint_height();
+                                if post_drain > local_checkpoint_height {
+                                    self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                                    self.consecutive_gap_one_ticks = 0;
+                                    self.consecutive_behind_yields = 0;
                                     info!(
-                                        "BEHIND PEERS: sync round {} delta failed but buffer drain advanced {} -> {} (gap={})",
-                                        rounds + 1, current_height, after_drain, network_median.saturating_sub(after_drain)
+                                        "BEHIND PEERS: fetch failed but buffer drain recovered {} -> {} (gossip arrived during sync wait)",
+                                        local_checkpoint_height, post_drain
                                     );
-                                    rounds += 1;
-                                    consecutive_failures = 0;
-                                    continue;
+                                    return Ok(());
                                 }
                             }
-                            info!(
-                                "BEHIND PEERS: sync round {} failed at height {} (gap={}, consecutive_failures={})",
-                                rounds + 1, current_height, remaining_gap, consecutive_failures
-                            );
-                            if consecutive_failures >= 3 {
-                                break;
+                            const GAP_ONE_FALLBACK_TICKS: u32 = 3;
+                            if self.consecutive_gap_one_ticks >= GAP_ONE_FALLBACK_TICKS {
+                                if let Some(ref gossip) = self.gossip_service {
+                                    let (accumulated, total, has_quorum) = gossip.get_leader_timeout_info(height).await;
+                                    if has_quorum {
+                                        warn!(
+                                            "BEHIND PEERS FALLBACK: gap=1 fetch failed {} consecutive times AND LeaderTimeout quorum exists ({}/{}) for height {} — leader yielded, proceeding to backup production",
+                                            self.consecutive_gap_one_ticks, accumulated, total, height
+                                        );
+                                        self.consecutive_gap_one_ticks = 0;
+                                        self.consecutive_behind_yields = 0;
+                                        behind = 0;
+                                    } else {
+                                        info!(
+                                            "BEHIND PEERS: targeted fetch failed for height {} (tick {}, no timeout quorum yet: {}/{}) — will retry next tick",
+                                            local_checkpoint_height + 1, self.consecutive_gap_one_ticks, accumulated, total
+                                        );
+                                        return Ok(());
+                                    }
+                                } else {
+                                    return Ok(());
+                                }
+                            } else {
+                                info!(
+                                    "BEHIND PEERS: targeted fetch failed for height {} (tick {}) — will retry next tick",
+                                    local_checkpoint_height + 1, self.consecutive_gap_one_ticks
+                                );
+                                return Ok(());
                             }
-                            tokio::time::sleep(std::time::Duration::from_millis(200 * consecutive_failures as u64)).await;
                         }
                     }
-                    if rounds > 0 {
-                        let final_height = self.state.get_checkpoint_height();
-                        let final_gap = network_median.saturating_sub(final_height);
+                    self.consecutive_gap_one_ticks = 0;
+
+                    if behind > 1 {
                         info!(
-                            "BEHIND PEERS: catch-up complete after {} rounds in {}ms — height {} (gap={})",
-                            rounds, sync_start.elapsed().as_millis(), final_height, final_gap
+                            "BEHIND PEERS: local height {} vs network best {} (gap={}) — delta sync required",
+                            local_checkpoint_height, network_median, behind
                         );
-                    } else {
-                        info!(
-                            "BEHIND PEERS: sync attempt failed at height {} (gap={}) — deferring (QCC will prevent forks if we do produce)",
-                            local_checkpoint_height, behind
-                        );
+
+                        let sync_start = std::time::Instant::now();
+                        const MAX_CATCH_UP_ROUNDS: usize = 20;
+                        const CATCH_UP_DEADLINE_MS: u128 = 8000;
+                        const MAX_CONSECUTIVE_FAILURES: u32 = 3;
+                        let mut rounds = 0;
+                        let mut consecutive_failures = 0u32;
+                        while rounds < MAX_CATCH_UP_ROUNDS && sync_start.elapsed().as_millis() < CATCH_UP_DEADLINE_MS {
+                            if let Some(ref gossip) = self.gossip_service {
+                                gossip.drain_checkpoint_buffer().await;
+                            }
+                            let current_height = self.state.get_checkpoint_height();
+                            let remaining_gap = network_median.saturating_sub(current_height);
+                            if remaining_gap == 0 {
+                                break;
+                            }
+                            if remaining_gap == 1 {
+                                info!(
+                                    "BEHIND PEERS: gap reduced to 1 at height {} — attempting immediate fetch for final checkpoint",
+                                    current_height
+                                );
+                                if self.fetch_and_apply_peer_checkpoint_with_timeout(current_height + 1, 800).await {
+                                    self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                                    info!(
+                                        "BEHIND PEERS: final gap=1 fetch succeeded — now at height {}",
+                                        self.state.get_checkpoint_height()
+                                    );
+                                } else {
+                                    if let Some(ref gossip) = self.gossip_service {
+                                        gossip.drain_checkpoint_buffer().await;
+                                        let post = self.state.get_checkpoint_height();
+                                        if post > current_height {
+                                            info!(
+                                                "BEHIND PEERS: final gap=1 fetch failed but buffer drain recovered {} -> {}",
+                                                current_height, post
+                                            );
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                            let timeout_ms = if remaining_gap > 10 { 4000 } else { 2500 };
+                            if self.fetch_and_apply_peer_checkpoint_with_timeout(current_height + 1, timeout_ms).await {
+                                self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                                let new_height = self.state.get_checkpoint_height();
+                                info!(
+                                    "BEHIND PEERS: delta sync round {} recovered to height {} (gap={})",
+                                    rounds + 1, new_height, network_median.saturating_sub(new_height)
+                                );
+                                if let Some(ref gossip) = self.gossip_service {
+                                    gossip.drain_checkpoint_buffer().await;
+                                }
+                                rounds += 1;
+                                consecutive_failures = 0;
+                            } else {
+                                consecutive_failures += 1;
+                                if let Some(ref gossip) = self.gossip_service {
+                                    gossip.drain_checkpoint_buffer().await;
+                                    let after_drain = self.state.get_checkpoint_height();
+                                    if after_drain > current_height {
+                                        info!(
+                                            "BEHIND PEERS: sync round {} delta failed but buffer drain advanced {} -> {} (gap={})",
+                                            rounds + 1, current_height, after_drain, network_median.saturating_sub(after_drain)
+                                        );
+                                        rounds += 1;
+                                        consecutive_failures = 0;
+                                        continue;
+                                    }
+                                }
+                                info!(
+                                    "BEHIND PEERS: sync round {} failed at height {} (gap={}, consecutive_failures={})",
+                                    rounds + 1, current_height, remaining_gap, consecutive_failures
+                                );
+                                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                                    break;
+                                }
+                                let backoff_ms = std::cmp::min(1000, 200 * (1u64 << consecutive_failures.min(4)));
+                                tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                            }
+                        }
+                        if rounds > 0 {
+                            let final_height = self.state.get_checkpoint_height();
+                            let final_gap = network_median.saturating_sub(final_height);
+                            if final_gap == 0 {
+                                self.consecutive_behind_yields = 0;
+                            }
+                            info!(
+                                "BEHIND PEERS: catch-up complete after {} rounds in {}ms — height {} (gap={})",
+                                rounds, sync_start.elapsed().as_millis(), final_height, final_gap
+                            );
+                        } else if network_median.saturating_sub(self.state.get_checkpoint_height()) > 1 {
+                            info!(
+                                "BEHIND PEERS: sync attempt failed at height {} (gap={}) — deferring (QCC will prevent forks if we do produce)",
+                                local_checkpoint_height, behind
+                            );
+                        }
+                        return Ok(());
                     }
-                    return Ok(());
+                    if behind == 1 {
+                        return Ok(());
+                    }
+                } else {
+                    self.consecutive_gap_one_ticks = 0;
+                    self.consecutive_behind_yields = 0;
                 }
             }
         }
@@ -1672,6 +2933,15 @@ impl CheckpointService {
             if unfinalized_count > 0 && is_proposer_for_reset {
                 self.stuck_iterations = 0;
                 info!("Snapshot proposer: resetting stuck counter — {} unfinalized txs available (we are proposer)", unfinalized_count);
+                } else if unfinalized_count > 0 && !is_proposer_for_reset && self.stuck_iterations >= 2 {
+                    if self.fetch_and_apply_peer_checkpoint_fast(height).await {
+                        self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                        info!(
+                            "Proactive height probe: recovered to height {} (not proposer, {} unfinalized txs, stuck {} ticks)",
+                            self.state.get_checkpoint_height(), unfinalized_count, self.stuck_iterations
+                        );
+                        return Ok(());
+                    }
             } else if unfinalized_count == 0 {
                 if self.stuck_iterations == 1 {
                     if self.fetch_and_apply_peer_checkpoint_fast(height).await {
@@ -1679,7 +2949,13 @@ impl CheckpointService {
                         info!("Snapshot sync: fast-recovered from peer at height {} (first stuck tick)", height);
                         return Ok(());
                     }
-                } else if self.stuck_iterations % 2 == 0 {
+                } else if self.stuck_iterations == 2 {
+                    if self.fetch_and_apply_peer_checkpoint_medium(height).await {
+                        self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                        info!("Snapshot sync: recovered from peer at height {} (medium timeout)", height);
+                        return Ok(());
+                    }
+                } else if self.stuck_iterations >= 3 {
                     if self.fetch_and_apply_peer_checkpoint(height).await {
                         self.last_delta_sync_catch_up = Some(std::time::Instant::now());
                         info!("Snapshot sync: recovered from peer at height {}", height);
@@ -1699,16 +2975,55 @@ impl CheckpointService {
 
         if is_proposer {
             if self.qcc_yielded_height == height {
-                if let Some(ref gossip) = self.gossip_service {
-                    gossip.drain_checkpoint_buffer().await;
-                    let new_height = self.state.get_checkpoint_height();
-                    if new_height > local_checkpoint_height {
-                        self.qcc_yielded_height = 0;
-                        self.consecutive_qcc_failures = 0;
-                        return Ok(());
+                const CONVERGENCE_YIELD_MAX_MS: u64 = 3000;
+                let yield_expired = self.convergence_yield_start
+                    .map(|t| t.elapsed().as_millis() as u64 >= CONVERGENCE_YIELD_MAX_MS)
+                    .unwrap_or(false);
+
+                if yield_expired {
+                    info!(
+                        "YIELD-RECOVERY: convergence yield expired ({}ms) at height {} — clearing yield state and proceeding",
+                        self.convergence_yield_start.map(|t| t.elapsed().as_millis()).unwrap_or(0), height
+                    );
+                    self.qcc_yielded_height = 0;
+                    self.convergence_yield_start = None;
+                    self.consecutive_qcc_failures = 0;
+                } else {
+                    if let Some(ref gossip) = self.gossip_service {
+                        gossip.drain_checkpoint_buffer().await;
+                        let new_height = self.state.get_checkpoint_height();
+                        if new_height > local_checkpoint_height {
+                            info!(
+                                "YIELD-RECOVERY: adopted buffered checkpoint, height {} -> {} — clearing yield state",
+                                local_checkpoint_height, new_height
+                            );
+                            self.qcc_yielded_height = 0;
+                            self.convergence_yield_start = None;
+                            self.consecutive_qcc_failures = 0;
+                            self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                            return Ok(());
+                        }
                     }
+
+                    let recovered = self.fetch_and_apply_peer_checkpoint(height).await;
+                    if recovered {
+                        let new_height = self.state.get_checkpoint_height();
+                        info!(
+                            "YIELD-RECOVERY: delta sync recovered to height {} (was stuck at yield height {}) — clearing yield state",
+                            new_height, height
+                        );
+                        self.qcc_yielded_height = 0;
+                        self.convergence_yield_start = None;
+                        self.consecutive_qcc_failures = 0;
+                        self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                    } else {
+                        debug!(
+                            "YIELD-RECOVERY: delta sync for height {} found no peer data yet — will retry next tick (yield age: {}ms)",
+                            height, self.convergence_yield_start.map(|t| t.elapsed().as_millis()).unwrap_or(0)
+                        );
+                    }
+                    return Ok(());
                 }
-                return Ok(());
             }
 
             if let Some(ref gossip) = self.gossip_service {
@@ -1722,6 +3037,7 @@ impl CheckpointService {
                     self.last_delta_sync_catch_up = Some(std::time::Instant::now());
                     self.consecutive_qcc_failures = 0;
                     self.qcc_yielded_height = 0;
+                    self.convergence_yield_start = None;
                     return Ok(());
                 }
                 if gossip.has_buffered_checkpoint(height).await {
@@ -1734,18 +3050,53 @@ impl CheckpointService {
 
                 gossip.broadcast_checkpoint_intent(height, &self.validator_address).await;
             }
-            let cooldown_ticks = LEADER_POST_SYNC_MAX_DEFER_TICKS;
             let recently_caught_up = self.last_delta_sync_catch_up
-                .map(|t| t.elapsed() <= std::time::Duration::from_millis(self.interval_ms.saturating_mul(cooldown_ticks)))
+                .map(|t| t.elapsed() <= std::time::Duration::from_millis(LEADER_POST_SYNC_MAX_DEFER_MS))
                 .unwrap_or(false);
             if recently_caught_up {
                 info!(
                     "PROPOSER: recently caught up ({}ms ago, cooldown {}ms) — deferring height {} (QCC will gate commit)",
                     self.last_delta_sync_catch_up.map(|t| t.elapsed().as_millis()).unwrap_or(0),
-                    self.interval_ms.saturating_mul(cooldown_ticks),
+                    LEADER_POST_SYNC_MAX_DEFER_MS,
                     height
                 );
                 return Ok(());
+            }
+
+            {
+                let convergence_pool_size = {
+                    let state = self.state.inner.read().await;
+                    state.convergence_executed_txs.len()
+                };
+                if convergence_pool_size == 0 {
+                    let has_pending_convergence = if let Some(ref gossip) = self.gossip_service {
+                        let stats = gossip.get_convergence_stats().await;
+                        stats.confirmed_count > 50
+                    } else {
+                        false
+                    };
+                    let caught_up_recently = self.last_delta_sync_catch_up
+                        .map(|t| t.elapsed() <= std::time::Duration::from_secs(2))
+                        .unwrap_or(false);
+                    if has_pending_convergence && caught_up_recently {
+                        if let Some(ref gossip) = self.gossip_service {
+                            let our_stake = {
+                                let state = self.state.inner.read().await;
+                                state.validators.get(&self.validator_address)
+                                    .map(|v| v.stake)
+                                    .unwrap_or(0)
+                            };
+                            info!(
+                                "PROPOSER CONVERGENCE-YIELD: convergence_pool=0 but pending_convergence={} caught_up_recently={} — self-yielding height {} to avoid QCC mismatch",
+                                has_pending_convergence, caught_up_recently, height
+                            );
+                            gossip.broadcast_leader_timeout(height, &self.validator_address, our_stake).await;
+                            self.qcc_yielded_height = height;
+                            self.convergence_yield_start = Some(std::time::Instant::now());
+                        }
+                        return Ok(());
+                    }
+                }
             }
 
             #[cfg(feature = "p2p")]
@@ -1754,21 +3105,20 @@ impl CheckpointService {
                     if network_median > local_checkpoint_height {
                         let peer_gap = network_median.saturating_sub(local_checkpoint_height);
                         if peer_gap >= 1 {
-                            if self.fetch_and_apply_peer_checkpoint(height).await {
+                            if let Some(ref gossip) = self.gossip_service {
+                                let our_stake = {
+                                    let state = self.state.inner.read().await;
+                                    state.validators.get(&self.validator_address)
+                                        .map(|v| v.stake)
+                                        .unwrap_or(0)
+                                };
                                 info!(
-                                    "PROPOSER PRE-CHECK: peers ahead by {} (local={}, network={}), adopted peer checkpoint at height {}",
-                                    peer_gap, local_checkpoint_height, network_median, height
-                                );
-                                self.last_delta_sync_catch_up = Some(std::time::Instant::now());
-                                return Ok(());
-                            }
-                            if peer_gap >= 2 {
-                                info!(
-                                    "PROPOSER PRE-CHECK: peers ahead by {} (local={}, network={}) but no peer checkpoint available — deferring to avoid fork",
+                                    "PROPOSER PRE-CHECK SELF-YIELD: behind by {} (local={}, network={}) — broadcasting leader timeout instead of slow sync",
                                     peer_gap, local_checkpoint_height, network_median
                                 );
-                                return Ok(());
+                                gossip.broadcast_leader_timeout(height, &self.validator_address, our_stake).await;
                             }
+                            return Ok(());
                         }
                     }
                 }
@@ -1781,6 +3131,7 @@ impl CheckpointService {
                 let new_height = self.state.get_checkpoint_height();
                 if new_height > local_checkpoint_height {
                     self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                    self.last_checkpoint_applied_at = Some(std::time::Instant::now());
                     self.leader_wait_ticks = 0;
                     self.leader_wait_height = 0;
                     return Ok(());
@@ -1788,13 +3139,16 @@ impl CheckpointService {
             }
 
             if self.stuck_iterations >= 1 {
-                let recovered = if self.stuck_iterations <= 2 {
+                let recovered = if self.stuck_iterations == 1 {
                     self.fetch_and_apply_peer_checkpoint_fast(height).await
+                } else if self.stuck_iterations == 2 {
+                    self.fetch_and_apply_peer_checkpoint_medium(height).await
                 } else {
                     self.fetch_and_apply_peer_checkpoint(height).await
                 };
                 if recovered {
                     self.last_delta_sync_catch_up = Some(std::time::Instant::now());
+                    self.last_checkpoint_applied_at = Some(std::time::Instant::now());
                     info!(
                         "Non-proposer recovered checkpoint at height {} from peer (stuck_iter={})",
                         height, self.stuck_iterations
@@ -1864,8 +3218,7 @@ impl CheckpointService {
 
             if self.leader_wait_ticks >= effective_vote_threshold {
                 if let Some(catch_up_time) = self.last_delta_sync_catch_up {
-                    let suppression_ticks = (effective_vote_threshold as u64).saturating_add(2).max(POST_SYNC_COOLDOWN_TICKS);
-                    let suppression_window = std::time::Duration::from_millis(suppression_ticks.saturating_mul(self.interval_ms));
+                    let suppression_window = std::time::Duration::from_millis(POST_SYNC_COOLDOWN_MS);
                     if catch_up_time.elapsed() <= suppression_window {
                         return Ok(());
                     }
@@ -1887,6 +3240,7 @@ impl CheckpointService {
                             .unwrap_or(0)
                     };
                     gossip.broadcast_leader_timeout(height, &self.validator_address, our_stake).await;
+                    gossip.clear_vote_lock_for_height(height).await;
 
                     let production_threshold = effective_vote_threshold + (backup_rank * LEADER_SKIP_STAGGER_TICKS);
                     if self.leader_wait_ticks < production_threshold {
@@ -1946,6 +3300,111 @@ impl CheckpointService {
             self.leader_wait_height = 0;
         }
 
+        if let Some(retry) = self.qcc_retry_data.take() {
+            if retry.height == height {
+                warn!(
+                    "QCC-RETRY: Re-using cached checkpoint for height {} (hash={}) — idempotent retry to prevent equivocation",
+                    height, &retry.checkpoint.hash[..16.min(retry.checkpoint.hash.len())]
+                );
+
+                #[cfg(feature = "p2p")]
+                {
+                    if let Some(ref gossip) = self.gossip_service {
+                        match gossip.try_lock_proposer_vote(height, &retry.checkpoint.hash).await {
+                            Ok(()) => {}
+                            Err(reason) => {
+                                warn!(
+                                    "QCC-RETRY EQUIVOCATION GUARD: Aborting retry for height {} — {}",
+                                    height, reason
+                                );
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+
+                {
+                    let mut emission = self.state.emission.write().await;
+                    let reward = emission.get_checkpoint_reward(height);
+                    let is_new = emission.record_emission_for_height(height, reward);
+                    if is_new {
+                        let mut rewards = self.state.rewards.write().await;
+                        rewards.distribute_checkpoint_rewards(reward);
+                    }
+                }
+
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+
+                #[cfg(feature = "p2p")]
+                {
+
+                    let gossip_for_qcc = self.gossip_service.clone();
+                    let network_for_qcc = self.network_handle.clone();
+                    let identity_for_qcc = self.validator_identity.clone();
+                    let addr_for_qcc = self.validator_address.clone();
+                    let cp_height_cache = self.state.checkpoint_height_cache.clone();
+                    let cp_for_qcc = retry.checkpoint.clone();
+                    let hashes_for_qcc = retry.hashes.clone();
+
+                    info!(
+                        "QCC-RETRY: Spawning vote collection for cached checkpoint {} at height {} ({} txs)",
+                        &retry.checkpoint.hash[..16.min(retry.checkpoint.hash.len())],
+                        height,
+                        retry.hashes.len()
+                    );
+
+                    let t_retry = std::time::Instant::now();
+                    let qcc_handle = tokio::spawn(async move {
+                        collect_qcc_standalone(
+                            cp_for_qcc,
+                            &hashes_for_qcc,
+                            gossip_for_qcc,
+                            network_for_qcc,
+                            identity_for_qcc,
+                            &addr_for_qcc,
+                            cp_height_cache,
+                        ).await
+                    });
+
+                    self.pending_qcc = Some(PendingQcc {
+                        checkpoint: retry.checkpoint,
+                        hashes: retry.hashes,
+                        txs_to_execute: retry.txs_to_execute,
+                        reward_distributions: retry.reward_distributions,
+                        checkpoint_reward: retry.checkpoint_reward,
+                        finalized_proofs: retry.finalized_proofs,
+                        convergence_executed: retry.convergence_executed,
+                        height: retry.height,
+                        now_ms,
+                        is_partitioned: retry.is_partitioned,
+                        partition_info: retry.partition_info,
+                        finality_sum: 0,
+                        finality_count: 0,
+                        finality_max: 0,
+                        finality_times: Vec::new(),
+                        t_overall: t_retry,
+                        t_gather_ms: 0,
+                        t_proof_ms: 0,
+                        t_weight_ms: 0,
+                        qcc_handle,
+                        qcc_spawned_at: std::time::Instant::now(),
+                    });
+                }
+
+                return Ok(());
+            } else {
+                warn!(
+                    "QCC-RETRY: Discarding stale retry data for height {} (current height {})",
+                    retry.height, height
+                );
+            }
+        }
+
+        self.state.purge_zombie_dag_txs().await;
+
         let t_overall = std::time::Instant::now();
 
         let (mut hashes, txs, _initial_merkle_root) = self.gather_unfinalized_txs(height, true, &previous_hash).await?;
@@ -1998,17 +3457,16 @@ impl CheckpointService {
             (reward, dists)
         };
 
-        let (affected_vec, convergence_undo_entries, convergence_executed) = {
+        let (affected_vec, convergence_executed) = {
             let state_guard = self.state.inner.read().await;
             let accounts: Vec<String> = state_guard.accounts.keys().cloned().collect();
-            let entries: Vec<crate::state::ConvergenceUndoEntry> = state_guard.convergence_executed_txs.values().cloned().collect();
             let hash_set: std::collections::HashSet<String> = state_guard.convergence_executed_txs.keys().cloned().collect();
-            (accounts, entries, hash_set)
+            (accounts, hash_set)
         };
 
         let t_proof_start = std::time::Instant::now();
         let proofs_result = self.state.compute_state_root_and_proofs_at_height(
-            &txs, &affected_vec, height, &convergence_undo_entries
+            &txs, &affected_vec, height, &[]
         ).await;
         let t_proof_ms = t_proof_start.elapsed().as_millis();
         let state_root = proofs_result.state_root.clone();
@@ -2123,10 +3581,8 @@ impl CheckpointService {
                             }
                         }
                     }
-                    for node in state.dag.get_all_nodes() {
-                        if !node.finalized {
-                            map.entry(node.hash.clone()).or_insert(height);
-                        }
+                    for node in state.dag.get_unfinalized_nodes() {
+                        map.entry(node.hash.clone()).or_insert(height);
                     }
                     Some((min_cp, map))
                 } else {
@@ -2218,269 +3674,100 @@ impl CheckpointService {
             }
         }
 
-        let t_qcc_start = std::time::Instant::now();
         #[cfg(feature = "p2p")]
         {
-            let vote_result = self.collect_checkpoint_votes(
-                &checkpoint,
-                &hashes,
-                &txs_to_execute,
-            ).await;
-
-            match vote_result {
-                Some((sigs, agg_sig, bitmap)) => {
-                    self.consecutive_qcc_failures = 0;
-                    self.qcc_yielded_height = 0;
-                    checkpoint = Checkpoint {
-                        validator_signatures: sigs,
-                        aggregated_signature: Some(URL_SAFE_NO_PAD.encode(&agg_sig)),
-                        signer_bitmap: Some(bitmap),
-                        ..checkpoint
-                    };
-                    info!(
-                        "QCC: Checkpoint {} certified with {} validator signatures",
-                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                        checkpoint.validator_signatures.len()
-                    );
-                }
-                None => {
-                    let new_height = self.state.get_checkpoint_height();
-                    if new_height >= height {
-                        info!(
-                            "QCC: Vote collection aborted — height {} already committed",
-                            height
-                        );
-                    } else {
-                        self.consecutive_qcc_failures += 1;
+            if let Some(ref gossip) = self.gossip_service {
+                match gossip.try_lock_proposer_vote(height, &checkpoint.hash).await {
+                    Ok(()) => {}
+                    Err(reason) => {
                         warn!(
-                            "QCC: No quorum for checkpoint at height {} — aborting production, rolling back emission (failure {}/{})",
-                            height, self.consecutive_qcc_failures, QCC_SELF_YIELD_THRESHOLD
+                            "EQUIVOCATION GUARD: Aborting checkpoint {} at height {} — {} (we already voted for a competing proposal)",
+                            &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                            height,
+                            reason
                         );
-                        {
-                            let mut emission = self.state.emission.write().await;
-                            emission.rollback_to_height(height.saturating_sub(1));
-                        }
-                        if !reward_distributions.is_empty() {
-                            let mut rewards = self.state.rewards.write().await;
-                            for (addr, amount) in &reward_distributions {
-                                rewards.reverse_reward(addr, *amount);
-                            }
-                            info!(
-                                "QCC: Reversed {} reward distributions for aborted height {}",
-                                reward_distributions.len(), height
-                            );
-                        }
-                        if self.consecutive_qcc_failures >= QCC_SELF_YIELD_THRESHOLD {
-                            warn!(
-                                "QCC SELF-YIELD: {} consecutive failures at height {} — broadcasting timeout vote and yielding leadership",
-                                self.consecutive_qcc_failures, height
-                            );
-                            self.qcc_yielded_height = height;
-                            if let Some(ref gossip) = self.gossip_service {
-                                let our_stake = {
-                                    let state = self.state.inner.read().await;
-                                    state.validators.get(&self.validator_address)
-                                        .map(|v| v.stake)
-                                        .unwrap_or(0)
-                                };
-                                gossip.broadcast_leader_timeout(height, &self.validator_address, our_stake).await;
-                            }
-                        }
+                        return Ok(());
                     }
-                    return Ok(());
                 }
             }
-        }
-        let t_qcc_ms = t_qcc_start.elapsed().as_millis();
 
-        let mut state = self.state.inner.write().await;
-        let current_tip = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
-        if current_tip + 1 != height {
-            drop(state);
+            let gossip_for_qcc = self.gossip_service.clone();
+            let network_for_qcc = self.network_handle.clone();
+            let identity_for_qcc = self.validator_identity.clone();
+            let addr_for_qcc = self.validator_address.clone();
+            let cp_height_cache = self.state.checkpoint_height_cache.clone();
+            let cp_for_qcc = checkpoint.clone();
+            let hashes_for_qcc = hashes.clone();
+
             info!(
-                "LEADER SKIP ABORT: Local tip advanced to {} while computing checkpoint {} — another node produced it first",
-                current_tip, height
-            );
-            return Ok(());
-        }
-        let pre_snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
-            .accounts
-            .iter()
-            .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
-            .collect();
-        state.pre_checkpoint_accounts_snapshot = Some((height, pre_snapshot));
-        state.checkpoints.push(checkpoint.clone());
-        state.last_checkpoint_time_ms = now_ms;
-        self.state.checkpoint_height_cache.store(checkpoint.height, std::sync::atomic::Ordering::Relaxed);
-        state.finality_sum_ms += finality_sum;
-        state.finality_count += finality_count;
-        if finality_max > state.finality_max_ms {
-            state.finality_max_ms = finality_max;
-        }
-        for finality_time in &finality_times {
-            if state.finality_times_ms.len() >= 1000 {
-                state.finality_times_ms.pop_front();
-            }
-            state.finality_times_ms.push_back(*finality_time);
-        }
-
-        let _finalized = state.dag.mark_finalized_batch(&hashes, height);
-
-        for hash in &hashes {
-            state.convergence_executed_txs.remove(hash);
-        }
-        while let Some(front) = state.convergence_executed_order.front() {
-            if !state.convergence_executed_txs.contains_key(front) {
-                state.convergence_executed_order.pop_front();
-            } else {
-                break;
-            }
-        }
-        if state.convergence_executed_order.len() > state.convergence_executed_txs.len() * 2 + 100 {
-            let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| state.convergence_executed_txs.contains_key(h.as_str())).cloned().collect();
-            state.convergence_executed_order = compacted;
-        }
-
-        if is_partitioned {
-            for hash in &hashes {
-                if let Some(node) = state.dag.get_node_mut(hash) {
-                    node.partition_epoch = partition_info.current_epoch;
-                }
-            }
-        }
-
-        let snapshot_finalized_count = hashes.len() as u64;
-        drop(state);
-
-        if snapshot_finalized_count > 0 {
-            self.state.record_finalized_batch(snapshot_finalized_count).await;
-        }
-
-        let total_ms = t_overall.elapsed().as_millis();
-        info!(
-            "Created checkpoint {} h={} ({} txs, {:.6} RKU, {}ms total) | gather={}ms proof={}ms weight={}ms qcc={}ms finalize={}ms",
-            &checkpoint.hash[..16],
-            height,
-            hashes.len(),
-            rinku_core::types::from_micro_units(checkpoint_reward),
-            total_ms,
-            t_gather_ms,
-            t_proof_ms,
-            t_weight_ms,
-            t_qcc_ms,
-            total_ms.saturating_sub(t_gather_ms + t_proof_ms + t_weight_ms + t_qcc_ms)
-        );
-
-        #[cfg(feature = "p2p")]
-        if let Some(ref nh) = self.network_handle {
-            nh.update_checkpoint_height(height);
-        }
-
-        if let Some(ref eb) = self.event_bus {
-            let vr: Vec<(String, f64)> = reward_distributions.iter()
-                .map(|(addr, amt)| (addr.clone(), rinku_core::types::from_micro_units(*amt)))
-                .collect();
-            eb.publish(crate::events::NodeEvent::CheckpointCreated {
-                hash: checkpoint.hash.clone(),
+                "QCC-PIPELINE: Spawning vote collection for checkpoint {} at height {} ({} txs) — tick loop continues",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
                 height,
-                txs_finalized: hashes.len(),
-                reward: rinku_core::types::from_micro_units(checkpoint_reward),
-                validator_rewards: vr,
+                hashes.len()
+            );
+
+            let qcc_handle = tokio::spawn(async move {
+                collect_qcc_standalone(
+                    cp_for_qcc,
+                    &hashes_for_qcc,
+                    gossip_for_qcc,
+                    network_for_qcc,
+                    identity_for_qcc,
+                    &addr_for_qcc,
+                    cp_height_cache,
+                ).await
+            });
+
+            self.pending_qcc = Some(PendingQcc {
+                checkpoint,
+                hashes,
+                txs_to_execute,
+                reward_distributions,
+                checkpoint_reward,
+                finalized_proofs,
+                convergence_executed,
+                height,
+                now_ms,
+                is_partitioned,
+                partition_info,
+                finality_sum,
+                finality_count,
+                finality_max,
+                finality_times,
+                t_overall,
+                t_gather_ms,
+                t_proof_ms,
+                t_weight_ms,
+                qcc_handle,
+                qcc_spawned_at: std::time::Instant::now(),
             });
         }
 
-        let proof_tx_hash = hashes.first()
-            .cloned()
-            .unwrap_or_else(|| checkpoint.hash.clone());
-
-        let mut final_proofs = finalized_proofs;
-        for proof in final_proofs.values_mut() {
-            proof.checkpoint_hash = checkpoint.hash.clone();
-            proof.checkpoint_timestamp = checkpoint.timestamp;
-            proof.bls_aggregated_sig = checkpoint.aggregated_signature.clone();
-            proof.bls_signer_bitmap = checkpoint.signer_bitmap.as_ref().map(|b| hex::encode(b));
-            proof.tx_hash = proof_tx_hash.clone();
-        }
-
-        txs_to_execute.sort_by(|a, b| {
-            a.tx.from.cmp(&b.tx.from)
-                .then(a.tx.nonce.cmp(&b.tx.nonce))
-                .then(a.hash.cmp(&b.hash))
-        });
-
-        let mut newly_applied: Vec<bool> = Vec::with_capacity(txs_to_execute.len());
-        for tx in &txs_to_execute {
-            if !convergence_executed.contains(&tx.hash) {
-                let applied = self.state.execute_finalized_transaction_core(tx).await;
-                newly_applied.push(applied);
-            } else {
-                let is_contract = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
-                if is_contract {
-                    tracing::debug!(
-                        "Skipping contract re-execution for convergence-executed tx {}",
-                        &tx.hash[..16.min(tx.hash.len())]
-                    );
-                } else {
-                    self.state.execute_transaction_side_effects(tx).await;
-                }
-                newly_applied.push(true);
-            }
-        }
-
-        for (i, tx) in txs_to_execute.iter().enumerate() {
-            if newly_applied.get(i).copied().unwrap_or(false) {
-                self.state.execute_finalized_transaction_rewards(tx).await;
-            }
-        }
-
-        self.state.store_precomputed_proofs(&final_proofs).await;
-
-        if let Some(ref consensus) = self.consensus_service {
-            let participating_validators: Vec<String> = checkpoint.validator_signatures
-                .iter()
-                .map(|sig| sig.validator.clone())
-                .collect();
-            let mut consensus_guard = consensus.write().await;
-            consensus_guard.track_liveness(height, &participating_validators).await;
-        }
-
-        if let Some(ref gossip) = self.gossip_service {
-            let proofs_vec: Vec<rinku_core::types::AccountStateProof> =
-                final_proofs.values().cloned().collect();
-            gossip.broadcast_checkpoint(
-                checkpoint.clone(),
-                hashes.clone(),
-                txs_to_execute.clone(),
-                proofs_vec.clone(),
-            ).await;
-
-            #[cfg(feature = "p2p")]
-            if let Some(ref network) = self.network_handle {
-                let push_data = CheckpointPushData {
-                    checkpoint,
-                    finalized_tx_hashes: hashes,
-                    finalized_transactions: txs_to_execute,
-                    precomputed_proofs: proofs_vec,
-                };
-                let peer_ids = network.get_connected_peer_ids().await;
-                let peer_count = peer_ids.len();
-                let net = network.clone();
-                tokio::spawn(async move {
-                    let mut sent = 0usize;
-                    for peer_id in &peer_ids {
-                        let request = SyncRequest::CheckpointPush(push_data.clone());
-                        match net.send_sync_request(peer_id, request).await {
-                            Ok(_rx) => { sent += 1; }
-                            Err(e) => {
-                                debug!("Failed to push snapshot to {}: {}", &peer_id[..12.min(peer_id.len())], e);
-                            }
-                        }
-                    }
-                    if sent > 0 {
-                        info!("Pushed state snapshot to {}/{} peers via sync channel", sent, peer_count);
-                    }
-                });
-            }
+        #[cfg(not(feature = "p2p"))]
+        {
+            self.apply_certified_checkpoint(
+                checkpoint,
+                hashes,
+                txs_to_execute,
+                reward_distributions,
+                checkpoint_reward,
+                finalized_proofs,
+                convergence_executed,
+                height,
+                now_ms,
+                is_partitioned,
+                partition_info,
+                finality_sum,
+                finality_count,
+                finality_max,
+                finality_times,
+                t_overall,
+                t_gather_ms,
+                t_proof_ms,
+                t_weight_ms,
+                0,
+                0,
+            ).await?;
         }
 
         Ok(())
@@ -2670,20 +3957,18 @@ impl CheckpointService {
             }
         }
 
-        const LEADER_MIN_TX_THRESHOLD: usize = 1;
-
         if !is_leader && unfinalized.is_empty() {
             return Ok((vec![], vec![], String::new()));
         }
 
-        let needs_peer_sync = is_leader && unfinalized.len() < LEADER_MIN_TX_THRESHOLD;
+        let needs_peer_sync = is_leader && eligible_count < tx_cap / 2;
         if needs_peer_sync {
             #[cfg(feature = "p2p")]
             {
                 if let Some(ref network_handle) = self.network_handle {
                     info!(
-                        "Leader has 0 eligible txs for checkpoint {} — syncing from peers",
-                        height
+                        "Leader mempool sync for checkpoint {} — local eligible: {} txs (below half of cap {})",
+                        height, eligible_count, tx_cap
                     );
                     let peers = network_handle.get_connected_peers().await;
                     let local_cp_height = self.state.get_checkpoint_height();
@@ -2694,7 +3979,7 @@ impl CheckpointService {
                         let nh = network_handle.clone();
                         peer_futures.push(async move {
                             let result = tokio::time::timeout(
-                                std::time::Duration::from_millis(800),
+                                std::time::Duration::from_millis(400),
                                 nh.request_delta(&peer_id, local_cp_height),
                             ).await;
                             (peer_id, result)
@@ -2758,6 +4043,10 @@ impl CheckpointService {
                             .iter()
                             .filter(|n| n.tx.tx.timestamp <= cutoff_time)
                             .filter(|n| Self::is_valid_hex_hash(&n.hash))
+                            .filter(|n| {
+                                let account_nonce = state.accounts.get(&n.tx.tx.from).map(|a| a.nonce).unwrap_or(0);
+                                n.tx.tx.nonce >= account_nonce || state.convergence_executed_txs.contains_key(&n.hash)
+                            })
                             .collect();
 
                         if !eligible.is_empty() {
@@ -2833,6 +4122,17 @@ impl CheckpointService {
                 height, total_count, too_new_count
             );
             return Ok((vec![], vec![], String::new()));
+        }
+
+        if unfinalized.len() > MAX_CHECKPOINT_TXS {
+            info!(
+                "Checkpoint {} hard-capped: {} eligible txs truncated to {} (remaining deferred to next checkpoint)",
+                height, unfinalized.len(), MAX_CHECKPOINT_TXS
+            );
+            unfinalized.sort();
+            unfinalized.truncate(MAX_CHECKPOINT_TXS);
+            let capped_set: std::collections::HashSet<&str> = unfinalized.iter().map(|s| s.as_str()).collect();
+            unfinalized_txs.retain(|tx| capped_set.contains(tx.hash.as_str()));
         }
 
         unfinalized.sort();

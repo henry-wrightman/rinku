@@ -336,7 +336,7 @@ impl NodeState {
             }
         };
 
-        let (batch_result, all_txs, finalized_count, convergence_skipped, from_deferred, retry_counts, height, convergence_already_executed) = {
+        let (batch_result, all_txs, finalized_count, convergence_skipped, from_deferred, retry_counts, height, convergence_already_executed, prev_deferred) = {
             let mut state = self.inner.write().await;
 
             let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -394,35 +394,20 @@ impl NodeState {
 
             let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
             let mut convergence_already_executed: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut convergence_already_executed_entries: Vec<super::ConvergenceUndoEntry> = Vec::new();
 
             if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                 for hash in &unfinalized_hashes {
-                    if let Some(entry) = state.convergence_executed_txs.remove(hash) {
+                    if state.convergence_executed_txs.contains_key(hash) {
                         convergence_already_executed.insert(hash.clone());
-                        convergence_already_executed_entries.push(entry);
                     }
 
                     if let Some(node) = state.dag.get_node(hash) {
-                        if node.finalized {
-                            continue;
-                        }
-
                         let tx_clone = node.tx.clone();
                         txs_to_execute.push(tx_clone);
+                        if !node.finalized {
+                            let _ = state.dag.mark_finalized_deferred_cleanup(hash, height);
+                        }
                     }
-                    let _ = state.dag.mark_finalized_deferred_cleanup(hash, height);
-                }
-                while let Some(front) = state.convergence_executed_order.front() {
-                    if !state.convergence_executed_txs.contains_key(front) {
-                        state.convergence_executed_order.pop_front();
-                    } else {
-                        break;
-                    }
-                }
-                if state.convergence_executed_order.len() > state.convergence_executed_txs.len() * 2 + 100 {
-                    let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| state.convergence_executed_txs.contains_key(h.as_str())).cloned().collect();
-                    state.convergence_executed_order = compacted;
                 }
                 finalized_count = unfinalized_hashes.len();
                 tracing::info!(
@@ -462,14 +447,6 @@ impl NodeState {
             let mut all_txs: Vec<SignedTransaction> = txs_to_execute;
             let convergence_skipped = convergence_already_executed.len();
             let from_deferred = prev_deferred.len();
-            if !prev_deferred.is_empty() {
-                let existing: std::collections::HashSet<String> = all_txs.iter().map(|t| t.hash.clone()).collect();
-                for dtx in prev_deferred.drain(..) {
-                    if !existing.contains(&dtx.hash) {
-                        all_txs.push(dtx);
-                    }
-                }
-            }
 
             all_txs.sort_by(|a, b| {
                 a.tx.from.cmp(&b.tx.from)
@@ -480,156 +457,38 @@ impl NodeState {
             let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
                 let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = std::collections::HashMap::new();
                 for tx in &all_txs {
-                    map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
+                    if !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                        map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
+                    }
                 }
                 map
             };
 
-            let non_finalized_convergence: Vec<super::ConvergenceUndoEntry> =
-                state.convergence_executed_txs.values().cloned().collect();
-
-            {
-                let mut all_undo: Vec<&super::ConvergenceUndoEntry> = non_finalized_convergence.iter().collect();
-                all_undo.extend(convergence_already_executed_entries.iter());
-
-                all_undo.sort_by(|a, b| {
-                    a.from.cmp(&b.from)
-                        .then(b.nonce.cmp(&a.nonce))
-                });
-
-                let current_gas_price = state.current_gas_price;
-                let mut undo_count = 0usize;
-                let mut undo_burned = 0u64;
-                let mut undo_to_validators = 0u64;
-                let mut undo_tx_count = 0u64;
-                for entry in &all_undo {
-                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-                        continue;
-                    }
-                    let fee = entry.gas_price.unwrap_or(current_gas_price);
-                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
-                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
-                    let tx_cost = if is_stake_tx {
-                        entry.amount + fee
-                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                        fee
-                    } else {
-                        entry.amount + fee
-                    };
-                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
-                        sender.balance += tx_cost;
-                        sender.nonce = entry.nonce;
-                        undo_count += 1;
-                        undo_burned += fee / 2;
-                        undo_to_validators += fee / 2;
-                        undo_tx_count += 1;
-                    }
-                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                        if !entry.to.is_empty() {
-                            if let Some(receiver) = state.accounts.get_mut(&entry.to) {
-                                receiver.balance = receiver.balance.saturating_sub(entry.amount);
-                            }
-                        }
-                    }
-                    if is_stake_tx {
-                        if let Some(staker) = state.accounts.get_mut(&entry.from) {
-                            staker.staked = staker.staked.saturating_sub(entry.amount);
-                        }
-                    }
-                }
-
-                state.total_burned = state.total_burned.saturating_sub(undo_burned);
-                state.total_to_validators = state.total_to_validators.saturating_sub(undo_to_validators);
-                state.total_transactions = state.total_transactions.saturating_sub(undo_tx_count);
-
-                if undo_count > 0 {
-                    tracing::info!(
-                        "Checkpoint h={}: undid {} convergence fast-path effects for clean base (burned={}, validators={}, txs={})",
-                        height, undo_count, undo_burned, undo_to_validators, undo_tx_count
-                    );
-                }
-
-                state.convergence_executed_txs.clear();
-                state.convergence_executed_order.clear();
-            }
-
             let batch_result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
 
-            if !non_finalized_convergence.is_empty() {
-                let mut reapply_entries: Vec<&super::ConvergenceUndoEntry> = non_finalized_convergence.iter().collect();
-                reapply_entries.sort_by(|a, b| {
-                    a.from.cmp(&b.from)
-                        .then(a.nonce.cmp(&b.nonce))
-                });
-
-                let current_gas_price = state.current_gas_price;
-                let mut reapply_count = 0usize;
-                let mut reapply_burned = 0u64;
-                let mut reapply_to_validators = 0u64;
-                let mut reapply_tx_count = 0u64;
-                for entry in &reapply_entries {
-                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-                        continue;
-                    }
-                    let fee = entry.gas_price.unwrap_or(current_gas_price);
-                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
-                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
-                    let tx_cost = if is_stake_tx {
-                        entry.amount + fee
-                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                        fee
-                    } else {
-                        entry.amount + fee
-                    };
-                    let mut applied = false;
-                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
-                        if entry.nonce >= sender.nonce && sender.balance >= tx_cost {
-                            sender.balance -= tx_cost;
-                            sender.nonce = entry.nonce + 1;
-                            applied = true;
-                        }
-                    }
-                    if applied {
-                        reapply_count += 1;
-                        reapply_burned += fee / 2;
-                        reapply_to_validators += fee / 2;
-                        reapply_tx_count += 1;
-                        state.convergence_executed_txs.insert(entry.hash.clone(), (*entry).clone());
-                        state.convergence_executed_order.push_back(entry.hash.clone());
-                        if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                            if !entry.to.is_empty() {
-                                if let Some(receiver) = state.accounts.get_mut(&entry.to) {
-                                    receiver.balance += entry.amount;
-                                }
-                            }
-                        }
-                        if is_stake_tx {
-                            if let Some(staker) = state.accounts.get_mut(&entry.from) {
-                                staker.staked += entry.amount;
-                            }
-                        }
-                    }
-                }
-                state.total_burned += reapply_burned;
-                state.total_to_validators += reapply_to_validators;
-                state.total_transactions += reapply_tx_count;
-                if reapply_count > 0 {
+            {
+                let finalized_conv_hashes: std::collections::HashSet<String> = convergence_already_executed.iter().cloned().collect();
+                let pre_snap: std::collections::HashMap<String, (u64, u64, u64)> = state.pre_checkpoint_accounts_snapshot
+                    .as_ref()
+                    .map(|(_, s)| s.clone())
+                    .unwrap_or_default();
+                let changed_accounts = state.compute_changed_accounts(&pre_snap);
+                let (cleared, replayed) = state.selective_convergence_overlay_update(
+                    &finalized_conv_hashes,
+                    &changed_accounts,
+                    height,
+                    false,
+                );
+                if cleared > 0 || replayed > 0 {
                     tracing::info!(
-                        "Checkpoint h={}: re-applied {} non-finalized convergence effects after batch execution (burned={}, validators={}, txs={})",
-                        height, reapply_count, reapply_burned, reapply_to_validators, reapply_tx_count
+                        "Checkpoint h={}: proposer selective convergence update — cleared {} overlay entries, replayed {} (changed_accounts={}, finalized_conv={})",
+                        height, cleared, replayed, changed_accounts.len(), finalized_conv_hashes.len()
                     );
                 }
             }
 
-            let cleanup_hashes: Vec<String> = finalized_hashes_for_cleanup.into_iter()
-                .filter(|h| batch_result.executed_hashes.contains(h) || convergence_already_executed.contains(h))
-                .collect();
-            if !cleanup_hashes.is_empty() {
-                state.dag.cleanup_sender_unfinalized_batch(&cleanup_hashes);
+            if !finalized_hashes_for_cleanup.is_empty() {
+                state.dag.cleanup_sender_unfinalized_batch(&finalized_hashes_for_cleanup);
             }
 
             let has_special_txs = !batch_result.special_txs.is_empty();
@@ -645,14 +504,23 @@ impl NodeState {
                 state.checkpoint_accounts_snapshot = None;
             }
 
-            (batch_result, all_txs, finalized_count, convergence_skipped, from_deferred, retry_counts, height, convergence_already_executed)
+            (batch_result, all_txs, finalized_count, convergence_skipped, from_deferred, retry_counts, height, convergence_already_executed, prev_deferred)
         };
 
         if finalized_count > 0 {
             self.record_finalized_batch(finalized_count as u64).await;
         }
 
-        self.store_batch_deferred(batch_result.new_deferred, retry_counts).await;
+        {
+            let mut combined_deferred = batch_result.new_deferred;
+            let finalized_hash_set: std::collections::HashSet<&str> = all_txs.iter().map(|t| t.hash.as_str()).collect();
+            for dtx in prev_deferred {
+                if !finalized_hash_set.contains(dtx.hash.as_str()) && !convergence_already_executed.contains(&dtx.hash) {
+                    combined_deferred.push(dtx);
+                }
+            }
+            self.store_batch_deferred(combined_deferred, retry_counts).await;
+        }
 
         let has_special = !batch_result.special_txs.is_empty();
         self.process_batch_special_txs_with_skip(&batch_result.special_txs, &convergence_already_executed).await;
@@ -703,6 +571,23 @@ impl NodeState {
         checkpoint: Checkpoint,
         finalized_tx_hashes: Vec<String>,
     ) -> Result<usize> {
+        self.apply_checkpoint_with_finalized_hashes_inner(checkpoint, finalized_tx_hashes, false).await
+    }
+
+    pub async fn apply_checkpoint_catching_up(
+        &self,
+        checkpoint: Checkpoint,
+        finalized_tx_hashes: Vec<String>,
+    ) -> Result<usize> {
+        self.apply_checkpoint_with_finalized_hashes_inner(checkpoint, finalized_tx_hashes, true).await
+    }
+
+    async fn apply_checkpoint_with_finalized_hashes_inner(
+        &self,
+        checkpoint: Checkpoint,
+        finalized_tx_hashes: Vec<String>,
+        skip_convergence_reapply: bool,
+    ) -> Result<usize> {
         let batch_start = std::time::Instant::now();
 
         let mut prev_deferred = {
@@ -735,8 +620,13 @@ impl NodeState {
         }
 
         let t_phase1 = std::time::Instant::now();
-        let (txs_to_execute, mut convergence_already_executed, convergence_already_executed_entries, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, checkpoint_now_ms) = {
+        let (txs_to_execute, mut convergence_already_executed, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, checkpoint_now_ms) = {
+            let lock_start = std::time::Instant::now();
             let mut state = self.inner.write().await;
+            let lock_ms = lock_start.elapsed().as_millis();
+            if lock_ms > 5 {
+                tracing::info!("RCC-LOCK: checkpoint apply write lock acquired in {}ms (h={})", lock_ms, checkpoint.height);
+            }
 
             let local_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
             if checkpoint.height <= local_height {
@@ -762,7 +652,6 @@ impl NodeState {
 
             let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
             let mut convergence_already_executed: std::collections::HashSet<String> = std::collections::HashSet::new();
-            let mut convergence_already_executed_entries: Vec<super::ConvergenceUndoEntry> = Vec::new();
             let mut missing_tx_count = 0usize;
 
             let finalized_count = if !finalized_tx_hashes.is_empty() {
@@ -770,34 +659,20 @@ impl NodeState {
                 let mut missing = 0;
 
                 for hash in &finalized_tx_hashes {
-                    if let Some(entry) = state.convergence_executed_txs.remove(hash) {
+                    if state.convergence_executed_txs.contains_key(hash) {
                         convergence_already_executed.insert(hash.clone());
-                        convergence_already_executed_entries.push(entry);
                     }
 
                     if let Some(node) = state.dag.get_node(hash) {
-                        if node.finalized {
-                            continue;
-                        }
-
                         let tx_clone = node.tx.clone();
                         txs_to_execute.push(tx_clone);
-                        let _ = state.dag.mark_finalized_deferred_cleanup(hash, height);
+                        if !node.finalized {
+                            let _ = state.dag.mark_finalized_deferred_cleanup(hash, height);
+                        }
                         count += 1;
                     } else {
                         missing += 1;
                     }
-                }
-                while let Some(front) = state.convergence_executed_order.front() {
-                    if !state.convergence_executed_txs.contains_key(front) {
-                        state.convergence_executed_order.pop_front();
-                    } else {
-                        break;
-                    }
-                }
-                if state.convergence_executed_order.len() > state.convergence_executed_txs.len() * 2 + 100 {
-                    let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| state.convergence_executed_txs.contains_key(h.as_str())).cloned().collect();
-                    state.convergence_executed_order = compacted;
                 }
 
                 if missing > 0 {
@@ -852,31 +727,17 @@ impl NodeState {
 
                 if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                     for hash in &unfinalized_hashes {
-                        if let Some(entry) = state.convergence_executed_txs.remove(hash) {
+                        if state.convergence_executed_txs.contains_key(hash) {
                             convergence_already_executed.insert(hash.clone());
-                            convergence_already_executed_entries.push(entry);
                         }
 
                         if let Some(node) = state.dag.get_node(hash) {
-                            if node.finalized {
-                                continue;
-                            }
-
                             let tx_clone = node.tx.clone();
                             txs_to_execute.push(tx_clone);
+                            if !node.finalized {
+                                let _ = state.dag.mark_finalized_deferred_cleanup(hash, height);
+                            }
                         }
-                        let _ = state.dag.mark_finalized_deferred_cleanup(hash, height);
-                    }
-                    while let Some(front) = state.convergence_executed_order.front() {
-                        if !state.convergence_executed_txs.contains_key(front) {
-                            state.convergence_executed_order.pop_front();
-                        } else {
-                            break;
-                        }
-                    }
-                    if state.convergence_executed_order.len() > state.convergence_executed_txs.len() * 2 + 100 {
-                        let compacted: std::collections::VecDeque<String> = state.convergence_executed_order.iter().filter(|h| state.convergence_executed_txs.contains_key(h.as_str())).cloned().collect();
-                        state.convergence_executed_order = compacted;
                     }
                     tracing::info!(
                         "Applied checkpoint {} at height {} ({} txs finalized, merkle matched, no leader list)",
@@ -897,7 +758,7 @@ impl NodeState {
 
             let finalized_hashes_for_cleanup: Vec<String> = txs_to_execute.iter().map(|tx| tx.hash.clone()).collect();
 
-            (txs_to_execute, convergence_already_executed, convergence_already_executed_entries, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, now_ms)
+            (txs_to_execute, convergence_already_executed, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, now_ms)
         };
         let phase1_ms = t_phase1.elapsed().as_millis();
 
@@ -906,14 +767,6 @@ impl NodeState {
         let mut all_txs: Vec<SignedTransaction> = txs_to_execute;
         let convergence_skipped = convergence_already_executed.len();
         let from_deferred = prev_deferred.len();
-        if !prev_deferred.is_empty() {
-            let existing: std::collections::HashSet<String> = all_txs.iter().map(|t| t.hash.clone()).collect();
-            for dtx in prev_deferred.drain(..) {
-                if !existing.contains(&dtx.hash) {
-                    all_txs.push(dtx);
-                }
-            }
-        }
 
         all_txs.sort_by(|a, b| {
             a.tx.from.cmp(&b.tx.from)
@@ -924,14 +777,33 @@ impl NodeState {
         let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
             let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = std::collections::HashMap::new();
             for tx in &all_txs {
-                map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
+                if !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
+                    map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
+                }
             }
             map
         };
 
         let t_phase2 = std::time::Instant::now();
-        let batch_result = {
+        let (batch_result, needs_eviction) = {
+            let lock_start2 = std::time::Instant::now();
             let mut state = self.inner.write().await;
+            let lock_ms2 = lock_start2.elapsed().as_millis();
+            if lock_ms2 > 5 {
+                tracing::info!("RCC-LOCK: checkpoint phase2 write lock acquired in {}ms (h={})", lock_ms2, checkpoint.height);
+            }
+
+            let current_height_phase2 = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+            if checkpoint.height <= current_height_phase2 {
+                tracing::warn!(
+                    "PHASE2 RACE GUARD: Checkpoint h={} already applied during phase gap (current={}), aborting duplicate",
+                    checkpoint.height, current_height_phase2
+                );
+                return Err(anyhow::anyhow!(
+                    "Checkpoint height {} already applied during phase gap (current={})",
+                    checkpoint.height, current_height_phase2
+                ));
+            }
 
             let mut checkpoint_with_hashes = checkpoint.clone();
             if checkpoint_with_hashes.finalized_tx_hashes.is_empty() && !finalized_tx_hashes.is_empty() {
@@ -941,164 +813,31 @@ impl NodeState {
             state.last_checkpoint_time_ms = checkpoint_now_ms;
             self.checkpoint_height_cache.store(checkpoint.height, std::sync::atomic::Ordering::Relaxed);
 
-            let non_finalized_convergence: Vec<super::ConvergenceUndoEntry> =
-                state.convergence_executed_txs.values().cloned().collect();
-
-            {
-                let mut all_undo: Vec<&super::ConvergenceUndoEntry> = non_finalized_convergence.iter().collect();
-                all_undo.extend(convergence_already_executed_entries.iter());
-
-                all_undo.sort_by(|a, b| {
-                    a.from.cmp(&b.from)
-                        .then(b.nonce.cmp(&a.nonce))
-                });
-
-                let current_gas_price = state.current_gas_price;
-                let mut undo_count = 0usize;
-                let mut undo_burned = 0u64;
-                let mut undo_to_validators = 0u64;
-                let mut undo_tx_count = 0u64;
-                for entry in &all_undo {
-                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-                        continue;
-                    }
-                    let fee = entry.gas_price.unwrap_or(current_gas_price);
-                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
-                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
-                    let tx_cost = if is_stake_tx {
-                        entry.amount + fee
-                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                        fee
-                    } else {
-                        entry.amount + fee
-                    };
-                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
-                        sender.balance += tx_cost;
-                        sender.nonce = entry.nonce;
-                        undo_count += 1;
-                        undo_burned += fee / 2;
-                        undo_to_validators += fee / 2;
-                        undo_tx_count += 1;
-                    }
-                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                        if !entry.to.is_empty() {
-                            if let Some(receiver) = state.accounts.get_mut(&entry.to) {
-                                receiver.balance = receiver.balance.saturating_sub(entry.amount);
-                            }
-                        }
-                    }
-                    if is_stake_tx {
-                        if let Some(staker) = state.accounts.get_mut(&entry.from) {
-                            staker.staked = staker.staked.saturating_sub(entry.amount);
-                        }
-                    }
-                }
-
-                state.total_burned = state.total_burned.saturating_sub(undo_burned);
-                state.total_to_validators = state.total_to_validators.saturating_sub(undo_to_validators);
-                state.total_transactions = state.total_transactions.saturating_sub(undo_tx_count);
-
-                if undo_count > 0 {
-                    tracing::info!(
-                        "Checkpoint h={}: undid {} convergence fast-path effects for clean base (burned={}, validators={}, txs={})",
-                        height, undo_count, undo_burned, undo_to_validators, undo_tx_count
-                    );
-                }
-
-                state.convergence_executed_txs.clear();
-                state.convergence_executed_order.clear();
-            }
-
             let result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
 
-            if !non_finalized_convergence.is_empty() {
-                let mut reapply_entries: Vec<&super::ConvergenceUndoEntry> = non_finalized_convergence.iter().collect();
-                reapply_entries.sort_by(|a, b| {
-                    a.from.cmp(&b.from)
-                        .then(a.nonce.cmp(&b.nonce))
-                });
-
-                let current_gas_price = state.current_gas_price;
-                let mut reapply_count = 0usize;
-                let mut reapply_burned = 0u64;
-                let mut reapply_to_validators = 0u64;
-                let mut reapply_tx_count = 0u64;
-                for entry in &reapply_entries {
-                    if matches!(entry.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-                        continue;
-                    }
-                    let fee = entry.gas_price.unwrap_or(current_gas_price);
-                    let is_stake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Stake));
-                    let is_unstake_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Unstake));
-                    let is_claim_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                    let is_contract_tx = matches!(entry.kind, Some(rinku_core::types::TransactionKind::Contract));
-                    let tx_cost = if is_stake_tx {
-                        entry.amount + fee
-                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                        fee
-                    } else {
-                        entry.amount + fee
-                    };
-                    let mut applied = false;
-                    if let Some(sender) = state.accounts.get_mut(&entry.from) {
-                        if entry.nonce >= sender.nonce && sender.balance >= tx_cost {
-                            sender.balance -= tx_cost;
-                            sender.nonce = entry.nonce + 1;
-                            applied = true;
-                        }
-                    }
-                    if applied {
-                        reapply_count += 1;
-                        reapply_burned += fee / 2;
-                        reapply_to_validators += fee / 2;
-                        reapply_tx_count += 1;
-                        state.convergence_executed_txs.insert(entry.hash.clone(), (*entry).clone());
-                        state.convergence_executed_order.push_back(entry.hash.clone());
-                        if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                            if !entry.to.is_empty() {
-                                if let Some(receiver) = state.accounts.get_mut(&entry.to) {
-                                    receiver.balance += entry.amount;
-                                }
-                            }
-                        }
-                        if is_stake_tx {
-                            if let Some(staker) = state.accounts.get_mut(&entry.from) {
-                                staker.staked += entry.amount;
-                            }
-                        }
-                    }
-                }
-                state.total_burned += reapply_burned;
-                state.total_to_validators += reapply_to_validators;
-                state.total_transactions += reapply_tx_count;
-                if reapply_count > 0 {
+            {
+                let finalized_conv_hashes: std::collections::HashSet<String> = convergence_already_executed.iter().cloned().collect();
+                let pre_snap: std::collections::HashMap<String, (u64, u64, u64)> = state.pre_checkpoint_accounts_snapshot
+                    .as_ref()
+                    .map(|(_, s)| s.clone())
+                    .unwrap_or_default();
+                let changed_accounts = state.compute_changed_accounts(&pre_snap);
+                let (cleared, replayed) = state.selective_convergence_overlay_update(
+                    &finalized_conv_hashes,
+                    &changed_accounts,
+                    height,
+                    skip_convergence_reapply,
+                );
+                if cleared > 0 || replayed > 0 {
                     tracing::info!(
-                        "Checkpoint h={}: re-applied {} non-finalized convergence effects after batch execution (burned={}, validators={}, txs={})",
-                        height, reapply_count, reapply_burned, reapply_to_validators, reapply_tx_count
+                        "Checkpoint h={}: selective convergence update — cleared {} overlay entries, replayed {} (changed_accounts={}, finalized_conv={})",
+                        height, cleared, replayed, changed_accounts.len(), finalized_conv_hashes.len()
                     );
                 }
             }
 
-            let cleanup_hashes: Vec<String> = finalized_hashes_for_cleanup.into_iter()
-                .filter(|h| result.executed_hashes.contains(h) || convergence_already_executed.contains(h))
-                .collect();
-            if !cleanup_hashes.is_empty() {
-                state.dag.cleanup_sender_unfinalized_batch(&cleanup_hashes);
-            }
-
-            const DAG_EVICTION_RETENTION: u64 = 50;
-            if height > DAG_EVICTION_RETENTION {
-                let eviction_boundary = height - DAG_EVICTION_RETENTION;
-                let pre_count = state.dag.node_count();
-                let evicted = state.dag.evict_finalized_before(eviction_boundary);
-                if evicted > 0 {
-                    tracing::info!(
-                        "In-memory DAG eviction: removed {} finalized nodes older than h={} ({} -> {} nodes)",
-                        evicted, eviction_boundary, pre_count, state.dag.node_count()
-                    );
-                }
+            if !finalized_hashes_for_cleanup.is_empty() {
+                state.dag.cleanup_sender_unfinalized_batch(&finalized_hashes_for_cleanup);
             }
 
             let has_special_txs = !result.special_txs.is_empty();
@@ -1114,15 +853,41 @@ impl NodeState {
                 state.checkpoint_accounts_snapshot = None;
             }
 
-            result
+            const DAG_EVICTION_RETENTION: u64 = 50;
+            let eviction_needed = height > DAG_EVICTION_RETENTION;
+
+            (result, eviction_needed)
         };
         let phase2_ms = t_phase2.elapsed().as_millis();
+
+        if needs_eviction {
+            const DAG_EVICTION_RETENTION: u64 = 50;
+            let eviction_boundary = height - DAG_EVICTION_RETENTION;
+            let mut state = self.inner.write().await;
+            let pre_count = state.dag.node_count();
+            let evicted = state.dag.evict_finalized_before(eviction_boundary);
+            if evicted > 0 {
+                tracing::info!(
+                    "In-memory DAG eviction: removed {} finalized nodes older than h={} ({} -> {} nodes)",
+                    evicted, eviction_boundary, pre_count, state.dag.node_count()
+                );
+            }
+        }
 
         if finalized_count > 0 {
             self.record_finalized_batch(finalized_count as u64).await;
         }
 
-        self.store_batch_deferred(batch_result.new_deferred, retry_counts).await;
+        {
+            let mut combined_deferred = batch_result.new_deferred;
+            let finalized_hash_set: std::collections::HashSet<&str> = all_txs.iter().map(|t| t.hash.as_str()).collect();
+            for dtx in prev_deferred {
+                if !finalized_hash_set.contains(dtx.hash.as_str()) && !convergence_already_executed.contains(&dtx.hash) {
+                    combined_deferred.push(dtx);
+                }
+            }
+            self.store_batch_deferred(combined_deferred, retry_counts).await;
+        }
 
         let has_special = !batch_result.special_txs.is_empty();
         self.process_batch_special_txs_with_skip(&batch_result.special_txs, &convergence_already_executed).await;
@@ -1231,6 +996,7 @@ impl NodeState {
         state.checkpoint_accounts_snapshot = None;
         state.convergence_executed_txs.clear();
         state.convergence_executed_order.clear();
+        state.convergence_overlay.clear();
 
         let new_height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
         drop(state);

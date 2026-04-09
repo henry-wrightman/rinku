@@ -7,6 +7,7 @@
  * - Checkpoint chains
  * - Transaction counts
  * - Account balances
+ * - Smart contract state parity
  * - Finality status
  * 
  * Usage:
@@ -535,7 +536,7 @@ async function validateAccountBalances(nodeStatuses: NodeStatus[]) {
       
       const balances = new Map<string, number>();
       for (const acc of accounts) {
-        balances.set(acc.fingerprint, acc.balance);
+        balances.set(acc.address, acc.balance);
       }
       balanceMaps.set(node.name, balances);
       
@@ -609,6 +610,179 @@ async function validatePeerConnectivity(nodeStatuses: NodeStatus[]) {
   }
 }
 
+function canonicalJsonStringify(obj: any): string {
+  if (obj === null || obj === undefined) return JSON.stringify(obj);
+  if (typeof obj !== 'object') return JSON.stringify(obj);
+  if (Array.isArray(obj)) {
+    return '[' + obj.map(item => canonicalJsonStringify(item)).join(',') + ']';
+  }
+  const sortedKeys = Object.keys(obj).sort();
+  const parts = sortedKeys.map(k => JSON.stringify(k) + ':' + canonicalJsonStringify(obj[k]));
+  return '{' + parts.join(',') + '}';
+}
+
+async function validateContractStateParity(nodeStatuses: NodeStatus[]) {
+  logSection('8. SMART CONTRACT STATE PARITY');
+
+  const reachable = nodeStatuses.filter(n => n.reachable);
+
+  if (reachable.length < 2) {
+    console.log('  Skipping: Need at least 2 reachable nodes for contract parity check');
+    return;
+  }
+
+  const contractMaps = new Map<string, Map<string, { stateHash: string; state: Record<string, any>; height: number; creator: string }>>();
+
+  for (const node of reachable) {
+    try {
+      const { data } = await fetchWithTimeout(`${node.url}/api/contracts`, 10000);
+      const contracts = data.contracts || [];
+      const cmap = new Map<string, { stateHash: string; state: Record<string, any>; height: number; creator: string }>();
+      for (const c of contracts) {
+        cmap.set(c.contractId || c.contract_id, {
+          stateHash: c.stateHash || c.state_hash || '',
+          state: c.state || {},
+          height: c.height || 0,
+          creator: c.creator || '',
+        });
+      }
+      contractMaps.set(node.name, cmap);
+      console.log(`  ${node.name}: ${contracts.length} contracts deployed`);
+    } catch (e: any) {
+      console.log(`  ${node.name}: Failed to fetch contracts - ${e.message}`);
+    }
+  }
+
+  if (contractMaps.size < 2) {
+    record('Contract state parity', false, 'Could not fetch contracts from enough nodes');
+    return;
+  }
+
+  const nodeNames = [...contractMaps.keys()];
+  const allContractIds = new Set<string>();
+  for (const cmap of contractMaps.values()) {
+    for (const id of cmap.keys()) {
+      allContractIds.add(id);
+    }
+  }
+
+  if (allContractIds.size === 0) {
+    record('Contract deployment parity', true, 'No contracts deployed on any node');
+    record('Contract state parity', true, 'No contracts to compare');
+    return;
+  }
+
+  console.log(`\n  Total unique contracts across all nodes: ${allContractIds.size}`);
+
+  let deploymentMismatches = 0;
+  let stateMismatches = 0;
+  let stateHashMismatches = 0;
+
+  for (const contractId of allContractIds) {
+    const presentOn: string[] = [];
+    const missingOn: string[] = [];
+
+    for (const nodeName of nodeNames) {
+      if (contractMaps.get(nodeName)?.has(contractId)) {
+        presentOn.push(nodeName);
+      } else {
+        missingOn.push(nodeName);
+      }
+    }
+
+    if (missingOn.length > 0) {
+      deploymentMismatches++;
+      if (deploymentMismatches <= 3) {
+        console.log(`\n  \x1b[31m✗\x1b[0m Contract ${contractId.slice(0, 16)}... missing on: ${missingOn.join(', ')}`);
+      }
+      continue;
+    }
+
+    const hashes = nodeNames.map(n => contractMaps.get(n)!.get(contractId)!.stateHash);
+    const nonEmptyHashes = hashes.filter(h => h.length > 0);
+    const emptyHashCount = hashes.length - nonEmptyHashes.length;
+
+    if (emptyHashCount > 0 && nonEmptyHashes.length > 0) {
+      stateHashMismatches++;
+      if (stateHashMismatches <= 3) {
+        console.log(`\n  \x1b[33m!\x1b[0m Contract ${contractId.slice(0, 16)}... has missing state hash on ${emptyHashCount} node(s):`);
+        for (let i = 0; i < nodeNames.length; i++) {
+          console.log(`      ${nodeNames[i]}: ${hashes[i] || '(empty)'}`);
+        }
+      }
+    }
+
+    const uniqueHashes = [...new Set(nonEmptyHashes)];
+
+    if (uniqueHashes.length > 1) {
+      stateHashMismatches++;
+      if (stateHashMismatches <= 3) {
+        console.log(`\n  \x1b[31m✗\x1b[0m State hash mismatch for contract ${contractId.slice(0, 16)}...:`);
+        for (let i = 0; i < nodeNames.length; i++) {
+          console.log(`      ${nodeNames[i]}: ${hashes[i].slice(0, 24)}...`);
+        }
+      }
+
+      const states = nodeNames.map(n => contractMaps.get(n)!.get(contractId)!.state);
+      const stateStrings = states.map(s => canonicalJsonStringify(s));
+      const uniqueStates = [...new Set(stateStrings)];
+      if (uniqueStates.length > 1) {
+        stateMismatches++;
+        if (stateMismatches <= 2) {
+          const allKeys = new Set<string>();
+          for (const s of states) {
+            for (const k of Object.keys(s)) allKeys.add(k);
+          }
+          let diffCount = 0;
+          for (const key of allKeys) {
+            const vals = states.map(s => JSON.stringify(s[key]));
+            const uniqueVals = [...new Set(vals)];
+            if (uniqueVals.length > 1) {
+              diffCount++;
+              if (diffCount <= 3) {
+                console.log(`      Key "${key}":`);
+                for (let i = 0; i < nodeNames.length; i++) {
+                  const val = states[i][key];
+                  const display = typeof val === 'string' && val.length > 40 ? val.slice(0, 40) + '...' : JSON.stringify(val);
+                  console.log(`        ${nodeNames[i]}: ${display}`);
+                }
+              }
+            }
+          }
+          if (diffCount > 3) {
+            console.log(`      ... and ${diffCount - 3} more differing keys`);
+          }
+        }
+      }
+    } else {
+      const hashDisplay = uniqueHashes.length > 0 ? uniqueHashes[0].slice(0, 16) + '...' : '(empty)';
+      console.log(`  \x1b[32m✓\x1b[0m Contract ${contractId.slice(0, 16)}... state hash matches: ${hashDisplay}`);
+    }
+  }
+
+  record('Contract deployment parity', deploymentMismatches === 0,
+    deploymentMismatches === 0
+      ? `All ${allContractIds.size} contracts present on all nodes`
+      : `${deploymentMismatches} contracts missing on some nodes`
+  );
+
+  record('Contract state hash parity', stateHashMismatches === 0,
+    stateHashMismatches === 0
+      ? `All contract state hashes match across nodes`
+      : `${stateHashMismatches} contracts have differing state hashes`
+  );
+
+  if (stateMismatches > 0) {
+    record('Contract storage state parity', false,
+      `${stateMismatches} contracts have differing storage values`
+    );
+  } else if (stateHashMismatches === 0) {
+    record('Contract storage state parity', true,
+      'All contract storage states are consistent'
+    );
+  }
+}
+
 async function generateReport() {
   logSection('VALIDATION SUMMARY');
   
@@ -618,7 +792,8 @@ async function generateReport() {
   const criticalFailures = failed.filter(f => 
     f.check.includes('merkle root') || 
     f.check.includes('balance') ||
-    f.check.includes('FORK')
+    f.check.includes('FORK') ||
+    f.check.includes('Contract')
   );
   
   console.log(`\n  Total Checks: ${totalChecks}`);
@@ -639,6 +814,7 @@ async function generateReport() {
   console.log('  KEY CONSENSUS METRICS:');
   console.log('    - Checkpoint merkle roots at same height MUST match');
   console.log('    - Account balances MUST match');
+  console.log('    - Smart contract state hashes MUST match');
   console.log('    - DAG size/transactions will differ (expected due to pruning)');
   console.log('='.repeat(70));
   
@@ -684,6 +860,7 @@ async function main() {
     // await testTransactionPropagation(nodeStatuses);
     await validateAccountBalances(nodeStatuses);
     await validatePeerConnectivity(nodeStatuses);
+    await validateContractStateParity(nodeStatuses);
     
     const success = await generateReport();
     process.exit(success ? 0 : 1);

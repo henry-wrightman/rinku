@@ -346,6 +346,11 @@ impl NodeState {
         Self::get_effective_nonce(&state, sender)
     }
 
+    pub async fn get_effective_balance_for(&self, sender: &str) -> u64 {
+        let state = self.inner.read().await;
+        Self::get_effective_balance(&state, sender)
+    }
+
     /// Sync account nonce from peer during delta sync.
     /// Only updates if the peer's nonce is greater (prevents regression).
     pub async fn sync_account_nonce(&self, address: &str, peer_nonce: u64) {
@@ -455,5 +460,14 @@ impl NodeState {
     pub async fn get_all_accounts(&self) -> Vec<Account> {
         let state = self.inner.read().await;
         state.accounts.values().cloned().collect()
+    }
+
+    pub async fn get_all_accounts_with_effective(&self) -> Vec<(Account, u64, u64)> {
+        let state = self.inner.read().await;
+        state.accounts.values().map(|a| {
+            let eff_nonce = Self::get_effective_nonce(&state, &a.address);
+            let eff_balance = Self::get_effective_balance(&state, &a.address);
+            (a.clone(), eff_nonce, eff_balance)
+        }).collect()
     }
 }

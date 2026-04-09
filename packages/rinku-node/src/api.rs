@@ -1359,11 +1359,12 @@ async fn get_account(
     match state.get_account(&address).await {
         Some(account) => {
             let effective_nonce = state.get_effective_nonce_for(&account.address).await;
+            let effective_balance = state.get_effective_balance_for(&account.address).await;
             (
                 StatusCode::OK,
                 Json(AccountResponse {
                     fingerprint: account.address,
-                    balance: from_micro_units(account.balance),
+                    balance: from_micro_units(effective_balance),
                     nonce: account.nonce,
                     effective_nonce,
                     staked: from_micro_units(account.staked),
@@ -2191,14 +2192,14 @@ async fn get_dag(
 }
 
 async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> {
-    let accounts = state.get_all_accounts().await;
+    let accounts = state.get_all_accounts_with_effective().await;
     Json(AccountsResponse {
         accounts: accounts
             .into_iter()
-            .map(|a| AccountResponse {
+            .map(|(a, eff_nonce, eff_balance)| AccountResponse {
                 fingerprint: a.address.clone(),
-                balance: from_micro_units(a.balance),
-                effective_nonce: a.nonce,
+                balance: from_micro_units(eff_balance),
+                effective_nonce: eff_nonce,
                 nonce: a.nonce,
                 staked: from_micro_units(a.staked),
             })

@@ -45,6 +45,11 @@ fn topic_general() -> String {
     format!("rinku/{}/general", major)
 }
 
+fn topic_priority() -> String {
+    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    format!("rinku/{}/priority", major)
+}
+
 fn sync_protocol_id() -> String {
     let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
     format!("/rinku/sync/{}", major)
@@ -61,6 +66,7 @@ const MIN_MESH_PEERS: usize = 2;
 const RECONNECT_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_RAPID_RECONNECTS: usize = 3;
 const RECONNECT_DELAY: Duration = Duration::from_secs(1);
+const RR_FAILURE_DISCONNECT_THRESHOLD: u32 = 3;
 
 /// Sync request types for P2P sync operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -340,6 +346,10 @@ pub struct PeerStats {
     pub rate_limit_tokens: u32,
     pub last_rate_update: u64,
     pub score: i32,
+    #[serde(default)]
+    pub consecutive_rr_failures: u32,
+    #[serde(default)]
+    pub last_rr_success: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -426,6 +436,7 @@ pub struct NetworkService {
     topic_consensus: IdentTopic,
     topic_data: IdentTopic,
     topic_general: IdentTopic,
+    topic_priority: IdentTopic,
     config: NetworkConfig,
     stats: Arc<RwLock<NetworkStatsInner>>,
     message_tx: mpsc::Sender<GossipMessage>,
@@ -480,6 +491,7 @@ impl NetworkService {
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(HEARTBEAT_INTERVAL)
             .validation_mode(ValidationMode::Permissive)
+            .flood_publish(true)
             .message_id_fn(|msg| {
                 use sha2::{Sha256, Digest};
                 let mut hasher = Sha256::new();
@@ -515,7 +527,7 @@ impl NetworkService {
             cbor_codec,
             [(sync_protocol, ProtocolSupport::Full)],
             request_response::Config::default()
-                .with_request_timeout(Duration::from_secs(30)),
+                .with_request_timeout(Duration::from_secs(10)),
         );
 
         let vote_protocol_str = StreamProtocol::try_from_owned(vote_protocol_id())
@@ -566,6 +578,7 @@ impl NetworkService {
         let t_consensus = IdentTopic::new(topic_consensus());
         let t_data = IdentTopic::new(topic_data());
         let t_general = IdentTopic::new(topic_general());
+        let t_priority = IdentTopic::new(topic_priority());
 
         let (message_tx, message_rx) = mpsc::channel(2000);
         let (priority_message_tx, priority_message_rx) = mpsc::channel(2000);
@@ -618,6 +631,7 @@ impl NetworkService {
             topic_consensus: t_consensus,
             topic_data: t_data,
             topic_general: t_general,
+            topic_priority: t_priority,
             config,
             stats,
             message_tx,
@@ -660,6 +674,7 @@ impl NetworkService {
         self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_consensus)?;
         self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_data)?;
         self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_general)?;
+        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_priority)?;
 
         for peer_addr in &self.config.bootstrap_peers {
             if let Ok(addr) = peer_addr.parse::<Multiaddr>() {
@@ -895,6 +910,30 @@ impl NetworkService {
             debug!("Mesh healthy: {} validated peers", validated_peer_count);
         }
 
+        const RR_STALE_THRESHOLD_SECS: u64 = 60;
+        {
+            let now_secs = current_time_secs();
+            let stale_peers: Vec<PeerId> = {
+                let peers = self.peers.read().await;
+                peers.iter()
+                    .filter(|(pid, stats)| {
+                        stats.handshake_validated
+                            && self.swarm.is_connected(pid)
+                            && stats.consecutive_rr_failures > 0
+                            && now_secs.saturating_sub(stats.last_rr_success) > RR_STALE_THRESHOLD_SECS
+                    })
+                    .map(|(pid, _)| *pid)
+                    .collect()
+            };
+            for pid in stale_peers {
+                warn!(
+                    "PEER-HEALTH: {} has stale request-response (no success in {}s), forcing disconnect for fresh session",
+                    pid, RR_STALE_THRESHOLD_SECS
+                );
+                let _ = self.swarm.disconnect_peer_id(pid);
+            }
+        }
+
         const PEX_INTERVAL_CYCLES: u32 = 3;
         const PEX_TARGET_PEERS: usize = 5;
         if self.mesh_maintenance_counter % PEX_INTERVAL_CYCLES == 0
@@ -915,7 +954,11 @@ impl NetworkService {
             for pid in connected_peer_ids {
                 if self.swarm.is_connected(&pid) {
                     debug!("PEX: Sending periodic handshake to {}", pid);
-                    self.swarm.behaviour_mut().request_response.send_request(&pid, request.clone());
+                    let request_id = self.swarm.behaviour_mut().request_response.send_request(&pid, request.clone());
+                    self.pending_requests.insert(request_id, PendingSyncRequest {
+                        peer_id: pid,
+                        response_tx: None,
+                    });
                 }
             }
         }
@@ -993,7 +1036,7 @@ impl NetworkService {
                     };
                     for routed_msg in msgs_to_route {
                     let is_checkpoint = matches!(&routed_msg, GossipMessage::CheckpointAnnouncement { .. });
-                    let is_priority = matches!(&routed_msg, GossipMessage::TxConfirmBroadcast { .. } | GossipMessage::TxConfirmAck { .. } | GossipMessage::CheckpointIntent { .. } | GossipMessage::LeaderTimeout { .. } | GossipMessage::DaChunk { .. } | GossipMessage::QccVoteRequest { .. } | GossipMessage::QccVoteCast { .. } | GossipMessage::CheckpointSignature { .. });
+                    let is_priority = matches!(&routed_msg, GossipMessage::CheckpointIntent { .. } | GossipMessage::LeaderTimeout { .. } | GossipMessage::DaChunk { .. } | GossipMessage::QccVoteRequest { .. } | GossipMessage::QccVoteCast { .. } | GossipMessage::CheckpointSignature { .. });
                     if is_checkpoint {
                         match self.checkpoint_message_tx.try_send(routed_msg) {
                             Ok(_) => {
@@ -1088,6 +1131,8 @@ impl NetworkService {
                         rate_limit_tokens: max_tokens,
                         last_rate_update: now,
                         score: saved_score,
+                        consecutive_rr_failures: 0,
+                        last_rr_success: now,
                     });
                 }
             }
@@ -1154,6 +1199,8 @@ impl NetworkService {
                     rate_limit_tokens: max_tokens,
                     last_rate_update: now,
                     score: saved_score,
+                    consecutive_rr_failures: 0,
+                    last_rr_success: now,
                 });
 
                 // Proactively initiate handshake
@@ -1171,6 +1218,32 @@ impl NetworkService {
                 info!("Disconnected from peer: {} (cause: {:?})", peer_id, cause);
                 
                 self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
+                
+                let stale_sync: Vec<_> = self.pending_requests.iter()
+                    .filter(|(_, p)| p.peer_id == peer_id)
+                    .map(|(id, _)| *id)
+                    .collect();
+                for id in &stale_sync {
+                    if let Some(p) = self.pending_requests.remove(id) {
+                        if let Some(tx) = p.response_tx {
+                            let _ = tx.send(SyncResponse::Error { message: "ConnectionClosed".into() });
+                        }
+                    }
+                }
+                let stale_vote: Vec<_> = self.pending_vote_requests.iter()
+                    .filter(|(_, p)| p.peer_id == peer_id)
+                    .map(|(id, _)| *id)
+                    .collect();
+                for id in &stale_vote {
+                    if let Some(p) = self.pending_vote_requests.remove(id) {
+                        if let Some(tx) = p.response_tx {
+                            let _ = tx.send(VoteResponse::Error { message: "ConnectionClosed".into() });
+                        }
+                    }
+                }
+                if !stale_sync.is_empty() || !stale_vote.is_empty() {
+                    info!("Cleaned {} stale sync + {} stale vote pending requests for disconnected peer {}", stale_sync.len(), stale_vote.len(), peer_id);
+                }
                 
                 let was_validated;
                 {
@@ -1245,6 +1318,8 @@ impl NetworkService {
                                         rate_limit_tokens: self.dos_config.max_rate_limit_tokens,
                                         last_rate_update: current_time_secs(),
                                         score: saved_score,
+                                        consecutive_rr_failures: 0,
+                                        last_rr_success: current_time_secs(),
                                     });
                                     entry.handshake_validated = true;
                                     entry.handshake_info = Some(info.clone());
@@ -1319,6 +1394,7 @@ impl NetworkService {
                     request_response::Message::Response { request_id, response } => {
                         debug!("Received sync response for {:?}", request_id);
                         if let Some(pending) = self.pending_requests.remove(&request_id) {
+                            self.record_rr_success(pending.peer_id).await;
                             let pex_result = if let SyncResponse::Handshake(info) = &response {
                                 info!("Handshake response from {}: validator_address={:?}", pending.peer_id, info.validator_address);
                                 let pex_addrs = info.known_peer_addrs.clone();
@@ -1358,7 +1434,6 @@ impl NetworkService {
                 }
             }
 
-            // Request-response: outbound failure
             SwarmEvent::Behaviour(RinkuBehaviourEvent::RequestResponse(
                 request_response::Event::OutboundFailure { peer, request_id, error }
             )) => {
@@ -1370,6 +1445,7 @@ impl NetworkService {
                         });
                     }
                 }
+                self.record_rr_failure_and_maybe_disconnect(peer).await;
             }
 
             // Request-response: inbound failure
@@ -1429,6 +1505,7 @@ impl NetworkService {
                     request_response::Message::Response { request_id, response } => {
                         debug!("Received vote response for {:?}", request_id);
                         if let Some(pending) = self.pending_vote_requests.remove(&request_id) {
+                            self.record_rr_success(pending.peer_id).await;
                             if let Some(response_tx) = pending.response_tx {
                                 let _ = response_tx.send(response);
                             }
@@ -1448,6 +1525,7 @@ impl NetworkService {
                         });
                     }
                 }
+                self.record_rr_failure_and_maybe_disconnect(peer).await;
             }
 
             SwarmEvent::Behaviour(RinkuBehaviourEvent::VoteProtocol(
@@ -1474,7 +1552,50 @@ impl NetworkService {
         }
     }
 
-    /// Send a response to an incoming sync request
+    async fn record_rr_failure_and_maybe_disconnect(&mut self, peer: PeerId) {
+        let should_disconnect = {
+            let mut peers = match self.peers.try_write() {
+                Ok(p) => p,
+                Err(_) => self.peers.write().await,
+            };
+            if let Some(stats) = peers.get_mut(&peer) {
+                stats.consecutive_rr_failures += 1;
+                let count = stats.consecutive_rr_failures;
+                if count >= RR_FAILURE_DISCONNECT_THRESHOLD {
+                    warn!(
+                        "PEER-HEALTH: {} has {} consecutive request-response failures, forcing disconnect",
+                        peer, count
+                    );
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if should_disconnect {
+            let _ = self.swarm.disconnect_peer_id(peer);
+        }
+    }
+
+    async fn record_rr_success(&mut self, peer: PeerId) {
+        let mut peers = match self.peers.try_write() {
+            Ok(p) => p,
+            Err(_) => self.peers.write().await,
+        };
+        if let Some(stats) = peers.get_mut(&peer) {
+            if stats.consecutive_rr_failures > 0 {
+                info!(
+                    "PEER-HEALTH: {} recovered after {} consecutive failures",
+                    peer, stats.consecutive_rr_failures
+                );
+            }
+            stats.consecutive_rr_failures = 0;
+            stats.last_rr_success = current_time_secs();
+        }
+    }
+
     pub fn send_sync_response(&mut self, channel: ResponseChannel<SyncResponse>, response: SyncResponse) {
         if let Err(e) = self.swarm.behaviour_mut().request_response.send_response(channel, response) {
             warn!("Failed to send sync response: {:?}", e);
@@ -1490,9 +1611,10 @@ impl NetworkService {
             | GM::CheckpointSignature { .. } => &self.topic_critical,
 
             GM::TxConfirmAck { .. }
-            | GM::TxConfirmBroadcast { .. }
-            | GM::QccVoteRequest { .. }
-            | GM::QccVoteCast { .. } => &self.topic_consensus,
+            | GM::TxConfirmBroadcast { .. } => &self.topic_consensus,
+
+            GM::QccVoteRequest { .. }
+            | GM::QccVoteCast { .. } => &self.topic_priority,
 
             GM::DaChunk { .. } => &self.topic_data,
 
@@ -1549,6 +1671,7 @@ impl NetworkService {
         let total = messages.len();
         let mut critical_msgs: Vec<GossipMessage> = Vec::new();
         let mut consensus_msgs: Vec<GossipMessage> = Vec::new();
+        let mut priority_msgs: Vec<GossipMessage> = Vec::new();
         let mut data_msgs: Vec<GossipMessage> = Vec::new();
         let mut general_msgs: Vec<GossipMessage> = Vec::new();
         for msg in messages {
@@ -1559,6 +1682,9 @@ impl NetworkService {
                 GM::TxConfirmAck { .. }
                 | GM::TxConfirmBroadcast { .. } => consensus_msgs.push(msg),
 
+                GM::QccVoteRequest { .. }
+                | GM::QccVoteCast { .. } => priority_msgs.push(msg),
+
                 GM::DaChunk { .. } => data_msgs.push(msg),
 
                 _ => general_msgs.push(msg),
@@ -1566,8 +1692,12 @@ impl NetworkService {
         }
         let c_count = critical_msgs.len();
         let s_count = consensus_msgs.len();
+        let p_count = priority_msgs.len();
         let d_count = data_msgs.len();
         let g_count = general_msgs.len();
+        for msg in priority_msgs {
+            self.publish_to_topic(self.topic_priority.clone(), &msg).await;
+        }
         for msg in critical_msgs {
             self.publish_to_topic(self.topic_critical.clone(), &msg).await;
         }
@@ -1591,9 +1721,9 @@ impl NetworkService {
             self.publish_to_topic(self.topic_general.clone(), &batch).await;
         }
         if total > 3 {
-            let publishes = c_count + d_count + (if s_count > 1 { 1 } else { s_count }) + (if g_count > 1 { 1 } else { g_count });
-            debug!("Coalesced {} msgs into {} publishes (C:{} S:{} D:{} G:{})",
-                total, publishes, c_count, s_count, d_count, g_count);
+            let publishes = p_count + c_count + d_count + (if s_count > 1 { 1 } else { s_count }) + (if g_count > 1 { 1 } else { g_count });
+            debug!("Coalesced {} msgs into {} publishes (P:{} C:{} S:{} D:{} G:{})",
+                total, publishes, p_count, c_count, s_count, d_count, g_count);
         }
     }
 

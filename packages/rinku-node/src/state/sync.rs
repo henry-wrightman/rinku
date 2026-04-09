@@ -283,6 +283,9 @@ impl NodeState {
         );
         
         state.accounts = merged_accounts;
+        state.convergence_overlay.clear();
+        state.convergence_executed_txs.clear();
+        state.convergence_executed_order.clear();
         
         let old_validator_count = state.validators.len();
         let genesis_validators = &self.config.trust.genesis_validators;
