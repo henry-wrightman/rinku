@@ -614,7 +614,7 @@ impl RewardsService {
         
         let local_pending = self.pending_rewards.get(&addr).copied().unwrap_or(0);
         if local_pending != pending_rewards {
-            tracing::info!(
+            tracing::debug!(
                 "REWARD SYNC for {}: pending_rewards {} -> {}",
                 &address[..16.min(address.len())],
                 local_pending, pending_rewards
@@ -624,7 +624,7 @@ impl RewardsService {
         
         let local_claimed = self.claimed_rewards.get(&addr).copied().unwrap_or(0);
         if local_claimed != claimed_total {
-            tracing::info!(
+            tracing::debug!(
                 "REWARD SYNC for {}: claimed_total {} -> {}",
                 &address[..16.min(address.len())],
                 local_claimed, claimed_total
@@ -637,7 +637,7 @@ impl RewardsService {
                 || stake.staked_at != staked_at 
                 || stake.last_reward_at != last_reward_at 
             {
-                tracing::info!(
+                tracing::debug!(
                     "REWARD SYNC for {}: stake(amount={}, staked_at={}, last_reward={:?}) -> (amount={}, staked_at={}, last_reward={:?})",
                     &address[..16.min(address.len())],
                     stake.amount, stake.staked_at, stake.last_reward_at,

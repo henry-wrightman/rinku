@@ -4,7 +4,10 @@ set -e
 GENESIS_APP="rinku-genesis"
 VALIDATOR1_APP="rinku-validator-1"
 VALIDATOR2_APP="rinku-validator-2"
-RELAYER1_APP="rinku-relayer-1"
+# VALIDATOR3_APP="rinku-validator-3"
+# VALIDATOR4_APP="rinku-validator-4"
+ALL_APPS=("$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP") # "$VALIDATOR3_APP" "$VALIDATOR4_APP"
+VALIDATOR_APPS=("$VALIDATOR1_APP" "$VALIDATOR2_APP")
 REGION="sjc"
 CHAIN_ID="rinku-testnet"
 NETWORK_ID="testnet"
@@ -22,7 +25,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 usage() {
     cat << EOF
-Rinku Fly.io Deployment Script
+Rinku Fly.io Deployment Script (5-node validator network)
 
 Usage: $0 <mode> [options]
 
@@ -41,6 +44,13 @@ OPTIONS:
   --parallel          Deploy validators in parallel (faster but harder to debug)
   --genesis-only      Only deploy genesis node
   --help              Show this help message
+
+NODES:
+  Genesis:     ${GENESIS_APP}
+  Validator 1: ${VALIDATOR1_APP}
+  Validator 2: ${VALIDATOR2_APP}
+  Validator 3: ${VALIDATOR3_APP}
+  Validator 4: ${VALIDATOR4_APP}
 
 EXAMPLES:
   $0 update                    # Update all nodes with new code, keep chain history
@@ -88,43 +98,19 @@ allocate_ipv4_if_needed() {
 
 get_app_ipv4() {
     local app_name=$1
-    fly ips list -a "$app_name" 2>/dev/null | grep "v4" | head -1 | awk '{print $2}'
+    local ip
+    ip=$(fly ips list -a "$app_name" --json 2>/dev/null | grep -o '"Address":"[^"]*"' | head -1 | cut -d'"' -f4)
+    if [ -z "$ip" ]; then
+        ip=$(fly ips list -a "$app_name" 2>/dev/null | grep "v4" | head -1 | sed 's/│/|/g' | awk -F'|' '{for(i=1;i<=NF;i++){gsub(/^[ \t]+|[ \t]+$/,"",$i); if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}')
+    fi
+    echo "$ip"
 }
-
-# destroy_all_machines() {
-#     local app_name=$1
-#     log_info "Destroying all machines for $app_name..."
-    
-#     local machine_ids=$(fly machines list -a "$app_name" 2>/dev/null | tail -n +2 | awk '{print $1}')
-    
-#     if [ -z "$machine_ids" ]; then
-#         log_info "No machines to destroy for $app_name"
-#         return 0
-#     fi
-    
-#     for machine_id in $machine_ids; do
-#         if [ -n "$machine_id" ] && [ "$machine_id" != "ID" ]; then
-#             log_info "Destroying machine: $machine_id"
-#             fly machines destroy "$machine_id" -a "$app_name" --force -y 2>/dev/null || true
-#         fi
-#     done
-    
-#     sleep 3
-    
-#     local remaining=$(fly machines list -a "$app_name" 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
-#     if [ "$remaining" = "0" ]; then
-#         log_success "All machines destroyed for $app_name"
-#     else
-#         log_warn "$remaining machines still exist for $app_name"
-#     fi
-# }
 
 destroy_all_machines() {
   local app_name="$1"
   log_warn "Destroying ALL machines for $app_name (keeping app/IPs)..."
 
   fly machine list -a "$app_name" -q 2>/dev/null | while IFS= read -r id; do
-    # Trim whitespace (Fly output sometimes has trailing tabs/spaces)
     id="$(echo "$id" | tr -d '[:space:]')"
     [ -n "$id" ] || continue
 
@@ -132,7 +118,6 @@ destroy_all_machines() {
     fly machine destroy -a "$app_name" --force "$id" <<< "y" 2>/dev/null || true
   done
 }
-
 
 wait_for_no_machines() {
   local app_name="$1"
@@ -189,13 +174,6 @@ wipe_and_recreate_volume() {
         fi
     done
     
-    # local final_check=$(fly volumes list -a "$app_name" 2>/dev/null | grep -c "rinku_data" || echo "0")
-    # if [ "$final_check" != "0" ]; then
-    #     log_error "Failed to destroy all volumes for $app_name after $max_attempts attempts"
-    #     log_error "Please manually destroy volumes with: fly volumes list -a $app_name"
-    #     return 1
-    # fi
-    
     log_info "Creating fresh volume for $app_name..."
     fly volumes create rinku_data -a "$app_name" --region "$REGION" --size 1 -y
     log_success "Volume created for $app_name"
@@ -210,8 +188,6 @@ deploy_app() {
     fly deploy \
         --dockerfile Dockerfile.fly \
         --app "$app_name" \
-        # --region "$REGION" \
-        # --wait-timeout 300 \
         $extra_args
     
     log_success "Deployed $app_name"
@@ -263,31 +239,35 @@ get_bootstrap_info_for_app() {
 }
 
 build_genesis_validators_env() {
-    local genesis_info
-    local v1_info
-    local v2_info
+    local validator_envs=()
     
-    genesis_info=$(get_bootstrap_info_for_app "$GENESIS_APP") || return 1
-    v1_info=$(get_bootstrap_info_for_app "$VALIDATOR1_APP") || return 1
-    v2_info=$(get_bootstrap_info_for_app "$VALIDATOR2_APP") || return 1
+    for app in "${ALL_APPS[@]}"; do
+        local info
+        info=$(get_bootstrap_info_for_app "$app") || return 1
+        local val=$(echo "$info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
+        if [ -z "$val" ]; then
+            log_error "Failed to get validator env for $app"
+            return 1
+        fi
+        validator_envs+=("$val")
+    done
     
-    local g_val=$(echo "$genesis_info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
-    local v1_val=$(echo "$v1_info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
-    local v2_val=$(echo "$v2_info" | grep -o '"genesisValidatorEnv":"[^"]*"' | cut -d'"' -f4)
+    local result=""
+    for i in "${!validator_envs[@]}"; do
+        if [ $i -gt 0 ]; then
+            result="${result};"
+        fi
+        result="${result}${validator_envs[$i]}"
+    done
     
-    if [ -z "$g_val" ] || [ -z "$v1_val" ] || [ -z "$v2_val" ]; then
-        log_error "Failed to build GENESIS_VALIDATORS list (missing validator env values)"
-        return 1
-    fi
-    
-    echo "${g_val};${v1_val};${v2_val}"
+    echo "$result"
 }
 
 apply_genesis_validators_secrets() {
     local genesis_validators_env=$1
     
-    log_info "Applying GENESIS_VALIDATORS to all nodes (including relayer)..."
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+    log_info "Applying GENESIS_VALIDATORS to all 5 nodes..."
+    for app in "${ALL_APPS[@]}"; do
         fly secrets set -a "$app" GENESIS_VALIDATORS="$genesis_validators_env"
         fly secrets deploy -a "$app"
     done
@@ -352,44 +332,9 @@ configure_validator() {
     log_success "Configured $validator_app with bootstrap peer (IS_GENESIS_NODE=false)"
 }
 
-configure_relayer() {
-    local relayer_app=$1
-    local genesis_ip=$2
-    local peer_id=$3
-    local genesis_validators_env=$4
-    
-    log_info "Configuring $relayer_app as relayer node..."
-    
-    local bootstrap_peer="/ip4/${genesis_ip}/tcp/4001/p2p/${peer_id}"
-    
-    fly secrets set -a "$relayer_app" \
-        P2P_BOOTSTRAP_PEERS="$bootstrap_peer" \
-        GENESIS_VALIDATORS="$genesis_validators_env" \
-        IS_GENESIS_NODE="false" \
-        MAINNET_MODE="true" \
-        CHAIN_ID="$CHAIN_ID" \
-        NETWORK_ID="$NETWORK_ID" \
-        VALIDATOR_KEY_PASSWORD="testnet-${relayer_app}" \
-        PUBLIC_URL="https://${relayer_app}.fly.dev" \
-        RELAY_MODE="true" \
-        RELAY_MIN_STAKE="100" \
-        RELAY_FEE_PERCENT="0.1"
-    
-    local app_ip=$(get_app_ipv4 "$relayer_app")
-    if [ -n "$app_ip" ]; then
-        local p2p_external_addr="/ip4/${app_ip}/tcp/4001"
-        log_info "Setting P2P_EXTERNAL_ADDR=${p2p_external_addr} for $relayer_app"
-        fly secrets set -a "$relayer_app" P2P_EXTERNAL_ADDR="$p2p_external_addr"
-    else
-        log_warn "No IPv4 found for $relayer_app — PEX address sharing will be limited"
-    fi
-    
-    log_success "Configured $relayer_app as relayer with relay mode enabled"
-}
-
 refresh_p2p_external_addrs() {
     log_info "Refreshing P2P_EXTERNAL_ADDR for all nodes..."
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+    for app in "${ALL_APPS[@]}"; do
         if app_exists "$app"; then
             local app_ip=$(get_app_ipv4 "$app")
             if [ -n "$app_ip" ]; then
@@ -404,10 +349,10 @@ refresh_p2p_external_addrs() {
 
 show_status() {
     echo ""
-    log_info "=== Rinku Network Status ==="
+    log_info "=== Rinku Network Status (5 validators) ==="
     echo ""
     
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
+    for app in "${ALL_APPS[@]}"; do
         if app_exists "$app"; then
             echo -e "${GREEN}$app:${NC}"
             local status=$(fly status -a "$app" 2>/dev/null | grep -E "^(Machines|ID)" | head -5)
@@ -472,7 +417,7 @@ show_logs() {
 }
 
 deploy_update() {
-    log_info "=== Updating All Nodes (Retaining Data) ==="
+    log_info "=== Updating All 5 Nodes (Retaining Data) ==="
     
     check_fly_auth
     
@@ -483,20 +428,12 @@ deploy_update() {
     
     sleep 10
     
-    if app_exists "$VALIDATOR1_APP"; then
-        log_info "Deploying validator 1..."
-        deploy_app "$VALIDATOR1_APP"
-    fi
-    
-    if app_exists "$VALIDATOR2_APP"; then
-        log_info "Deploying validator 2..."
-        deploy_app "$VALIDATOR2_APP"
-    fi
-    
-    # if app_exists "$RELAYER1_APP"; then
-    #     log_info "Deploying relayer 1..."
-    #     deploy_app "$RELAYER1_APP"
-    # fi
+    for app in "${VALIDATOR_APPS[@]}"; do
+        if app_exists "$app"; then
+            log_info "Deploying $app..."
+            deploy_app "$app"
+        fi
+    done
     
     log_success "=== All nodes updated successfully ==="
     show_status
@@ -516,28 +453,23 @@ deploy_update_genesis() {
 }
 
 deploy_update_validators() {
-    log_info "=== Updating Validator Nodes Only ==="
+    log_info "=== Updating All Validator Nodes ==="
     check_fly_auth
     
     refresh_p2p_external_addrs
     
-    if app_exists "$VALIDATOR1_APP"; then
-        deploy_app "$VALIDATOR1_APP"
-    fi
+    for app in "${VALIDATOR_APPS[@]}"; do
+        if app_exists "$app"; then
+            log_info "Deploying $app..."
+            deploy_app "$app"
+        fi
+    done
     
-    if app_exists "$VALIDATOR2_APP"; then
-        deploy_app "$VALIDATOR2_APP"
-    fi
-    
-    # if app_exists "$RELAYER1_APP"; then
-    #     deploy_app "$RELAYER1_APP"
-    # fi
-    
-    log_success "Validator and relayer nodes updated"
+    log_success "All validator nodes updated"
 }
 
 deploy_fresh() {
-    log_info "=== Fresh Deployment (Wiping All Data) ==="
+    log_info "=== Fresh Deployment — 5 Validator Nodes (Wiping All Data) ==="
     
     echo ""
     echo -e "${RED}WARNING: This will wipe all chain data and start fresh!${NC}"
@@ -545,6 +477,8 @@ deploy_fresh() {
     echo "  - Genesis node data"
     echo "  - Validator 1 data"  
     echo "  - Validator 2 data"
+    echo "  - Validator 3 data"
+    echo "  - Validator 4 data"
     echo ""
     read -p "Are you sure you want to continue? (yes/no): " confirm
     
@@ -555,31 +489,28 @@ deploy_fresh() {
     
     check_fly_auth
     
-    # log_info "Step 1: Creating/preparing apps..."
-    # create_app_if_needed "$GENESIS_APP"
-    # create_app_if_needed "$VALIDATOR1_APP"
-    # create_app_if_needed "$VALIDATOR2_APP"
-    # create_app_if_needed "$RELAYER1_APP"
+    log_info "Step 1: Creating/preparing all 5 apps..."
+    # for app in "${ALL_APPS[@]}"; do
+    #     create_app_if_needed "$app"
+    # done
     
     log_info "Step 2: Allocating IPv4 addresses..."
-    allocate_ipv4_if_needed "$GENESIS_APP"
-    allocate_ipv4_if_needed "$VALIDATOR1_APP"
-    allocate_ipv4_if_needed "$VALIDATOR2_APP"
-    # allocate_ipv4_if_needed "$RELAYER1_APP"
+    for app in "${ALL_APPS[@]}"; do
+        allocate_ipv4_if_needed "$app"
+    done
     
     log_info "Step 3: Destroying existing machines (IPs are preserved)..."
-    for app in "$GENESIS_APP" "$VALIDATOR1_APP" "$VALIDATOR2_APP"; do
-    if app_exists "$app"; then
-        destroy_all_machines "$app"
-        wait_for_no_machines "$app"
-    fi
+    for app in "${ALL_APPS[@]}"; do
+        if app_exists "$app"; then
+            destroy_all_machines "$app"
+            wait_for_no_machines "$app" || true
+        fi
     done
     
     log_info "Step 4: Wiping volumes..."
-    wipe_and_recreate_volume "$GENESIS_APP"
-    wipe_and_recreate_volume "$VALIDATOR1_APP"
-    wipe_and_recreate_volume "$VALIDATOR2_APP"
-    # wipe_and_recreate_volume "$RELAYER1_APP"
+    for app in "${ALL_APPS[@]}"; do
+        wipe_and_recreate_volume "$app"
+    done
     
     log_info "Step 5: Configuring and deploying genesis node..."
     configure_genesis "$GENESIS_APP"
@@ -604,23 +535,41 @@ deploy_fresh() {
     log_info "Genesis IP: $genesis_ip"
     log_info "Genesis Validator: $genesis_validator"
     
-    log_info "Step 8: Configuring validators (temporary GENESIS_VALIDATORS)..."
-    configure_validator "$VALIDATOR1_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
-    configure_validator "$VALIDATOR2_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
-    # configure_relayer "$RELAYER1_APP" "$genesis_ip" "$peer_id" "$genesis_validator"
+    if [ -z "$genesis_ip" ] || ! echo "$genesis_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        log_error "Invalid or empty genesis IPv4 address: '${genesis_ip}'"
+        log_error "Check 'fly ips list -a ${GENESIS_APP}' — you may need to allocate an IPv4."
+        exit 1
+    fi
     
-    log_info "Step 9: Deploying validators and relayer..."
-    deploy_app "$VALIDATOR1_APP"
-    deploy_app "$VALIDATOR2_APP"
-    # deploy_app "$RELAYER1_APP"
+    if [ -z "$peer_id" ]; then
+        log_error "Failed to get genesis peer ID from bootstrap API"
+        exit 1
+    fi
+    
+    log_info "Step 8: Configuring all 4 validators (temporary GENESIS_VALIDATORS)..."
+    for app in "${VALIDATOR_APPS[@]}"; do
+        configure_validator "$app" "$genesis_ip" "$peer_id" "$genesis_validator"
+    done
+    
+    log_info "Step 9: Deploying all 4 validators..."
+    for app in "${VALIDATOR_APPS[@]}"; do
+        deploy_app "$app"
+    done
 
-    log_info "Step 10: Building full GENESIS_VALIDATORS list..."
+    log_info "Step 10: Building full GENESIS_VALIDATORS list from all 5 nodes..."
     local genesis_validators_env
     genesis_validators_env=$(build_genesis_validators_env)
-    log_info "GENESIS_VALIDATORS: ${genesis_validators_env}"
+    
+    local validator_count=$(echo "$genesis_validators_env" | tr ';' '\n' | wc -l | tr -d ' ')
+    # if [ "$validator_count" != "5" ]; then
+    #     log_error "Expected 5 validators in GENESIS_VALIDATORS but got $validator_count"
+    #     log_error "GENESIS_VALIDATORS: ${genesis_validators_env}"
+    #     exit 1
+    # fi
+    log_info "GENESIS_VALIDATORS (${validator_count} validators): ${genesis_validators_env}"
     apply_genesis_validators_secrets "$genesis_validators_env"
     
-    log_success "=== Fresh deployment complete! ==="
+    log_success "=== Fresh 5-node deployment complete! ==="
     echo ""
     show_status
     
@@ -629,9 +578,14 @@ deploy_fresh() {
     echo "  Genesis:     https://${GENESIS_APP}.fly.dev"
     echo "  Validator 1: https://${VALIDATOR1_APP}.fly.dev"
     echo "  Validator 2: https://${VALIDATOR2_APP}.fly.dev"
-    # echo "  Relayer 1:   https://${RELAYER1_APP}.fly.dev"
+    # echo "  Validator 3: https://${VALIDATOR3_APP}.fly.dev"
+    # echo "  Validator 4: https://${VALIDATOR4_APP}.fly.dev"
     echo ""
     log_info "Explorer should connect to: https://${GENESIS_APP}.fly.dev"
+    echo ""
+    log_info "Monitor: npx tsx scripts/testnet-monitor.ts https://${GENESIS_APP}.fly.dev https://${VALIDATOR1_APP}.fly.dev https://${VALIDATOR2_APP}.fly.dev https://${VALIDATOR3_APP}.fly.dev https://${VALIDATOR4_APP}.fly.dev"
+    echo ""
+    log_info "Activity bot: RINKU_NODE_URLS=\"https://${GENESIS_APP}.fly.dev,https://${VALIDATOR1_APP}.fly.dev,https://${VALIDATOR2_APP}.fly.dev,https://${VALIDATOR3_APP}.fly.dev,https://${VALIDATOR4_APP}.fly.dev\" npx tsx scripts/activity-bot-v2.ts --mode=realistic --accounts=10 --duration=300"
 }
 
 deploy_fresh_genesis() {
@@ -719,7 +673,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            log_error "Unknown option: $1"
+            log_error "Unknown command: $1"
             usage
             ;;
     esac

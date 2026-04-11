@@ -495,6 +495,8 @@ impl MergeOrchestrator {
             partition_epoch: Some(report.merge_epoch),
             visible_stake_pct: Some(1.0),
             merge_report_hash: Some(merge_report_hash),
+            view_change_certificate: None,
+            view: 0,
         };
 
         state.checkpoints.push(merge_checkpoint);

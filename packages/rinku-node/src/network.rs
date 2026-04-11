@@ -93,6 +93,16 @@ pub struct CheckpointPushData {
     pub finalized_tx_hashes: Vec<String>,
     pub finalized_transactions: Vec<rinku_core::types::SignedTransaction>,
     pub precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub backfill_checkpoints: Vec<BackfillCheckpoint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackfillCheckpoint {
+    pub checkpoint: rinku_core::types::Checkpoint,
+    pub finalized_tx_hashes: Vec<String>,
+    pub finalized_transactions: Vec<rinku_core::types::SignedTransaction>,
+    pub precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
 }
 
 /// Request for a validator to sign a checkpoint

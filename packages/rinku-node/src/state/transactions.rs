@@ -24,6 +24,7 @@ pub struct BatchCoreResult {
     pub special_txs: Vec<SignedTransaction>,
     pub new_deferred: Vec<SignedTransaction>,
     pub gap_skipped_senders: std::collections::HashSet<String>,
+    pub changed_addresses: Vec<String>,
 }
 
 impl NodeState {
@@ -611,7 +612,7 @@ impl NodeState {
                         None
                     };
 
-                    tracing::info!(
+                    tracing::debug!(
                         "FastPath EXECUTED tx {} ({} -> {}, amount={}, gas={}, kind={:?})",
                         &tx.hash[..16.min(tx.hash.len())],
                         &tx.tx.from[..16.min(tx.tx.from.len())],
@@ -744,6 +745,7 @@ impl NodeState {
         let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
         let current_gas_price = state.current_gas_price;
 
+        let mut nonce_bridged_addrs: Vec<String> = Vec::new();
         for (sender_addr, sender_nonces) in available_nonces {
             if let Some(account) = state.accounts.get_mut(sender_addr) {
                 if let Some(&first_nonce) = sender_nonces.iter().next() {
@@ -756,6 +758,7 @@ impl NodeState {
                                     account.nonce, first_nonce, overlay.nonce, first_nonce - account.nonce
                                 );
                                 account.nonce = first_nonce;
+                                nonce_bridged_addrs.push(sender_addr.clone());
                             } else {
                                 tracing::info!(
                                     "NONCE-GAP-SKIP (batch): sender {} has gap — account nonce {} but first tx nonce {} (overlay nonce {} doesn't cover, deferring)",
@@ -780,6 +783,7 @@ impl NodeState {
         let mut special_txs: Vec<SignedTransaction> = Vec::new();
         let mut executed_hashes: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut gap_skipped_senders: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut changed_addrs: std::collections::HashSet<String> = nonce_bridged_addrs.into_iter().collect();
 
         let mut balance_deferred: Vec<SignedTransaction> = Vec::new();
 
@@ -851,8 +855,10 @@ impl NodeState {
                         .entry(tx.tx.to.clone())
                         .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
                     to_account.balance += tx.tx.amount;
+                    changed_addrs.insert(tx.tx.to.clone());
                 }
 
+                changed_addrs.insert(tx.tx.from.clone());
                 state.total_burned += gas_fee / 2;
                 state.total_to_validators += gas_fee / 2;
                 state.total_transactions += 1;
@@ -926,8 +932,10 @@ impl NodeState {
                             .entry(tx.tx.to.clone())
                             .or_insert_with(|| Account::new(tx.tx.to.clone(), tx.tx.timestamp));
                         to_account.balance += tx.tx.amount;
+                        changed_addrs.insert(tx.tx.to.clone());
                     }
 
+                    changed_addrs.insert(tx.tx.from.clone());
                     state.total_burned += gas_fee / 2;
                     state.total_to_validators += gas_fee / 2;
                     state.total_transactions += 1;
@@ -971,6 +979,7 @@ impl NodeState {
             special_txs,
             new_deferred,
             gap_skipped_senders,
+            changed_addresses: changed_addrs.into_iter().collect(),
         }
     }
 
@@ -1156,22 +1165,29 @@ impl NodeState {
 
         if !unstake_credits.is_empty() || !claim_credits.is_empty() || !finalized_stake_deltas.is_empty() {
             let mut state = self.inner.write().await;
+            let mut special_changed: Vec<String> = Vec::new();
             for (addr, amount) in &unstake_credits {
                 if let Some(account) = state.accounts.get_mut(addr) {
                     account.balance += amount;
                     account.staked = 0;
+                    special_changed.push(addr.clone());
                 }
             }
             for (addr, claimed) in &claim_credits {
                 if let Some(account) = state.accounts.get_mut(addr) {
                     account.balance += claimed;
+                    special_changed.push(addr.clone());
                 }
             }
             for (addr, (delta_amount, staked_at)) in &finalized_stake_deltas {
                 if let Some(account) = state.accounts.get_mut(addr) {
                     account.staked += delta_amount;
                     account.first_seen = *staked_at / 1000;
+                    special_changed.push(addr.clone());
                 }
+            }
+            if !special_changed.is_empty() {
+                state.update_state_trie_accounts(&special_changed);
             }
         }
 
@@ -1303,7 +1319,11 @@ impl NodeState {
 
         let batch_result = {
             let mut state = self.inner.write().await;
-            Self::execute_batch_inline(&mut state, &all_txs, &available_nonces)
+            let result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
+            if !result.changed_addresses.is_empty() {
+                state.update_state_trie_accounts(&result.changed_addresses);
+            }
+            result
         };
 
         self.store_batch_deferred(batch_result.new_deferred, retry_counts).await;
@@ -1360,10 +1380,50 @@ impl NodeState {
         let mut state = self.inner.write().await;
         let unfinalized = state.dag.get_unfinalized_nodes();
         let mut zombie_hashes: Vec<String> = Vec::new();
+        let mut stale_count = 0usize;
+        let mut orphan_count = 0usize;
+
+        let mut sender_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> =
+            std::collections::HashMap::new();
         for node in &unfinalized {
-            let account_nonce = state.accounts.get(&node.tx.tx.from).map(|a| a.nonce).unwrap_or(0);
-            if node.tx.tx.nonce < account_nonce && !state.convergence_executed_txs.contains_key(&node.hash) {
+            sender_nonces
+                .entry(node.tx.tx.from.clone())
+                .or_default()
+                .insert(node.tx.tx.nonce);
+        }
+        for entry in state.convergence_executed_txs.values() {
+            sender_nonces
+                .entry(entry.from.clone())
+                .or_default()
+                .insert(entry.nonce);
+        }
+
+        for node in &unfinalized {
+            if state.convergence_executed_txs.contains_key(&node.hash) {
+                continue;
+            }
+            let account_nonce = state
+                .accounts
+                .get(&node.tx.tx.from)
+                .map(|a| a.nonce)
+                .unwrap_or(0);
+            if node.tx.tx.nonce < account_nonce {
                 zombie_hashes.push(node.hash.clone());
+                stale_count += 1;
+            } else if node.tx.tx.nonce > account_nonce {
+                if let Some(nonces) = sender_nonces.get(&node.tx.tx.from) {
+                    let mut reachable = true;
+                    for needed in account_nonce..node.tx.tx.nonce {
+                        if !nonces.contains(&needed) {
+                            reachable = false;
+                            break;
+                        }
+                    }
+                    if !reachable {
+                        zombie_hashes.push(node.hash.clone());
+                        orphan_count += 1;
+                    }
+                }
             }
         }
         if !zombie_hashes.is_empty() {
@@ -1373,9 +1433,46 @@ impl NodeState {
             }
             state.dag.cleanup_sender_unfinalized_batch(&zombie_hashes);
             tracing::info!(
-                "Purged {} zombie txs from DAG (stale nonce, not convergence-tracked)",
-                zombie_hashes.len()
+                "Purged {} zombie txs from DAG ({} stale nonce, {} unreachable nonce gap)",
+                zombie_hashes.len(), stale_count, orphan_count
             );
+        }
+
+        const MAX_UNFINALIZED_DAG: usize = 500;
+        let overflow_evict = {
+            let remaining_unfinalized = state.dag.get_unfinalized_nodes();
+            let unfinalized_count = remaining_unfinalized.len();
+            if unfinalized_count > MAX_UNFINALIZED_DAG {
+                let excess = unfinalized_count - MAX_UNFINALIZED_DAG;
+                let mut overflow: Vec<(String, u64)> = remaining_unfinalized
+                    .iter()
+                    .filter(|n| !state.convergence_executed_txs.contains_key(&n.hash))
+                    .map(|n| {
+                        let account_nonce = state.accounts.get(&n.tx.tx.from).map(|a| a.nonce).unwrap_or(0);
+                        let gap = n.tx.tx.nonce.saturating_sub(account_nonce);
+                        (n.hash.clone(), gap)
+                    })
+                    .collect();
+                overflow.sort_by(|a, b| b.1.cmp(&a.1));
+                let evict_count = excess.min(overflow.len());
+                let evict_hashes: Vec<String> = overflow.into_iter().take(evict_count).map(|(h, _)| h).collect();
+                Some((evict_hashes, unfinalized_count))
+            } else {
+                None
+            }
+        };
+        if let Some((evict_hashes, was_count)) = overflow_evict {
+            if !evict_hashes.is_empty() {
+                let height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
+                for h in &evict_hashes {
+                    state.dag.mark_finalized_deferred_cleanup(h, height);
+                }
+                state.dag.cleanup_sender_unfinalized_batch(&evict_hashes);
+                tracing::warn!(
+                    "DAG overflow eviction: removed {} unfinalized txs (cap={}, was {})",
+                    evict_hashes.len(), MAX_UNFINALIZED_DAG, was_count
+                );
+            }
         }
     }
 
@@ -1477,6 +1574,12 @@ impl NodeState {
             state.total_burned += gas_fee / 2;
             state.total_to_validators += gas_fee / 2;
             state.total_transactions += 1;
+
+            let mut changed = vec![tx.tx.from.clone()];
+            if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx && !tx.tx.to.is_empty() {
+                changed.push(tx.tx.to.clone());
+            }
+            state.update_state_trie_accounts(&changed);
         }
         
         self.execute_transaction_side_effects(tx).await;
@@ -1531,6 +1634,7 @@ impl NodeState {
                                 account.balance
                             );
                         }
+                        state.update_state_trie_accounts(&[from_addr.to_string()]);
                     }
                 }
                 TransactionKind::ClaimRewards => {
@@ -1555,6 +1659,7 @@ impl NodeState {
                                 account.balance
                             );
                         }
+                        state.update_state_trie_accounts(&[from_addr.to_string()]);
                     }
                 }
                 TransactionKind::Contract => {
@@ -1738,6 +1843,7 @@ impl NodeState {
             }
             state.total_burned += execution_fee / 2;
             state.total_to_validators += execution_fee / 2;
+            state.update_state_trie_accounts(&[from.to_string()]);
             tracing::info!(
                 "Contract execution fee: {} total gas ({} additional) = {} micro from {}",
                 gas_used, additional_gas, execution_fee, &from[..16.min(from.len())]
@@ -1984,6 +2090,8 @@ impl NodeState {
             partition_epoch: None,
             visible_stake_pct: None,
                 merge_report_hash: None,
+                view_change_certificate: None,
+                view: 0,
             };
             
             if !state.checkpoints.iter().any(|c| c.height == checkpoint.height) {

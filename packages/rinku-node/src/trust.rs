@@ -263,6 +263,8 @@ mod tests {
             partition_epoch: None,
             visible_stake_pct: None,
             merge_report_hash: None,
+            view_change_certificate: None,
+            view: 0,
         }
     }
 

@@ -19,7 +19,7 @@
 
 ---
 
-A DAG-based distributed ledger with tunable consistency, designed for mesh-native and partition-prone environments. Delivers CP-like checkpoint finality during normal operation, provisional availability during partitions, and deterministic merge reconciliation when connectivity is restored. Self-contained VerifiableObject proofs enable offline verification without RPC infrastructure. It's also pure ai slop.
+A DAG-based distributed ledger with tunable consistency, designed for mesh-native and partition-prone environments. Delivers CP-like checkpoint finality during normal operation, provisional availability during partitions, and deterministic merge reconciliation when connectivity is restored. Self-contained VerifiableObject proofs enable offline verification without RPC infrastructure. It's also pure ai slop because i'm too mentally incapacitated to build this myself.
 
 [whitepaper](https://rinkuchan.com/rinku.pdf)
 

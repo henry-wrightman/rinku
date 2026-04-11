@@ -443,6 +443,18 @@ pub enum GossipMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
     },
+    ViewChange {
+        height: u64,
+        view: u32,
+        validator_address: String,
+        validator_stake: u64,
+        reason: rinku_core::types::ViewChangeReason,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bls_signature: Option<String>,
+        timestamp_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sender_url: Option<String>,
+    },
     DaChunk {
         checkpoint_height: u64,
         checkpoint_hash: String,
@@ -499,6 +511,7 @@ impl GossipMessage {
             GossipMessage::MergeResult { .. } => "MergeResult",
             GossipMessage::CheckpointIntent { .. } => "CheckpointIntent",
             GossipMessage::LeaderTimeout { .. } => "LeaderTimeout",
+            GossipMessage::ViewChange { .. } => "ViewChange",
             GossipMessage::DaChunk { .. } => "DaChunk",
             GossipMessage::QccVoteRequest { .. } => "QccVoteRequest",
             GossipMessage::QccVoteCast { .. } => "QccVoteCast",
@@ -574,6 +587,18 @@ pub struct GossipServiceInner {
     pub da_early_shards: HashMap<u64, Vec<(String, usize, String, Vec<String>)>>,
     pub leader_timeout_votes: HashMap<u64, HashMap<String, u64>>,
     pub leader_timeout_sent: std::collections::HashSet<u64>,
+    pub view_change_votes: HashMap<(u64, u32), HashMap<String, rinku_core::types::ViewChangeVote>>,
+    pub view_change_sent: std::collections::HashSet<(u64, u32)>,
+    pub current_view: HashMap<u64, u32>,
+    pub push_retry_queue: Vec<PendingCheckpointPush>,
+}
+
+pub struct PendingCheckpointPush {
+    pub peer_id: String,
+    pub push_data: std::sync::Arc<crate::network::CheckpointPushData>,
+    pub attempts: u8,
+    pub last_attempt: std::time::Instant,
+    pub created_at: std::time::Instant,
 }
 
 pub struct DaReconstructionState {
@@ -794,6 +819,10 @@ impl GossipService {
                 da_early_shards: HashMap::new(),
                 leader_timeout_votes: HashMap::new(),
                 leader_timeout_sent: std::collections::HashSet::new(),
+                view_change_votes: HashMap::new(),
+                view_change_sent: std::collections::HashSet::new(),
+                current_view: HashMap::new(),
+                push_retry_queue: Vec::new(),
             })),
             node_id,
             interval_ms,
@@ -2199,6 +2228,51 @@ impl GossipService {
                 SyncResponse::Handshake(our_handshake)
             }
             SyncRequest::CheckpointPush(push_data) => {
+                let local_height = self.state.get_checkpoint_height();
+                let mut backfill_applied = 0u64;
+                if !push_data.backfill_checkpoints.is_empty() {
+                    let mut sorted_backfills = push_data.backfill_checkpoints;
+                    sorted_backfills.sort_by_key(|b| b.checkpoint.height);
+                    for bf in sorted_backfills {
+                        let bf_height = bf.checkpoint.height;
+                        let current = self.state.get_checkpoint_height();
+                        if bf_height <= current {
+                            continue;
+                        }
+                        if bf_height != current + 1 {
+                            let mut buffer = self.checkpoint_buffer.lock().await;
+                            if !buffer.contains_key(&bf_height) {
+                                buffer.insert(bf_height, crate::gossip::BufferedCheckpoint {
+                                    checkpoint: bf.checkpoint,
+                                    finalized_tx_hashes: bf.finalized_tx_hashes,
+                                    finalized_transactions: bf.finalized_transactions,
+                                    precomputed_proofs: bf.precomputed_proofs,
+                                    source: "backfill-push".to_string(),
+                                });
+                            }
+                            continue;
+                        }
+                        let applied = self
+                            .apply_received_checkpoint(
+                                bf.checkpoint,
+                                bf.finalized_tx_hashes,
+                                bf.finalized_transactions,
+                                bf.precomputed_proofs,
+                                "backfill-push",
+                            )
+                            .await;
+                        if applied {
+                            backfill_applied += 1;
+                            self.drain_checkpoint_buffer().await;
+                        }
+                    }
+                }
+                if backfill_applied > 0 {
+                    info!(
+                        "Backfill-push: applied {} sequential checkpoints (was h={}, now h={})",
+                        backfill_applied, local_height, self.state.get_checkpoint_height()
+                    );
+                }
                 let applied = self
                     .apply_received_checkpoint(
                         push_data.checkpoint,
@@ -2209,6 +2283,7 @@ impl GossipService {
                     )
                     .await;
                 if applied {
+                    self.drain_checkpoint_buffer().await;
                     SyncResponse::CheckpointPushAck { accepted: true }
                 } else {
                     SyncResponse::CheckpointPushAck { accepted: false }
@@ -2761,12 +2836,32 @@ impl GossipService {
                             .collect();
                         self.state.store_precomputed_proofs(&proof_map).await;
                         self.state.purge_stale_deferred_txs().await;
+                        self.state.purge_zombie_dag_txs().await;
                         info!(
                             "Late sync-push: applied {} leader proofs for checkpoint {}",
                             proof_map.len(),
                             checkpoint.height
                         );
                     }
+                    return true;
+                } else if source == "sync-push" && !precomputed_proofs.is_empty() {
+                    info!(
+                        "Late sync-push for already-applied checkpoint {} at height {} — retroactively adding {} proofs (no tx bodies)",
+                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                        checkpoint.height,
+                        precomputed_proofs.len()
+                    );
+                    let proof_map: std::collections::HashMap<
+                        String,
+                        rinku_core::types::AccountStateProof,
+                    > = precomputed_proofs
+                        .into_iter()
+                        .map(|p| (p.address.clone(), p))
+                        .collect();
+                    self.state.store_precomputed_proofs(&proof_map).await;
+                    self.state.purge_stale_deferred_txs().await;
+                    self.state.purge_zombie_dag_txs().await;
+                    return true;
                 } else {
                     debug!(
                         "Ignoring checkpoint {} at height {} (local height: {}, via {})",
@@ -3089,7 +3184,36 @@ impl GossipService {
 
         let finalized_hashes_for_fastpath = finalized_tx_hashes.clone();
         let apply_start = std::time::Instant::now();
-        let apply_result = if catching_up {
+        let use_proof_verified = !precomputed_proofs.is_empty() && precomputed_proofs.len() >= 1;
+        let apply_result = if use_proof_verified {
+            info!(
+                "PROOF-VERIFIED PATH: applying checkpoint {} at h={} via proof verification ({} proofs, skipping re-execution)",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                checkpoint.height,
+                precomputed_proofs.len()
+            );
+            let proof_result = self.state.apply_checkpoint_proof_verified(
+                checkpoint.clone(),
+                finalized_tx_hashes.clone(),
+                &precomputed_proofs,
+            ).await;
+            match proof_result {
+                Ok(count) => Ok(count),
+                Err(e) => {
+                    warn!(
+                        "PROOF-VERIFIED FALLBACK: proof verification failed for checkpoint {} at h={}, falling back to execution path: {}",
+                        &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                        checkpoint.height,
+                        e
+                    );
+                    if catching_up {
+                        self.state.apply_checkpoint_catching_up(checkpoint.clone(), finalized_tx_hashes).await
+                    } else {
+                        self.state.apply_checkpoint_with_finalized_hashes(checkpoint.clone(), finalized_tx_hashes).await
+                    }
+                }
+            }
+        } else if catching_up {
             self.state.apply_checkpoint_catching_up(checkpoint.clone(), finalized_tx_hashes).await
         } else {
             self.state.apply_checkpoint_with_finalized_hashes(checkpoint.clone(), finalized_tx_hashes).await
@@ -3494,6 +3618,204 @@ impl GossipService {
         let mut inner = self.inner.write().await;
         inner.leader_timeout_votes.retain(|h, _| *h > height);
         inner.leader_timeout_sent.retain(|h| *h > height);
+        inner.view_change_votes.retain(|(h, _), _| *h > height);
+        inner.view_change_sent.retain(|(h, _)| *h > height);
+        inner.current_view.retain(|h, _| *h > height);
+    }
+
+    pub async fn broadcast_view_change(
+        &self,
+        height: u64,
+        view: u32,
+        validator_address: &str,
+        validator_stake: u64,
+        reason: rinku_core::types::ViewChangeReason,
+    ) {
+        let mut inner = self.inner.write().await;
+        let key = (height, view);
+        if inner.view_change_sent.contains(&key) {
+            return;
+        }
+        inner.view_change_sent.insert(key);
+
+        let bls_sig = if let Some(ref signer) = self.checkpoint_vote_signer {
+            let vc_msg = Self::view_change_signing_message(height, view, validator_address);
+            match crate::bls::bls_sign(&vc_msg, &signer.bls_private_key) {
+                Ok(sig) => {
+                    use base64::Engine;
+                    Some(base64::engine::general_purpose::STANDARD.encode(&sig))
+                }
+                Err(e) => {
+                    warn!("ViewChange BLS sign failed: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let votes = inner.view_change_votes.entry(key).or_default();
+        votes.insert(validator_address.to_string(), rinku_core::types::ViewChangeVote {
+            validator_address: validator_address.to_string(),
+            validator_stake,
+            bls_signature: bls_sig.clone(),
+        });
+        let cur = inner.current_view.entry(height).or_insert(0);
+        if view > *cur {
+            *cur = view;
+        }
+        drop(inner);
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let message = GossipMessage::ViewChange {
+            height,
+            view,
+            validator_address: validator_address.to_string(),
+            validator_stake,
+            reason: reason.clone(),
+            bls_signature: bls_sig,
+            timestamp_ms: now_ms,
+            sender_url: std::env::var("PUBLIC_URL").ok(),
+        };
+        info!(
+            "Broadcasting ViewChange for h={} v={} reason={:?} (validator={}, stake={})",
+            height, view,
+            reason,
+            &validator_address[..16.min(validator_address.len())],
+            validator_stake
+        );
+
+        self.broadcast_leader_timeout(height, validator_address, validator_stake).await;
+
+        #[cfg(feature = "p2p")]
+        self.broadcast_via_p2p(&message).await;
+    }
+
+    fn view_change_signing_message(height: u64, view: u32, validator_address: &str) -> Vec<u8> {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(b"RINKU_VIEW_CHANGE_V1:");
+        hasher.update(height.to_be_bytes());
+        hasher.update(view.to_be_bytes());
+        hasher.update(validator_address.as_bytes());
+        hasher.finalize().to_vec()
+    }
+
+    fn verify_view_change_bls_signature(
+        height: u64,
+        view: u32,
+        validator_address: &str,
+        bls_signature: &str,
+        bls_public_key_b64: &str,
+    ) -> bool {
+        use base64::Engine;
+        let sig_bytes = match base64::engine::general_purpose::STANDARD.decode(bls_signature) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let pk_bytes = match base64::engine::general_purpose::STANDARD.decode(bls_public_key_b64) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let msg = Self::view_change_signing_message(height, view, validator_address);
+        crate::bls::bls_verify(&msg, &sig_bytes, &pk_bytes)
+    }
+
+    pub async fn record_view_change_vote(
+        &self,
+        height: u64,
+        view: u32,
+        validator_address: &str,
+        validator_stake: u64,
+        bls_signature: Option<String>,
+    ) {
+        let mut inner = self.inner.write().await;
+        let votes = inner.view_change_votes.entry((height, view)).or_default();
+        votes.insert(validator_address.to_string(), rinku_core::types::ViewChangeVote {
+            validator_address: validator_address.to_string(),
+            validator_stake,
+            bls_signature,
+        });
+        let cur = inner.current_view.entry(height).or_insert(0);
+        if view > *cur {
+            *cur = view;
+        }
+    }
+
+    pub async fn get_view_change_certificate(
+        &self,
+        height: u64,
+        view: u32,
+    ) -> Option<rinku_core::types::ViewChangeCertificate> {
+        let (_, _, _, total_stake, _) = self.get_cached_validators().await;
+        let inner = self.inner.read().await;
+        let key = (height, view);
+        if let Some(votes) = inner.view_change_votes.get(&key) {
+            let quorum_stake: u64 = votes.values().map(|v| v.validator_stake).sum();
+            let quorum_threshold = (total_stake * 2 + 2) / 3;
+            if quorum_stake >= quorum_threshold {
+                Some(rinku_core::types::ViewChangeCertificate {
+                    height,
+                    view,
+                    votes: votes.values().cloned().collect(),
+                    total_stake,
+                    quorum_stake,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub async fn has_view_change_quorum(&self, height: u64, view: u32) -> bool {
+        self.get_view_change_certificate(height, view).await.is_some()
+    }
+
+    pub async fn get_current_view(&self, height: u64) -> u32 {
+        let inner = self.inner.read().await;
+        inner.current_view.get(&height).copied().unwrap_or(0)
+    }
+
+    pub fn verify_view_change_certificate(
+        cert: &rinku_core::types::ViewChangeCertificate,
+        validators: &HashMap<String, rinku_core::types::Validator>,
+    ) -> bool {
+        if cert.votes.is_empty() {
+            return false;
+        }
+        let total_stake: u64 = validators.values().map(|v| v.stake).sum();
+        if total_stake == 0 {
+            return false;
+        }
+        let quorum_threshold = (total_stake * 2 + 2) / 3;
+        let mut accumulated_stake: u64 = 0;
+        let mut seen_validators = std::collections::HashSet::new();
+        for vote in &cert.votes {
+            if !seen_validators.insert(&vote.validator_address) {
+                tracing::warn!("ViewChangeCertificate has duplicate vote from {}", vote.validator_address);
+                return false;
+            }
+            if let Some(v) = validators.get(&vote.validator_address) {
+                if v.stake != vote.validator_stake {
+                    tracing::warn!(
+                        "ViewChangeCertificate stake mismatch for {}: cert={} state={}",
+                        vote.validator_address, vote.validator_stake, v.stake
+                    );
+                    return false;
+                }
+                accumulated_stake += v.stake;
+            } else {
+                tracing::warn!("ViewChangeCertificate vote from unknown validator {}", vote.validator_address);
+                return false;
+            }
+        }
+        accumulated_stake >= quorum_threshold
     }
 
     pub async fn cache_checkpoint_data(&self, height: u64, data: CachedCheckpointData) {
@@ -3502,6 +3824,244 @@ impl GossipService {
         const CHECKPOINT_CACHE_RETAIN: u64 = 50;
         if height > CHECKPOINT_CACHE_RETAIN {
             inner.recent_checkpoint_data.retain(|h, _| *h > height - CHECKPOINT_CACHE_RETAIN);
+        }
+    }
+
+    pub async fn get_recent_checkpoints(&self, below_height: u64, max_count: usize) -> Vec<crate::network::BackfillCheckpoint> {
+        let inner = self.inner.read().await;
+        let mut heights: Vec<u64> = inner.recent_checkpoint_data.keys()
+            .filter(|h| **h < below_height)
+            .copied()
+            .collect();
+        heights.sort_unstable();
+        let start = if heights.len() > max_count { heights.len() - max_count } else { 0 };
+        heights[start..].iter().filter_map(|h| {
+            inner.recent_checkpoint_data.get(h).map(|cached| {
+                crate::network::BackfillCheckpoint {
+                    checkpoint: cached.checkpoint.clone(),
+                    finalized_tx_hashes: cached.finalized_tx_hashes.clone(),
+                    finalized_transactions: cached.finalized_transactions.clone(),
+                    precomputed_proofs: cached.precomputed_proofs.clone(),
+                }
+            })
+        }).collect()
+    }
+
+    #[cfg(feature = "p2p")]
+    pub fn push_checkpoint_to_peers(
+        self: &Arc<Self>,
+        push_data: crate::network::CheckpointPushData,
+    ) {
+        let gossip = Arc::clone(self);
+        tokio::spawn(async move {
+            let network_handle = match gossip.network_handle {
+                Some(ref h) => h.clone(),
+                None => return,
+            };
+            let peer_ids = network_handle.get_connected_peer_ids().await;
+            let peer_count = peer_ids.len();
+            let cp_height = push_data.checkpoint.height;
+            let cp_hash_prefix = push_data.checkpoint.hash[..16.min(push_data.checkpoint.hash.len())].to_string();
+            let mut acked = 0usize;
+            let mut failed_peers: Vec<String> = Vec::new();
+
+            let proof_count = push_data.precomputed_proofs.len();
+            let push_timeout_ms: u64 = if proof_count > 100 {
+                2000
+            } else if proof_count > 50 {
+                1500
+            } else {
+                500
+            };
+            let shared_push_data = std::sync::Arc::new(push_data);
+            for peer_id in &peer_ids {
+                let request = crate::network::SyncRequest::CheckpointPush((*shared_push_data).clone());
+                match network_handle.send_sync_request(peer_id, request).await {
+                    Ok(rx) => {
+                        match tokio::time::timeout(
+                            std::time::Duration::from_millis(push_timeout_ms),
+                            rx,
+                        ).await {
+                            Ok(Ok(crate::network::SyncResponse::CheckpointPushAck { accepted: true })) => {
+                                acked += 1;
+                            }
+                            Ok(Ok(crate::network::SyncResponse::CheckpointPushAck { accepted: false })) => {
+                                warn!(
+                                    "SYNC-PUSH: peer {} NACK'd checkpoint {} h={} — will retry",
+                                    &peer_id[..12.min(peer_id.len())], cp_hash_prefix, cp_height
+                                );
+                                failed_peers.push(peer_id.clone());
+                            }
+                            Ok(Ok(_)) => {
+                                warn!(
+                                    "SYNC-PUSH: peer {} unexpected response for checkpoint {} h={} — will retry",
+                                    &peer_id[..12.min(peer_id.len())], cp_hash_prefix, cp_height
+                                );
+                                failed_peers.push(peer_id.clone());
+                            }
+                            Ok(Err(_)) => {
+                                warn!(
+                                    "SYNC-PUSH: peer {} channel closed for checkpoint {} h={} — will retry",
+                                    &peer_id[..12.min(peer_id.len())], cp_hash_prefix, cp_height
+                                );
+                                failed_peers.push(peer_id.clone());
+                            }
+                            Err(_) => {
+                                warn!(
+                                    "SYNC-PUSH: peer {} timed out ({}ms) for checkpoint {} h={} — will retry",
+                                    &peer_id[..12.min(peer_id.len())], push_timeout_ms, cp_hash_prefix, cp_height
+                                );
+                                failed_peers.push(peer_id.clone());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "SYNC-PUSH: failed to send to peer {} for checkpoint {} h={}: {} — will retry",
+                            &peer_id[..12.min(peer_id.len())], cp_hash_prefix, cp_height, e
+                        );
+                        failed_peers.push(peer_id.clone());
+                    }
+                }
+            }
+
+            if acked > 0 || !failed_peers.is_empty() {
+                info!(
+                    "SYNC-PUSH: checkpoint {} h={} delivered to {}/{} peers (acked={}, failed={})",
+                    cp_hash_prefix, cp_height, acked, peer_count, acked, failed_peers.len()
+                );
+            }
+
+            if !failed_peers.is_empty() {
+                const MAX_RETRY_QUEUE_SIZE: usize = 10;
+                let now = std::time::Instant::now();
+                let mut inner = gossip.inner.write().await;
+                for peer_id in failed_peers {
+                    inner.push_retry_queue.push(PendingCheckpointPush {
+                        peer_id,
+                        push_data: std::sync::Arc::clone(&shared_push_data),
+                        attempts: 1,
+                        last_attempt: now,
+                        created_at: now,
+                    });
+                }
+                if inner.push_retry_queue.len() > MAX_RETRY_QUEUE_SIZE {
+                    inner.push_retry_queue.sort_by_key(|e| e.push_data.checkpoint.height);
+                    let excess = inner.push_retry_queue.len() - MAX_RETRY_QUEUE_SIZE;
+                    let dropped: Vec<_> = inner.push_retry_queue.drain(..excess).collect();
+                    if !dropped.is_empty() {
+                        warn!(
+                            "SYNC-PUSH-RETRY: evicted {} stale retry entries (lowest h={}), queue capped at {}",
+                            dropped.len(),
+                            dropped.first().map(|e| e.push_data.checkpoint.height).unwrap_or(0),
+                            MAX_RETRY_QUEUE_SIZE
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    #[cfg(feature = "p2p")]
+    pub async fn drain_push_retries(&self) {
+        const MAX_ATTEMPTS: u8 = 5;
+        const RETRY_INTERVAL_MS: u64 = 500;
+        const MAX_AGE_SECS: u64 = 30;
+
+        let entries: Vec<PendingCheckpointPush> = {
+            let mut inner = self.inner.write().await;
+            std::mem::take(&mut inner.push_retry_queue)
+        };
+
+        if entries.is_empty() {
+            return;
+        }
+
+        let network_handle = match self.network_handle {
+            Some(ref h) => h.clone(),
+            None => return,
+        };
+
+        let local_height = self.state.get_checkpoint_height();
+        let now = std::time::Instant::now();
+        let mut requeue: Vec<PendingCheckpointPush> = Vec::new();
+
+        for mut entry in entries {
+            if entry.push_data.checkpoint.height < local_height.saturating_sub(2) {
+                continue;
+            }
+            if entry.attempts >= MAX_ATTEMPTS {
+                warn!(
+                    "SYNC-PUSH-RETRY: giving up on peer {} for checkpoint h={} after {} attempts",
+                    &entry.peer_id[..12.min(entry.peer_id.len())],
+                    entry.push_data.checkpoint.height,
+                    entry.attempts
+                );
+                continue;
+            }
+            if entry.created_at.elapsed().as_secs() > MAX_AGE_SECS {
+                continue;
+            }
+            if entry.last_attempt.elapsed().as_millis() < RETRY_INTERVAL_MS as u128 {
+                requeue.push(entry);
+                continue;
+            }
+
+            let cp_height = entry.push_data.checkpoint.height;
+            let cp_hash_prefix = entry.push_data.checkpoint.hash[..16.min(entry.push_data.checkpoint.hash.len())].to_string();
+            let request = crate::network::SyncRequest::CheckpointPush((*entry.push_data).clone());
+
+            let retry_proof_count = entry.push_data.precomputed_proofs.len();
+            let retry_timeout_ms: u64 = if retry_proof_count > 100 {
+                2000
+            } else if retry_proof_count > 50 {
+                1500
+            } else {
+                500
+            };
+            let success = match network_handle.send_sync_request(&entry.peer_id, request).await {
+                Ok(rx) => {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_millis(retry_timeout_ms),
+                        rx,
+                    ).await {
+                        Ok(Ok(crate::network::SyncResponse::CheckpointPushAck { accepted: true })) => {
+                            info!(
+                                "SYNC-PUSH-RETRY: peer {} ACK'd checkpoint {} h={} on attempt {}",
+                                &entry.peer_id[..12.min(entry.peer_id.len())],
+                                cp_hash_prefix, cp_height, entry.attempts + 1
+                            );
+                            true
+                        }
+                        _ => false,
+                    }
+                }
+                Err(_) => false,
+            };
+
+            if !success {
+                entry.attempts += 1;
+                entry.last_attempt = now;
+                info!(
+                    "SYNC-PUSH-RETRY: peer {} still failing for checkpoint {} h={} (attempt {}/{})",
+                    &entry.peer_id[..12.min(entry.peer_id.len())],
+                    cp_hash_prefix, cp_height, entry.attempts, MAX_ATTEMPTS
+                );
+                requeue.push(entry);
+            }
+        }
+
+        if !requeue.is_empty() {
+            const MAX_RETRY_QUEUE_SIZE: usize = 10;
+            let count = requeue.len();
+            let mut inner = self.inner.write().await;
+            inner.push_retry_queue.extend(requeue);
+            if inner.push_retry_queue.len() > MAX_RETRY_QUEUE_SIZE {
+                inner.push_retry_queue.sort_by_key(|e| e.push_data.checkpoint.height);
+                let excess = inner.push_retry_queue.len() - MAX_RETRY_QUEUE_SIZE;
+                inner.push_retry_queue.drain(..excess);
+            }
+            debug!("SYNC-PUSH-RETRY: {} entries re-queued", count);
         }
     }
 
@@ -3640,7 +4200,7 @@ impl GossipService {
                         checkpoint: checkpoint.clone(),
                         sender_url: public_url.clone(),
                         finalized_tx_hashes,
-                        precomputed_proofs: precomputed_proofs.clone(),
+                        precomputed_proofs: Vec::new(),
                         finalized_transactions: Vec::new(),
                         da_commitment: Some(commitment),
                     };
@@ -3682,7 +4242,7 @@ impl GossipService {
             checkpoint,
             sender_url: public_url,
             finalized_tx_hashes,
-            precomputed_proofs,
+            precomputed_proofs: Vec::new(),
             finalized_transactions,
             da_commitment: None,
         };
@@ -3963,6 +4523,8 @@ impl GossipService {
                         partition_epoch: None,
                         visible_stake_pct: None,
                         merge_report_hash: None,
+                        view_change_certificate: None,
+                        view: 0,
                     };
 
                     if cp_data.finalized_tx_hashes.is_empty() {
@@ -5094,6 +5656,91 @@ impl GossipService {
                 Ok(None)
             }
 
+            GossipMessage::ViewChange {
+                height,
+                view,
+                validator_address,
+                validator_stake: _,
+                reason: _,
+                bls_signature,
+                timestamp_ms: _,
+                ..
+            } => {
+                let current_height = self.state.get_checkpoint_height();
+                let target_height = current_height + 1;
+                if height != target_height {
+                    debug!(
+                        "Ignored ViewChange for height {} (target={})",
+                        height, target_height
+                    );
+                    return Ok(None);
+                }
+
+                let (validators, our_addr, our_stake, _total_stake, _quorum) =
+                    self.get_cached_validators().await;
+                if !validators.contains_key(&validator_address) {
+                    warn!(
+                        "Rejected ViewChange from non-validator {} for h={} v={}",
+                        &validator_address[..16.min(validator_address.len())],
+                        height, view
+                    );
+                    return Ok(None);
+                }
+
+                let validator = validators.get(&validator_address).unwrap();
+                let canonical_stake = validator.stake;
+
+                if let (Some(ref sig), Some(ref pk)) = (&bls_signature, &validator.bls_public_key) {
+                    if !Self::verify_view_change_bls_signature(height, view, &validator_address, sig, pk) {
+                        warn!(
+                            "Rejected ViewChange with INVALID BLS signature from {} for h={} v={}",
+                            &validator_address[..16.min(validator_address.len())],
+                            height, view
+                        );
+                        return Ok(None);
+                    }
+                } else if bls_signature.is_none() {
+                    warn!(
+                        "Accepted unsigned ViewChange from {} for h={} v={} (no BLS sig provided)",
+                        &validator_address[..16.min(validator_address.len())],
+                        height, view
+                    );
+                }
+
+                self.record_view_change_vote(
+                    height, view,
+                    &validator_address,
+                    canonical_stake,
+                    bls_signature.clone(),
+                ).await;
+
+                let has_quorum = self.has_view_change_quorum(height, view).await;
+                info!(
+                    "ViewChange vote for h={} v={} from {} (stake={}, quorum={})",
+                    height, view,
+                    &validator_address[..16.min(validator_address.len())],
+                    canonical_stake,
+                    if has_quorum { "REACHED" } else { "pending" }
+                );
+
+                let should_echo = {
+                    let inner = self.inner.read().await;
+                    !inner.view_change_sent.contains(&(height, view)) && our_addr.is_some() && our_stake > 0
+                };
+
+                if should_echo {
+                    if let Some(ref addr) = our_addr {
+                        self.broadcast_view_change(
+                            height, view,
+                            addr, our_stake,
+                            rinku_core::types::ViewChangeReason::LeaderTimeout,
+                        ).await;
+                    }
+                }
+
+                Ok(None)
+            }
+
             GossipMessage::QccVoteRequest {
                 height,
                 checkpoint_hash,
@@ -5716,7 +6363,7 @@ impl GossipService {
 
         let local_height = self.state.get_checkpoint_height();
         let network_height = self.highest_seen_peer_height.load(std::sync::atomic::Ordering::Relaxed);
-        if network_height > 0 && local_height + 1 < network_height {
+        if network_height > 0 && local_height < network_height {
             let mut inner = self.inner.write().await;
             inner.last_batch_execution = std::time::Instant::now();
             return;
@@ -6115,6 +6762,7 @@ impl GossipService {
             GossipMessage::MergeResult { sender_url, .. } => sender_url.clone(),
             GossipMessage::CheckpointIntent { sender_url, .. } => sender_url.clone(),
             GossipMessage::LeaderTimeout { sender_url, .. } => sender_url.clone(),
+            GossipMessage::ViewChange { sender_url, .. } => sender_url.clone(),
             GossipMessage::DaChunk { sender_url, .. } => sender_url.clone(),
             GossipMessage::QccVoteRequest { sender_url, .. } => sender_url.clone(),
             GossipMessage::QccVoteCast { sender_url, .. } => sender_url.clone(),

@@ -36,6 +36,7 @@ mod sync;
 mod fork;
 mod contracts;
 pub mod partition;
+pub mod wal;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionResult {
@@ -148,6 +149,8 @@ pub struct StateInner {
     pub convergence_executed_txs: HashMap<String, ConvergenceUndoEntry>,
     pub convergence_executed_order: VecDeque<String>,
     pub convergence_overlay: HashMap<String, ConvergenceAccountOverlay>,
+    pub state_trie: crate::sparse_merkle_trie::SparseMerkleTrie,
+    pub last_overlay_rebuild_height: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -170,6 +173,28 @@ pub struct ConvergenceAccountOverlay {
 }
 
 impl StateInner {
+    pub fn build_state_trie_from_accounts(accounts: &HashMap<String, Account>) -> crate::sparse_merkle_trie::SparseMerkleTrie {
+        use crate::sparse_merkle_trie::{SparseMerkleTrie, hash_account_key};
+        let mut trie = SparseMerkleTrie::new();
+        for (addr, acc) in accounts {
+            let key = hash_account_key(addr);
+            let value = format!("account:{}:{}:{}:{}", addr, acc.balance, acc.nonce, acc.staked);
+            let _ = trie.set(&key, value.into_bytes(), None);
+        }
+        trie
+    }
+
+    pub fn update_state_trie_accounts(&mut self, changed_addresses: &[String]) {
+        use crate::sparse_merkle_trie::hash_account_key;
+        for addr in changed_addresses {
+            let key = hash_account_key(addr);
+            if let Some(acc) = self.accounts.get(addr) {
+                let value = format!("account:{}:{}:{}:{}", addr, acc.balance, acc.nonce, acc.staked);
+                let _ = self.state_trie.set(&key, value.into_bytes(), None);
+            }
+        }
+    }
+
     pub fn selective_convergence_overlay_update(
         &mut self,
         finalized_convergence_hashes: &std::collections::HashSet<String>,
@@ -226,9 +251,29 @@ impl StateInner {
             .cloned()
             .collect();
 
+        let total_unique_accounts: usize = {
+            let mut all_addrs: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for entry in self.convergence_executed_txs.values() {
+                all_addrs.insert(&entry.from);
+                if !entry.to.is_empty() {
+                    all_addrs.insert(&entry.to);
+                }
+            }
+            all_addrs.len()
+        };
+
         let mut prev_size = 0;
         while accounts_needing_rebuild.len() != prev_size {
             prev_size = accounts_needing_rebuild.len();
+            if total_unique_accounts > 0 && accounts_needing_rebuild.len() * 4 >= total_unique_accounts * 3 {
+                for entry in self.convergence_executed_txs.values() {
+                    accounts_needing_rebuild.insert(entry.from.clone());
+                    if !entry.to.is_empty() {
+                        accounts_needing_rebuild.insert(entry.to.clone());
+                    }
+                }
+                break;
+            }
             for entry in self.convergence_executed_txs.values() {
                 let from_in = accounts_needing_rebuild.contains(&entry.from);
                 let to_in = !entry.to.is_empty() && accounts_needing_rebuild.contains(&entry.to);
@@ -245,33 +290,47 @@ impl StateInner {
             return (0, 0);
         }
 
-        let mut cleared = 0usize;
-        for addr in &accounts_needing_rebuild {
-            if self.convergence_overlay.remove(addr).is_some() {
-                cleared += 1;
+        let replay_all = accounts_needing_rebuild.len() == total_unique_accounts;
+
+        let cleared = if replay_all {
+            let c = self.convergence_overlay.len();
+            self.convergence_overlay.clear();
+            c
+        } else {
+            let mut c = 0usize;
+            for addr in &accounts_needing_rebuild {
+                if self.convergence_overlay.remove(addr).is_some() {
+                    c += 1;
+                }
+            }
+            c
+        };
+
+        let mut entries_to_replay: Vec<ConvergenceUndoEntry>;
+        if replay_all {
+            entries_to_replay = self.convergence_executed_txs.drain().map(|(_, v)| v).collect();
+            self.convergence_executed_order.clear();
+        } else {
+            let affected_hashes: Vec<String> = self.convergence_executed_txs.keys()
+                .filter(|h| {
+                    if let Some(e) = self.convergence_executed_txs.get(h.as_str()) {
+                        accounts_needing_rebuild.contains(&e.from) || (!e.to.is_empty() && accounts_needing_rebuild.contains(&e.to))
+                    } else {
+                        false
+                    }
+                })
+                .cloned()
+                .collect();
+
+            entries_to_replay = affected_hashes.iter()
+                .filter_map(|h| self.convergence_executed_txs.remove(h))
+                .collect();
+            if !affected_hashes.is_empty() {
+                let affected_set: std::collections::HashSet<&str> = affected_hashes.iter().map(|s| s.as_str()).collect();
+                self.convergence_executed_order.retain(|h| !affected_set.contains(h.as_str()));
             }
         }
-
-        let affected_hashes: Vec<String> = self.convergence_executed_txs.keys()
-            .filter(|h| {
-                if let Some(e) = self.convergence_executed_txs.get(h.as_str()) {
-                    accounts_needing_rebuild.contains(&e.from) || (!e.to.is_empty() && accounts_needing_rebuild.contains(&e.to))
-                } else {
-                    false
-                }
-            })
-            .cloned()
-            .collect();
-
-        let mut entries_to_replay: Vec<ConvergenceUndoEntry> = affected_hashes.iter()
-            .filter_map(|h| self.convergence_executed_txs.get(h).cloned())
-            .collect();
         entries_to_replay.sort_by(|a, b| a.from.cmp(&b.from).then(a.nonce.cmp(&b.nonce)));
-
-        for h in &affected_hashes {
-            self.convergence_executed_txs.remove(h);
-        }
-        self.convergence_executed_order.retain(|h| !affected_hashes.contains(h));
 
         let reapply_count = Self::replay_convergence_entries(&mut self.convergence_overlay, &mut self.convergence_executed_txs, &mut self.convergence_executed_order, &self.accounts, self.current_gas_price, &entries_to_replay, true);
 
@@ -287,6 +346,10 @@ impl StateInner {
                     break;
                 }
             }
+        }
+
+        if height > 0 {
+            self.last_overlay_rebuild_height = height;
         }
 
         (cleared, reapply_count)
@@ -409,6 +472,7 @@ pub struct NodeState {
     pub dag_write_semaphore: Arc<tokio::sync::Semaphore>,
     deferred_batch_txs: Arc<tokio::sync::Mutex<Vec<rinku_core::types::SignedTransaction>>>,
     deferred_batch_retry_counts: Arc<tokio::sync::Mutex<std::collections::HashMap<String, u32>>>,
+    pub wal: Arc<tokio::sync::Mutex<wal::WriteAheadLog>>,
 }
 
 pub struct StateRootWithProofs {
@@ -428,6 +492,7 @@ impl NodeState {
     }
     
     pub async fn new(config: NodeConfig) -> Result<Self> {
+        let wal_data_dir = config.data_dir.clone();
         let storage = RedbStorage::open(&config.data_dir)?;
         let storage = Arc::new(storage);
 
@@ -533,6 +598,12 @@ impl NodeState {
                 let stored_genesis_hash = storage.load_genesis_hash().unwrap_or(None);
                 info!("Loaded genesis hash: {:?}", stored_genesis_hash.as_ref().map(|h| &h[..16.min(h.len())]));
                 
+                let state_trie = {
+                    let start = std::time::Instant::now();
+                    let t = StateInner::build_state_trie_from_accounts(&accounts);
+                    info!("Built state trie from {} accounts in {}ms (root: {})", accounts.len(), start.elapsed().as_millis(), t.root_hex());
+                    t
+                };
                 StateInner {
                     dag,
                     accounts,
@@ -574,6 +645,8 @@ impl NodeState {
                     convergence_executed_txs: HashMap::new(),
                     convergence_executed_order: VecDeque::new(),
                     convergence_overlay: HashMap::new(),
+                    state_trie,
+                    last_overlay_rebuild_height: 0,
                 }
             } else {
                 if let Some(snapshot) = presync::try_presync_from_peers(&config.p2p.bootstrap_peers, config.is_genesis_node).await {
@@ -636,6 +709,8 @@ impl NodeState {
                         info!("PRE-SYNC: Saved peer genesis hash: {}", &genesis_hash[..16.min(genesis_hash.len())]);
                     }
                     
+                    let state_trie = StateInner::build_state_trie_from_accounts(&snapshot.accounts);
+                    info!("PRE-SYNC: Built state trie from {} accounts (root: {})", snapshot.accounts.len(), state_trie.root_hex());
                     let inner = StateInner {
                         dag,
                         accounts: snapshot.accounts.clone(),
@@ -670,6 +745,8 @@ impl NodeState {
                         convergence_executed_txs: HashMap::new(),
                         convergence_executed_order: VecDeque::new(),
                         convergence_overlay: HashMap::new(),
+                        state_trie,
+                        last_overlay_rebuild_height: 0,
                     };
                     
                     let mut emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
@@ -713,6 +790,13 @@ impl NodeState {
                         dag_write_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
                         deferred_batch_txs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
                         deferred_batch_retry_counts: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+                        wal: {
+                            let mut w = wal::WriteAheadLog::new(&wal_data_dir);
+                            if let Err(e) = w.open() {
+                                warn!("WAL: failed to open: {}", e);
+                            }
+                            Arc::new(tokio::sync::Mutex::new(w))
+                        },
                     };
                     
                     node_state.recalculate_dag_weights().await;
@@ -832,12 +916,16 @@ impl NodeState {
             partition_epoch: None,
             visible_stake_pct: None,
                     merge_report_hash: None,
+                    view_change_certificate: None,
+                    view: 0,
                 };
                 
                 info!("Genesis hash created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
                 
                 let _ = storage.save_genesis_hash(&genesis_hash);
                 
+                let state_trie = StateInner::build_state_trie_from_accounts(&accounts);
+                info!("Genesis: Built state trie from {} accounts (root: {})", accounts.len(), state_trie.root_hex());
                 StateInner {
                     dag,
                     accounts,
@@ -872,6 +960,8 @@ impl NodeState {
                     convergence_executed_txs: HashMap::new(),
                     convergence_executed_order: VecDeque::new(),
                     convergence_overlay: HashMap::new(),
+                    state_trie,
+                    last_overlay_rebuild_height: 0,
                 }
             };
 
@@ -917,6 +1007,13 @@ impl NodeState {
             dag_write_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
             deferred_batch_txs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             deferred_batch_retry_counts: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            wal: {
+                let mut w = wal::WriteAheadLog::new(&wal_data_dir);
+                if let Err(e) = w.open() {
+                    warn!("WAL: failed to open: {}", e);
+                }
+                Arc::new(tokio::sync::Mutex::new(w))
+            },
         };
         
         node_state.recalculate_dag_weights().await;
@@ -932,6 +1029,75 @@ impl NodeState {
             }
         }
         
+        {
+            let mut wal_guard = node_state.wal.lock().await;
+            match wal_guard.recover() {
+                Ok(Some(recovery)) => {
+                    match recovery.action {
+                        wal::WalRecoveryAction::Replay => {
+                            info!(
+                                "WAL RECOVERY: replaying {} account updates from uncommitted checkpoint h={}",
+                                recovery.account_updates.len(), recovery.height
+                            );
+                            let mut state = node_state.inner.write().await;
+                            let local_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+                            if recovery.height > local_height {
+                                let mut changed: Vec<String> = Vec::new();
+                                for (addr, balance, nonce, staked) in &recovery.account_updates {
+                                    changed.push(addr.clone());
+                                    if let Some(acc) = state.accounts.get_mut(addr) {
+                                        acc.balance = *balance;
+                                        acc.nonce = *nonce;
+                                        acc.staked = *staked;
+                                    } else {
+                                        state.accounts.insert(addr.clone(), rinku_core::types::Account {
+                                            address: addr.clone(),
+                                            balance: *balance,
+                                            nonce: *nonce,
+                                            first_seen: 0,
+                                            staked: *staked,
+                                            unbonding: 0,
+                                            unbonding_release: None,
+                                            latest_balance_proof: None,
+                                            partition_violations: 0,
+                                            reputation_penalty: 0.0,
+                                            penalty_decay_checkpoint: None,
+                                            partition_budget: None,
+                                            partition_budget_spent: 0,
+                                        });
+                                    }
+                                }
+                                state.update_state_trie_accounts(&changed);
+                                info!(
+                                    "WAL RECOVERY: applied {} account updates for h={}, committing WAL",
+                                    changed.len(), recovery.height
+                                );
+                            } else {
+                                info!(
+                                    "WAL RECOVERY: h={} already applied (local={}), skipping replay",
+                                    recovery.height, local_height
+                                );
+                            }
+                            drop(state);
+                            let _ = wal_guard.truncate();
+                        }
+                        wal::WalRecoveryAction::Rollback => {
+                            info!(
+                                "WAL RECOVERY: rolling back incomplete checkpoint h={} (no account updates)",
+                                recovery.height
+                            );
+                            let _ = wal_guard.truncate();
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!("WAL RECOVERY: failed: {} — starting clean", e);
+                    let _ = wal_guard.truncate();
+                }
+            }
+        }
+
         Ok(node_state)
     }
 }

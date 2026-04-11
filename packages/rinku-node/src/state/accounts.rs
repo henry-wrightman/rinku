@@ -244,7 +244,6 @@ impl NodeState {
                 account.first_seen = ts;
             }
         } else {
-            // Create account if doesn't exist
             let now = staked_at.unwrap_or_else(|| {
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -255,6 +254,7 @@ impl NodeState {
             account.staked = staked_amount;
             state.accounts.insert(address.to_string(), account);
         }
+        state.update_state_trie_accounts(&[address.to_string()]);
     }
 
     pub async fn apply_contract_transfer_effects(&self, effects: &[crate::contracts::TransferEffect]) -> anyhow::Result<()> {
@@ -313,6 +313,10 @@ impl NodeState {
                 amount_micro
             );
         }
+        let changed: Vec<String> = effects.iter()
+            .flat_map(|e| vec![e.from.clone(), e.to.clone()])
+            .collect();
+        state.update_state_trie_accounts(&changed);
         Ok(())
     }
 

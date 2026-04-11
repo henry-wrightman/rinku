@@ -12,12 +12,12 @@ use rinku_core::types::{SignedTransaction, Transaction, TransactionKind};
 const UPPER_THRESHOLD: usize = 500;
 const LOWER_THRESHOLD: usize = 50;
 /// Consolidate same number as MAX_SAMPLED_TIPS for efficient merging
-const TIPS_PER_CONSOLIDATION: usize = 16;
+const TIPS_PER_CONSOLIDATION: usize = 32;
 
 /// Dynamic consolidation intervals based on TPS
-const INTERVAL_HIGH_TPS_MS: u64 = 150; // >500 TPS: aggressive
+const INTERVAL_HIGH_TPS_MS: u64 = 200; // >500 TPS: aggressive
 const INTERVAL_MEDIUM_TPS_MS: u64 = 500; // 50-500 TPS: balanced
-const INTERVAL_LOW_TPS_MS: u64 = 1500; // 10-50 TPS: relaxed
+const INTERVAL_LOW_TPS_MS: u64 = 800; // 10-50 TPS: relaxed
 const INTERVAL_IDLE_MS: u64 = 10000; // <10 TPS: minimal overhead
 
 /// TPS thresholds for interval selection

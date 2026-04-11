@@ -307,8 +307,16 @@ pub fn from_micro_units(micro: u64) -> f64 {
 /// Internal nodes are hashed using: `SHA256("node:{left_hash}:{right_hash}")`
 ///
 /// ## Verification Steps
+/// ### v4+ (Sparse Merkle Trie proofs):
 /// 1. Reconstruct leaf hash: `SHA256("account:{address}:{balance_micro}:{nonce}:{staked_micro}")`
-/// 2. Walk merkle_proof siblings from leaf to root
+/// 2. Derive key path bits from `SHA256(address)` (256-bit path)
+/// 3. Walk merkle_proof siblings (indexed by depth) from leaf to root using `SHA256(left||right)`
+/// 4. Compare computed root against state_root
+/// 5. Optionally verify checkpoint BLS signature against validator set
+///
+/// ### v2-v3 (Flat sorted Merkle tree proofs - legacy):
+/// 1. Reconstruct leaf hash: `SHA256("account:{address}:{balance_micro}:{nonce}:{staked_micro}")`
+/// 2. Walk merkle_proof siblings from leaf to root using `SHA256("node:{left}:{right}")`
 /// 3. Compare computed root against state_root
 /// 4. Optionally verify checkpoint BLS signature against validator set
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -455,6 +463,10 @@ pub struct Checkpoint {
     pub visible_stake_pct: Option<f64>,
     #[serde(default)]
     pub merge_report_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_change_certificate: Option<ViewChangeCertificate>,
+    #[serde(default)]
+    pub view: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -778,4 +790,38 @@ pub struct WeightTrieLeaf {
     pub neutral_stake_micro: u64,
     pub total_network_stake_micro: u64,
     pub attestation_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewChange {
+    pub height: u64,
+    pub view: u32,
+    pub validator_address: String,
+    pub validator_stake: u64,
+    pub reason: ViewChangeReason,
+    pub bls_signature: Option<String>,
+    pub timestamp_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ViewChangeReason {
+    LeaderTimeout,
+    LeaderBehind,
+    InvalidCheckpoint,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ViewChangeCertificate {
+    pub height: u64,
+    pub view: u32,
+    pub votes: Vec<ViewChangeVote>,
+    pub total_stake: u64,
+    pub quorum_stake: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewChangeVote {
+    pub validator_address: String,
+    pub validator_stake: u64,
+    pub bls_signature: Option<String>,
 }

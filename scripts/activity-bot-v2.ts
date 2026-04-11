@@ -712,7 +712,7 @@ async function main() {
   log(`Gas price: ${currentGasPrice.toFixed(4)} RKU`);
 
   log(`Creating and funding ${ACCOUNT_COUNT} accounts...`);
-  const batchSize = 5;
+  const batchSize = 25;
   for (let i = 0; i < ACCOUNT_COUNT; i += batchSize) {
     const batch = [];
     for (let j = i; j < Math.min(i + batchSize, ACCOUNT_COUNT); j++) {

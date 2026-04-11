@@ -59,8 +59,8 @@ primary_region = "sjc"
     soft_limit = 50
 
 [[vm]]
-  memory = "512mb"
-  cpu_kind = "shared"
+  memory = "2048mb"
+  cpu_kind = "performance"
   cpus = 1
 
 [mounts]

@@ -582,6 +582,298 @@ impl NodeState {
         self.apply_checkpoint_with_finalized_hashes_inner(checkpoint, finalized_tx_hashes, true).await
     }
 
+    pub async fn apply_checkpoint_proof_verified(
+        &self,
+        checkpoint: Checkpoint,
+        finalized_tx_hashes: Vec<String>,
+        proofs: &[rinku_core::types::AccountStateProof],
+    ) -> Result<usize> {
+        let apply_start = std::time::Instant::now();
+
+        let expected_state_root = checkpoint.state_root.clone();
+        let height = checkpoint.height;
+
+        let verified_accounts: Vec<(String, u64, u64, u64)> = {
+            let mut verified = Vec::with_capacity(proofs.len());
+            for proof in proofs {
+                if proof.state_root != expected_state_root {
+                    tracing::warn!(
+                        "PROOF-VERIFY REJECT: proof for {} has state_root {} but checkpoint has {} at h={}",
+                        &proof.address[..16.min(proof.address.len())],
+                        &proof.state_root[..16.min(proof.state_root.len())],
+                        &expected_state_root[..16.min(expected_state_root.len())],
+                        height
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Proof state_root mismatch for {} at height {}",
+                        proof.address, height
+                    ));
+                }
+                let detail = crate::proofs::verify_account_state_proof_detailed(proof);
+                if !detail.valid {
+                    tracing::warn!(
+                        "PROOF-VERIFY REJECT: invalid proof for {} at h={} (computed={}, expected={})",
+                        &proof.address[..16.min(proof.address.len())],
+                        height,
+                        &detail.computed_root[..16.min(detail.computed_root.len())],
+                        &detail.expected_root[..16.min(detail.expected_root.len())]
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Invalid SMT proof for {} at height {}",
+                        proof.address, height
+                    ));
+                }
+                verified.push((
+                    proof.address.clone(),
+                    proof.balance_micro,
+                    proof.nonce,
+                    proof.staked_micro,
+                ));
+            }
+            verified
+        };
+        let verify_ms = apply_start.elapsed().as_millis();
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        {
+            let mut wal = self.wal.lock().await;
+            if wal.is_open() {
+                if let Err(e) = wal.begin_checkpoint(height, &checkpoint.hash) {
+                    tracing::warn!("WAL: failed to write BeginCheckpoint: {}", e);
+                }
+                for (addr, balance, nonce, staked) in &verified_accounts {
+                    if let Err(e) = wal.log_account_update(addr, *balance, *nonce, *staked) {
+                        tracing::warn!("WAL: failed to write AccountUpdate: {}", e);
+                    }
+                }
+            }
+        }
+
+        let lock_start = std::time::Instant::now();
+        let mut incremental_changed: usize = 0;
+        let mut incremental_pruned: usize = 0;
+        {
+            let mut state = self.inner.write().await;
+            let lock_ms = lock_start.elapsed().as_millis();
+            if lock_ms > 5 {
+                tracing::info!(
+                    "RCC-LOCK: proof-verified apply write lock acquired in {}ms (h={})",
+                    lock_ms, height
+                );
+            }
+
+            let local_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+            if height <= local_height {
+                return Err(anyhow::anyhow!(
+                    "Checkpoint height {} not greater than local height {}",
+                    height, local_height
+                ));
+            }
+
+            let pre_snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
+                .accounts
+                .iter()
+                .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
+                .collect();
+            state.pre_checkpoint_accounts_snapshot = Some((height, pre_snapshot));
+
+            let accounts_backup: std::collections::HashMap<String, rinku_core::types::Account> =
+                state.accounts.clone();
+
+            let mut proof_addrs: std::collections::HashSet<String> = std::collections::HashSet::with_capacity(verified_accounts.len());
+
+            for (addr, balance, nonce, staked) in &verified_accounts {
+                proof_addrs.insert(addr.clone());
+                if let Some(acc) = state.accounts.get_mut(addr) {
+                    acc.balance = *balance;
+                    acc.nonce = *nonce;
+                    acc.staked = *staked;
+                } else {
+                    state.accounts.insert(
+                        addr.clone(),
+                        rinku_core::types::Account {
+                            address: addr.clone(),
+                            balance: *balance,
+                            nonce: *nonce,
+                            first_seen: now_ms,
+                            staked: *staked,
+                            unbonding: 0,
+                            unbonding_release: None,
+                            latest_balance_proof: None,
+                            partition_violations: 0,
+                            reputation_penalty: 0.0,
+                            penalty_decay_checkpoint: None,
+                            partition_budget: None,
+                            partition_budget_spent: 0,
+                        },
+                    );
+                }
+            }
+
+            let mut pruned_addrs: Vec<String> = Vec::new();
+            let pre_prune_count = state.accounts.len();
+            {
+                let proof_ref = &proof_addrs;
+                pruned_addrs = state.accounts.keys()
+                    .filter(|addr| !proof_ref.contains(*addr))
+                    .cloned()
+                    .collect();
+            }
+            for addr in &pruned_addrs {
+                state.accounts.remove(addr);
+            }
+            let pruned = pruned_addrs.len();
+            if pruned > 0 {
+                tracing::warn!(
+                    "PROOF-VERIFIED PRUNE: removed {} local-only accounts not in proof set at h={} ({} -> {} accounts)",
+                    pruned, height, pre_prune_count, state.accounts.len()
+                );
+            }
+
+            use crate::sparse_merkle_trie::hash_account_key;
+
+            for addr in &pruned_addrs {
+                let key = hash_account_key(addr);
+                let _ = state.state_trie.delete(&key, None);
+            }
+
+            let mut changed_addrs: Vec<String> = Vec::new();
+            for (addr, balance, nonce, staked) in &verified_accounts {
+                let changed = match accounts_backup.get(addr) {
+                    Some(old) => old.balance != *balance || old.nonce != *nonce || old.staked != *staked,
+                    None => true,
+                };
+                if changed {
+                    changed_addrs.push(addr.clone());
+                }
+            }
+
+            incremental_changed = changed_addrs.len();
+            incremental_pruned = pruned;
+
+            state.update_state_trie_accounts(&changed_addrs);
+
+            let local_root = state.state_trie.root_hex();
+            if local_root != expected_state_root {
+                tracing::warn!(
+                    "PROOF-VERIFIED INCREMENTAL MISMATCH at h={}: local {} != expected {} ({} changed, {} pruned) — falling back to full rebuild",
+                    height,
+                    &local_root[..16.min(local_root.len())],
+                    &expected_state_root[..16.min(expected_state_root.len())],
+                    changed_addrs.len(),
+                    pruned
+                );
+
+                state.state_trie = StateInner::build_state_trie_from_accounts(&state.accounts);
+                let rebuild_root = state.state_trie.root_hex();
+                if rebuild_root != expected_state_root {
+                    tracing::error!(
+                        "PROOF-VERIFIED ROOT MISMATCH at h={}: rebuilt trie root {} != checkpoint state_root {} ({} accounts, {} pruned) — rolling back",
+                        height,
+                        &rebuild_root[..16.min(rebuild_root.len())],
+                        &expected_state_root[..16.min(expected_state_root.len())],
+                        state.accounts.len(),
+                        pruned
+                    );
+                    state.accounts = accounts_backup;
+                    state.state_trie = StateInner::build_state_trie_from_accounts(&state.accounts);
+                    state.pre_checkpoint_accounts_snapshot = None;
+                    return Err(anyhow::anyhow!(
+                        "Proof-verified root mismatch at h={}: local {} != expected {}",
+                        height, &rebuild_root[..16.min(rebuild_root.len())],
+                        &expected_state_root[..16.min(expected_state_root.len())]
+                    ));
+                }
+                tracing::info!(
+                    "PROOF-VERIFIED FULL REBUILD OK at h={}: root matched after rebuild ({} accounts)",
+                    height, state.accounts.len()
+                );
+            } else {
+                tracing::info!(
+                    "PROOF-VERIFIED INCREMENTAL OK at h={}: root matched ({} changed, {} pruned, {} total accounts)",
+                    height, changed_addrs.len(), pruned, state.accounts.len()
+                );
+            }
+
+            for hash in &finalized_tx_hashes {
+                if state.dag.get_node(hash).is_some() {
+                    let _ = state.dag.mark_finalized_deferred_cleanup(hash, height);
+                }
+            }
+            if !finalized_tx_hashes.is_empty() {
+                state.dag.cleanup_sender_unfinalized_batch(&finalized_tx_hashes);
+            }
+
+            let mut checkpoint_with_hashes = checkpoint.clone();
+            if checkpoint_with_hashes.finalized_tx_hashes.is_empty() && !finalized_tx_hashes.is_empty() {
+                checkpoint_with_hashes.finalized_tx_hashes = finalized_tx_hashes;
+            }
+            state.checkpoints.push(checkpoint_with_hashes);
+            state.last_checkpoint_time_ms = now_ms;
+            self.checkpoint_height_cache.store(height, std::sync::atomic::Ordering::Relaxed);
+
+            state.convergence_executed_txs.clear();
+            state.convergence_executed_order.clear();
+            state.convergence_overlay.clear();
+
+            let snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
+                .accounts
+                .iter()
+                .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
+                .collect();
+            state.checkpoint_accounts_snapshot = Some((height, snapshot));
+
+            const DAG_EVICTION_RETENTION: u64 = 50;
+            if height > DAG_EVICTION_RETENTION {
+                let eviction_boundary = height - DAG_EVICTION_RETENTION;
+                let evicted = state.dag.evict_finalized_before(eviction_boundary);
+                if evicted > 0 {
+                    tracing::info!(
+                        "Proof-verified DAG eviction: removed {} nodes older than h={}",
+                        evicted, eviction_boundary
+                    );
+                }
+            }
+        };
+        let write_ms = lock_start.elapsed().as_millis();
+
+        let finalized_count = proofs.len();
+        if finalized_count > 0 {
+            self.record_finalized_batch(finalized_count as u64).await;
+        }
+
+        {
+            let state = self.inner.read().await;
+            let mut rewards = self.rewards.write().await;
+            for (addr, account) in &state.accounts {
+                if account.staked > 0 {
+                    rewards.sync_stake_amount(addr, account.staked);
+                }
+            }
+        }
+
+        {
+            let mut wal = self.wal.lock().await;
+            if wal.is_open() {
+                if let Err(e) = wal.commit_checkpoint(height, &checkpoint.hash) {
+                    tracing::warn!("WAL: failed to write CommitCheckpoint: {}", e);
+                }
+            }
+        }
+
+        tracing::info!(
+            "PROOF-VERIFIED checkpoint h={}: {} accounts updated in {}ms (verify={}ms, write={}ms, changed={}, pruned={}) — no re-execution",
+            height, verified_accounts.len(), apply_start.elapsed().as_millis(), verify_ms, write_ms,
+            incremental_changed, incremental_pruned
+        );
+
+        Ok(0)
+    }
+
     async fn apply_checkpoint_with_finalized_hashes_inner(
         &self,
         checkpoint: Checkpoint,
@@ -618,6 +910,53 @@ impl NodeState {
                 );
             }
         }
+
+        let pre_merkle_hashes: Option<(Vec<String>, String)> = if finalized_tx_hashes.is_empty() {
+            use crate::config::PROPAGATION_GRACE_MS;
+            use rinku_core::merkle::MerkleTree;
+
+            let unfinalized_hashes = {
+                let state = self.inner.read().await;
+                let local_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+                if checkpoint.height <= local_height {
+                    return Err(anyhow::anyhow!(
+                        "Checkpoint height {} not greater than local height {}",
+                        checkpoint.height,
+                        local_height
+                    ));
+                }
+                let now_ms_filter = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let cutoff_time = now_ms_filter.saturating_sub(PROPAGATION_GRACE_MS);
+
+                let mut hashes: Vec<String> = state
+                    .dag
+                    .get_unfinalized_nodes()
+                    .iter()
+                    .filter(|n| n.tx.tx.timestamp <= cutoff_time)
+                    .map(|n| n.hash.clone())
+                    .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+                    .collect();
+                hashes.sort();
+                hashes
+            };
+
+            let merkle_root = if unfinalized_hashes.is_empty() {
+                "0".repeat(64)
+            } else {
+                let hashes_clone = unfinalized_hashes.clone();
+                match tokio::task::spawn_blocking(move || rinku_core::merkle::MerkleTree::from_hex_leaves(&hashes_clone).map(|t| t.root())).await {
+                    Ok(Ok(root)) => root,
+                    _ => "0".repeat(64),
+                }
+            };
+
+            Some((unfinalized_hashes, merkle_root))
+        } else {
+            None
+        };
 
         let t_phase1 = std::time::Instant::now();
         let (txs_to_execute, mut convergence_already_executed, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, checkpoint_now_ms) = {
@@ -694,40 +1033,10 @@ impl NodeState {
                 );
 
                 count
-            } else {
-                use crate::config::PROPAGATION_GRACE_MS;
-                use rinku_core::merkle::MerkleTree;
-
-                let now_ms_filter = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                let cutoff_time = now_ms_filter.saturating_sub(PROPAGATION_GRACE_MS);
-
-                let mut unfinalized_hashes: Vec<String> = state
-                    .dag
-                    .get_unfinalized_nodes()
-                    .iter()
-                    .filter(|n| n.tx.tx.timestamp <= cutoff_time)
-                    .map(|n| n.hash.clone())
-                    .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
-                    .collect();
-
-                unfinalized_hashes.sort();
-
-                let our_merkle_root = if unfinalized_hashes.is_empty() {
-                    "0".repeat(64)
-                } else {
-                    let hashes_clone = unfinalized_hashes.clone();
-                    match tokio::task::spawn_blocking(move || MerkleTree::from_hex_leaves(&hashes_clone).map(|t| t.root())).await {
-                        Ok(Ok(root)) => root,
-                        _ => "0".repeat(64),
-                    }
-                };
-
-                if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
-                    for hash in &unfinalized_hashes {
-                        if state.convergence_executed_txs.contains_key(hash) {
+            } else if let Some((ref unfinalized_hashes, ref our_merkle_root)) = pre_merkle_hashes {
+                if *our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
+                    for hash in unfinalized_hashes {
+                        if state.convergence_executed_txs.contains_key(hash.as_str()) {
                             convergence_already_executed.insert(hash.clone());
                         }
 
@@ -754,6 +1063,8 @@ impl NodeState {
                     );
                     0
                 }
+            } else {
+                0
             };
 
             let finalized_hashes_for_cleanup: Vec<String> = txs_to_execute.iter().map(|tx| tx.hash.clone()).collect();
@@ -785,7 +1096,7 @@ impl NodeState {
         };
 
         let t_phase2 = std::time::Instant::now();
-        let (batch_result, needs_eviction) = {
+        let batch_result = {
             let lock_start2 = std::time::Instant::now();
             let mut state = self.inner.write().await;
             let lock_ms2 = lock_start2.elapsed().as_millis();
@@ -854,25 +1165,21 @@ impl NodeState {
             }
 
             const DAG_EVICTION_RETENTION: u64 = 50;
-            let eviction_needed = height > DAG_EVICTION_RETENTION;
+            if height > DAG_EVICTION_RETENTION {
+                let eviction_boundary = height - DAG_EVICTION_RETENTION;
+                let pre_count = state.dag.node_count();
+                let evicted = state.dag.evict_finalized_before(eviction_boundary);
+                if evicted > 0 {
+                    tracing::info!(
+                        "In-memory DAG eviction: removed {} finalized nodes older than h={} ({} -> {} nodes)",
+                        evicted, eviction_boundary, pre_count, state.dag.node_count()
+                    );
+                }
+            }
 
-            (result, eviction_needed)
+            result
         };
         let phase2_ms = t_phase2.elapsed().as_millis();
-
-        if needs_eviction {
-            const DAG_EVICTION_RETENTION: u64 = 50;
-            let eviction_boundary = height - DAG_EVICTION_RETENTION;
-            let mut state = self.inner.write().await;
-            let pre_count = state.dag.node_count();
-            let evicted = state.dag.evict_finalized_before(eviction_boundary);
-            if evicted > 0 {
-                tracing::info!(
-                    "In-memory DAG eviction: removed {} finalized nodes older than h={} ({} -> {} nodes)",
-                    evicted, eviction_boundary, pre_count, state.dag.node_count()
-                );
-            }
-        }
 
         if finalized_count > 0 {
             self.record_finalized_batch(finalized_count as u64).await;

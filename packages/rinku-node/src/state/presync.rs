@@ -337,6 +337,8 @@ pub fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapsho
             partition_epoch: None,
             visible_stake_pct: None,
             merge_report_hash: None,
+            view_change_certificate: None,
+            view: 0,
         }
     }).collect();
     
