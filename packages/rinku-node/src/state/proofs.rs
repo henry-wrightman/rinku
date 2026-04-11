@@ -103,8 +103,8 @@ impl NodeState {
     /// Compute state root with pending transactions applied (without modifying actual state)
     /// This is used by checkpoint creation to get the correct post-execution state root
     /// before actually executing the transactions
-    pub async fn compute_state_root_with_pending_txs(&self, pending_txs: &[rinku_core::SignedTransaction], convergence_undo: &[super::ConvergenceUndoEntry]) -> String {
-        self.compute_state_root_and_proofs(pending_txs, &[], None, "", convergence_undo).await.state_root
+    pub async fn compute_state_root_with_pending_txs(&self, pending_txs: &[rinku_core::SignedTransaction]) -> String {
+        self.compute_state_root_and_proofs(pending_txs, &[], None, "").await.state_root
     }
 
     pub async fn compute_state_root_and_proofs_at_height(
@@ -112,9 +112,8 @@ impl NodeState {
         pending_txs: &[rinku_core::SignedTransaction],
         affected_addresses: &[String],
         height: u64,
-        convergence_undo: &[super::ConvergenceUndoEntry],
     ) -> StateRootWithProofs {
-        self.compute_state_root_and_proofs(pending_txs, affected_addresses, Some(height), "", convergence_undo).await
+        self.compute_state_root_and_proofs(pending_txs, affected_addresses, Some(height), "").await
     }
     
     pub async fn compute_state_root_and_proofs(
@@ -123,10 +122,29 @@ impl NodeState {
         affected_addresses: &[String],
         checkpoint_height: Option<u64>,
         tx_hash: &str,
-        convergence_undo: &[super::ConvergenceUndoEntry],
     ) -> StateRootWithProofs {
         use std::collections::HashMap;
         let root_start = std::time::Instant::now();
+
+        if pending_txs.is_empty() {
+            let state = self.inner.read().await;
+            let state_root = state.state_trie.root_hex();
+            let num_accounts = state.accounts.len();
+            drop(state);
+
+            let root_ms = root_start.elapsed().as_millis();
+            if root_ms > 5 {
+                tracing::info!(
+                    "STATE-ROOT-PROOFS (SMT): computed in {}ms ({} accounts, 0 changed, 0 txs simulated, 0 proofs, h={:?}) [FAST-PATH-SKIP]",
+                    root_ms, num_accounts, checkpoint_height
+                );
+            }
+            return StateRootWithProofs {
+                state_root,
+                proofs: HashMap::new(),
+                executed_tx_hashes: std::collections::HashSet::new(),
+            };
+        }
         
         let state = self.inner.read().await;
         
@@ -137,59 +155,9 @@ impl NodeState {
             .collect();
         
         let mut sim_changed_addrs: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let original_root = state.state_trie.root_hex();
         let forked_trie = state.state_trie.fork();
         
-        if !convergence_undo.is_empty() {
-            let mut sorted_undo: Vec<&super::ConvergenceUndoEntry> = convergence_undo.iter().collect();
-            sorted_undo.sort_by(|a, b| {
-                a.from.cmp(&b.from)
-                    .then(b.nonce.cmp(&a.nonce))
-            });
-            let mut undo_count = 0usize;
-            for entry in &sorted_undo {
-                if matches!(entry.kind, Some(rinku_core::TransactionKind::Consolidation)) {
-                    continue;
-                }
-                let fee = entry.gas_price.unwrap_or(current_gas_price);
-                let is_stake_tx = matches!(entry.kind, Some(rinku_core::TransactionKind::Stake));
-                let is_unstake_tx = matches!(entry.kind, Some(rinku_core::TransactionKind::Unstake));
-                let is_claim_tx = matches!(entry.kind, Some(rinku_core::TransactionKind::ClaimRewards));
-                let is_contract_tx = matches!(entry.kind, Some(rinku_core::TransactionKind::Contract));
-                let tx_cost = if is_stake_tx {
-                    entry.amount + fee
-                } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                    fee
-                } else {
-                    entry.amount + fee
-                };
-                if let Some(sender) = simulated_accounts.get_mut(&entry.from) {
-                    sender.0 += tx_cost;
-                    sender.1 = entry.nonce;
-                    undo_count += 1;
-                    sim_changed_addrs.insert(entry.from.clone());
-                }
-                if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx {
-                    if !entry.to.is_empty() {
-                        if let Some(receiver) = simulated_accounts.get_mut(&entry.to) {
-                            receiver.0 = receiver.0.saturating_sub(entry.amount);
-                            sim_changed_addrs.insert(entry.to.clone());
-                        }
-                    }
-                }
-                if is_stake_tx {
-                    if let Some(staker) = simulated_accounts.get_mut(&entry.from) {
-                        staker.2 = staker.2.saturating_sub(entry.amount);
-                        sim_changed_addrs.insert(entry.from.clone());
-                    }
-                }
-            }
-            if undo_count > 0 {
-                tracing::info!(
-                    "Proof computation: undid {} convergence fast-path effects to get clean base",
-                    undo_count
-                );
-            }
-        }
         
         struct TxParentInfo {
             tx_hash: String,
@@ -239,9 +207,16 @@ impl NodeState {
 
         let node_validator_address = state.node_validator_address.clone();
         
-        let overlay_nonces: HashMap<String, u64> = state.convergence_overlay.iter()
-            .map(|(addr, ov)| (addr.clone(), ov.nonce))
-            .collect();
+        let fast_path_nonces: HashMap<String, u64> = {
+            let mut nonces: HashMap<String, u64> = HashMap::new();
+            for entry in state.fast_path_finalized_txs.values() {
+                let e = nonces.entry(entry.from.clone()).or_insert(0);
+                if entry.nonce + 1 > *e {
+                    *e = entry.nonce + 1;
+                }
+            }
+            nonces
+        };
         
         drop(state);
         
@@ -311,24 +286,18 @@ impl NodeState {
             if let Some(sender) = simulated_accounts.get_mut(sender_addr) {
                 if let Some(&first_nonce) = sender_nonces.iter().next() {
                     if first_nonce > sender.1 {
-                        if let Some(&ov_nonce) = overlay_nonces.get(sender_addr) {
-                            if ov_nonce >= first_nonce {
+                        if let Some(&fp_nonce) = fast_path_nonces.get(sender_addr) {
+                            if fp_nonce >= first_nonce {
                                 tracing::info!(
-                                    "CONVERGENCE-NONCE-ADVANCE (proof-sim): sender {} nonce {} -> {} (overlay nonce: {}, bridging {} gap nonces)",
+                                    "FAST-PATH-NONCE-ADVANCE (proof-sim): sender {} nonce {} -> {} (fast-path nonce: {}, bridging {} gap nonces)",
                                     &sender_addr[..16.min(sender_addr.len())],
-                                    sender.1, first_nonce, ov_nonce, first_nonce - sender.1
+                                    sender.1, first_nonce, fp_nonce, first_nonce - sender.1
                                 );
                                 sender.1 = first_nonce;
-                            } else {
-                                tracing::info!(
-                                    "NONCE-GAP-SKIP (proof-sim): sender {} has gap — account nonce {} but first tx nonce {} (overlay nonce {} doesn't cover, deferring)",
-                                    &sender_addr[..16.min(sender_addr.len())],
-                                    sender.1, first_nonce, ov_nonce
-                                );
                             }
                         } else {
-                            tracing::info!(
-                                "NONCE-GAP-SKIP (proof-sim): sender {} has gap — account nonce {} but first tx nonce {} (no overlay, deferring)",
+                            tracing::debug!(
+                                "NONCE-GAP-SKIP (proof-sim): sender {} has gap — account nonce {} but first tx nonce {} (deferring)",
                                 &sender_addr[..16.min(sender_addr.len())],
                                 sender.1, first_nonce
                             );
@@ -600,8 +569,11 @@ impl NodeState {
         
         let simulated_account_count = simulated_accounts.len();
         
-        let mut proof_trie = forked_trie;
-        if !sim_changed_addrs.is_empty() {
+        let (state_root, mut proof_trie) = if sim_changed_addrs.is_empty() {
+            let root = original_root;
+            (root, None)
+        } else {
+            let mut pt = forked_trie;
             use crate::sparse_merkle_trie::hash_account_key;
             let entries: Vec<([u8; 32], Vec<u8>)> = sim_changed_addrs.iter()
                 .filter_map(|addr| {
@@ -612,16 +584,16 @@ impl NodeState {
                     })
                 })
                 .collect();
-            if let Err(e) = proof_trie.batch_set(&entries, None) {
+            if let Err(e) = pt.batch_set(&entries, None) {
                 tracing::error!("Failed to batch_set proof trie: {}", e);
             }
-        }
-        
-        let state_root = proof_trie.root_hex();
+            let root = pt.root_hex();
+            (root, Some(pt))
+        };
         
         let mut proofs: HashMap<String, rinku_core::types::AccountStateProof> = HashMap::new();
         
-        if let Some(height) = checkpoint_height {
+        if let (Some(height), Some(ref mut pt)) = (checkpoint_height, proof_trie.as_mut()) {
             use crate::sparse_merkle_trie::hash_account_key;
             let proof_addresses: Vec<&String> = sim_changed_addrs.iter().collect();
             tracing::info!(
@@ -631,7 +603,7 @@ impl NodeState {
             for address in &proof_addresses {
                 if let Some((balance, nonce, staked)) = simulated_accounts.get(*address) {
                     let key = hash_account_key(address);
-                    match proof_trie.prove(&key, None) {
+                    match pt.prove(&key, None) {
                         Ok(merkle_proof_data) => {
                             let merkle_proof: Vec<String> = merkle_proof_data.siblings.iter()
                                 .map(|s| hex::encode(s))
@@ -687,11 +659,6 @@ impl NodeState {
                     }
                 }
             }
-        }
-        
-        if let Some(height) = checkpoint_height {
-            let mut state = self.inner.write().await;
-            state.checkpoint_accounts_snapshot = Some((height, simulated_accounts));
         }
         
         let skipped = sorted_txs.len() - executed_tx_hashes.len();
@@ -1016,7 +983,7 @@ impl NodeState {
     ) {
         // First pass: sync account state and collect addresses needing RewardsService sync
         // For v3 proofs, we now have authoritative reward state: (address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount)
-        let (rewards_to_sync, convergence_stake_adjustments) = {
+        let (rewards_to_sync, fast_path_stake_adjustments) = {
             let mut rewards_to_sync: Vec<(String, u64, u64, Option<u64>, u64, u64)> = Vec::new();
             let mut state = self.inner.write().await;
 
@@ -1083,51 +1050,30 @@ impl NodeState {
                     }
                 }
             }
-            let mut reapply_count = 0usize;
-            let convergence_stake_adjustments: Vec<(String, u64)>;
+            let fast_path_stake_adjustments: Vec<(String, u64)>;
 
             if sync_count > 0 {
                 state.update_state_trie_accounts(&synced_addresses);
 
-                let convergence_count = state.convergence_executed_txs.len();
-                let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
-
-                let already_rebuilt = state.last_overlay_rebuild_height >= current_height;
-                let (cleared, replayed) = if already_rebuilt && sync_count == 0 {
-                    tracing::debug!(
-                        "Proof sync: skipping overlay replay at h={} (already rebuilt at h={}, no corrections)",
-                        current_height, state.last_overlay_rebuild_height
-                    );
-                    (0, 0)
-                } else {
-                    let synced_accounts: std::collections::HashSet<String> = synced_addresses.iter().cloned().collect();
-                    let empty_finalized: std::collections::HashSet<String> = std::collections::HashSet::new();
-                    state.selective_convergence_overlay_update(
-                        &empty_finalized,
-                        &synced_accounts,
-                        current_height,
-                        false,
-                    )
-                };
-                reapply_count = replayed;
+                let fp_count = state.fast_path_finalized_txs.len();
 
                 tracing::info!(
-                    "Proof sync complete: {} accounts corrected, overlay cleared={} replayed={} (was {} convergence entries)",
-                    sync_count, cleared, replayed, convergence_count
+                    "Proof sync complete: {} accounts corrected ({} fast-path finalized entries)",
+                    sync_count, fp_count
                 );
-                convergence_stake_adjustments = state.convergence_executed_txs.values()
+                fast_path_stake_adjustments = state.fast_path_finalized_txs.values()
                     .filter(|e| matches!(e.kind, Some(rinku_core::types::TransactionKind::Stake)))
                     .map(|e| (e.from.clone(), e.amount))
                     .collect();
             } else {
                 tracing::debug!(
-                    "Proof sync: no state corrections needed, preserving convergence overlay ({} entries)",
-                    state.convergence_overlay.len()
+                    "Proof sync: no state corrections needed ({} fast-path finalized entries)",
+                    state.fast_path_finalized_txs.len()
                 );
-                convergence_stake_adjustments = Vec::new();
+                fast_path_stake_adjustments = Vec::new();
             }
 
-            (rewards_to_sync, convergence_stake_adjustments)
+            (rewards_to_sync, fast_path_stake_adjustments)
         }; // Release state lock
         
         if !rewards_to_sync.is_empty() {
@@ -1135,26 +1081,26 @@ impl NodeState {
             for (address, pending_rewards, staked_at, last_reward_at, claimed_total, staked_amount) in &rewards_to_sync {
                 rewards.sync_from_leader_v3(address, *pending_rewards, *staked_at, *last_reward_at, *claimed_total, *staked_amount);
             }
-            for (address, convergence_amount) in &convergence_stake_adjustments {
+            for (address, fp_amount) in &fast_path_stake_adjustments {
                 if let Some(existing) = rewards.get_stake_mut(address) {
-                    existing.amount += convergence_amount;
+                    existing.amount += fp_amount;
                     tracing::info!(
-                        "Proof sync: adjusted rewards.stakes for {} by +{} for re-applied convergence (new total={})",
+                        "Proof sync: adjusted rewards.stakes for {} by +{} for fast-path finalized (new total={})",
                         &address[..16.min(address.len())],
-                        convergence_amount,
+                        fp_amount,
                         existing.amount
                     );
                 } else {
-                    rewards.sync_stake_amount(address, *convergence_amount);
+                    rewards.sync_stake_amount(address, *fp_amount);
                 }
             }
-        } else if !convergence_stake_adjustments.is_empty() {
+        } else if !fast_path_stake_adjustments.is_empty() {
             let mut rewards = self.rewards.write().await;
-            for (address, convergence_amount) in &convergence_stake_adjustments {
+            for (address, fp_amount) in &fast_path_stake_adjustments {
                 if let Some(existing) = rewards.get_stake_mut(address) {
-                    existing.amount += convergence_amount;
+                    existing.amount += fp_amount;
                 } else {
-                    rewards.sync_stake_amount(address, *convergence_amount);
+                    rewards.sync_stake_amount(address, *fp_amount);
                 }
             }
         }

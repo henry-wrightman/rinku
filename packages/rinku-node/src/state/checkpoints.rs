@@ -336,7 +336,7 @@ impl NodeState {
             }
         };
 
-        let (batch_result, all_txs, finalized_count, convergence_skipped, from_deferred, retry_counts, height, convergence_already_executed, prev_deferred) = {
+        let (batch_result, all_txs, finalized_count, fast_path_skipped, from_deferred, retry_counts, height, fast_path_already_finalized, prev_deferred) = {
             let mut state = self.inner.write().await;
 
             let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -393,12 +393,12 @@ impl NodeState {
                 .unwrap_or(0);
 
             let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
-            let mut convergence_already_executed: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut fast_path_already_finalized: std::collections::HashSet<String> = std::collections::HashSet::new();
 
             if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                 for hash in &unfinalized_hashes {
-                    if state.convergence_executed_txs.contains_key(hash) {
-                        convergence_already_executed.insert(hash.clone());
+                    if state.fast_path_finalized_txs.contains_key(hash) {
+                        fast_path_already_finalized.insert(hash.clone());
                     }
 
                     if let Some(node) = state.dag.get_node(hash) {
@@ -442,13 +442,23 @@ impl NodeState {
 
             self.checkpoint_height_cache.store(height, std::sync::atomic::Ordering::Relaxed);
 
-            prev_deferred.retain(|dtx| !convergence_already_executed.contains(&dtx.hash));
+            prev_deferred.retain(|dtx| !fast_path_already_finalized.contains(&dtx.hash));
 
-            let mut all_txs: Vec<SignedTransaction> = txs_to_execute;
-            let convergence_skipped = convergence_already_executed.len();
+            let mut contract_lane_txs: Vec<SignedTransaction> = txs_to_execute
+                .into_iter()
+                .filter(|tx| !fast_path_already_finalized.contains(&tx.hash))
+                .collect();
+            let fast_path_skipped = fast_path_already_finalized.len();
             let from_deferred = prev_deferred.len();
 
-            all_txs.sort_by(|a, b| {
+            if fast_path_skipped > 0 {
+                tracing::info!(
+                    "Non-proposer checkpoint h={}: skipping {} fast-path TXs (already applied), {} contract-lane TXs to execute",
+                    height, fast_path_skipped, contract_lane_txs.len()
+                );
+            }
+
+            contract_lane_txs.sort_by(|a, b| {
                 a.tx.from.cmp(&b.tx.from)
                     .then(a.tx.nonce.cmp(&b.tx.nonce))
                     .then(a.hash.cmp(&b.hash))
@@ -456,7 +466,7 @@ impl NodeState {
 
             let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
                 let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = std::collections::HashMap::new();
-                for tx in &all_txs {
+                for tx in &contract_lane_txs {
                     if !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
                         map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
                     }
@@ -464,25 +474,16 @@ impl NodeState {
                 map
             };
 
+            let all_txs = contract_lane_txs;
             let batch_result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
 
             {
-                let finalized_conv_hashes: std::collections::HashSet<String> = convergence_already_executed.iter().cloned().collect();
-                let pre_snap: std::collections::HashMap<String, (u64, u64, u64)> = state.pre_checkpoint_accounts_snapshot
-                    .as_ref()
-                    .map(|(_, s)| s.clone())
-                    .unwrap_or_default();
-                let changed_accounts = state.compute_changed_accounts(&pre_snap);
-                let (cleared, replayed) = state.selective_convergence_overlay_update(
-                    &finalized_conv_hashes,
-                    &changed_accounts,
-                    height,
-                    false,
-                );
-                if cleared > 0 || replayed > 0 {
+                let finalized_fp_hashes: std::collections::HashSet<String> = fast_path_already_finalized.iter().cloned().collect();
+                let cleared = state.clear_checkpoint_finalized_txs(&finalized_fp_hashes);
+                if cleared > 0 {
                     tracing::info!(
-                        "Checkpoint h={}: proposer selective convergence update — cleared {} overlay entries, replayed {} (changed_accounts={}, finalized_conv={})",
-                        height, cleared, replayed, changed_accounts.len(), finalized_conv_hashes.len()
+                        "Checkpoint h={}: cleared {} fast-path finalized entries",
+                        height, cleared
                     );
                 }
             }
@@ -504,7 +505,7 @@ impl NodeState {
                 state.checkpoint_accounts_snapshot = None;
             }
 
-            (batch_result, all_txs, finalized_count, convergence_skipped, from_deferred, retry_counts, height, convergence_already_executed, prev_deferred)
+            (batch_result, all_txs, finalized_count, fast_path_skipped, from_deferred, retry_counts, height, fast_path_already_finalized, prev_deferred)
         };
 
         if finalized_count > 0 {
@@ -515,7 +516,7 @@ impl NodeState {
             let mut combined_deferred = batch_result.new_deferred;
             let finalized_hash_set: std::collections::HashSet<&str> = all_txs.iter().map(|t| t.hash.as_str()).collect();
             for dtx in prev_deferred {
-                if !finalized_hash_set.contains(dtx.hash.as_str()) && !convergence_already_executed.contains(&dtx.hash) {
+                if !finalized_hash_set.contains(dtx.hash.as_str()) && !fast_path_already_finalized.contains(&dtx.hash) {
                     combined_deferred.push(dtx);
                 }
             }
@@ -523,7 +524,7 @@ impl NodeState {
         }
 
         let has_special = !batch_result.special_txs.is_empty();
-        self.process_batch_special_txs_with_skip(&batch_result.special_txs, &convergence_already_executed).await;
+        self.process_batch_special_txs_with_skip(&batch_result.special_txs, &fast_path_already_finalized).await;
 
         {
             let state = self.inner.read().await;
@@ -548,11 +549,11 @@ impl NodeState {
         self.process_batch_reward_infos(&all_txs, &batch_result.executed_hashes).await;
 
         tracing::info!(
-            "Checkpoint h={} batch executed {}/{} txs in {:?} ({} convergence-pre-executed, {} from deferred, {} gap-skipped senders)",
+            "Checkpoint h={} batch executed {}/{} txs in {:?} ({} fast-path-pre-finalized, {} from deferred, {} gap-skipped senders)",
             height,
             batch_result.executed_count, all_txs.len(),
             batch_start.elapsed(),
-            convergence_skipped, from_deferred, batch_result.gap_skipped_senders.len()
+            fast_path_skipped, from_deferred, batch_result.gap_skipped_senders.len()
         );
 
         Ok(())
@@ -816,9 +817,8 @@ impl NodeState {
             state.last_checkpoint_time_ms = now_ms;
             self.checkpoint_height_cache.store(height, std::sync::atomic::Ordering::Relaxed);
 
-            state.convergence_executed_txs.clear();
-            state.convergence_executed_order.clear();
-            state.convergence_overlay.clear();
+            state.fast_path_finalized_txs.clear();
+            state.fast_path_finalized_order.clear();
 
             let snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
                 .accounts
@@ -878,7 +878,7 @@ impl NodeState {
         &self,
         checkpoint: Checkpoint,
         finalized_tx_hashes: Vec<String>,
-        skip_convergence_reapply: bool,
+        _skip_fast_path_reapply: bool,
     ) -> Result<usize> {
         let batch_start = std::time::Instant::now();
 
@@ -959,7 +959,7 @@ impl NodeState {
         };
 
         let t_phase1 = std::time::Instant::now();
-        let (txs_to_execute, mut convergence_already_executed, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, checkpoint_now_ms) = {
+        let (txs_to_execute, mut fast_path_already_finalized, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, checkpoint_now_ms) = {
             let lock_start = std::time::Instant::now();
             let mut state = self.inner.write().await;
             let lock_ms = lock_start.elapsed().as_millis();
@@ -990,7 +990,7 @@ impl NodeState {
                 .unwrap_or(0);
 
             let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
-            let mut convergence_already_executed: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut fast_path_already_finalized: std::collections::HashSet<String> = std::collections::HashSet::new();
             let mut missing_tx_count = 0usize;
 
             let finalized_count = if !finalized_tx_hashes.is_empty() {
@@ -998,8 +998,8 @@ impl NodeState {
                 let mut missing = 0;
 
                 for hash in &finalized_tx_hashes {
-                    if state.convergence_executed_txs.contains_key(hash) {
-                        convergence_already_executed.insert(hash.clone());
+                    if state.fast_path_finalized_txs.contains_key(hash) {
+                        fast_path_already_finalized.insert(hash.clone());
                     }
 
                     if let Some(node) = state.dag.get_node(hash) {
@@ -1036,8 +1036,8 @@ impl NodeState {
             } else if let Some((ref unfinalized_hashes, ref our_merkle_root)) = pre_merkle_hashes {
                 if *our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                     for hash in unfinalized_hashes {
-                        if state.convergence_executed_txs.contains_key(hash.as_str()) {
-                            convergence_already_executed.insert(hash.clone());
+                        if state.fast_path_finalized_txs.contains_key(hash.as_str()) {
+                            fast_path_already_finalized.insert(hash.clone());
                         }
 
                         if let Some(node) = state.dag.get_node(hash) {
@@ -1069,17 +1069,27 @@ impl NodeState {
 
             let finalized_hashes_for_cleanup: Vec<String> = txs_to_execute.iter().map(|tx| tx.hash.clone()).collect();
 
-            (txs_to_execute, convergence_already_executed, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, now_ms)
+            (txs_to_execute, fast_path_already_finalized, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, now_ms)
         };
         let phase1_ms = t_phase1.elapsed().as_millis();
 
-        prev_deferred.retain(|dtx| !convergence_already_executed.contains(&dtx.hash));
+        prev_deferred.retain(|dtx| !fast_path_already_finalized.contains(&dtx.hash));
 
-        let mut all_txs: Vec<SignedTransaction> = txs_to_execute;
-        let convergence_skipped = convergence_already_executed.len();
+        let mut contract_lane_txs: Vec<SignedTransaction> = txs_to_execute
+            .into_iter()
+            .filter(|tx| !fast_path_already_finalized.contains(&tx.hash))
+            .collect();
+        let fast_path_skipped = fast_path_already_finalized.len();
         let from_deferred = prev_deferred.len();
 
-        all_txs.sort_by(|a, b| {
+        if fast_path_skipped > 0 {
+            tracing::info!(
+                "Non-proposer checkpoint (proof-sync) h={}: skipping {} fast-path TXs (already applied), {} contract-lane TXs to execute",
+                height, fast_path_skipped, contract_lane_txs.len()
+            );
+        }
+
+        contract_lane_txs.sort_by(|a, b| {
             a.tx.from.cmp(&b.tx.from)
                 .then(a.tx.nonce.cmp(&b.tx.nonce))
                 .then(a.hash.cmp(&b.hash))
@@ -1087,13 +1097,15 @@ impl NodeState {
 
         let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
             let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = std::collections::HashMap::new();
-            for tx in &all_txs {
+            for tx in &contract_lane_txs {
                 if !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
                     map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
                 }
             }
             map
         };
+
+        let all_txs = contract_lane_txs;
 
         let t_phase2 = std::time::Instant::now();
         let batch_result = {
@@ -1127,22 +1139,12 @@ impl NodeState {
             let result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
 
             {
-                let finalized_conv_hashes: std::collections::HashSet<String> = convergence_already_executed.iter().cloned().collect();
-                let pre_snap: std::collections::HashMap<String, (u64, u64, u64)> = state.pre_checkpoint_accounts_snapshot
-                    .as_ref()
-                    .map(|(_, s)| s.clone())
-                    .unwrap_or_default();
-                let changed_accounts = state.compute_changed_accounts(&pre_snap);
-                let (cleared, replayed) = state.selective_convergence_overlay_update(
-                    &finalized_conv_hashes,
-                    &changed_accounts,
-                    height,
-                    skip_convergence_reapply,
-                );
-                if cleared > 0 || replayed > 0 {
+                let finalized_fp_hashes: std::collections::HashSet<String> = fast_path_already_finalized.iter().cloned().collect();
+                let cleared = state.clear_checkpoint_finalized_txs(&finalized_fp_hashes);
+                if cleared > 0 {
                     tracing::info!(
-                        "Checkpoint h={}: selective convergence update — cleared {} overlay entries, replayed {} (changed_accounts={}, finalized_conv={})",
-                        height, cleared, replayed, changed_accounts.len(), finalized_conv_hashes.len()
+                        "Checkpoint h={}: cleared {} fast-path finalized entries",
+                        height, cleared
                     );
                 }
             }
@@ -1189,7 +1191,7 @@ impl NodeState {
             let mut combined_deferred = batch_result.new_deferred;
             let finalized_hash_set: std::collections::HashSet<&str> = all_txs.iter().map(|t| t.hash.as_str()).collect();
             for dtx in prev_deferred {
-                if !finalized_hash_set.contains(dtx.hash.as_str()) && !convergence_already_executed.contains(&dtx.hash) {
+                if !finalized_hash_set.contains(dtx.hash.as_str()) && !fast_path_already_finalized.contains(&dtx.hash) {
                     combined_deferred.push(dtx);
                 }
             }
@@ -1197,7 +1199,7 @@ impl NodeState {
         }
 
         let has_special = !batch_result.special_txs.is_empty();
-        self.process_batch_special_txs_with_skip(&batch_result.special_txs, &convergence_already_executed).await;
+        self.process_batch_special_txs_with_skip(&batch_result.special_txs, &fast_path_already_finalized).await;
 
         {
             let state = self.inner.read().await;
@@ -1223,19 +1225,19 @@ impl NodeState {
 
         let total_finalized = all_txs.len();
         let newly_failed = all_txs.len().saturating_sub(batch_result.executed_count);
-        if newly_failed > 0 && convergence_skipped == 0 {
+        if newly_failed > 0 && fast_path_skipped == 0 {
             tracing::warn!(
                 "Batch UNDERCOUNT: {} of {} finalized txs actually executed (skipped {})",
                 batch_result.executed_count, all_txs.len(), newly_failed
             );
         }
         tracing::info!(
-            "Checkpoint h={} batch executed {}/{} txs in {:?} (phase1={}ms phase2={}ms, {} convergence-pre-executed, {} from deferred, {} expired, {} gap-skipped senders)",
+            "Checkpoint h={} batch executed {}/{} txs in {:?} (phase1={}ms phase2={}ms, {} fast-path-pre-finalized, {} from deferred, {} expired, {} gap-skipped senders)",
             height,
             batch_result.executed_count, total_finalized,
             batch_start.elapsed(),
             phase1_ms, phase2_ms,
-            convergence_skipped, from_deferred, expired_count, batch_result.gap_skipped_senders.len()
+            fast_path_skipped, from_deferred, expired_count, batch_result.gap_skipped_senders.len()
         );
 
         Ok(missing_tx_count)
@@ -1301,9 +1303,8 @@ impl NodeState {
 
         state.pre_checkpoint_accounts_snapshot = None;
         state.checkpoint_accounts_snapshot = None;
-        state.convergence_executed_txs.clear();
-        state.convergence_executed_order.clear();
-        state.convergence_overlay.clear();
+        state.fast_path_finalized_txs.clear();
+        state.fast_path_finalized_order.clear();
 
         let new_height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
         drop(state);

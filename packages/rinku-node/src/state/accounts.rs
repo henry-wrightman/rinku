@@ -143,7 +143,7 @@ impl NodeState {
                 parents: node.parents.clone(),
                 finalized: node.finalized,
                 checkpoint_height: node.checkpoint_height,
-                convergence_certificate: node.convergence_certificate.clone(),
+                fast_path_cert: node.fast_path_cert.clone(),
             })
             .collect();
         let weights = state.weight_trie.as_ref().map(|wt| wt.all_weights().clone());

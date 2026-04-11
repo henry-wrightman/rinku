@@ -30,7 +30,7 @@ use crate::trust::TrustVerifier;
 use crate::validator_identity::ValidatorIdentityService;
 
 const DYNAMIC_TX_CAP_MIN: usize = 10;
-const DYNAMIC_TX_CAP_MAX: usize = 300;
+const DYNAMIC_TX_CAP_MAX: usize = 600;
 
 struct AcceptedVote {
     canonical_stake: u64,
@@ -45,7 +45,7 @@ struct PendingQcc {
     reward_distributions: Vec<(String, u64)>,
     checkpoint_reward: u64,
     finalized_proofs: std::collections::HashMap<String, rinku_core::types::AccountStateProof>,
-    convergence_executed: std::collections::HashSet<String>,
+    fast_path_executed: std::collections::HashSet<String>,
     height: u64,
     now_ms: u64,
     is_partitioned: bool,
@@ -69,7 +69,7 @@ struct QccRetryData {
     reward_distributions: Vec<(String, u64)>,
     checkpoint_reward: u64,
     finalized_proofs: std::collections::HashMap<String, rinku_core::types::AccountStateProof>,
-    convergence_executed: std::collections::HashSet<String>,
+    fast_path_executed: std::collections::HashSet<String>,
     height: u64,
     is_partitioned: bool,
     partition_info: crate::state::partition::PartitionState,
@@ -125,7 +125,7 @@ pub struct CheckpointService {
     consecutive_qcc_failures: u32,
     qcc_failure_height: u64,
     qcc_yielded_height: u64,
-    convergence_yield_start: Option<std::time::Instant>,
+    fast_path_yield_start: Option<std::time::Instant>,
     pending_qcc: Option<PendingQcc>,
     qcc_retry_data: Option<QccRetryData>,
     #[cfg(feature = "p2p")]
@@ -143,7 +143,7 @@ const FORK_RECOVERY_THRESHOLD: u32 = 3;
 const LEADER_SKIP_BASE_TICKS: u32 = 3;
 const LEADER_SKIP_STAGGER_TICKS: u32 = 1;
 const LEADER_INTENT_EXTENSION_TICKS: u32 = 2;
-const MAX_CHECKPOINT_TXS: usize = 500;
+const MAX_CHECKPOINT_TXS: usize = 1000;
 const POST_SYNC_COOLDOWN_MS: u64 = 500;
 const LEADER_POST_SYNC_MAX_DEFER_MS: u64 = 500;
 const MIN_INTER_CHECKPOINT_MS: u64 = 2000;
@@ -620,7 +620,7 @@ impl CheckpointService {
             consecutive_qcc_failures: 0,
             qcc_failure_height: 0,
             qcc_yielded_height: 0,
-            convergence_yield_start: None,
+            fast_path_yield_start: None,
             pending_qcc: None,
             qcc_retry_data: None,
             #[cfg(feature = "p2p")]
@@ -835,32 +835,31 @@ impl CheckpointService {
             let current_height = self.state.get_checkpoint_height();
 
             if tick_elapsed > 50 || had_pending_qcc {
-                let convergence_pool_size = {
+                let fast_path_pool_size = {
                     let state = self.state.inner.read().await;
-                    state.convergence_executed_txs.len()
+                    state.fast_path_finalized_txs.len()
                 };
                 info!(
-                    "RCC-TICK #{}: {}ms | height={} | pending_qcc: before={} after={} | qcc_h={} qcc_finished={} qcc_age={}ms | convergence_pool={} | produced={}",
+                    "RCC-TICK #{}: {}ms | height={} | pending_qcc: before={} after={} | qcc_h={} qcc_finished={} qcc_age={}ms | fast_path_pool={} | produced={}",
                     self.tick_counter, tick_elapsed, current_height,
                     had_pending_qcc, new_pending, pending_height,
                     pending_qcc_finished, pending_qcc_wait,
-                    convergence_pool_size, self.total_checkpoints_produced
+                    fast_path_pool_size, self.total_checkpoints_produced
                 );
             }
 
             const DASHBOARD_INTERVAL_SECS: u64 = 15;
             if self.last_dashboard_at.elapsed().as_secs() >= DASHBOARD_INTERVAL_SECS {
                 let (_tps, tps_short, tps_long) = self.state.get_dynamic_tps().await;
-                let (convergence_pool_size, overlay_size, accounts_count) = {
+                let (fast_path_pool_size, accounts_count) = {
                     let state = self.state.inner.read().await;
                     (
-                        state.convergence_executed_txs.len(),
-                        state.convergence_overlay.len(),
+                        state.fast_path_finalized_txs.len(),
                         state.accounts.len(),
                     )
                 };
                 let gossip_stats = if let Some(ref gossip) = self.gossip_service {
-                    let stats = gossip.get_convergence_stats().await;
+                    let stats = gossip.get_fast_path_stats().await;
                     format!(
                         "pending={} confirmed={}",
                         stats.pending_count, stats.confirmed_count
@@ -888,11 +887,11 @@ impl CheckpointService {
                     "no-gossip".to_string()
                 };
                 info!(
-                    "RCC-DASHBOARD: height={} tps_15s={:.1} tps_60s={:.1} | checkpoints_produced={} avg_qcc={}ms avg_pickup_delay={}ms qcc_failures={} | convergence_pool={} overlay={} accounts={} {} | {} | last_checkpoint={} | tick_interval={}ms yielded_h={}",
+                    "RCC-DASHBOARD: height={} tps_15s={:.1} tps_60s={:.1} | checkpoints_produced={} avg_qcc={}ms avg_pickup_delay={}ms qcc_failures={} | fast_path_pool={} accounts={} {} | {} | last_checkpoint={} | tick_interval={}ms yielded_h={}",
                     current_height, tps_short, tps_long,
                     self.total_checkpoints_produced, avg_qcc_ms, avg_pickup_delay,
                     self.consecutive_qcc_failures,
-                    convergence_pool_size, overlay_size, accounts_count, gossip_stats, peer_health_summary, cadence,
+                    fast_path_pool_size, accounts_count, gossip_stats, peer_health_summary, cadence,
                     self.interval_ms, self.qcc_yielded_height
                 );
                 self.last_dashboard_at = std::time::Instant::now();
@@ -1454,7 +1453,7 @@ impl CheckpointService {
                     self.consecutive_qcc_failures = 0;
                     self.qcc_retry_data = None;
                     self.qcc_yielded_height = 0;
-                    self.convergence_yield_start = None;
+                    self.fast_path_yield_start = None;
                     let checkpoint = Checkpoint {
                         validator_signatures: sigs,
                         aggregated_signature: Some(URL_SAFE_NO_PAD.encode(&agg_sig)),
@@ -1474,7 +1473,7 @@ impl CheckpointService {
                         pending.reward_distributions,
                         pending.checkpoint_reward,
                         pending.finalized_proofs,
-                        pending.convergence_executed,
+                        pending.fast_path_executed,
                         pending.height,
                         pending.now_ms,
                         pending.is_partitioned,
@@ -1520,7 +1519,7 @@ impl CheckpointService {
                                 reward_distributions: pending.reward_distributions.clone(),
                                 checkpoint_reward: pending.checkpoint_reward,
                                 finalized_proofs: pending.finalized_proofs.clone(),
-                                convergence_executed: pending.convergence_executed.clone(),
+                                fast_path_executed: pending.fast_path_executed.clone(),
                                 height: pending.height,
                                 is_partitioned: pending.is_partitioned,
                                 partition_info: pending.partition_info.clone(),
@@ -1609,7 +1608,7 @@ impl CheckpointService {
                         reward_distributions: pending.reward_distributions.clone(),
                         checkpoint_reward: pending.checkpoint_reward,
                         finalized_proofs: pending.finalized_proofs.clone(),
-                        convergence_executed: pending.convergence_executed.clone(),
+                        fast_path_executed: pending.fast_path_executed.clone(),
                         height: pending.height,
                         is_partitioned: pending.is_partitioned,
                         partition_info: pending.partition_info.clone(),
@@ -1677,7 +1676,7 @@ impl CheckpointService {
         reward_distributions: Vec<(String, u64)>,
         checkpoint_reward: u64,
         finalized_proofs: std::collections::HashMap<String, rinku_core::types::AccountStateProof>,
-        _convergence_executed: std::collections::HashSet<String>,
+        _fast_path_executed: std::collections::HashSet<String>,
         height: u64,
         now_ms: u64,
         is_partitioned: bool,
@@ -1693,30 +1692,6 @@ impl CheckpointService {
         t_qcc_ms: u128,
         qcc_actual_ms: u128,
     ) -> Result<()> {
-        let mut all_txs = txs_to_execute.clone();
-        all_txs.sort_by(|a, b| {
-            a.tx.from
-                .cmp(&b.tx.from)
-                .then(a.tx.nonce.cmp(&b.tx.nonce))
-                .then(a.hash.cmp(&b.hash))
-        });
-
-        let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
-            let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> =
-                std::collections::HashMap::new();
-            for tx in &all_txs {
-                if !matches!(
-                    tx.tx.kind,
-                    Some(rinku_core::types::TransactionKind::Consolidation)
-                ) {
-                    map.entry(tx.tx.from.clone())
-                        .or_default()
-                        .insert(tx.tx.nonce);
-                }
-            }
-            map
-        };
-
         let lock_start = std::time::Instant::now();
         let mut state = self.state.inner.write().await;
         let lock_wait_ms = lock_start.elapsed().as_millis();
@@ -1735,6 +1710,48 @@ impl CheckpointService {
             );
             return Ok(());
         }
+
+        let fast_path_already_finalized: std::collections::HashSet<String> = hashes
+            .iter()
+            .filter(|h| state.fast_path_finalized_txs.contains_key(h.as_str()))
+            .cloned()
+            .collect();
+
+        let mut contract_lane_txs: Vec<SignedTransaction> = txs_to_execute
+            .iter()
+            .filter(|tx| !fast_path_already_finalized.contains(&tx.hash))
+            .cloned()
+            .collect();
+        contract_lane_txs.sort_by(|a, b| {
+            a.tx.from
+                .cmp(&b.tx.from)
+                .then(a.tx.nonce.cmp(&b.tx.nonce))
+                .then(a.hash.cmp(&b.hash))
+        });
+
+        let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
+            let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> =
+                std::collections::HashMap::new();
+            for tx in &contract_lane_txs {
+                if !matches!(
+                    tx.tx.kind,
+                    Some(rinku_core::types::TransactionKind::Consolidation)
+                ) {
+                    map.entry(tx.tx.from.clone())
+                        .or_default()
+                        .insert(tx.tx.nonce);
+                }
+            }
+            map
+        };
+
+        if !fast_path_already_finalized.is_empty() {
+            info!(
+                "Proposer checkpoint h={}: {} fast-path TXs (already applied), {} contract-lane TXs to execute",
+                height, fast_path_already_finalized.len(), contract_lane_txs.len()
+            );
+        }
+
         let pre_snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
             .accounts
             .iter()
@@ -1761,32 +1778,15 @@ impl CheckpointService {
 
         let _finalized = state.dag.mark_finalized_batch(&hashes, height);
 
-        let convergence_already_executed: std::collections::HashSet<String> = hashes
-            .iter()
-            .filter(|h| state.convergence_executed_txs.contains_key(h.as_str()))
-            .cloned()
-            .collect();
-
         let batch_result =
-            crate::state::NodeState::execute_batch_inline(&mut state, &all_txs, &available_nonces);
+            crate::state::NodeState::execute_batch_inline(&mut state, &contract_lane_txs, &available_nonces);
 
         {
-            let pre_snap: std::collections::HashMap<String, (u64, u64, u64)> = state
-                .pre_checkpoint_accounts_snapshot
-                .as_ref()
-                .map(|(_, s)| s.clone())
-                .unwrap_or_default();
-            let changed_accounts = state.compute_changed_accounts(&pre_snap);
-            let (cleared, replayed) = state.selective_convergence_overlay_update(
-                &convergence_already_executed,
-                &changed_accounts,
-                height,
-                false,
-            );
-            if cleared > 0 || replayed > 0 {
+            let cleared = state.clear_checkpoint_finalized_txs(&fast_path_already_finalized);
+            if cleared > 0 {
                 tracing::info!(
-                    "Proposer checkpoint h={}: selective convergence update — cleared {} overlay entries, replayed {} (changed_accounts={}, finalized_conv={})",
-                    height, cleared, replayed, changed_accounts.len(), convergence_already_executed.len()
+                    "Proposer checkpoint h={}: cleared {} fast-path finalized entries",
+                    height, cleared
                 );
             }
         }
@@ -1795,7 +1795,7 @@ impl CheckpointService {
             .iter()
             .filter(|h| {
                 batch_result.executed_hashes.contains(h.as_str())
-                    || convergence_already_executed.contains(h.as_str())
+                    || fast_path_already_finalized.contains(h.as_str())
             })
             .cloned()
             .collect();
@@ -1810,6 +1810,19 @@ impl CheckpointService {
                 .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
                 .collect();
             state.checkpoint_accounts_snapshot = Some((height, snapshot));
+        }
+
+        {
+            let compact_start = std::time::Instant::now();
+            let old_dirty = state.state_trie.dirty_node_count();
+            state.state_trie = crate::state::StateInner::build_state_trie_from_accounts(&state.accounts);
+            let compact_ms = compact_start.elapsed().as_millis();
+            if compact_ms > 2 || old_dirty > 5000 {
+                tracing::info!(
+                    "SMT compaction at h={}: rebuilt trie from {} accounts (was {} dirty nodes, took {}ms)",
+                    height, state.accounts.len(), old_dirty, compact_ms
+                );
+            }
         }
 
         if is_partitioned {
@@ -1895,7 +1908,7 @@ impl CheckpointService {
         self.state
             .process_batch_special_txs_with_skip(
                 &batch_result.special_txs,
-                &convergence_already_executed,
+                &fast_path_already_finalized,
             )
             .await;
 
@@ -1910,14 +1923,14 @@ impl CheckpointService {
         }
 
         self.state
-            .process_batch_reward_infos(&all_txs, &batch_result.executed_hashes)
+            .process_batch_reward_infos(&contract_lane_txs, &batch_result.executed_hashes)
             .await;
 
         tracing::info!(
-            "Proposer checkpoint h={} batch executed {}/{} txs ({} convergence-pre-executed, {} gap-skipped senders)",
+            "Proposer checkpoint h={} batch executed {}/{} contract-lane txs, {} fast-path (pre-finalized), {} gap-skipped senders",
             height,
-            batch_result.executed_count, all_txs.len(),
-            convergence_already_executed.len(), batch_result.gap_skipped_senders.len()
+            batch_result.executed_count, contract_lane_txs.len(),
+            fast_path_already_finalized.len(), batch_result.gap_skipped_senders.len()
         );
 
         self.state.store_precomputed_proofs(&final_proofs).await;
@@ -2248,7 +2261,7 @@ impl CheckpointService {
                                     applied_count += 1;
                                     if let Some(ref gossip) = self.gossip_service {
                                         gossip
-                                            .remove_finalized_from_convergence(
+                                            .remove_finalized_from_fast_path(
                                                 &checkpoint.finalized_tx_hashes,
                                             )
                                             .await;
@@ -2704,7 +2717,7 @@ impl CheckpointService {
                     applied_count += 1;
                     if let Some(ref gossip) = self.gossip_service {
                         gossip
-                            .remove_finalized_from_convergence(&checkpoint.finalized_tx_hashes)
+                            .remove_finalized_from_fast_path(&checkpoint.finalized_tx_hashes)
                             .await;
                         let cp_txs: Vec<SignedTransaction> = checkpoint
                             .finalized_tx_hashes
@@ -2873,7 +2886,7 @@ impl CheckpointService {
                                     received_at_ms: Some(now_ms),
                                     partition_epoch: None,
                                     rolled_back: false,
-                                    convergence_certificate: None,
+                                    fast_path_cert: None,
                                 };
                                 if state.dag.add_node(node).is_ok() {
                                     added += 1;
@@ -3127,7 +3140,7 @@ impl CheckpointService {
         let fp_executed: std::collections::HashSet<String> = {
             let state_guard = self.state.inner.read().await;
             state_guard
-                .convergence_executed_txs
+                .fast_path_finalized_txs
                 .keys()
                 .cloned()
                 .collect()
@@ -3356,7 +3369,7 @@ impl CheckpointService {
                                     received_at_ms: Some(timestamp_ms),
                                     partition_epoch: None,
                                     rolled_back: false,
-                                    convergence_certificate: None,
+                                    fast_path_cert: None,
                                 };
                                 let _ = state.dag.add_node(node);
                             }
@@ -3483,15 +3496,13 @@ impl CheckpointService {
                     if behind >= 2 {
                         {
                             let mut state = self.state.inner.write().await;
-                            let overlay_size = state.convergence_overlay.len();
-                            let executed_size = state.convergence_executed_txs.len();
-                            if overlay_size > 0 || executed_size > 0 {
-                                state.convergence_overlay.clear();
-                                state.convergence_executed_txs.clear();
-                                state.convergence_executed_order.clear();
+                            let fp_size = state.fast_path_finalized_txs.len();
+                            if fp_size > 0 {
+                                state.fast_path_finalized_txs.clear();
+                                state.fast_path_finalized_order.clear();
                                 info!(
-                                    "BEHIND PEERS: flushed convergence overlay ({} overlay, {} executed) — checkpoint sync will rebuild",
-                                    overlay_size, executed_size
+                                    "BEHIND PEERS: flushed {} fast-path finalized entries — checkpoint sync will rebuild",
+                                    fp_size
                                 );
                             }
                         }
@@ -3670,19 +3681,19 @@ impl CheckpointService {
 
         if is_proposer {
             if self.qcc_yielded_height == height {
-                const CONVERGENCE_YIELD_MAX_MS: u64 = 3000;
+                const FAST_PATH_YIELD_MAX_MS: u64 = 3000;
                 let yield_expired = self
-                    .convergence_yield_start
-                    .map(|t| t.elapsed().as_millis() as u64 >= CONVERGENCE_YIELD_MAX_MS)
+                    .fast_path_yield_start
+                    .map(|t| t.elapsed().as_millis() as u64 >= FAST_PATH_YIELD_MAX_MS)
                     .unwrap_or(false);
 
                 if yield_expired {
                     info!(
-                        "YIELD-RECOVERY: convergence yield expired ({}ms) at height {} — clearing yield state and proceeding",
-                        self.convergence_yield_start.map(|t| t.elapsed().as_millis()).unwrap_or(0), height
+                        "YIELD-RECOVERY: fast-path yield expired ({}ms) at height {} — clearing yield state and proceeding",
+                        self.fast_path_yield_start.map(|t| t.elapsed().as_millis()).unwrap_or(0), height
                     );
                     self.qcc_yielded_height = 0;
-                    self.convergence_yield_start = None;
+                    self.fast_path_yield_start = None;
                     self.consecutive_qcc_failures = 0;
                 } else {
                     if let Some(ref gossip) = self.gossip_service {
@@ -3694,7 +3705,7 @@ impl CheckpointService {
                                 local_checkpoint_height, new_height
                             );
                             self.qcc_yielded_height = 0;
-                            self.convergence_yield_start = None;
+                            self.fast_path_yield_start = None;
                             self.consecutive_qcc_failures = 0;
                             self.last_delta_sync_catch_up = Some(std::time::Instant::now());
                             return Ok(());
@@ -3716,7 +3727,7 @@ impl CheckpointService {
                                 new_height, height
                             );
                             self.qcc_yielded_height = 0;
-                            self.convergence_yield_start = None;
+                            self.fast_path_yield_start = None;
                             self.consecutive_qcc_failures = 0;
                             self.last_delta_sync_catch_up = Some(std::time::Instant::now());
                         }
@@ -3736,7 +3747,7 @@ impl CheckpointService {
                     self.last_delta_sync_catch_up = Some(std::time::Instant::now());
                     self.consecutive_qcc_failures = 0;
                     self.qcc_yielded_height = 0;
-                    self.convergence_yield_start = None;
+                    self.fast_path_yield_start = None;
                     return Ok(());
                 }
                 if gossip.has_buffered_checkpoint(height).await {
@@ -3768,13 +3779,13 @@ impl CheckpointService {
             }
 
             {
-                let convergence_pool_size = {
+                let fast_path_pool_size = {
                     let state = self.state.inner.read().await;
-                    state.convergence_executed_txs.len()
+                    state.fast_path_finalized_txs.len()
                 };
-                if convergence_pool_size == 0 {
-                    let has_pending_convergence = if let Some(ref gossip) = self.gossip_service {
-                        let stats = gossip.get_convergence_stats().await;
+                if fast_path_pool_size == 0 {
+                    let has_pending_fast_path = if let Some(ref gossip) = self.gossip_service {
+                        let stats = gossip.get_fast_path_stats().await;
                         stats.confirmed_count > 50
                     } else {
                         false
@@ -3783,7 +3794,7 @@ impl CheckpointService {
                         .last_delta_sync_catch_up
                         .map(|t| t.elapsed() <= std::time::Duration::from_secs(2))
                         .unwrap_or(false);
-                    if has_pending_convergence && caught_up_recently {
+                    if has_pending_fast_path && caught_up_recently {
                         if let Some(ref gossip) = self.gossip_service {
                             let our_stake = {
                                 let state = self.state.inner.read().await;
@@ -3794,8 +3805,8 @@ impl CheckpointService {
                                     .unwrap_or(0)
                             };
                             info!(
-                                "PROPOSER CONVERGENCE-YIELD: convergence_pool=0 but pending_convergence={} caught_up_recently={} — self-yielding height {} to avoid QCC mismatch",
-                                has_pending_convergence, caught_up_recently, height
+                                "PROPOSER FAST-PATH-YIELD: fast_path_pool=0 but pending_fast_path={} caught_up_recently={} — self-yielding height {} to avoid QCC mismatch",
+                                has_pending_fast_path, caught_up_recently, height
                             );
                             gossip
                                 .broadcast_view_change(
@@ -3807,7 +3818,7 @@ impl CheckpointService {
                                 )
                                 .await;
                             self.qcc_yielded_height = height;
-                            self.convergence_yield_start = Some(std::time::Instant::now());
+                            self.fast_path_yield_start = Some(std::time::Instant::now());
                         }
                         return Ok(());
                     }
@@ -4141,7 +4152,7 @@ impl CheckpointService {
                         reward_distributions: retry.reward_distributions,
                         checkpoint_reward: retry.checkpoint_reward,
                         finalized_proofs: retry.finalized_proofs,
-                        convergence_executed: retry.convergence_executed,
+                        fast_path_executed: retry.fast_path_executed,
                         height: retry.height,
                         now_ms,
                         is_partitioned: retry.is_partitioned,
@@ -4208,11 +4219,12 @@ impl CheckpointService {
                     break;
                 }
                 if let Some(account) = state_guard.accounts.get(&tx.tx.from) {
-                    let effective_nonce = state_guard
-                        .convergence_overlay
-                        .get(&tx.tx.from)
-                        .map(|ov| ov.nonce)
+                    let fp_effective_nonce = state_guard.fast_path_finalized_txs.values()
+                        .filter(|e| e.from == tx.tx.from)
+                        .map(|e| e.nonce + 1)
+                        .max()
                         .unwrap_or(account.nonce);
+                    let effective_nonce = fp_effective_nonce.max(account.nonce);
                     if tx.tx.nonce <= effective_nonce {
                         any_executable = true;
                         break;
@@ -4258,7 +4270,7 @@ impl CheckpointService {
             (reward, dists)
         };
 
-        let (affected_vec, convergence_executed) = {
+        let (affected_vec, fast_path_executed, contract_lane_txs) = {
             let state_guard = self.state.inner.read().await;
             let mut affected: std::collections::HashSet<String> = std::collections::HashSet::new();
             for tx in &txs {
@@ -4270,36 +4282,44 @@ impl CheckpointService {
             if let Some(ref v) = state_guard.node_validator_address {
                 affected.insert(v.clone());
             }
-            for (addr, _) in state_guard.accounts.iter() {
-                if state_guard.convergence_overlay.contains_key(addr) {
-                    affected.insert(addr.clone());
+            for entry in state_guard.fast_path_finalized_txs.values() {
+                affected.insert(entry.from.clone());
+                if !entry.to.is_empty() {
+                    affected.insert(entry.to.clone());
                 }
             }
             let accounts: Vec<String> = affected.into_iter().collect();
             let hash_set: std::collections::HashSet<String> = state_guard
-                .convergence_executed_txs
+                .fast_path_finalized_txs
                 .keys()
                 .cloned()
                 .collect();
-            (accounts, hash_set)
+            let cl_txs: Vec<rinku_core::SignedTransaction> = txs.iter()
+                .filter(|tx| !hash_set.contains(&tx.hash))
+                .cloned()
+                .collect();
+            (accounts, hash_set, cl_txs)
         };
+
+        let fp_count = fast_path_executed.len();
+        let cl_count = contract_lane_txs.len();
 
         let t_proof_start = std::time::Instant::now();
         let proofs_result = self
             .state
-            .compute_state_root_and_proofs_at_height(&txs, &affected_vec, height, &[])
+            .compute_state_root_and_proofs_at_height(&contract_lane_txs, &affected_vec, height)
             .await;
         let t_proof_ms = t_proof_start.elapsed().as_millis();
         let state_root = proofs_result.state_root.clone();
         let finalized_proofs = proofs_result.proofs;
 
         let pre_filter_count = hashes.len();
-        hashes.retain(|h| proofs_result.executed_tx_hashes.contains(h));
+        hashes.retain(|h| proofs_result.executed_tx_hashes.contains(h) || fast_path_executed.contains(h));
         let filtered_count = pre_filter_count - hashes.len();
         if filtered_count > 0 {
             tracing::warn!(
-                "Checkpoint h={}: filtered {} non-executable TXs from finalized list ({} -> {} TXs)",
-                height, filtered_count, pre_filter_count, hashes.len()
+                "Checkpoint h={}: filtered {} non-executable TXs from finalized list ({} -> {} TXs, {} fast-path, {} contract-lane)",
+                height, filtered_count, pre_filter_count, hashes.len(), fp_count, cl_count
             );
         }
 
@@ -4602,7 +4622,7 @@ impl CheckpointService {
                 reward_distributions,
                 checkpoint_reward,
                 finalized_proofs,
-                convergence_executed,
+                fast_path_executed,
                 height,
                 now_ms,
                 is_partitioned,
@@ -4629,7 +4649,7 @@ impl CheckpointService {
                 reward_distributions,
                 checkpoint_reward,
                 finalized_proofs,
-                convergence_executed,
+                fast_path_executed,
                 height,
                 now_ms,
                 is_partitioned,
@@ -4728,7 +4748,7 @@ impl CheckpointService {
                         .map(|a| a.nonce)
                         .unwrap_or(0);
                     if n.tx.tx.nonce < account_nonce
-                        && !state.convergence_executed_txs.contains_key(&n.hash)
+                        && !state.fast_path_finalized_txs.contains_key(&n.hash)
                     {
                         zombie_count += 1;
                         false
@@ -4740,7 +4760,7 @@ impl CheckpointService {
 
             if zombie_count > 0 {
                 tracing::info!(
-                    "Gather: filtered {} zombie txs (stale nonce, not convergence-tracked)",
+                    "Gather: filtered {} zombie txs (stale nonce, not fast-path-tracked)",
                     zombie_count
                 );
             }
@@ -4946,7 +4966,7 @@ impl CheckpointService {
                                     .map(|a| a.nonce)
                                     .unwrap_or(0);
                                 n.tx.tx.nonce >= account_nonce
-                                    || state.convergence_executed_txs.contains_key(&n.hash)
+                                    || state.fast_path_finalized_txs.contains_key(&n.hash)
                             })
                             .collect();
 

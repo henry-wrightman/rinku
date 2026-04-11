@@ -138,8 +138,8 @@ impl NodeState {
         }
     }
 
-    pub async fn get_convergence_certificate(&self, hash: &str) -> Option<rinku_core::types::ConvergenceCertificate> {
+    pub async fn get_fast_path_cert(&self, hash: &str) -> Option<rinku_core::types::FastPathFinalizationCert> {
         let state = self.inner.read().await;
-        state.dag.get_node(hash).and_then(|n| n.convergence_certificate.clone())
+        state.dag.get_node(hash).and_then(|n| n.fast_path_cert.clone())
     }
 }

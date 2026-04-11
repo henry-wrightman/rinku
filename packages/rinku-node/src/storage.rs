@@ -41,7 +41,7 @@ pub struct DagSnapshotEntry {
     #[serde(default)]
     pub checkpoint_height: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub convergence_certificate: Option<rinku_core::types::ConvergenceCertificate>,
+    pub fast_path_cert: Option<rinku_core::types::FastPathFinalizationCert>,
 }
 
 pub const TABLE_ACCOUNTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("accounts");
@@ -647,7 +647,7 @@ impl RedbStorage {
                                 parents: Vec::new(),
                                 finalized: true,
                                 checkpoint_height: None,
-                                convergence_certificate: None,
+                                fast_path_cert: None,
                             });
                         }
                     }

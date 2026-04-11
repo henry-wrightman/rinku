@@ -67,7 +67,7 @@ fn create_dag_node(tx: SignedTransaction, weight: f64) -> DagNode {
         received_at_ms: None,
         partition_epoch: None,
         rolled_back: false,
-        convergence_certificate: None,
+        fast_path_cert: None,
     }
 }
 
@@ -109,6 +109,8 @@ fn create_test_checkpoint(
         partition_epoch: None,
         visible_stake_pct: None,
         merge_report_hash: None,
+        view_change_certificate: None,
+        view: 0,
     }
 }
 
@@ -333,13 +335,7 @@ mod snapshot_sync_tests {
     fn test_snapshot_contains_all_accounts() {
         let mut node = SimulatedNode::new("node1");
 
-        node.add_transaction(create_test_transaction(
-            "genesis",
-            "alice",
-            100,
-            1,
-            vec![],
-        ));
+        node.add_transaction(create_test_transaction("genesis", "alice", 100, 1, vec![]));
         node.add_transaction(create_test_transaction("genesis", "bob", 200, 2, vec![]));
         node.add_transaction(create_test_transaction(
             "genesis",
@@ -364,13 +360,7 @@ mod snapshot_sync_tests {
     fn test_snapshot_sync_restores_balances() {
         let mut source_node = SimulatedNode::new("source");
 
-        source_node.add_transaction(create_test_transaction(
-            "genesis",
-            "alice",
-            100,
-            1,
-            vec![],
-        ));
+        source_node.add_transaction(create_test_transaction("genesis", "alice", 100, 1, vec![]));
         source_node.add_transaction(create_test_transaction("genesis", "bob", 200, 2, vec![]));
         source_node.create_checkpoint();
 
@@ -503,13 +493,7 @@ mod checkpoint_adoption_tests {
         let mut node1 = SimulatedNode::new("node1");
         let mut node2 = SimulatedNode::new("node2");
 
-        node1.add_transaction(create_test_transaction(
-            "genesis",
-            "alice",
-            100,
-            1,
-            vec![],
-        ));
+        node1.add_transaction(create_test_transaction("genesis", "alice", 100, 1, vec![]));
         node2.add_transaction(create_test_transaction("genesis", "bob", 100, 1, vec![]));
 
         let peer_checkpoint = node1.create_checkpoint();
@@ -529,13 +513,7 @@ mod checkpoint_adoption_tests {
     fn test_checkpoint_chain_linkage_validation() {
         let mut node = SimulatedNode::new("node1");
 
-        node.add_transaction(create_test_transaction(
-            "genesis",
-            "alice",
-            100,
-            1,
-            vec![],
-        ));
+        node.add_transaction(create_test_transaction("genesis", "alice", 100, 1, vec![]));
         let cp1 = node.create_checkpoint();
 
         node.add_transaction(create_test_transaction("genesis", "bob", 50, 2, vec![]));
@@ -562,6 +540,8 @@ mod checkpoint_adoption_tests {
             partition_epoch: None,
             visible_stake_pct: None,
             merge_report_hash: None,
+            view_change_certificate: None,
+            view: 0,
         };
 
         let can_adopt_orphan = orphan_checkpoint.previous_hash == Some(cp1.hash.clone());
@@ -825,10 +805,8 @@ mod network_partition_tests {
         );
 
         for i in 2..=5 {
-            let tx_a =
-                create_test_transaction("genesis", &format!("user_a_{}", i), 10, i, vec![]);
-            let tx_b =
-                create_test_transaction("genesis", &format!("user_b_{}", i), 10, i, vec![]);
+            let tx_a = create_test_transaction("genesis", &format!("user_a_{}", i), 10, i, vec![]);
+            let tx_b = create_test_transaction("genesis", &format!("user_b_{}", i), 10, i, vec![]);
 
             node_partition_a.add_transaction(tx_a);
             node_partition_b.add_transaction(tx_b);

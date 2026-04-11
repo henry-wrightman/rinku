@@ -283,9 +283,8 @@ impl NodeState {
         );
         
         state.accounts = merged_accounts;
-        state.convergence_overlay.clear();
-        state.convergence_executed_txs.clear();
-        state.convergence_executed_order.clear();
+        state.fast_path_finalized_txs.clear();
+        state.fast_path_finalized_order.clear();
         
         let old_validator_count = state.validators.len();
         let genesis_validators = &self.config.trust.genesis_validators;
@@ -536,7 +535,7 @@ impl NodeState {
             received_at_ms: Some(now_ms),
             partition_epoch: None,
             rolled_back: false,
-            convergence_certificate: None,
+            fast_path_cert: None,
         };
         let _ = state.dag.add_node(genesis_node);
 
@@ -671,7 +670,7 @@ impl NodeState {
                 received_at_ms: Some(tx.tx.timestamp),
                 partition_epoch: None,
                 rolled_back: false,
-                convergence_certificate: None,
+                fast_path_cert: None,
             };
 
             if state.dag.add_node(node).is_ok() {

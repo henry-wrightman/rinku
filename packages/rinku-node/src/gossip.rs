@@ -16,7 +16,7 @@ const SEEN_CONFLICTS_MAX_SIZE: usize = 10_000;
 const SEEN_EVIDENCE_MAX_SIZE: usize = 5_000;
 
 const CHECKPOINT_BUFFER_MAX_AHEAD: u64 = 50;
-const CONVERGENCE_BATCH_CHANNEL_SIZE: usize = 4096;
+const FAST_PATH_BATCH_CHANNEL_SIZE: usize = 4096;
 
 pub struct BufferedCheckpoint {
     pub checkpoint: Checkpoint,
@@ -574,10 +574,10 @@ pub struct GossipServiceInner {
     /// Flag to prevent overlapping propagation tasks
     pub propagation_in_flight: bool,
     /// Fast-path finality tracking for data-only transactions
-    pub convergence_pending: HashMap<String, rinku_core::types::FastPathFinality>,
-    pub convergence_confirmed: HashMap<String, rinku_core::types::FastPathFinality>,
-    pub convergence_executed: std::collections::HashSet<String>,
-    pub convergence_tx_bodies: HashMap<String, SignedTransaction>,
+    pub fast_path_pending: HashMap<String, rinku_core::types::FastPathFinality>,
+    pub fast_path_confirmed: HashMap<String, rinku_core::types::FastPathFinality>,
+    pub fast_path_executed: std::collections::HashSet<String>,
+    pub fast_path_tx_bodies: HashMap<String, SignedTransaction>,
     pub leader_intents: HashMap<u64, (String, u64)>,
     pub recent_checkpoint_data: HashMap<u64, CachedCheckpointData>,
     pub last_tip_hash: u64,
@@ -658,7 +658,7 @@ struct ValidatorCache {
 
 const VALIDATOR_CACHE_TTL_MS: u128 = 5000;
 
-enum ConvergenceVoteOp {
+enum FastPathVoteOp {
     BroadcastVote {
         tx: SignedTransaction,
         sender_validator: String,
@@ -701,8 +701,8 @@ pub struct GossipService {
         Option<Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<IncomingVoteRequest>>>>>,
     #[cfg(feature = "p2p")]
     p2p_response_tx: Option<tokio::sync::mpsc::Sender<NetworkCommand>>,
-    convergence_vote_tx: Arc<std::sync::OnceLock<tokio::sync::mpsc::Sender<ConvergenceVoteOp>>>,
-    convergence_exec_semaphore: Arc<tokio::sync::Semaphore>,
+    fast_path_vote_tx: Arc<std::sync::OnceLock<tokio::sync::mpsc::Sender<FastPathVoteOp>>>,
+    fast_path_exec_semaphore: Arc<tokio::sync::Semaphore>,
     validator_identity:
         Option<Arc<tokio::sync::RwLock<crate::validator_identity::ValidatorIdentityService>>>,
     event_bus: Option<Arc<crate::events::EventBus>>,
@@ -737,8 +737,8 @@ impl Clone for GossipService {
             p2p_vote_rx: None,
             #[cfg(feature = "p2p")]
             p2p_response_tx: self.p2p_response_tx.clone(),
-            convergence_vote_tx: Arc::clone(&self.convergence_vote_tx),
-            convergence_exec_semaphore: Arc::clone(&self.convergence_exec_semaphore),
+            fast_path_vote_tx: Arc::clone(&self.fast_path_vote_tx),
+            fast_path_exec_semaphore: Arc::clone(&self.fast_path_exec_semaphore),
             validator_identity: self.validator_identity.clone(),
             event_bus: self.event_bus.clone(),
             checkpoint_buffer: self.checkpoint_buffer.clone(),
@@ -806,10 +806,10 @@ impl GossipService {
                 stale_nonce_rejections: 0,
                 stale_nonce_cache_hits: std::sync::atomic::AtomicU64::new(0),
                 propagation_in_flight: false,
-                convergence_pending: HashMap::new(),
-                convergence_confirmed: HashMap::new(),
-                convergence_executed: std::collections::HashSet::new(),
-                convergence_tx_bodies: HashMap::new(),
+                fast_path_pending: HashMap::new(),
+                fast_path_confirmed: HashMap::new(),
+                fast_path_executed: std::collections::HashSet::new(),
+                fast_path_tx_bodies: HashMap::new(),
                 leader_intents: HashMap::new(),
                 recent_checkpoint_data: HashMap::new(),
                 last_tip_hash: 0,
@@ -843,8 +843,8 @@ impl GossipService {
             p2p_vote_rx: None,
             #[cfg(feature = "p2p")]
             p2p_response_tx: None,
-            convergence_vote_tx: Arc::new(std::sync::OnceLock::new()),
-            convergence_exec_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+            fast_path_vote_tx: Arc::new(std::sync::OnceLock::new()),
+            fast_path_exec_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
             validator_identity: None,
             event_bus: None,
             checkpoint_buffer: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -979,12 +979,12 @@ impl GossipService {
         #[cfg(feature = "p2p")]
         {
             let (vote_tx, vote_rx) =
-                tokio::sync::mpsc::channel::<ConvergenceVoteOp>(CONVERGENCE_BATCH_CHANNEL_SIZE);
-            let _ = self.convergence_vote_tx.set(vote_tx);
+                tokio::sync::mpsc::channel::<FastPathVoteOp>(FAST_PATH_BATCH_CHANNEL_SIZE);
+            let _ = self.fast_path_vote_tx.set(vote_tx);
             {
                 let gossip_batch = Arc::clone(&self);
                 tokio::spawn(async move {
-                    gossip_batch.run_convergence_batch_processor(vote_rx).await;
+                    gossip_batch.run_fast_path_batch_processor(vote_rx).await;
                 });
             }
 
@@ -1121,7 +1121,7 @@ impl GossipService {
         self: Arc<Self>,
         mut rx: tokio::sync::mpsc::Receiver<GossipMessage>,
     ) {
-        info!("Dedicated checkpoint receiver started (isolated from convergence handlers)");
+        info!("Dedicated checkpoint receiver started (isolated from fast-path handlers)");
         let semaphore = Arc::new(tokio::sync::Semaphore::new(4));
         while let Some(msg) = rx.recv().await {
             let sem = semaphore.clone();
@@ -1137,11 +1137,11 @@ impl GossipService {
     }
 
     #[cfg(feature = "p2p")]
-    async fn run_convergence_batch_processor(
+    async fn run_fast_path_batch_processor(
         self: Arc<Self>,
-        mut rx: tokio::sync::mpsc::Receiver<ConvergenceVoteOp>,
+        mut rx: tokio::sync::mpsc::Receiver<FastPathVoteOp>,
     ) {
-        info!("Convergence batch processor started");
+        info!("Fast-path batch processor started");
         let mut batch = Vec::with_capacity(256);
 
         loop {
@@ -1159,20 +1159,20 @@ impl GossipService {
 
             if !batch.is_empty() {
                 let batch_len = batch.len();
-                Self::process_convergence_batch(&self, &mut batch).await;
+                Self::process_fast_path_batch(&self, &mut batch).await;
                 batch.clear();
                 if batch_len > 1 {
                     debug!(
-                        "Convergence batch: processed {} votes in single lock",
+                        "Fast-path batch: processed {} votes in single lock",
                         batch_len
                     );
                 }
             }
         }
-        warn!("Convergence batch processor channel closed");
+        warn!("Fast-path batch processor channel closed");
     }
 
-    async fn process_convergence_batch(self_arc: &Arc<Self>, batch: &mut Vec<ConvergenceVoteOp>) {
+    async fn process_fast_path_batch(self_arc: &Arc<Self>, batch: &mut Vec<FastPathVoteOp>) {
         let (validators, our_addr, our_stake, _total_stake, quorum_threshold) =
             self_arc.get_cached_validators().await;
         let now_ms = std::time::SystemTime::now()
@@ -1195,22 +1195,22 @@ impl GossipService {
 
             for op in batch.drain(..) {
                 match op {
-                    ConvergenceVoteOp::BroadcastVote {
+                    FastPathVoteOp::BroadcastVote {
                         tx,
                         sender_validator,
                         sender_stake,
                         timestamp_ms,
                         send_ack,
                     } => {
-                        if inner.convergence_tx_bodies.len() < 10_000 {
-                            inner.convergence_tx_bodies.entry(tx.hash.clone()).or_insert_with(|| tx.clone());
+                        if inner.fast_path_tx_bodies.len() < 10_000 {
+                            inner.fast_path_tx_bodies.entry(tx.hash.clone()).or_insert_with(|| tx.clone());
                         }
 
-                        if inner.convergence_executed.contains(&tx.hash) {
+                        if inner.fast_path_executed.contains(&tx.hash) {
                             continue;
                         }
 
-                        if inner.convergence_confirmed.contains_key(&tx.hash) {
+                        if inner.fast_path_confirmed.contains_key(&tx.hash) {
                             already_confirmed_txs.push(tx.clone());
                             if send_ack {
                                 if let Some(ref addr) = our_addr {
@@ -1227,7 +1227,7 @@ impl GossipService {
                         }
 
                         let finality = inner
-                            .convergence_pending
+                            .fast_path_pending
                             .entry(tx.hash.clone())
                             .or_insert_with(|| rinku_core::types::FastPathFinality {
                                 tx_hash: tx.hash.clone(),
@@ -1296,9 +1296,9 @@ impl GossipService {
                             finality.confirmed_at_ms = Some(now_ms);
                             let f = finality.clone();
                             inner
-                                .convergence_confirmed
+                                .fast_path_confirmed
                                 .insert(tx.hash.clone(), f.clone());
-                            inner.convergence_pending.remove(&tx.hash);
+                            inner.fast_path_pending.remove(&tx.hash);
                             newly_confirmed.push(ConfirmedTx {
                                 tx_hash: tx.hash.clone(),
                                 finality: f,
@@ -1314,19 +1314,19 @@ impl GossipService {
                             }
                         }
                     }
-                    ConvergenceVoteOp::AckVote {
+                    FastPathVoteOp::AckVote {
                         tx_hash,
                         validator_address,
                         validator_stake,
                         timestamp_ms,
                     } => {
-                        if inner.convergence_executed.contains(&tx_hash) {
+                        if inner.fast_path_executed.contains(&tx_hash) {
                             continue;
                         }
-                        if inner.convergence_confirmed.contains_key(&tx_hash) {
+                        if inner.fast_path_confirmed.contains_key(&tx_hash) {
                             continue;
                         }
-                        if !inner.convergence_pending.contains_key(&tx_hash) {
+                        if !inner.fast_path_pending.contains_key(&tx_hash) {
                             if !inner.known_txs.contains(&tx_hash) {
                                 continue;
                             }
@@ -1352,7 +1352,7 @@ impl GossipService {
                         };
 
                         let finality = inner
-                            .convergence_pending
+                            .fast_path_pending
                             .entry(tx_hash.clone())
                             .or_insert_with(|| rinku_core::types::FastPathFinality {
                                 tx_hash: tx_hash.clone(),
@@ -1405,10 +1405,10 @@ impl GossipService {
                             finality.confirmed_at_ms = Some(now_ms);
                             let f = finality.clone();
                             inner
-                                .convergence_confirmed
+                                .fast_path_confirmed
                                 .insert(tx_hash.clone(), f.clone());
-                            inner.convergence_pending.remove(&tx_hash);
-                            let stored_body = inner.convergence_tx_bodies.get(&tx_hash).cloned();
+                            inner.fast_path_pending.remove(&tx_hash);
+                            let stored_body = inner.fast_path_tx_bodies.get(&tx_hash).cloned();
                             newly_confirmed.push(ConfirmedTx {
                                 tx_hash: tx_hash.clone(),
                                 finality: f,
@@ -1450,7 +1450,7 @@ impl GossipService {
             }
             if acks_dropped > 0 {
                 warn!(
-                    "Convergence ack broadcast: {}/{} sent, {} dropped (outbound full)",
+                    "Fast-path ack broadcast: {}/{} sent, {} dropped (outbound full)",
                     acks_sent,
                     acks_to_send.len(),
                     acks_dropped
@@ -1463,7 +1463,7 @@ impl GossipService {
             for ct in &newly_confirmed {
                 self_arc
                     .state
-                    .set_convergence_certificate(&ct.tx_hash, &ct.finality)
+                    .set_fast_path_cert(&ct.tx_hash, &ct.finality)
                     .await;
                 info!(
                     "FastPath CONFIRMED (batch) for {} with {} stake (threshold: {})",
@@ -2376,17 +2376,17 @@ impl GossipService {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis() as u64;
-                const CONVERGENCE_TTL_MS: u64 = 15_000;
-                const CONVERGENCE_PENDING_TTL_MS: u64 = 15_000;
-                const CONVERGENCE_EXECUTED_EXTENDED_TTL_MS: u64 = 20_000;
-                const CONVERGENCE_MAX_CONFIRMED: usize = 100;
-                const CONVERGENCE_MAX_PENDING: usize = 100;
-                const CONVERGENCE_MAX_EXECUTED: usize = 200;
+                const FAST_PATH_TTL_MS: u64 = 15_000;
+                const FAST_PATH_PENDING_TTL_MS: u64 = 15_000;
+                const FAST_PATH_EXECUTED_EXTENDED_TTL_MS: u64 = 20_000;
+                const FAST_PATH_MAX_CONFIRMED: usize = 100;
+                const FAST_PATH_MAX_PENDING: usize = 100;
+                const FAST_PATH_MAX_EXECUTED: usize = 200;
 
-                let old_confirmed_count = inner.convergence_confirmed.len();
+                let old_confirmed_count = inner.fast_path_confirmed.len();
                 let executed_snapshot: std::collections::HashSet<String> =
-                    inner.convergence_executed.clone();
-                inner.convergence_confirmed.retain(|tx_hash, finality| {
+                    inner.fast_path_executed.clone();
+                inner.fast_path_confirmed.retain(|tx_hash, finality| {
                     let entry_age = if let Some(confirmed_at) = finality.confirmed_at_ms {
                         now_ms.saturating_sub(confirmed_at)
                     } else {
@@ -2398,74 +2398,74 @@ impl GossipService {
                             rinku_core::types::FastPathStatus::Finalized
                         )
                     {
-                        return entry_age < CONVERGENCE_EXECUTED_EXTENDED_TTL_MS;
+                        return entry_age < FAST_PATH_EXECUTED_EXTENDED_TTL_MS;
                     }
-                    entry_age < CONVERGENCE_TTL_MS
+                    entry_age < FAST_PATH_TTL_MS
                 });
-                if inner.convergence_confirmed.len() > CONVERGENCE_MAX_CONFIRMED {
+                if inner.fast_path_confirmed.len() > FAST_PATH_MAX_CONFIRMED {
                     let mut entries: Vec<(String, u64)> = inner
-                        .convergence_confirmed
+                        .fast_path_confirmed
                         .iter()
                         .map(|(k, v)| (k.clone(), v.confirmed_at_ms.unwrap_or(v.registered_at_ms)))
                         .collect();
                     entries.sort_by_key(|(_, ts)| *ts);
-                    let to_evict = entries.len() - CONVERGENCE_MAX_CONFIRMED;
+                    let to_evict = entries.len() - FAST_PATH_MAX_CONFIRMED;
                     for (key, _) in entries.into_iter().take(to_evict) {
-                        inner.convergence_confirmed.remove(&key);
+                        inner.fast_path_confirmed.remove(&key);
                     }
                 }
-                let confirmed_pruned = old_confirmed_count - inner.convergence_confirmed.len();
+                let confirmed_pruned = old_confirmed_count - inner.fast_path_confirmed.len();
 
-                let old_pending_count = inner.convergence_pending.len();
-                inner.convergence_pending.retain(|_, finality| {
-                    now_ms.saturating_sub(finality.registered_at_ms) < CONVERGENCE_PENDING_TTL_MS
+                let old_pending_count = inner.fast_path_pending.len();
+                inner.fast_path_pending.retain(|_, finality| {
+                    now_ms.saturating_sub(finality.registered_at_ms) < FAST_PATH_PENDING_TTL_MS
                 });
-                if inner.convergence_pending.len() > CONVERGENCE_MAX_PENDING {
+                if inner.fast_path_pending.len() > FAST_PATH_MAX_PENDING {
                     let mut entries: Vec<(String, u64)> = inner
-                        .convergence_pending
+                        .fast_path_pending
                         .iter()
                         .map(|(k, v)| (k.clone(), v.registered_at_ms))
                         .collect();
                     entries.sort_by_key(|(_, ts)| *ts);
-                    let to_evict = entries.len() - CONVERGENCE_MAX_PENDING;
+                    let to_evict = entries.len() - FAST_PATH_MAX_PENDING;
                     for (key, _) in entries.into_iter().take(to_evict) {
-                        inner.convergence_pending.remove(&key);
+                        inner.fast_path_pending.remove(&key);
                     }
                 }
-                let pending_pruned = old_pending_count - inner.convergence_pending.len();
+                let pending_pruned = old_pending_count - inner.fast_path_pending.len();
 
-                let old_executed_count = inner.convergence_executed.len();
+                let old_executed_count = inner.fast_path_executed.len();
                 let confirmed_keys: std::collections::HashSet<&String> =
-                    inner.convergence_confirmed.keys().collect();
+                    inner.fast_path_confirmed.keys().collect();
                 let orphaned: Vec<String> = inner
-                    .convergence_executed
+                    .fast_path_executed
                     .iter()
                     .filter(|h| !confirmed_keys.contains(h))
                     .cloned()
                     .collect();
                 for key in orphaned {
-                    inner.convergence_executed.remove(&key);
+                    inner.fast_path_executed.remove(&key);
                 }
-                if inner.convergence_executed.len() > CONVERGENCE_MAX_EXECUTED {
-                    let drain_count = inner.convergence_executed.len() - CONVERGENCE_MAX_EXECUTED;
+                if inner.fast_path_executed.len() > FAST_PATH_MAX_EXECUTED {
+                    let drain_count = inner.fast_path_executed.len() - FAST_PATH_MAX_EXECUTED;
                     let to_drain: Vec<String> = inner
-                        .convergence_executed
+                        .fast_path_executed
                         .iter()
                         .take(drain_count)
                         .cloned()
                         .collect();
                     for key in to_drain {
-                        inner.convergence_executed.remove(&key);
+                        inner.fast_path_executed.remove(&key);
                     }
                 }
-                let executed_pruned = old_executed_count - inner.convergence_executed.len();
+                let executed_pruned = old_executed_count - inner.fast_path_executed.len();
 
                 {
-                    let live_hashes: std::collections::HashSet<String> = inner.convergence_pending.keys()
-                        .chain(inner.convergence_confirmed.keys())
+                    let live_hashes: std::collections::HashSet<String> = inner.fast_path_pending.keys()
+                        .chain(inner.fast_path_confirmed.keys())
                         .cloned()
                         .collect();
-                    inner.convergence_tx_bodies.retain(|h, _| live_hashes.contains(h));
+                    inner.fast_path_tx_bodies.retain(|h, _| live_hashes.contains(h));
                 }
 
                 let old_pending_exec_count = inner.confirmed_pending_execution.len();
@@ -2488,7 +2488,7 @@ impl GossipService {
                     info!(
                         "Fast-path cleanup: {} confirmed, {} pending, {} executed pruned (remaining: {} confirmed, {} pending, {} executed)",
                         confirmed_pruned, pending_pruned, executed_pruned,
-                        inner.convergence_confirmed.len(), inner.convergence_pending.len(), inner.convergence_executed.len()
+                        inner.fast_path_confirmed.len(), inner.fast_path_pending.len(), inner.fast_path_executed.len()
                     );
                 }
 
@@ -2517,7 +2517,7 @@ impl GossipService {
             self.refresh_peer_status_and_sync().await;
         }
 
-        self.execute_convergence_batch().await;
+        self.execute_fast_path_batch_gossip().await;
         self.cleanup_stale_da_collectors().await;
 
         // Cap tips to 10 to prevent bandwidth explosion when tip count is high
@@ -2808,12 +2808,12 @@ impl GossipService {
                                 .then(a.tx.nonce.cmp(&b.tx.nonce))
                                 .then(a.hash.cmp(&b.hash))
                         });
-                        let empty_convergence = std::collections::HashSet::new();
+                        let empty_fast_path = std::collections::HashSet::new();
                         let _ = self
                             .state
                             .execute_finalized_transactions_batch(
                                 &sorted_finalized,
-                                &empty_convergence,
+                                &empty_fast_path,
                             )
                             .await;
                         for tx_hash in &finalized_tx_hashes {
@@ -3272,16 +3272,16 @@ impl GossipService {
                     let mut inner = self.inner.write().await;
                     let mut executed_cleaned = 0usize;
                     for tx_hash in &finalized_hashes_for_fastpath {
-                        inner.convergence_confirmed.remove(tx_hash);
-                        inner.convergence_pending.remove(tx_hash);
-                        if inner.convergence_executed.remove(tx_hash) {
+                        inner.fast_path_confirmed.remove(tx_hash);
+                        inner.fast_path_pending.remove(tx_hash);
+                        if inner.fast_path_executed.remove(tx_hash) {
                             executed_cleaned += 1;
                         }
                     }
                     if executed_cleaned > 0 {
                         info!(
-                            "Checkpoint {} finalization: cleaned {} entries from convergence_executed ({} remaining)",
-                            checkpoint.height, executed_cleaned, inner.convergence_executed.len()
+                            "Checkpoint {} finalization: cleaned {} entries from fast_path_executed ({} remaining)",
+                            checkpoint.height, executed_cleaned, inner.fast_path_executed.len()
                         );
                     }
                     inner.known_txs.remove_batch(&finalized_set);
@@ -3364,14 +3364,14 @@ impl GossipService {
         buffer.keys().max().copied()
     }
 
-    pub async fn remove_finalized_from_convergence(&self, finalized_hashes: &[String]) {
+    pub async fn remove_finalized_from_fast_path(&self, finalized_hashes: &[String]) {
         let finalized_set: std::collections::HashSet<&String> = finalized_hashes.iter().collect();
         let mut inner = self.inner.write().await;
         let mut executed_cleaned = 0usize;
         for tx_hash in finalized_hashes {
-            inner.convergence_confirmed.remove(tx_hash);
-            inner.convergence_pending.remove(tx_hash);
-            if inner.convergence_executed.remove(tx_hash) {
+            inner.fast_path_confirmed.remove(tx_hash);
+            inner.fast_path_pending.remove(tx_hash);
+            if inner.fast_path_executed.remove(tx_hash) {
                 executed_cleaned += 1;
             }
         }
@@ -3380,8 +3380,8 @@ impl GossipService {
         inner.stale_nonce_cache_order.clear();
         if executed_cleaned > 0 {
             tracing::info!(
-                "Delta-sync finalization: cleaned {} entries from convergence_executed ({} remaining)",
-                executed_cleaned, inner.convergence_executed.len()
+                "Delta-sync finalization: cleaned {} entries from fast_path_executed ({} remaining)",
+                executed_cleaned, inner.fast_path_executed.len()
             );
         }
     }
@@ -3391,9 +3391,9 @@ impl GossipService {
         let mut inner = self.inner.write().await;
         let mut executed_cleaned = 0usize;
         for tx_hash in finalized_hashes {
-            inner.convergence_confirmed.remove(tx_hash);
-            inner.convergence_pending.remove(tx_hash);
-            if inner.convergence_executed.remove(tx_hash) {
+            inner.fast_path_confirmed.remove(tx_hash);
+            inner.fast_path_pending.remove(tx_hash);
+            if inner.fast_path_executed.remove(tx_hash) {
                 executed_cleaned += 1;
             }
         }
@@ -3405,8 +3405,8 @@ impl GossipService {
         inner.leader_timeout_sent.retain(|h| *h > checkpoint_height);
         if executed_cleaned > 0 {
             tracing::info!(
-                "Proposer checkpoint h={}: cleaned {} entries from gossip convergence_executed ({} remaining)",
-                checkpoint_height, executed_cleaned, inner.convergence_executed.len()
+                "Proposer checkpoint h={}: cleaned {} entries from gossip fast_path_executed ({} remaining)",
+                checkpoint_height, executed_cleaned, inner.fast_path_executed.len()
             );
         }
     }
@@ -3642,8 +3642,8 @@ impl GossipService {
             let vc_msg = Self::view_change_signing_message(height, view, validator_address);
             match crate::bls::bls_sign(&vc_msg, &signer.bls_private_key) {
                 Ok(sig) => {
-                    use base64::Engine;
-                    Some(base64::engine::general_purpose::STANDARD.encode(&sig))
+                    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+                    Some(URL_SAFE_NO_PAD.encode(&sig))
                 }
                 Err(e) => {
                     warn!("ViewChange BLS sign failed: {}", e);
@@ -3712,12 +3712,14 @@ impl GossipService {
         bls_signature: &str,
         bls_public_key_b64: &str,
     ) -> bool {
-        use base64::Engine;
-        let sig_bytes = match base64::engine::general_purpose::STANDARD.decode(bls_signature) {
+        use base64::{Engine, engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}};
+        let sig_bytes = match URL_SAFE_NO_PAD.decode(bls_signature)
+            .or_else(|_| STANDARD.decode(bls_signature)) {
             Ok(b) => b,
             Err(_) => return false,
         };
-        let pk_bytes = match base64::engine::general_purpose::STANDARD.decode(bls_public_key_b64) {
+        let pk_bytes = match URL_SAFE_NO_PAD.decode(bls_public_key_b64)
+            .or_else(|_| STANDARD.decode(bls_public_key_b64)) {
             Ok(b) => b,
             Err(_) => return false,
         };
@@ -3866,12 +3868,15 @@ impl GossipService {
             let mut failed_peers: Vec<String> = Vec::new();
 
             let proof_count = push_data.precomputed_proofs.len();
-            let push_timeout_ms: u64 = if proof_count > 100 {
+            let body_count = push_data.checkpoint.finalized_tx_hashes.len();
+            let push_timeout_ms: u64 = if proof_count > 100 || body_count > 400 {
+                3000
+            } else if proof_count > 50 || body_count > 200 {
                 2000
-            } else if proof_count > 50 {
+            } else if body_count > 100 {
                 1500
             } else {
-                500
+                1000
             };
             let shared_push_data = std::sync::Arc::new(push_data);
             for peer_id in &peer_ids {
@@ -4012,12 +4017,15 @@ impl GossipService {
             let request = crate::network::SyncRequest::CheckpointPush((*entry.push_data).clone());
 
             let retry_proof_count = entry.push_data.precomputed_proofs.len();
-            let retry_timeout_ms: u64 = if retry_proof_count > 100 {
+            let retry_body_count = entry.push_data.checkpoint.finalized_tx_hashes.len();
+            let retry_timeout_ms: u64 = if retry_proof_count > 100 || retry_body_count > 400 {
+                3000
+            } else if retry_proof_count > 50 || retry_body_count > 200 {
                 2000
-            } else if retry_proof_count > 50 {
+            } else if retry_body_count > 100 {
                 1500
             } else {
-                500
+                1000
             };
             let success = match network_handle.send_sync_request(&entry.peer_id, request).await {
                 Ok(rx) => {
@@ -4120,8 +4128,8 @@ impl GossipService {
         {
             let mut inner = self.inner.write().await;
             for tx_hash in &finalized_tx_hashes {
-                inner.convergence_confirmed.remove(tx_hash);
-                inner.convergence_pending.remove(tx_hash);
+                inner.fast_path_confirmed.remove(tx_hash);
+                inner.fast_path_pending.remove(tx_hash);
             }
 
             let height = checkpoint.height;
@@ -4558,7 +4566,7 @@ impl GossipService {
                                         cp_data.height, missing_tx_count, cp_data.finalized_tx_hashes.len()
                                     );
                                 }
-                                self.remove_finalized_from_convergence(&cp_data.finalized_tx_hashes).await;
+                                self.remove_finalized_from_fast_path(&cp_data.finalized_tx_hashes).await;
                                 applied_heights.insert(cp_data.height);
                                 info!(
                                     "Applied P2P delta sync checkpoint at height {} ({} txs finalized, {} missing)",
@@ -5318,13 +5326,13 @@ impl GossipService {
             } => {
                 {
                     let inner = self.inner.read().await;
-                    if inner.convergence_executed.contains(&tx.hash) {
+                    if inner.fast_path_executed.contains(&tx.hash) {
                         return Ok(None);
                     }
                     if inner.known_txs.contains(&tx.hash) {
                         drop(inner);
-                        if let Some(vote_tx) = self.convergence_vote_tx.get() {
-                            if let Err(e) = vote_tx.try_send(ConvergenceVoteOp::BroadcastVote {
+                        if let Some(vote_tx) = self.fast_path_vote_tx.get() {
+                            if let Err(e) = vote_tx.try_send(FastPathVoteOp::BroadcastVote {
                                 tx,
                                 sender_validator,
                                 sender_stake,
@@ -5332,7 +5340,7 @@ impl GossipService {
                                 send_ack: true,
                             }) {
                                 warn!(
-                                    "Convergence vote channel full (fast-path), dropped vote: {}",
+                                    "Fast-path vote channel full (fast-path), dropped vote: {}",
                                     e
                                 );
                             }
@@ -5343,7 +5351,7 @@ impl GossipService {
 
                 let is_new = {
                     let mut inner = self.inner.write().await;
-                    if inner.convergence_executed.contains(&tx.hash) {
+                    if inner.fast_path_executed.contains(&tx.hash) {
                         return Ok(None);
                     }
                     if inner.known_txs.contains(&tx.hash) {
@@ -5387,8 +5395,8 @@ impl GossipService {
                         }
                     }
 
-                    if let Some(vote_tx) = self.convergence_vote_tx.get() {
-                        if let Err(e) = vote_tx.try_send(ConvergenceVoteOp::BroadcastVote {
+                    if let Some(vote_tx) = self.fast_path_vote_tx.get() {
+                        if let Err(e) = vote_tx.try_send(FastPathVoteOp::BroadcastVote {
                             tx,
                             sender_validator,
                             sender_stake,
@@ -5396,14 +5404,14 @@ impl GossipService {
                             send_ack: true,
                         }) {
                             warn!(
-                                "Convergence vote channel full, dropped BroadcastVote: {}",
+                                "Fast-path vote channel full, dropped BroadcastVote: {}",
                                 e
                             );
                         }
                     }
                 } else {
-                    if let Some(vote_tx) = self.convergence_vote_tx.get() {
-                        if let Err(e) = vote_tx.try_send(ConvergenceVoteOp::BroadcastVote {
+                    if let Some(vote_tx) = self.fast_path_vote_tx.get() {
+                        if let Err(e) = vote_tx.try_send(FastPathVoteOp::BroadcastVote {
                             tx,
                             sender_validator,
                             sender_stake,
@@ -5411,7 +5419,7 @@ impl GossipService {
                             send_ack: true,
                         }) {
                             warn!(
-                                "Convergence vote channel full, dropped BroadcastVote: {}",
+                                "Fast-path vote channel full, dropped BroadcastVote: {}",
                                 e
                             );
                         }
@@ -5430,19 +5438,19 @@ impl GossipService {
             } => {
                 {
                     let inner = self.inner.read().await;
-                    if inner.convergence_executed.contains(&tx_hash) {
+                    if inner.fast_path_executed.contains(&tx_hash) {
                         return Ok(None);
                     }
                 }
 
-                if let Some(vote_tx) = self.convergence_vote_tx.get() {
-                    if let Err(e) = vote_tx.try_send(ConvergenceVoteOp::AckVote {
+                if let Some(vote_tx) = self.fast_path_vote_tx.get() {
+                    if let Err(e) = vote_tx.try_send(FastPathVoteOp::AckVote {
                         tx_hash,
                         validator_address,
                         validator_stake,
                         timestamp_ms,
                     }) {
-                        warn!("Convergence vote channel full, dropped AckVote: {}", e);
+                        warn!("Fast-path vote channel full, dropped AckVote: {}", e);
                     }
                 }
 
@@ -5699,9 +5707,16 @@ impl GossipService {
                         );
                         return Ok(None);
                     }
-                } else if bls_signature.is_none() {
+                } else if bls_signature.is_none() && validator.bls_public_key.is_some() {
                     warn!(
-                        "Accepted unsigned ViewChange from {} for h={} v={} (no BLS sig provided)",
+                        "Rejected unsigned ViewChange from {} for h={} v={} (validator has BLS key, signature required)",
+                        &validator_address[..16.min(validator_address.len())],
+                        height, view
+                    );
+                    return Ok(None);
+                } else if bls_signature.is_none() {
+                    debug!(
+                        "Accepted unsigned ViewChange from {} for h={} v={} (validator has no BLS key)",
                         &validator_address[..16.min(validator_address.len())],
                         height, view
                     );
@@ -6233,32 +6248,32 @@ impl GossipService {
         }
     }
 
-    pub async fn get_convergence_status(
+    pub async fn get_fast_path_status(
         &self,
         tx_hash: &str,
     ) -> Option<rinku_core::types::FastPathFinality> {
         let inner = self.inner.read().await;
-        if let Some(finality) = inner.convergence_confirmed.get(tx_hash) {
+        if let Some(finality) = inner.fast_path_confirmed.get(tx_hash) {
             return Some(finality.clone());
         }
-        if let Some(finality) = inner.convergence_pending.get(tx_hash) {
+        if let Some(finality) = inner.fast_path_pending.get(tx_hash) {
             return Some(finality.clone());
         }
         None
     }
 
-    pub async fn is_convergence_executed(&self, tx_hash: &str) -> bool {
+    pub async fn is_fast_path_executed(&self, tx_hash: &str) -> bool {
         let inner = self.inner.read().await;
-        inner.convergence_executed.contains(tx_hash)
+        inner.fast_path_executed.contains(tx_hash)
     }
 
-    pub async fn get_all_convergence_executed(&self) -> std::collections::HashSet<String> {
+    pub async fn get_all_fast_path_executed(&self) -> std::collections::HashSet<String> {
         let inner = self.inner.read().await;
-        inner.convergence_executed.clone()
+        inner.fast_path_executed.clone()
     }
 
 
-    pub async fn broadcast_convergence_transaction(
+    pub async fn broadcast_fast_path_transaction(
         &self,
         tx: SignedTransaction,
         validator_address: &str,
@@ -6290,7 +6305,7 @@ impl GossipService {
 
                 let mut inner = self.inner.write().await;
                 let finality = inner
-                    .convergence_pending
+                    .fast_path_pending
                     .entry(tx_hash.clone())
                     .or_insert_with(|| rinku_core::types::FastPathFinality {
                         tx_hash: tx_hash.clone(),
@@ -6318,7 +6333,7 @@ impl GossipService {
                     finality.total_stake_acked += validator_stake;
                 }
                 const MAX_PENDING_EXEC: usize = 5000;
-                if !inner.convergence_executed.contains(&tx_hash)
+                if !inner.fast_path_executed.contains(&tx_hash)
                     && inner.confirmed_pending_execution.len() < MAX_PENDING_EXEC
                 {
                     inner.confirmed_pending_execution.push(tx.clone());
@@ -6338,7 +6353,7 @@ impl GossipService {
             self.broadcast_via_p2p(&message).await;
 
             info!(
-                "Broadcast convergence tx {} via P2P (validator: {}, stake: {})",
+                "Broadcast fast-path tx {} via P2P (validator: {}, stake: {})",
                 &tx_hash[..16.min(tx_hash.len())],
                 &validator_address[..16.min(validator_address.len())],
                 validator_stake
@@ -6350,7 +6365,7 @@ impl GossipService {
         }
     }
 
-    async fn execute_convergence_batch(&self) {
+    async fn execute_fast_path_batch_gossip(&self) {
         const BATCH_INTERVAL_MS: u128 = 500;
 
         let should_run = {
@@ -6381,7 +6396,7 @@ impl GossipService {
 
         let already_executed: std::collections::HashSet<String> = {
             let inner = self.inner.read().await;
-            inner.convergence_executed.clone()
+            inner.fast_path_executed.clone()
         };
 
         let mut txs: Vec<SignedTransaction> = pending
@@ -6398,7 +6413,7 @@ impl GossipService {
 
         let total = txs.len();
 
-        let results = self.state.execute_confirmed_batch(&txs).await;
+        let results = self.state.execute_fast_path_batch(&txs).await;
 
         let mut executed_count = 0u32;
         let mut dropped_count = 0u32;
@@ -6409,23 +6424,23 @@ impl GossipService {
             let mut inner = self.inner.write().await;
             for entry in &results {
                 match entry.result {
-                    crate::state::ConvergenceExecResult::Executed => {
-                        inner.convergence_executed.insert(entry.hash.clone());
-                        if let Some(finality) = inner.convergence_confirmed.get_mut(&entry.hash) {
-                            finality.status = rinku_core::types::FastPathStatus::Executed;
+                    crate::state::FastPathExecResult::Executed => {
+                        inner.fast_path_executed.insert(entry.hash.clone());
+                        if let Some(finality) = inner.fast_path_confirmed.get_mut(&entry.hash) {
+                            finality.status = rinku_core::types::FastPathStatus::Confirmed;
                         }
                         executed_count += 1;
                     }
-                    crate::state::ConvergenceExecResult::AlreadyApplied => {
-                        inner.convergence_executed.insert(entry.hash.clone());
+                    crate::state::FastPathExecResult::AlreadyApplied => {
+                        inner.fast_path_executed.insert(entry.hash.clone());
                     }
-                    crate::state::ConvergenceExecResult::Deferred => {
+                    crate::state::FastPathExecResult::Deferred => {
                         deferred_hashes.insert(entry.hash.clone());
                         dropped_count += 1;
                     }
-                    crate::state::ConvergenceExecResult::Rejected => {
-                        inner.convergence_executed.insert(entry.hash.clone());
-                        if let Some(finality) = inner.convergence_confirmed.get_mut(&entry.hash) {
+                    crate::state::FastPathExecResult::Rejected => {
+                        inner.fast_path_executed.insert(entry.hash.clone());
+                        if let Some(finality) = inner.fast_path_confirmed.get_mut(&entry.hash) {
                             finality.status = rinku_core::types::FastPathStatus::Finalized;
                         }
                     }
@@ -6439,7 +6454,7 @@ impl GossipService {
 
                 if checkpoint_gap >= 2 {
                     tracing::info!(
-                        "Convergence batch: SKIPPING re-queue of {} deferred txs — node is behind by {} checkpoints (local={}, network={}), checkpoint sync will resolve them",
+                        "Fast-path batch: SKIPPING re-queue of {} deferred txs — node is behind by {} checkpoints (local={}, network={}), checkpoint sync will resolve them",
                         deferred_hashes.len(), checkpoint_gap, local_height, network_height
                     );
                 } else {
@@ -6458,7 +6473,7 @@ impl GossipService {
                     }
                     if requeued > 0 {
                         tracing::debug!(
-                            "Convergence batch: re-queued {}/{} deferred txs for next batch ({} executed this round)",
+                            "Fast-path batch: re-queued {}/{} deferred txs for next batch ({} executed this round)",
                             requeued, deferred_hashes.len(), executed_count
                         );
                     }
@@ -6468,7 +6483,7 @@ impl GossipService {
 
         if let Some(ref eb) = self.event_bus {
             for entry in &results {
-                if !matches!(entry.result, crate::state::ConvergenceExecResult::Executed) {
+                if !matches!(entry.result, crate::state::FastPathExecResult::Executed) {
                     continue;
                 }
                 eb.publish(crate::events::NodeEvent::FastPathExecuted {
@@ -6503,16 +6518,16 @@ impl GossipService {
         if executed_count > 0 || dropped_count > 0 {
             let (queue_depth, exec_set_size) = {
                 let inner = self.inner.read().await;
-                (inner.confirmed_pending_execution.len(), inner.convergence_executed.len())
+                (inner.confirmed_pending_execution.len(), inner.fast_path_executed.len())
             };
-            let convergence_pool_size = {
+            let fast_path_pool_size = {
                 let state = self.state.inner.read().await;
-                state.convergence_executed_txs.len()
+                state.fast_path_finalized_txs.len()
             };
             tracing::info!(
-                "Convergence batch: executed {}/{}, {} deferred | queue_depth={} exec_set={} convergence_pool={}",
+                "Fast-path batch: executed {}/{}, {} deferred | queue_depth={} exec_set={} fast_path_pool={}",
                 executed_count, total, dropped_count,
-                queue_depth, exec_set_size, convergence_pool_size
+                queue_depth, exec_set_size, fast_path_pool_size
             );
         }
     }
@@ -6651,7 +6666,7 @@ impl GossipService {
         }
     }
 
-    pub async fn get_convergence_stats(&self) -> crate::fast_path::FastPathStats {
+    pub async fn get_fast_path_stats(&self) -> crate::fast_path::FastPathStats {
         let inner = self.inner.read().await;
 
         let now_ms = std::time::SystemTime::now()
@@ -6661,7 +6676,7 @@ impl GossipService {
         const STATS_WINDOW_MS: u64 = 15_000;
 
         let mut times: Vec<u64> = inner
-            .convergence_confirmed
+            .fast_path_confirmed
             .values()
             .filter(|f| {
                 f.confirmed_at_ms
@@ -6683,8 +6698,8 @@ impl GossipService {
 
         crate::fast_path::FastPathStats {
             enabled: true,
-            pending_count: inner.convergence_pending.len(),
-            confirmed_count: inner.convergence_confirmed.len(),
+            pending_count: inner.fast_path_pending.len(),
+            confirmed_count: inner.fast_path_confirmed.len(),
             total_validator_stake,
             quorum_threshold: 0.667,
             avg_confirmation_ms,

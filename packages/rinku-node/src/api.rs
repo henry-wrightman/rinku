@@ -118,6 +118,7 @@ struct AccountTransactionItem {
     fast_path_status: Option<String>,
     fast_path_confirmed_at_ms: Option<u64>,
     fast_path_finality_ms: Option<u64>,
+    lane: String,
 }
 
 #[derive(Serialize)]
@@ -275,6 +276,7 @@ struct DagNodeResponse {
     trust_score: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     attestation_count: Option<u32>,
+    lane: String,
 }
 
 #[derive(Serialize)]
@@ -1241,7 +1243,7 @@ async fn handle_faucet_request(
                 if let (Some(addr), Some(_)) = (validator_addr, validator_stake) {
                     let stake = state.get_validator_stake(&addr).await.unwrap_or(0);
                     if stake > 0 {
-                        gossip.broadcast_convergence_transaction(tx.clone(), &addr, stake).await;
+                        gossip.broadcast_fast_path_transaction(tx.clone(), &addr, stake).await;
                         info!("Faucet tx {} to {} broadcast via FAST-PATH", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
                     } else {
                         gossip.broadcast_transaction(tx).await;
@@ -1393,12 +1395,11 @@ async fn get_account_transactions_with_fast_path(
             
             let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
                 if let Some(gossip) = &api_state.gossip_service {
-                    match gossip.get_convergence_status(&stx.hash).await {
+                    match gossip.get_fast_path_status(&stx.hash).await {
                         Some(fp) => {
                             let status = match fp.status {
                                 rinku_core::types::FastPathStatus::Pending => "pending",
                                 rinku_core::types::FastPathStatus::Confirmed => "confirmed",
-                                rinku_core::types::FastPathStatus::Executed => "executed",
                                 rinku_core::types::FastPathStatus::Finalized => "finalized",
                             };
                             (Some(status.to_string()), fp.confirmed_at_ms, fp.finality_time_ms())
@@ -1406,7 +1407,7 @@ async fn get_account_transactions_with_fast_path(
                         None => {
                             if finalized {
                                 (Some("finalized".to_string()), None, None)
-                            } else if gossip.get_all_convergence_executed().await.contains(&stx.hash) {
+                            } else if gossip.get_all_fast_path_executed().await.contains(&stx.hash) {
                                 (Some("confirmed".to_string()), None, None)
                             } else {
                                 (None, None, None)
@@ -1421,6 +1422,10 @@ async fn get_account_transactions_with_fast_path(
                     }
                 };
             
+            let lane_str = match stx.tx.classify_lane() {
+                rinku_core::types::TransactionLane::FastPath => "fast_path",
+                rinku_core::types::TransactionLane::Checkpoint => "checkpoint",
+            };
             result.push(AccountTransactionItem {
                 hash: stx.hash.clone(),
                 from: stx.tx.from.clone(),
@@ -1434,6 +1439,7 @@ async fn get_account_transactions_with_fast_path(
                 fast_path_status,
                 fast_path_confirmed_at_ms,
                 fast_path_finality_ms,
+                lane: lane_str.to_string(),
             });
         }
         result
@@ -1730,8 +1736,8 @@ async fn submit_transaction(
                 };
                 
                 if let Some(addr) = validator_addr {
-                    gossip.broadcast_convergence_transaction(tx.clone(), &addr, validator_stake).await;
-                    info!("Transaction {} broadcast via convergence protocol", &inner.hash[..16.min(inner.hash.len())]);
+                    gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
+                    info!("Transaction {} broadcast via fast-path protocol", &inner.hash[..16.min(inner.hash.len())]);
                 } else {
                     gossip.broadcast_transaction(tx).await;
                     info!("Transaction {} broadcast to peers (no validator identity)", &inner.hash[..16.min(inner.hash.len())]);
@@ -1839,7 +1845,7 @@ async fn submit_fast_path_transaction(
                 };
                 
                 if let Some(addr) = validator_addr {
-                    gossip.broadcast_convergence_transaction(tx.clone(), &addr, validator_stake).await;
+                    gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
                 } else {
                     gossip.broadcast_transaction(tx.clone()).await;
                 }
@@ -1887,12 +1893,12 @@ struct FastPathStatusResponse {
     finality_time_ms: Option<u64>,
 }
 
-async fn get_convergence_status(
+async fn get_fast_path_status(
     State(api_state): State<ApiState>,
     Path(hash): Path<String>,
 ) -> impl IntoResponse {
     if let Some(ref gossip) = api_state.gossip_service {
-        if let Some(finality) = gossip.get_convergence_status(&hash).await {
+        if let Some(finality) = gossip.get_fast_path_status(&hash).await {
             let quorum_percent = if finality.quorum_stake_required > 0 {
                 (finality.total_stake_acked * 100 / finality.quorum_stake_required) as u32
             } else {
@@ -1914,7 +1920,7 @@ async fn get_convergence_status(
         }
         
         // Fallback: check fast-path executed set and DAG finalization
-        let fp_executed = gossip.get_all_convergence_executed().await.contains(&hash);
+        let fp_executed = gossip.get_all_fast_path_executed().await.contains(&hash);
         let is_finalized = {
             let state = api_state.node_state.inner.read().await;
             state.dag.get_node(&hash).map(|n| n.finalized).unwrap_or(false)
@@ -2033,7 +2039,7 @@ async fn submit_batch_transaction(
                 if let Some(tx) = txs_for_broadcast.get(i) {
                     if let Some(ref addr) = validator_addr {
                         if validator_stake > 0 {
-                            gossip.broadcast_convergence_transaction(tx.clone(), addr, validator_stake).await;
+                            gossip.broadcast_fast_path_transaction(tx.clone(), addr, validator_stake).await;
                         } else {
                             gossip.broadcast_transaction(tx.clone()).await;
                         }
@@ -2044,7 +2050,7 @@ async fn submit_batch_transaction(
             }
         }
         if successful > 0 {
-            info!("Broadcast {} transactions to peers via convergence", successful);
+            info!("Broadcast {} transactions to peers via fast-path", successful);
         }
     }
 
@@ -2088,7 +2094,7 @@ async fn get_dag(
         if let Some(ref gossip) = api_state.gossip_service {
             let mut statuses = std::collections::HashMap::new();
             for hash in &hashes {
-                if let Some(finality) = gossip.get_convergence_status(hash).await {
+                if let Some(finality) = gossip.get_fast_path_status(hash).await {
                     statuses.insert(hash.clone(), finality);
                 }
             }
@@ -2100,7 +2106,7 @@ async fn get_dag(
     // Get fast-path executed set for fallback status derivation
     let fp_executed: std::collections::HashSet<String> = 
         if let Some(ref gossip) = api_state.gossip_service {
-            gossip.get_all_convergence_executed().await
+            gossip.get_all_fast_path_executed().await
         } else {
             std::collections::HashSet::new()
         };
@@ -2162,6 +2168,14 @@ async fn get_dag(
                 .map(|(score, count)| (Some(*score), Some(*count)))
                 .unwrap_or((None, None));
             
+            let lane = if let Some(ref k) = n.kind {
+                match k {
+                    rinku_core::types::TransactionKind::Contract => "checkpoint",
+                    _ => "fast_path",
+                }
+            } else {
+                "fast_path"
+            };
             DagNodeResponse {
                 hash: n.hash,
                 from: n.from,
@@ -2182,6 +2196,7 @@ async fn get_dag(
                 fast_path_finality_ms,
                 trust_score,
                 attestation_count,
+                lane: lane.to_string(),
             }
         })
         .collect();
@@ -2379,7 +2394,7 @@ async fn get_finality_metrics(State(api_state): State<ApiState>) -> Json<Finalit
     
     // Get fast-path confirmation stats if available
     let avg_confirmation_ms = if let Some(ref gossip) = api_state.gossip_service {
-        gossip.get_convergence_stats().await.avg_confirmation_ms
+        gossip.get_fast_path_stats().await.avg_confirmation_ms
     } else {
         None
     };
@@ -2429,6 +2444,7 @@ struct TransactionResponse {
     fast_path_confirmed_at_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fast_path_finality_ms: Option<u64>,
+    lane: String,
 }
 
 async fn get_transaction(
@@ -2462,11 +2478,10 @@ async fn get_transaction(
         // Query fast-path status from GossipService
         let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
             if let Some(ref gossip) = api_state.gossip_service {
-                if let Some(fp) = gossip.get_convergence_status(&hash).await {
-                    let _is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Executed | rinku_core::types::FastPathStatus::Finalized);
+                if let Some(fp) = gossip.get_fast_path_status(&hash).await {
+                    let _is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Finalized);
                     let status = match fp.status {
                         rinku_core::types::FastPathStatus::Confirmed => "confirmed",
-                        rinku_core::types::FastPathStatus::Executed => "executed",
                         rinku_core::types::FastPathStatus::Finalized => "finalized",
                         rinku_core::types::FastPathStatus::Pending => "pending",
                     };
@@ -2482,6 +2497,10 @@ async fn get_transaction(
         
         let redacted_data = tx.tx.data.clone();
 
+        let lane_str = match tx.tx.classify_lane() {
+            rinku_core::types::TransactionLane::FastPath => "fast_path",
+            rinku_core::types::TransactionLane::Checkpoint => "checkpoint",
+        };
         Ok(Json(TransactionResponse {
             hash: tx.hash.clone(),
             from: tx.tx.from.clone(),
@@ -2502,6 +2521,7 @@ async fn get_transaction(
             fast_path_status,
             fast_path_confirmed_at_ms,
             fast_path_finality_ms,
+            lane: lane_str.to_string(),
         }))
     } else {
         // Debug: log lookup failure with DAG stats
@@ -2580,7 +2600,7 @@ async fn get_transaction_replies(
         if let Some(ref gossip) = api_state.gossip_service {
             let mut statuses = std::collections::HashMap::new();
             for h in &reply_hashes {
-                if let Some(finality) = gossip.get_convergence_status(h).await {
+                if let Some(finality) = gossip.get_fast_path_status(h).await {
                     statuses.insert(h.clone(), finality);
                 }
             }
@@ -2595,7 +2615,6 @@ async fn get_transaction_replies(
                 if let Some(fp) = fast_path_statuses.get(&tx_hash) {
                     let status = match fp.status {
                         rinku_core::types::FastPathStatus::Confirmed => "confirmed",
-                        rinku_core::types::FastPathStatus::Executed => "executed",
                         rinku_core::types::FastPathStatus::Finalized => "finalized",
                         rinku_core::types::FastPathStatus::Pending => "pending",
                     };
@@ -2608,6 +2627,14 @@ async fn get_transaction_replies(
 
             let redacted_data = data;
             
+            let lane_str = if let Some(ref k) = kind {
+                match k {
+                    rinku_core::types::TransactionKind::Contract => "checkpoint",
+                    _ => "fast_path",
+                }
+            } else {
+                "fast_path"
+            };
             TransactionResponse {
                 hash: tx_hash.clone(),
                 from,
@@ -2628,6 +2655,7 @@ async fn get_transaction_replies(
                 fast_path_status,
                 fast_path_confirmed_at_ms,
                 fast_path_finality_ms,
+                lane: lane_str.to_string(),
             }
         })
         .collect();
@@ -3347,36 +3375,9 @@ async fn generate_transaction_proof(
         }
     };
 
-    let convergence_cert = state.get_convergence_certificate(&hash).await;
+    let fast_path_cert_data = state.get_fast_path_cert(&hash).await;
 
-    let (validator_leaves, acked_indices): (Vec<MerkleSumLeaf>, Vec<usize>) = if let Some(ref cert) = convergence_cert {
-        let validators = state.get_validators().await;
-        let acked_addrs: std::collections::HashSet<&str> = cert.acks.iter()
-            .map(|a| a.validator_address.as_str())
-            .collect();
-
-        let leaves: Vec<MerkleSumLeaf> = validators
-            .iter()
-            .enumerate()
-            .map(|(i, v)| {
-                MerkleSumLeaf {
-                    index: i,
-                    address: v.address.clone(),
-                    bls_public_key: v.bls_public_key.clone().unwrap_or_default(),
-                    weight_units: v.stake,
-                    weight: from_micro_units(v.stake),
-                }
-            })
-            .collect();
-
-        let indices: Vec<usize> = leaves.iter()
-            .enumerate()
-            .filter(|(_, leaf)| acked_addrs.contains(leaf.address.as_str()))
-            .map(|(i, _)| i)
-            .collect();
-
-        (leaves, indices)
-    } else {
+    let (validator_leaves, acked_indices): (Vec<MerkleSumLeaf>, Vec<usize>) = {
         let leaves: Vec<MerkleSumLeaf> = checkpoint
             .validator_signatures
             .iter()
@@ -3448,7 +3449,7 @@ async fn generate_transaction_proof(
             .as_ref()
             .map(|b| URL_SAFE_NO_PAD.encode(b))
             .unwrap_or_default(),
-        signer_count: if convergence_cert.is_some() { acked_indices.len() } else { checkpoint.validator_signatures.len() },
+        signer_count: checkpoint.validator_signatures.len(),
         signer_membership_proofs: membership_proofs,
         validator_sum_tree_root: validator_tree.root,
         chain_id: None,
@@ -4496,7 +4497,7 @@ pub async fn start_api_server(
         .route("/api/slashing/evidence", post(post_slashing_evidence))
         .route("/api/tx", post(submit_transaction))
         .route("/api/tx/fast", post(submit_fast_path_transaction))
-        .route("/api/tx/fast/:hash", get(get_convergence_status))
+        .route("/api/tx/fast/:hash", get(get_fast_path_status))
         .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))

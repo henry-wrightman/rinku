@@ -1,22 +1,24 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ConvergenceExecResult {
+pub enum FastPathExecResult {
     Executed,
     AlreadyApplied,
     Rejected,
     Deferred,
 }
 
-pub struct ConvergenceBatchExecEntry {
+pub struct FastPathExecEntry {
     pub hash: String,
-    pub result: ConvergenceExecResult,
+    pub result: FastPathExecResult,
     pub from_addr: String,
     pub to_addr: String,
     pub amount: u64,
     pub from_account: Option<Account>,
     pub to_account: Option<Account>,
 }
+
+pub type FastPathBatchExecEntry = FastPathExecEntry;
 
 pub struct BatchCoreResult {
     pub executed_count: usize,
@@ -347,7 +349,7 @@ impl NodeState {
             received_at_ms: Some(now_ms),
             partition_epoch: None,
             rolled_back: false,
-            convergence_certificate: None,
+            fast_path_cert: None,
         };
 
         let mut state = self.inner.write().await;
@@ -397,20 +399,20 @@ impl NodeState {
         Ok(TransactionResult::Accepted)
     }
     
-    pub async fn execute_confirmed_batch(
+    pub async fn execute_fast_path_batch(
         &self,
         txs: &[SignedTransaction],
-    ) -> Vec<ConvergenceBatchExecEntry> {
-        let mut results_map: std::collections::HashMap<usize, ConvergenceBatchExecEntry> = std::collections::HashMap::with_capacity(txs.len());
-        let mut contract_txs: Vec<SignedTransaction> = Vec::new();
+    ) -> Vec<FastPathExecEntry> {
+        let mut results_map: std::collections::HashMap<usize, FastPathExecEntry> = std::collections::HashMap::with_capacity(txs.len());
         let mut executed_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut changed_addrs: Vec<String> = Vec::new();
 
         {
             let lock_start = std::time::Instant::now();
             let mut state = self.inner.write().await;
             let lock_ms = lock_start.elapsed().as_millis();
             if lock_ms > 5 {
-                tracing::info!("RCC-LOCK: convergence batch write lock acquired in {}ms ({} txs)", lock_ms, txs.len());
+                tracing::info!("RCC-LOCK: fast-path batch write lock acquired in {}ms ({} txs)", lock_ms, txs.len());
             }
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -436,9 +438,23 @@ impl NodeState {
                     }
 
                     if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-                        results_map.insert(idx, ConvergenceBatchExecEntry {
+                        results_map.insert(idx, FastPathExecEntry {
                             hash: tx.hash.clone(),
-                            result: ConvergenceExecResult::AlreadyApplied,
+                            result: FastPathExecResult::AlreadyApplied,
+                            from_addr: tx.tx.from.clone(),
+                            to_addr: tx.tx.to.clone(),
+                            amount: tx.tx.amount,
+                            from_account: None,
+                            to_account: None,
+                        });
+                        executed_indices.insert(idx);
+                        continue;
+                    }
+
+                    if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract)) {
+                        results_map.insert(idx, FastPathExecEntry {
+                            hash: tx.hash.clone(),
+                            result: FastPathExecResult::Deferred,
                             from_addr: tx.tx.from.clone(),
                             to_addr: tx.tx.to.clone(),
                             amount: tx.tx.amount,
@@ -452,18 +468,15 @@ impl NodeState {
                     let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
                     let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
                     let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-                    let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
 
                     let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
 
-                    let (ov_balance, ov_nonce, ov_staked) = if let Some(ov) = state.convergence_overlay.get(&tx.tx.from) {
-                        (ov.balance, ov.nonce, ov.staked)
-                    } else if let Some(acc) = state.accounts.get(&tx.tx.from) {
+                    let (acc_balance, acc_nonce, acc_staked) = if let Some(acc) = state.accounts.get(&tx.tx.from) {
                         (acc.balance, acc.nonce, acc.staked)
                     } else {
-                        results_map.insert(idx, ConvergenceBatchExecEntry {
+                        results_map.insert(idx, FastPathExecEntry {
                             hash: tx.hash.clone(),
-                            result: ConvergenceExecResult::Rejected,
+                            result: FastPathExecResult::Rejected,
                             from_addr: tx.tx.from.clone(),
                             to_addr: tx.tx.to.clone(),
                             amount: tx.tx.amount,
@@ -476,28 +489,29 @@ impl NodeState {
 
                     let required = if is_stake_tx {
                         tx.tx.amount + gas_fee
-                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
+                    } else if is_unstake_tx || is_claim_tx {
                         gas_fee
                     } else {
                         tx.tx.amount + gas_fee
                     };
-                    let result = if ov_balance < required {
-                        ConvergenceExecResult::Rejected
-                    } else if tx.tx.nonce < ov_nonce {
-                        ConvergenceExecResult::AlreadyApplied
-                    } else if tx.tx.nonce > ov_nonce {
-                        ConvergenceExecResult::Deferred
+
+                    let result = if acc_balance < required {
+                        FastPathExecResult::Rejected
+                    } else if tx.tx.nonce < acc_nonce {
+                        FastPathExecResult::AlreadyApplied
+                    } else if tx.tx.nonce > acc_nonce {
+                        FastPathExecResult::Deferred
                     } else {
-                        ConvergenceExecResult::Executed
+                        FastPathExecResult::Executed
                     };
 
-                    if matches!(result, ConvergenceExecResult::Deferred) {
+                    if matches!(result, FastPathExecResult::Deferred) {
                         skipped_senders.insert(tx.tx.from.clone());
                         continue;
                     }
 
-                    if !matches!(result, ConvergenceExecResult::Executed) {
-                        results_map.insert(idx, ConvergenceBatchExecEntry {
+                    if !matches!(result, FastPathExecResult::Executed) {
+                        results_map.insert(idx, FastPathExecEntry {
                             hash: tx.hash.clone(),
                             result,
                             from_addr: tx.tx.from.clone(),
@@ -510,56 +524,29 @@ impl NodeState {
                         continue;
                     }
 
-                    let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
-
-                    let tx_cost = if is_stake_tx {
-                        tx.tx.amount + gas_fee
-                    } else if is_unstake_tx || is_claim_tx || is_contract_tx {
-                        gas_fee
-                    } else {
-                        tx.tx.amount + gas_fee
-                    };
+                    let tx_cost = required;
 
                     {
-                        let pbs = state.accounts.get(&tx.tx.from).map(|a| a.partition_budget_spent).unwrap_or(0);
-                        let from_ov = state.convergence_overlay.entry(tx.tx.from.clone()).or_insert_with(|| {
-                            super::ConvergenceAccountOverlay {
-                                balance: ov_balance,
-                                nonce: ov_nonce,
-                                staked: ov_staked,
-                                partition_budget_spent: pbs,
+                        if let Some(from_acc) = state.accounts.get_mut(&tx.tx.from) {
+                            from_acc.balance = from_acc.balance.saturating_sub(tx_cost);
+                            from_acc.nonce = tx.tx.nonce + 1;
+                            if is_stake_tx {
+                                from_acc.staked += tx.tx.amount;
                             }
-                        });
-                        from_ov.balance = from_ov.balance.saturating_sub(tx_cost);
-                        from_ov.nonce = tx.tx.nonce + 1;
-
-                        if is_in_partition {
-                            from_ov.partition_budget_spent += tx_cost;
                         }
-
-                        if is_stake_tx {
-                            from_ov.staked += tx.tx.amount;
-                        }
+                        changed_addrs.push(tx.tx.from.clone());
                     }
 
-                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx && !tx.tx.to.is_empty() {
-                        let (to_balance, to_nonce, to_staked) = if let Some(ov) = state.convergence_overlay.get(&tx.tx.to) {
-                            (ov.balance, ov.nonce, ov.staked)
-                        } else if let Some(acc) = state.accounts.get(&tx.tx.to) {
-                            (acc.balance, acc.nonce, acc.staked)
-                        } else {
-                            (0, 0, 0)
-                        };
-                        let to_ov = state.convergence_overlay.entry(tx.tx.to.clone()).or_insert_with(|| {
-                            super::ConvergenceAccountOverlay {
-                                balance: to_balance,
-                                nonce: to_nonce,
-                                staked: to_staked,
-                                partition_budget_spent: 0,
-                            }
+                    if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !tx.tx.to.is_empty() {
+                        let to_acc = state.accounts.entry(tx.tx.to.clone()).or_insert_with(|| {
+                            Account::new(tx.tx.to.clone(), now_ms / 1000)
                         });
-                        to_ov.balance += tx.tx.amount;
+                        to_acc.balance += tx.tx.amount;
+                        changed_addrs.push(tx.tx.to.clone());
                     }
+
+                    state.total_burned += gas_fee;
+                    state.total_transactions += 1;
 
                     let tx_time_ms = if tx.tx.timestamp < 4_000_000_000 {
                         tx.tx.timestamp * 1000
@@ -580,8 +567,8 @@ impl NodeState {
                         state.finality_times_ms.push_back(finality_time_ms);
                     }
 
-                    if !state.convergence_executed_txs.contains_key(&tx.hash) {
-                        state.convergence_executed_txs.insert(tx.hash.clone(), super::ConvergenceUndoEntry {
+                    if !state.fast_path_finalized_txs.contains_key(&tx.hash) {
+                        state.fast_path_finalized_txs.insert(tx.hash.clone(), super::FastPathFinalizedEntry {
                             from: tx.tx.from.clone(),
                             to: tx.tx.to.clone(),
                             amount: tx.tx.amount,
@@ -589,20 +576,17 @@ impl NodeState {
                             gas_price: tx.tx.gas_price,
                             kind: tx.tx.kind.clone(),
                             hash: tx.hash.clone(),
+                            finalized_at_ms: now_ms,
                         });
-                        state.convergence_executed_order.push_back(tx.hash.clone());
-                        const CONVERGENCE_EXECUTED_CAP: usize = 500;
-                        while state.convergence_executed_txs.len() > CONVERGENCE_EXECUTED_CAP {
-                            if let Some(oldest) = state.convergence_executed_order.pop_front() {
-                                state.convergence_executed_txs.remove(&oldest);
+                        state.fast_path_finalized_order.push_back(tx.hash.clone());
+                        const FAST_PATH_FINALIZED_CAP: usize = 1000;
+                        while state.fast_path_finalized_txs.len() > FAST_PATH_FINALIZED_CAP {
+                            if let Some(oldest) = state.fast_path_finalized_order.pop_front() {
+                                state.fast_path_finalized_txs.remove(&oldest);
                             } else {
                                 break;
                             }
                         }
-                    }
-
-                    if is_contract_tx {
-                        contract_txs.push(tx.clone());
                     }
 
                     let from_snap = state.accounts.get(&tx.tx.from).cloned();
@@ -622,9 +606,9 @@ impl NodeState {
                         tx.tx.kind
                     );
 
-                    results_map.insert(idx, ConvergenceBatchExecEntry {
+                    results_map.insert(idx, FastPathExecEntry {
                         hash: tx.hash.clone(),
-                        result: ConvergenceExecResult::Executed,
+                        result: FastPathExecResult::Executed,
                         from_addr: tx.tx.from.clone(),
                         to_addr: tx.tx.to.clone(),
                         amount: tx.tx.amount,
@@ -639,9 +623,9 @@ impl NodeState {
 
             for (idx, tx) in txs.iter().enumerate() {
                 if !executed_indices.contains(&idx) {
-                    results_map.insert(idx, ConvergenceBatchExecEntry {
+                    results_map.insert(idx, FastPathExecEntry {
                         hash: tx.hash.clone(),
-                        result: ConvergenceExecResult::Deferred,
+                        result: FastPathExecResult::Deferred,
                         from_addr: tx.tx.from.clone(),
                         to_addr: tx.tx.to.clone(),
                         amount: tx.tx.amount,
@@ -651,30 +635,22 @@ impl NodeState {
                 }
             }
 
-            if pass > 1 {
-                tracing::info!(
-                    "Convergence multi-pass: resolved nonce chains in {} passes ({} executed, {} still deferred)",
-                    pass, executed_indices.len(), txs.len() - executed_indices.len()
-                );
+            if !changed_addrs.is_empty() {
+                state.update_state_trie_accounts(&changed_addrs);
             }
 
-            let executed_count = results_map.values().filter(|e| matches!(e.result, ConvergenceExecResult::Executed)).count();
-            let deferred_count = results_map.values().filter(|e| matches!(e.result, ConvergenceExecResult::Deferred)).count();
-            let rejected_count = results_map.values().filter(|e| matches!(e.result, ConvergenceExecResult::Rejected)).count();
-            let already_applied_count = results_map.values().filter(|e| matches!(e.result, ConvergenceExecResult::AlreadyApplied)).count();
-            let overlay_size = state.convergence_overlay.len();
+            let executed_count = results_map.values().filter(|e| matches!(e.result, FastPathExecResult::Executed)).count();
+            let deferred_count = results_map.values().filter(|e| matches!(e.result, FastPathExecResult::Deferred)).count();
             let batch_ms = lock_start.elapsed().as_millis();
-            let batch_size = txs.len();
-            let batch_passes = pass;
-            drop(state);
-            tracing::info!(
-                "CONVERGENCE-BATCH: {} txs → executed={} deferred={} rejected={} already_applied={} | passes={} overlay_size={} lock_held={}ms",
-                batch_size, executed_count, deferred_count, rejected_count, already_applied_count,
-                batch_passes, overlay_size, batch_ms
-            );
+            if executed_count > 0 {
+                tracing::info!(
+                    "FAST-PATH-BATCH: {} txs → executed={} deferred={} | lock_held={}ms",
+                    txs.len(), executed_count, deferred_count, batch_ms
+                );
+            }
         }
 
-        let mut results: Vec<ConvergenceBatchExecEntry> = (0..txs.len())
+        let results: Vec<FastPathExecEntry> = (0..txs.len())
             .filter_map(|i| results_map.remove(&i))
             .collect();
 
@@ -683,7 +659,7 @@ impl NodeState {
                 .iter()
                 .zip(results.iter())
                 .filter(|(tx, entry)| {
-                    matches!(entry.result, ConvergenceExecResult::Executed)
+                    matches!(entry.result, FastPathExecResult::Executed)
                         && matches!(
                             tx.tx.kind,
                             Some(rinku_core::types::TransactionKind::Stake)
@@ -702,27 +678,6 @@ impl NodeState {
                     } else {
                         rewards.register_stake_dedup(hash);
                     }
-                }
-            }
-        }
-
-        if !contract_txs.is_empty() {
-            for ctx in &contract_txs {
-                self.execute_transaction_side_effects(ctx).await;
-            }
-            let state = self.inner.read().await;
-            for entry in results.iter_mut() {
-                if !matches!(entry.result, ConvergenceExecResult::Executed) {
-                    continue;
-                }
-                let is_contract = contract_txs.iter().any(|c| c.hash == entry.hash);
-                if is_contract {
-                    entry.from_account = state.accounts.get(&entry.from_addr).cloned();
-                    entry.to_account = if !entry.to_addr.is_empty() {
-                        state.accounts.get(&entry.to_addr).cloned()
-                    } else {
-                        None
-                    };
                 }
             }
         }
@@ -750,25 +705,23 @@ impl NodeState {
             if let Some(account) = state.accounts.get_mut(sender_addr) {
                 if let Some(&first_nonce) = sender_nonces.iter().next() {
                     if first_nonce > account.nonce {
-                        if let Some(overlay) = state.convergence_overlay.get(sender_addr) {
-                            if overlay.nonce >= first_nonce {
+                        let fp_max_nonce = state.fast_path_finalized_txs.values()
+                            .filter(|e| e.from == *sender_addr)
+                            .map(|e| e.nonce + 1)
+                            .max();
+                        if let Some(fp_n) = fp_max_nonce {
+                            if fp_n >= first_nonce {
                                 tracing::info!(
-                                    "CONVERGENCE-NONCE-ADVANCE (batch): sender {} nonce {} -> {} (overlay nonce: {}, bridging {} gap nonces)",
+                                    "FAST-PATH-NONCE-ADVANCE (batch): sender {} nonce {} -> {} (fast-path nonce: {}, bridging {} gap nonces)",
                                     &sender_addr[..16.min(sender_addr.len())],
-                                    account.nonce, first_nonce, overlay.nonce, first_nonce - account.nonce
+                                    account.nonce, first_nonce, fp_n, first_nonce - account.nonce
                                 );
                                 account.nonce = first_nonce;
                                 nonce_bridged_addrs.push(sender_addr.clone());
-                            } else {
-                                tracing::info!(
-                                    "NONCE-GAP-SKIP (batch): sender {} has gap — account nonce {} but first tx nonce {} (overlay nonce {} doesn't cover, deferring)",
-                                    &sender_addr[..16.min(sender_addr.len())],
-                                    account.nonce, first_nonce, overlay.nonce
-                                );
                             }
                         } else {
-                            tracing::info!(
-                                "NONCE-GAP-SKIP (batch): sender {} has gap — account nonce {} but first tx nonce {} (no overlay, deferring {} gap txs)",
+                            tracing::debug!(
+                                "NONCE-GAP-SKIP (batch): sender {} has gap — account nonce {} but first tx nonce {} (deferring {} gap txs)",
                                 &sender_addr[..16.min(sender_addr.len())],
                                 account.nonce, first_nonce, first_nonce - account.nonce
                             );
@@ -986,7 +939,7 @@ impl NodeState {
     pub async fn prepare_batch_txs(
         &self,
         txs: &[SignedTransaction],
-        convergence_already_executed: &std::collections::HashSet<String>,
+        fast_path_already_finalized: &std::collections::HashSet<String>,
     ) -> (Vec<SignedTransaction>, usize, usize, usize, std::collections::HashMap<String, u32>) {
         let mut prev_deferred = {
             let mut deferred = self.deferred_batch_txs.lock().await;
@@ -1003,7 +956,7 @@ impl NodeState {
         let mut expired_count = 0usize;
         if !prev_deferred.is_empty() {
             prev_deferred.retain(|dtx| {
-                if convergence_already_executed.contains(&dtx.hash) {
+                if fast_path_already_finalized.contains(&dtx.hash) {
                     return false;
                 }
                 let count = retry_counts.get(&dtx.hash).copied().unwrap_or(0);
@@ -1023,10 +976,10 @@ impl NodeState {
         }
 
         let mut all_txs: Vec<SignedTransaction> = Vec::new();
-        let mut convergence_skipped = 0usize;
+        let mut fast_path_skipped = 0usize;
         for tx in txs {
-            if convergence_already_executed.contains(&tx.hash) {
-                convergence_skipped += 1;
+            if fast_path_already_finalized.contains(&tx.hash) {
+                fast_path_skipped += 1;
             } else {
                 all_txs.push(tx.clone());
             }
@@ -1047,7 +1000,7 @@ impl NodeState {
                 .then(a.hash.cmp(&b.hash))
         });
 
-        (all_txs, convergence_skipped, from_deferred, expired_count, retry_counts)
+        (all_txs, fast_path_skipped, from_deferred, expired_count, retry_counts)
     }
 
     pub async fn store_batch_deferred(
@@ -1110,7 +1063,7 @@ impl NodeState {
         {
             let mut rewards = self.rewards.write().await;
             for tx in special_txs {
-                let is_convergence_pre_executed = skip_hashes.contains(&tx.hash);
+                let is_fast_path_pre_finalized = skip_hashes.contains(&tx.hash);
                 use rinku_core::types::TransactionKind;
                 let from_addr = &tx.tx.from;
 
@@ -1123,9 +1076,9 @@ impl NodeState {
                         finalized_stake_deltas.entry(from_addr.clone())
                             .and_modify(|d: &mut (u64, u64)| d.0 += tx.tx.amount)
                             .or_insert((tx.tx.amount, staked_at));
-                        if is_convergence_pre_executed {
+                        if is_fast_path_pre_finalized {
                             tracing::info!(
-                                "STAKE-FINALIZE: convergence-pre-executed stake for {} amount={} — applying to finalized state",
+                                "STAKE-FINALIZE: fast-path-pre-finalized stake for {} amount={} — applying to finalized state",
                                 &from_addr[..16.min(from_addr.len())], tx.tx.amount
                             );
                         }
@@ -1133,9 +1086,9 @@ impl NodeState {
                     TransactionKind::Unstake => {
                         match rewards.unstake(from_addr) {
                             Ok(amount) => {
-                                if is_convergence_pre_executed {
+                                if is_fast_path_pre_finalized {
                                     tracing::info!(
-                                        "UNSTAKE-FINALIZE: convergence-pre-executed unstake for {} — crediting {} to finalized state",
+                                        "UNSTAKE-FINALIZE: fast-path-pre-finalized unstake for {} — crediting {} to finalized state",
                                         &from_addr[..16.min(from_addr.len())], amount
                                     );
                                 }
@@ -1149,9 +1102,9 @@ impl NodeState {
                     TransactionKind::ClaimRewards => {
                         let claimed = rewards.claim_rewards(from_addr);
                         if claimed > 0 {
-                            if is_convergence_pre_executed {
+                            if is_fast_path_pre_finalized {
                                 tracing::info!(
-                                    "CLAIM-FINALIZE: convergence-pre-executed claim for {} — crediting {} to finalized state",
+                                    "CLAIM-FINALIZE: fast-path-pre-finalized claim for {} — crediting {} to finalized state",
                                     &from_addr[..16.min(from_addr.len())], claimed
                                 );
                             }
@@ -1195,7 +1148,7 @@ impl NodeState {
             if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract)) {
                 if skip_hashes.contains(&tx.hash) {
                     tracing::debug!(
-                        "Skipping contract re-execution for convergence-executed tx {}",
+                        "Skipping contract re-execution for fast-path-finalized tx {}",
                         &tx.hash[..16.min(tx.hash.len())]
                     );
                     continue;
@@ -1297,12 +1250,12 @@ impl NodeState {
     pub async fn execute_finalized_transactions_batch(
         &self,
         txs: &[SignedTransaction],
-        convergence_already_executed: &std::collections::HashSet<String>,
+        fast_path_already_finalized: &std::collections::HashSet<String>,
     ) -> std::collections::HashSet<String> {
-        let (all_txs, convergence_skipped, from_deferred, expired_count, retry_counts) =
-            self.prepare_batch_txs(txs, convergence_already_executed).await;
+        let (all_txs, fast_path_skipped, from_deferred, expired_count, retry_counts) =
+            self.prepare_batch_txs(txs, fast_path_already_finalized).await;
 
-        if all_txs.is_empty() && convergence_skipped == 0 {
+        if all_txs.is_empty() && fast_path_skipped == 0 {
             return std::collections::HashSet::new();
         }
 
@@ -1315,7 +1268,7 @@ impl NodeState {
         };
 
         let batch_start = std::time::Instant::now();
-        let total_finalized = all_txs.len() + convergence_skipped;
+        let total_finalized = all_txs.len() + fast_path_skipped;
 
         let batch_result = {
             let mut state = self.inner.write().await;
@@ -1333,17 +1286,17 @@ impl NodeState {
         self.process_batch_reward_infos(&all_txs, &batch_result.executed_hashes).await;
 
         let newly_failed = all_txs.len().saturating_sub(batch_result.executed_count);
-        if newly_failed > 0 && convergence_skipped == 0 {
+        if newly_failed > 0 && fast_path_skipped == 0 {
             tracing::warn!(
                 "Batch UNDERCOUNT: {} of {} finalized txs actually executed (skipped {})",
                 batch_result.executed_count, all_txs.len(), newly_failed
             );
         }
         tracing::info!(
-            "Batch executed {}/{} finalized txs in {:?} ({} convergence-pre-executed, {} from deferred, {} expired, {} gap-skipped senders)",
+            "Batch executed {}/{} finalized txs in {:?} ({} fast-path-pre-finalized, {} from deferred, {} expired, {} gap-skipped senders)",
             batch_result.executed_count, total_finalized,
             batch_start.elapsed(),
-            convergence_skipped, from_deferred, expired_count, batch_result.gap_skipped_senders.len()
+            fast_path_skipped, from_deferred, expired_count, batch_result.gap_skipped_senders.len()
         );
         batch_result.executed_hashes
     }
@@ -1391,15 +1344,9 @@ impl NodeState {
                 .or_default()
                 .insert(node.tx.tx.nonce);
         }
-        for entry in state.convergence_executed_txs.values() {
-            sender_nonces
-                .entry(entry.from.clone())
-                .or_default()
-                .insert(entry.nonce);
-        }
 
         for node in &unfinalized {
-            if state.convergence_executed_txs.contains_key(&node.hash) {
+            if state.fast_path_finalized_txs.contains_key(&node.hash) {
                 continue;
             }
             let account_nonce = state
@@ -1427,18 +1374,14 @@ impl NodeState {
             }
         }
         if !zombie_hashes.is_empty() {
-            let height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
-            for zh in &zombie_hashes {
-                state.dag.mark_finalized_deferred_cleanup(zh, height);
-            }
-            state.dag.cleanup_sender_unfinalized_batch(&zombie_hashes);
+            let removed = state.dag.remove_nodes_batch(&zombie_hashes);
             tracing::info!(
-                "Purged {} zombie txs from DAG ({} stale nonce, {} unreachable nonce gap)",
-                zombie_hashes.len(), stale_count, orphan_count
+                "Purged {} zombie txs from DAG ({} stale nonce, {} unreachable nonce gap, {} actually removed)",
+                zombie_hashes.len(), stale_count, orphan_count, removed
             );
         }
 
-        const MAX_UNFINALIZED_DAG: usize = 500;
+        const MAX_UNFINALIZED_DAG: usize = 2000;
         let overflow_evict = {
             let remaining_unfinalized = state.dag.get_unfinalized_nodes();
             let unfinalized_count = remaining_unfinalized.len();
@@ -1446,7 +1389,7 @@ impl NodeState {
                 let excess = unfinalized_count - MAX_UNFINALIZED_DAG;
                 let mut overflow: Vec<(String, u64)> = remaining_unfinalized
                     .iter()
-                    .filter(|n| !state.convergence_executed_txs.contains_key(&n.hash))
+                    .filter(|n| !state.fast_path_finalized_txs.contains_key(&n.hash))
                     .map(|n| {
                         let account_nonce = state.accounts.get(&n.tx.tx.from).map(|a| a.nonce).unwrap_or(0);
                         let gap = n.tx.tx.nonce.saturating_sub(account_nonce);
@@ -1463,14 +1406,10 @@ impl NodeState {
         };
         if let Some((evict_hashes, was_count)) = overflow_evict {
             if !evict_hashes.is_empty() {
-                let height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
-                for h in &evict_hashes {
-                    state.dag.mark_finalized_deferred_cleanup(h, height);
-                }
-                state.dag.cleanup_sender_unfinalized_batch(&evict_hashes);
+                let removed = state.dag.remove_nodes_batch(&evict_hashes);
                 tracing::warn!(
-                    "DAG overflow eviction: removed {} unfinalized txs (cap={}, was {})",
-                    evict_hashes.len(), MAX_UNFINALIZED_DAG, was_count
+                    "DAG overflow eviction: removed {} unfinalized txs (cap={}, was={}, actually removed={})",
+                    evict_hashes.len(), MAX_UNFINALIZED_DAG, was_count, removed
                 );
             }
         }
@@ -1496,7 +1435,10 @@ impl NodeState {
             let is_in_partition = state.partition_state.status == crate::state::partition::PartitionStatus::Partitioned;
 
             {
-                let sender_overlay_nonce = state.convergence_overlay.get(&tx.tx.from).map(|ov| ov.nonce);
+                let sender_fp_nonce = state.fast_path_finalized_txs.values()
+                    .filter(|e| e.from == tx.tx.from)
+                    .map(|e| e.nonce + 1)
+                    .max();
                 if let Some(from_account) = state.accounts.get_mut(&tx.tx.from) {
                     if tx.tx.nonce < from_account.nonce {
                         tracing::debug!(
@@ -1508,28 +1450,28 @@ impl NodeState {
                         return false;
                     }
                     if tx.tx.nonce > from_account.nonce {
-                        if let Some(ov_nonce) = sender_overlay_nonce {
-                            if ov_nonce >= tx.tx.nonce {
+                        if let Some(fp_n) = sender_fp_nonce {
+                            if fp_n >= tx.tx.nonce {
                                 tracing::info!(
-                                    "CONVERGENCE-NONCE-ADVANCE (finalize): sender {} nonce {} -> {} (overlay nonce: {})",
+                                    "FAST-PATH-NONCE-ADVANCE (finalize): sender {} nonce {} -> {} (fast-path nonce: {})",
                                     &tx.tx.from[..16.min(tx.tx.from.len())],
-                                    from_account.nonce, tx.tx.nonce, ov_nonce
+                                    from_account.nonce, tx.tx.nonce, fp_n
                                 );
                                 from_account.nonce = tx.tx.nonce;
                             } else {
                                 tracing::info!(
-                                    "Skipping future-nonce tx {} (tx_nonce={} > account_nonce={}, overlay_nonce={}, gap={})",
+                                    "Skipping future-nonce tx {} (tx_nonce={} > account_nonce={}, fast-path nonce={}, gap={})",
                                     &tx.hash[..16.min(tx.hash.len())],
                                     tx.tx.nonce,
                                     from_account.nonce,
-                                    ov_nonce,
+                                    fp_n,
                                     tx.tx.nonce - from_account.nonce
                                 );
                                 return false;
                             }
                         } else {
                             tracing::info!(
-                                "Skipping future-nonce tx {} (tx_nonce={} > account_nonce={}, no overlay, gap={})",
+                                "Skipping future-nonce tx {} (tx_nonce={} > account_nonce={}, no fast-path, gap={})",
                                 &tx.hash[..16.min(tx.hash.len())],
                                 tx.tx.nonce,
                                 from_account.nonce,
@@ -1953,7 +1895,7 @@ impl NodeState {
             received_at_ms: Some(now_ms),
             partition_epoch: None,
             rolled_back: false,
-            convergence_certificate: None,
+            fast_path_cert: None,
         };
 
         state.dag.add_node(node)?;
@@ -2000,10 +1942,10 @@ impl NodeState {
         let _ = state.dag.mark_finalized(hash, height);
     }
 
-    pub async fn set_convergence_certificate(&self, hash: &str, finality: &rinku_core::types::FastPathFinality) {
+    pub async fn set_fast_path_cert(&self, hash: &str, finality: &rinku_core::types::FastPathFinality) {
         let mut state = self.inner.write().await;
         if let Some(node) = state.dag.get_node_mut(hash) {
-            node.convergence_certificate = Some(rinku_core::types::ConvergenceCertificate {
+            node.fast_path_cert = Some(rinku_core::types::FastPathFinalizationCert {
                 total_stake: finality.total_stake_acked,
                 quorum_required: finality.quorum_stake_required,
                 confirmed_at_ms: finality.confirmed_at_ms.unwrap_or(0),
@@ -2141,7 +2083,7 @@ impl NodeState {
                     received_at_ms: Some(now_dag),
                     partition_epoch: None,
                     rolled_back: false,
-                    convergence_certificate: None,
+                    fast_path_cert: None,
                 };
                 let _ = state.dag.add_node(node);
             }
@@ -2208,7 +2150,7 @@ impl NodeState {
                 received_at_ms: Some(now_ms),
                 partition_epoch: None,
                 rolled_back: false,
-                convergence_certificate: None,
+                fast_path_cert: None,
             };
 
             match state.dag.add_node(node) {
@@ -2352,7 +2294,7 @@ impl NodeState {
                 received_at_ms: Some(now_ms),
                 partition_epoch: None,
                 rolled_back: false,
-                convergence_certificate: None,
+                fast_path_cert: None,
             };
             
             let result = state

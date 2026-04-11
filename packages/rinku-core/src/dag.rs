@@ -810,6 +810,64 @@ impl Dag {
         }
     }
 
+    pub fn remove_nodes_batch(&mut self, hashes: &[String]) -> usize {
+        if hashes.is_empty() {
+            return 0;
+        }
+
+        let evict_set: std::collections::HashSet<&str> = hashes.iter().map(|s| s.as_str()).collect();
+
+        let mut seen_indices = std::collections::HashSet::new();
+        let mut indices_to_remove: Vec<petgraph::graph::NodeIndex> = hashes.iter()
+            .filter_map(|hash| self.hash_to_index.get(hash).copied())
+            .filter(|idx| seen_indices.insert(*idx))
+            .collect();
+        indices_to_remove.sort_by(|a, b| b.index().cmp(&a.index()));
+
+        let count = indices_to_remove.len();
+        if count == 0 {
+            return 0;
+        }
+
+        for idx in indices_to_remove {
+            self.graph.remove_node(idx);
+        }
+
+        self.hash_to_index.clear();
+        self.unfinalized.clear();
+        self.sender_unfinalized.clear();
+        self.finalized_by_height.clear();
+        self.tips.clear();
+
+        for idx in self.graph.node_indices() {
+            if let Some(node) = self.graph.node_weight_mut(idx) {
+                node.children.retain(|c| !evict_set.contains(c.as_str()));
+                node.parents.retain(|p| !evict_set.contains(p.as_str()));
+                node.tx.tx.parents.retain(|p| !evict_set.contains(p.as_str()));
+            }
+        }
+
+        for idx in self.graph.node_indices() {
+            if let Some(node) = self.graph.node_weight(idx) {
+                self.hash_to_index.insert(node.hash.clone(), idx);
+                if !node.finalized {
+                    self.unfinalized.insert(node.hash.clone());
+                    self.sender_unfinalized
+                        .entry(node.tx.tx.from.clone())
+                        .or_default()
+                        .insert(node.hash.clone());
+                } else if let Some(h) = node.checkpoint_height {
+                    self.finalized_by_height.entry(h).or_default().insert(node.hash.clone());
+                }
+                if node.children.is_empty() {
+                    self.tips.insert(node.hash.clone());
+                }
+            }
+        }
+
+        count
+    }
+
     pub fn evict_finalized_before(&mut self, boundary_height: u64) -> usize {
         let to_evict: Vec<String> = self.graph.node_weights()
             .filter(|node| {
@@ -1033,7 +1091,7 @@ mod tests {
             received_at_ms: Some(0),
             partition_epoch: None,
             rolled_back: false,
-            convergence_certificate: None,
+            fast_path_cert: None,
         }
     }
 

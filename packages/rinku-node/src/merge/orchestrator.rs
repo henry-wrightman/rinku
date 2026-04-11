@@ -360,7 +360,7 @@ impl MergeOrchestrator {
                     received_at_ms: Some(now_ms),
                     partition_epoch: Some(report.merge_epoch),
                     rolled_back: false,
-                    convergence_certificate: None,
+                    fast_path_cert: None,
                 };
                 let _ = state.dag.add_node(node);
             }

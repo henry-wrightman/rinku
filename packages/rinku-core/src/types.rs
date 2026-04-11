@@ -116,10 +116,22 @@ impl std::fmt::Display for PartitionSafety {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum TransactionLane {
+    FastPath,
+    Checkpoint,
+}
+
+impl Default for TransactionLane {
+    fn default() -> Self {
+        TransactionLane::FastPath
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FastPathStatus {
     Pending,
     Confirmed,
-    Executed,
     Finalized,
 }
 
@@ -167,6 +179,20 @@ impl FastPathFinality {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FastPathCertificate {
+    pub batch_id: String,
+    pub tx_hashes: Vec<String>,
+    pub tx_merkle_root: String,
+    pub aggregated_signature: String,
+    pub signer_bitmap: Vec<u8>,
+    #[serde(with = "micro_serde")]
+    pub total_stake: u64,
+    pub height: u64,
+    pub timestamp_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Transaction {
     pub from: String,
     pub to: String,
@@ -205,12 +231,15 @@ pub struct SignedTransaction {
 }
 
 impl Transaction {
-    /// All transactions are now fast-path eligible for sub-500ms finality.
-    /// Balance/nonce validation is performed by validators before ACKing.
+    pub fn classify_lane(&self) -> TransactionLane {
+        match self.kind {
+            Some(TransactionKind::Contract) => TransactionLane::Checkpoint,
+            _ => TransactionLane::FastPath,
+        }
+    }
+
     pub fn is_fast_path_eligible(&self) -> bool {
-        // All transaction types can use fast-path finality
-        // Validators will only ACK if the transaction is valid (correct balance, nonce, etc.)
-        true
+        self.classify_lane() == TransactionLane::FastPath
     }
 
     pub fn is_data_only(&self) -> bool {
@@ -495,7 +524,7 @@ pub struct Validator {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConvergenceCertificate {
+pub struct FastPathFinalizationCert {
     pub total_stake: u64,
     pub quorum_required: u64,
     pub confirmed_at_ms: u64,
@@ -520,7 +549,7 @@ pub struct DagNode {
     #[serde(default)]
     pub rolled_back: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub convergence_certificate: Option<ConvergenceCertificate>,
+    pub fast_path_cert: Option<FastPathFinalizationCert>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
