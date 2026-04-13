@@ -336,7 +336,7 @@ impl NodeState {
             }
         };
 
-        let (batch_result, all_txs, finalized_count, fast_path_skipped, from_deferred, retry_counts, height, fast_path_already_finalized, prev_deferred) = {
+        let (batch_result, all_txs, finalized_count, fast_path_skipped, from_deferred, retry_counts, height, fast_path_already_finalized, prev_deferred, fp_special_txs) = {
             let mut state = self.inner.write().await;
 
             let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -444,6 +444,20 @@ impl NodeState {
 
             prev_deferred.retain(|dtx| !fast_path_already_finalized.contains(&dtx.hash));
 
+            let fp_special_txs: Vec<SignedTransaction> = txs_to_execute
+                .iter()
+                .filter(|tx| {
+                    fast_path_already_finalized.contains(&tx.hash)
+                        && matches!(
+                            tx.tx.kind,
+                            Some(rinku_core::types::TransactionKind::Stake)
+                                | Some(rinku_core::types::TransactionKind::Unstake)
+                                | Some(rinku_core::types::TransactionKind::ClaimRewards)
+                        )
+                })
+                .cloned()
+                .collect();
+
             let mut contract_lane_txs: Vec<SignedTransaction> = txs_to_execute
                 .into_iter()
                 .filter(|tx| !fast_path_already_finalized.contains(&tx.hash))
@@ -492,7 +506,7 @@ impl NodeState {
                 state.dag.cleanup_sender_unfinalized_batch(&finalized_hashes_for_cleanup);
             }
 
-            let has_special_txs = !batch_result.special_txs.is_empty();
+            let has_special_txs = !batch_result.special_txs.is_empty() || !fp_special_txs.is_empty();
 
             if finalized_count > 0 && !has_special_txs {
                 let snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
@@ -505,7 +519,7 @@ impl NodeState {
                 state.checkpoint_accounts_snapshot = None;
             }
 
-            (batch_result, all_txs, finalized_count, fast_path_skipped, from_deferred, retry_counts, height, fast_path_already_finalized, prev_deferred)
+            (batch_result, all_txs, finalized_count, fast_path_skipped, from_deferred, retry_counts, height, fast_path_already_finalized, prev_deferred, fp_special_txs)
         };
 
         if finalized_count > 0 {
@@ -523,8 +537,10 @@ impl NodeState {
             self.store_batch_deferred(combined_deferred, retry_counts).await;
         }
 
-        let has_special = !batch_result.special_txs.is_empty();
-        self.process_batch_special_txs_with_skip(&batch_result.special_txs, &fast_path_already_finalized).await;
+        let mut all_special_txs = batch_result.special_txs;
+        all_special_txs.extend(fp_special_txs);
+        let has_special = !all_special_txs.is_empty();
+        self.process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized).await;
 
         {
             let state = self.inner.read().await;
@@ -809,6 +825,15 @@ impl NodeState {
                 state.dag.cleanup_sender_unfinalized_batch(&finalized_tx_hashes);
             }
 
+            let total_finalized_in_checkpoint = finalized_tx_hashes.len() as u64;
+            let already_counted_by_fast_path = finalized_tx_hashes.iter()
+                .filter(|h| state.fast_path_finalized_txs.contains_key(h.as_str()))
+                .count() as u64;
+            let new_tx_count = total_finalized_in_checkpoint.saturating_sub(already_counted_by_fast_path);
+            if new_tx_count > 0 {
+                state.total_transactions += new_tx_count;
+            }
+
             let mut checkpoint_with_hashes = checkpoint.clone();
             if checkpoint_with_hashes.finalized_tx_hashes.is_empty() && !finalized_tx_hashes.is_empty() {
                 checkpoint_with_hashes.finalized_tx_hashes = finalized_tx_hashes;
@@ -1075,6 +1100,20 @@ impl NodeState {
 
         prev_deferred.retain(|dtx| !fast_path_already_finalized.contains(&dtx.hash));
 
+        let fp_special_txs: Vec<SignedTransaction> = txs_to_execute
+            .iter()
+            .filter(|tx| {
+                fast_path_already_finalized.contains(&tx.hash)
+                    && matches!(
+                        tx.tx.kind,
+                        Some(rinku_core::types::TransactionKind::Stake)
+                            | Some(rinku_core::types::TransactionKind::Unstake)
+                            | Some(rinku_core::types::TransactionKind::ClaimRewards)
+                    )
+            })
+            .cloned()
+            .collect();
+
         let mut contract_lane_txs: Vec<SignedTransaction> = txs_to_execute
             .into_iter()
             .filter(|tx| !fast_path_already_finalized.contains(&tx.hash))
@@ -1153,7 +1192,7 @@ impl NodeState {
                 state.dag.cleanup_sender_unfinalized_batch(&finalized_hashes_for_cleanup);
             }
 
-            let has_special_txs = !result.special_txs.is_empty();
+            let has_special_txs = !result.special_txs.is_empty() || !fp_special_txs.is_empty();
 
             if missing_tx_count == 0 && !has_special_txs {
                 let snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
@@ -1198,8 +1237,10 @@ impl NodeState {
             self.store_batch_deferred(combined_deferred, retry_counts).await;
         }
 
-        let has_special = !batch_result.special_txs.is_empty();
-        self.process_batch_special_txs_with_skip(&batch_result.special_txs, &fast_path_already_finalized).await;
+        let mut all_special_txs = batch_result.special_txs;
+        all_special_txs.extend(fp_special_txs);
+        let has_special = !all_special_txs.is_empty();
+        self.process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized).await;
 
         {
             let state = self.inner.read().await;

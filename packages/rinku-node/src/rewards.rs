@@ -501,14 +501,21 @@ impl RewardsService {
 
     pub fn get_rewards_summary(&self, address: &str) -> RewardsSummary {
         let pending = self.pending_rewards.get(address).copied().unwrap_or(0);
+        let claimed = self.claimed_rewards.get(address).copied().unwrap_or(0);
         let lifetime = self.lifetime_rewards.get(address).cloned().unwrap_or_default();
+
+        let authoritative_total = pending + claimed;
+
+        let tip = lifetime.tip_rewards.min(authoritative_total);
+        let witness = lifetime.witness_rewards.min(authoritative_total.saturating_sub(tip));
+        let stake = authoritative_total.saturating_sub(tip + witness);
 
         RewardsSummary {
             address: address.to_string(),
-            tip_rewards: lifetime.tip_rewards,
-            stake_rewards: lifetime.stake_rewards,
-            witness_rewards: lifetime.witness_rewards,
-            total_rewards: lifetime.tip_rewards + lifetime.stake_rewards + lifetime.witness_rewards,
+            tip_rewards: tip,
+            stake_rewards: stake,
+            witness_rewards: witness,
+            total_rewards: authoritative_total,
             pending_rewards: pending,
         }
     }
@@ -955,19 +962,25 @@ impl RewardsService {
             }
         }
         
+        let snapshot_pending: std::collections::HashMap<String, u64> = snapshot.pending_rewards.iter().cloned().collect();
+
         let all_addresses: std::collections::HashSet<String> = self.lifetime_rewards.keys()
             .chain(self.claimed_rewards.keys())
             .chain(self.pending_rewards.keys())
+            .chain(snapshot_pending.keys())
             .cloned()
             .collect();
-        
+
         for addr in &all_addresses {
-            let lifetime = self.lifetime_rewards.get(addr).cloned().unwrap_or_default();
-            let lifetime_total = lifetime.tip_rewards + lifetime.stake_rewards + lifetime.witness_rewards;
-            let claimed = self.claimed_rewards.get(addr).copied().unwrap_or(0);
-            let correct_pending = lifetime_total.saturating_sub(claimed);
-            
+            let peer_pending = snapshot_pending.get(addr).copied();
             let current_pending = self.pending_rewards.get(addr).copied().unwrap_or(0);
+
+            let correct_pending = if let Some(pp) = peer_pending {
+                pp.max(current_pending)
+            } else {
+                current_pending
+            };
+
             if correct_pending != current_pending {
                 self.pending_rewards.insert(addr.clone(), correct_pending);
                 pending_recomputed += 1;

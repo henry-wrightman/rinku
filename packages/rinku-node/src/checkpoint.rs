@@ -1717,6 +1717,20 @@ impl CheckpointService {
             .cloned()
             .collect();
 
+        let fp_special_txs: Vec<SignedTransaction> = txs_to_execute
+            .iter()
+            .filter(|tx| {
+                fast_path_already_finalized.contains(&tx.hash)
+                    && matches!(
+                        tx.tx.kind,
+                        Some(rinku_core::types::TransactionKind::Stake)
+                            | Some(rinku_core::types::TransactionKind::Unstake)
+                            | Some(rinku_core::types::TransactionKind::ClaimRewards)
+                    )
+            })
+            .cloned()
+            .collect();
+
         let mut contract_lane_txs: Vec<SignedTransaction> = txs_to_execute
             .iter()
             .filter(|tx| !fast_path_already_finalized.contains(&tx.hash))
@@ -1905,9 +1919,11 @@ impl CheckpointService {
             .store_batch_deferred(batch_result.new_deferred, std::collections::HashMap::new())
             .await;
 
+        let mut all_special_txs = batch_result.special_txs;
+        all_special_txs.extend(fp_special_txs);
         self.state
             .process_batch_special_txs_with_skip(
-                &batch_result.special_txs,
+                &all_special_txs,
                 &fast_path_already_finalized,
             )
             .await;

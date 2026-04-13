@@ -579,7 +579,7 @@ impl NodeState {
                             finalized_at_ms: now_ms,
                         });
                         state.fast_path_finalized_order.push_back(tx.hash.clone());
-                        const FAST_PATH_FINALIZED_CAP: usize = 1000;
+                        const FAST_PATH_FINALIZED_CAP: usize = 5000;
                         while state.fast_path_finalized_txs.len() > FAST_PATH_FINALIZED_CAP {
                             if let Some(oldest) = state.fast_path_finalized_order.pop_front() {
                                 state.fast_path_finalized_txs.remove(&oldest);
@@ -1073,14 +1073,17 @@ impl NodeState {
                             tracing::warn!("Failed to process stake tx: {}", e);
                         }
                         let staked_at = rewards.get_stake(from_addr).map(|p| p.staked_at).unwrap_or(0);
-                        finalized_stake_deltas.entry(from_addr.clone())
-                            .and_modify(|d: &mut (u64, u64)| d.0 += tx.tx.amount)
-                            .or_insert((tx.tx.amount, staked_at));
                         if is_fast_path_pre_finalized {
                             tracing::info!(
-                                "STAKE-FINALIZE: fast-path-pre-finalized stake for {} amount={} — applying to finalized state",
+                                "STAKE-FINALIZE: fast-path-pre-finalized stake for {} amount={} — RewardsService synced (account.staked already applied by fast-path)",
                                 &from_addr[..16.min(from_addr.len())], tx.tx.amount
                             );
+                            finalized_stake_deltas.entry(from_addr.clone())
+                                .or_insert((0, staked_at));
+                        } else {
+                            finalized_stake_deltas.entry(from_addr.clone())
+                                .and_modify(|d: &mut (u64, u64)| d.0 += tx.tx.amount)
+                                .or_insert((tx.tx.amount, staked_at));
                         }
                     }
                     TransactionKind::Unstake => {
