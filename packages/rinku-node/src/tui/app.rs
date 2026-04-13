@@ -225,7 +225,7 @@ impl App {
         let dashboard = self.state.get_dashboard_stats().await;
         let tips = self.state.get_tips().await;
         let (dag_size, finalized, pending) = self.state.get_dag_stats().await;
-        let checkpoint_height = self.state.get_checkpoint_height().await;
+        let checkpoint_height = self.state.get_checkpoint_height();
         let gas_price = self.state.get_gas_price().await;
         let (_, _, _, total_burned) = self.state.get_gas_stats().await;
         // Use rewards service for accurate staking data

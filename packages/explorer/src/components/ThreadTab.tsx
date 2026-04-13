@@ -129,7 +129,6 @@ export function ThreadTab({ onWalletOpen }: Props) {
         to: wallet.fingerprint,
         amount: 0,
         kind: "transfer",
-        gasPrice: 0.001,
         memo: newThreadMemo.trim(),
       });
       if (result.hash) {
@@ -164,7 +163,6 @@ export function ThreadTab({ onWalletOpen }: Props) {
         to: wallet.fingerprint,
         amount: 0,
         kind: "transfer",
-        gasPrice: 0.001,
         memo: replyMemo.trim(),
         references: [replyTarget],
       });
@@ -197,13 +195,13 @@ export function ThreadTab({ onWalletOpen }: Props) {
         {isConfirmed && (
           <span
             className="status-icon confirmed"
-            title={timeMs ? `confirmed in ${timeMs}ms` : "confirmed"}
+            title={timeMs ? `finalized in ${timeMs}ms` : "finalized"}
           >
             &#x2713;
           </span>
         )}
         {isFinalized && (
-          <span className="status-icon finalized" title="checkpoint finalized">
+          <span className="status-icon finalized" title="anchored in snapshot">
             &#x25C6;
           </span>
         )}

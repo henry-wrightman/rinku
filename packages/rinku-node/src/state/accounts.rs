@@ -116,12 +116,10 @@ impl NodeState {
     }
 
     pub async fn save_snapshot(&self) -> Result<()> {
-        // Run memory cleanup before saving
         self.cleanup_old_data().await;
         
         let state = self.inner.read().await;
         
-        // Log memory metrics for monitoring
         info!(
             "Memory metrics: DAG nodes={}, accounts={}, validators={}, checkpoints={}, contracts={}",
             state.dag.node_count(),
@@ -130,47 +128,60 @@ impl NodeState {
             state.checkpoints.len(),
             state.contracts.len()
         );
-        // Create DagSnapshotEntry for each node, preserving parent references
+
+        let accounts = state.accounts.clone();
+        let validators = state.validators.clone();
+        let checkpoints = state.checkpoints.clone();
+        let gas_price = state.current_gas_price;
+        let total_supply = state.total_supply;
+        let genesis_time = state.genesis_time;
+        let dag_node_count = state.dag.node_count() as u64;
+        let total_transactions = std::cmp::max(state.total_transactions, dag_node_count);
         let dag_entries: Vec<crate::storage::DagSnapshotEntry> = state.dag.nodes()
             .map(|node| crate::storage::DagSnapshotEntry {
                 tx: node.tx.clone(),
                 parents: node.parents.clone(),
                 finalized: node.finalized,
                 checkpoint_height: node.checkpoint_height,
+                fast_path_cert: node.fast_path_cert.clone(),
             })
             .collect();
-        self.storage.save_snapshot(
-            &state.accounts,
-            &state.validators,
-            &state.checkpoints,
-            state.current_gas_price,
-            state.total_supply,
-            state.genesis_time,
-            &dag_entries,
-            state.total_transactions,
-        )?;
-
-        // Save weight trie (trust scores)
-        if let Some(ref weight_trie) = state.weight_trie {
-            let weights = weight_trie.all_weights().clone();
-            if !weights.is_empty() {
-                self.storage.save_weights(&weights)?;
-                info!("Saved {} transaction weight scores to storage", weights.len());
-            }
-        }
+        let weights = state.weight_trie.as_ref().map(|wt| wt.all_weights().clone());
         drop(state);
 
-        // Also save rewards/staking state
         let rewards = self.rewards.read().await;
         let rewards_snapshot = rewards.to_json();
         drop(rewards);
-        self.storage.save_rewards(&rewards_snapshot)?;
 
-        // Save emission state
         let emission = self.emission.read().await;
         let emission_snapshot = emission.to_json();
         drop(emission);
-        self.storage.save_emission(&emission_snapshot)?;
+
+        let storage = self.storage.clone();
+        crate::storage::blocking_io(move || {
+            storage.save_snapshot(
+                &accounts,
+                &validators,
+                &checkpoints,
+                gas_price,
+                total_supply,
+                genesis_time,
+                &dag_entries,
+                total_transactions,
+            )?;
+
+            if let Some(ref w) = weights {
+                if !w.is_empty() {
+                    storage.save_weights(w)?;
+                    info!("Saved {} transaction weight scores to storage", w.len());
+                }
+            }
+
+            storage.save_rewards(&rewards_snapshot)?;
+            storage.save_emission(&emission_snapshot)?;
+
+            Ok(())
+        }).await?;
 
         Ok(())
     }
@@ -233,7 +244,6 @@ impl NodeState {
                 account.first_seen = ts;
             }
         } else {
-            // Create account if doesn't exist
             let now = staked_at.unwrap_or_else(|| {
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -244,6 +254,7 @@ impl NodeState {
             account.staked = staked_amount;
             state.accounts.insert(address.to_string(), account);
         }
+        state.update_state_trie_accounts(&[address.to_string()]);
     }
 
     pub async fn apply_contract_transfer_effects(&self, effects: &[crate::contracts::TransferEffect]) -> anyhow::Result<()> {
@@ -302,6 +313,10 @@ impl NodeState {
                 amount_micro
             );
         }
+        let changed: Vec<String> = effects.iter()
+            .flat_map(|e| vec![e.from.clone(), e.to.clone()])
+            .collect();
+        state.update_state_trie_accounts(&changed);
         Ok(())
     }
 
@@ -328,6 +343,16 @@ impl NodeState {
     pub async fn get_account_nonce(&self, address: &str) -> u64 {
         let state = self.inner.read().await;
         state.accounts.get(address).map(|a| a.nonce).unwrap_or(0)
+    }
+
+    pub async fn get_effective_nonce_for(&self, sender: &str) -> u64 {
+        let state = self.inner.read().await;
+        Self::get_effective_nonce(&state, sender)
+    }
+
+    pub async fn get_effective_balance_for(&self, sender: &str) -> u64 {
+        let state = self.inner.read().await;
+        Self::get_effective_balance(&state, sender)
     }
 
     /// Sync account nonce from peer during delta sync.
@@ -439,5 +464,14 @@ impl NodeState {
     pub async fn get_all_accounts(&self) -> Vec<Account> {
         let state = self.inner.read().await;
         state.accounts.values().cloned().collect()
+    }
+
+    pub async fn get_all_accounts_with_effective(&self) -> Vec<(Account, u64, u64)> {
+        let state = self.inner.read().await;
+        state.accounts.values().map(|a| {
+            let eff_nonce = Self::get_effective_nonce(&state, &a.address);
+            let eff_balance = Self::get_effective_balance(&state, &a.address);
+            (a.clone(), eff_nonce, eff_balance)
+        }).collect()
     }
 }

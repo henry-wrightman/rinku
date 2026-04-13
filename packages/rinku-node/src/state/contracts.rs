@@ -9,7 +9,8 @@ impl NodeState {
         
         let contracts_data: Vec<_> = state.contracts.values().cloned().collect();
         drop(state);
-        self.storage.save_contracts(&contracts_data)?;
+        let storage = self.storage.clone();
+        crate::storage::blocking_io(move || storage.save_contracts(&contracts_data)).await?;
         Ok(())
     }
 
@@ -39,7 +40,8 @@ impl NodeState {
             
             let contracts_data: Vec<_> = state.contracts.values().cloned().collect();
             drop(state);
-            self.storage.save_contracts(&contracts_data)?;
+            let storage = self.storage.clone();
+            crate::storage::blocking_io(move || storage.save_contracts(&contracts_data)).await?;
             Ok(())
         } else {
             anyhow::bail!("Contract {} not found", contract_id)

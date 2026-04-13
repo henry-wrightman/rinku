@@ -25,7 +25,7 @@ import { useRinku } from "./context/WalletContext";
 import { API_URL } from "./config";
 
 const NODE_URL = API_URL;
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 
 export interface P2pStats {
   peers: Peer[];
@@ -189,15 +189,22 @@ function App() {
     accountCount: number;
   } | null>(null);
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
+  const smoothedTpsRef = useRef<{ tps: number; short: number; long: number }>({
+    tps: -1,
+    short: -1,
+    long: -1,
+  });
   const [gasStats, setGasStats] = useState<GasStats | null>(null);
   const [finalityStats, setFinalityStats] = useState<FinalityStats | null>(
     null,
   );
+  const smoothedConfirmationRef = useRef<number | null>(null);
   const [peerStats, setPeerStats] = useState<P2pStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const { darkMode, toggleTheme } = useTheme();
   const [walletOpen, setWalletOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const { wallet } = useRinku();
 
   const [page, setPage] = useState(0);
@@ -238,7 +245,29 @@ function App() {
 
       if (networkRes.ok) {
         const networkData = await networkRes.json();
-        setNetworkStats(networkData);
+        const alpha = 0.3;
+        const prev = smoothedTpsRef.current;
+        const smoothed = {
+          tps:
+            prev.tps < 0
+              ? networkData.tps
+              : prev.tps + alpha * (networkData.tps - prev.tps),
+          short:
+            prev.short < 0
+              ? networkData.tpsShort
+              : prev.short + alpha * (networkData.tpsShort - prev.short),
+          long:
+            prev.long < 0
+              ? networkData.tpsLong
+              : prev.long + alpha * (networkData.tpsLong - prev.long),
+        };
+        smoothedTpsRef.current = smoothed;
+        setNetworkStats({
+          ...networkData,
+          tps: smoothed.tps,
+          tpsShort: smoothed.short,
+          tpsLong: smoothed.long,
+        });
       }
 
       if (gasPriceRes.ok && gasStatsRes.ok) {
@@ -255,6 +284,16 @@ function App() {
 
       if (finalityRes.ok) {
         const finalityData = await finalityRes.json();
+        const rawMs = finalityData.avgConfirmationMs;
+        const prev = smoothedConfirmationRef.current;
+        if (rawMs != null && rawMs > 0) {
+          const smoothed =
+            prev == null ? rawMs : Math.round(prev + 0.3 * (rawMs - prev));
+          smoothedConfirmationRef.current = smoothed;
+          finalityData.avgConfirmationMs = smoothed;
+        } else if (prev != null) {
+          finalityData.avgConfirmationMs = prev;
+        }
         setFinalityStats(finalityData);
       }
 
@@ -291,8 +330,11 @@ function App() {
     }
   }, []);
 
-  const { status: wsStatus, lastEvent } = useWebSocketContext();
-  const lastEventRef = useRef(lastEvent);
+  const { status: wsStatus, lastBatch } = useWebSocketContext();
+  const lastBatchIdRef = useRef(0);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pageRef = useRef(page);
+  pageRef.current = page;
 
   useEffect(() => {
     fetchSummary();
@@ -300,11 +342,23 @@ function App() {
   }, [page, fetchSummary, fetchPage]);
 
   useEffect(() => {
-    if (!lastEvent || lastEvent === lastEventRef.current) return;
-    lastEventRef.current = lastEvent;
-    fetchSummary();
-    fetchPage(page);
-  }, [lastEvent, page, fetchSummary, fetchPage]);
+    if (!lastBatch || lastBatch.id === lastBatchIdRef.current) return;
+    lastBatchIdRef.current = lastBatch.id;
+    if (refreshTimerRef.current) return;
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      fetchSummary();
+      fetchPage(pageRef.current);
+    }, 250);
+  }, [lastBatch, fetchSummary, fetchPage]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (wsStatus === "connected") return;
@@ -345,6 +399,9 @@ function App() {
       />
 
       <div className="header-actions">
+        <button className="about-link" onClick={() => setAboutOpen(true)}>
+          about
+        </button>
         <a target="_blank" className="whitepaper-link" href="/rinku.pdf">
           whitepaper
         </a>
@@ -361,60 +418,113 @@ function App() {
 
       <WalletModal isOpen={walletOpen} onClose={() => setWalletOpen(false)} />
 
+      {aboutOpen && (
+        <div className="about-overlay" onClick={() => setAboutOpen(false)}>
+          <div className="about-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="about-close" onClick={() => setAboutOpen(false)}>
+              ×
+            </button>
+            <h3>about rinku</h3>
+            <p>
+              rinku is an experimental project and a work in progress. even when
+              it eventually launches to mainnet, it'll likely not be listed on
+              exchanges. simply an open source project to either contribute to,
+              or fork &amp; make into something better.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="stats-ticker">
         <div className="ticker-row">
-          <span className="ticker-cell" title={networkStats ? `10s: ${formatTps(networkStats.tpsShort)} · 60s: ${formatTps(networkStats.tpsLong)}` : ""}>
-            <span className="tv">{formatNumber(networkStats?.totalTransactionsProcessed || 0)}</span>
+          <span
+            className="ticker-cell"
+            title={
+              networkStats
+                ? `15s: ${formatTps(networkStats.tpsShort)} · 60s: ${formatTps(networkStats.tpsLong)}`
+                : ""
+            }
+          >
+            <span className="tv">
+              {formatNumber(networkStats?.totalTransactionsProcessed || 0)}
+            </span>
             <span className="tl">tx</span>
             <span className="sep" />
-            <span className="tv accent">{formatTps(networkStats?.tps || 0)}</span>
+            <span className="tv accent">
+              {formatTps(networkStats?.tps || 0)}
+            </span>
             <span className="tl">tps</span>
           </span>
           <span className="ticker-cell">
-            <span className="tv">{((networkStats?.finalityRatio || 0) * 100).toFixed(0)}%</span>
+            {/* <span className="tv">
+              {((networkStats?.finalityRatio || 0) * 100).toFixed(0)}%
+            </span>
             <span className="tl">final</span>
-            <span className="sep" />
-            <span className="tv">{formatNumber(networkStats?.latestCheckpointHeight || 0)}</span>
-            <span className="tl">cp</span>
+            <span className="sep" /> */}
+            <span className="tv">
+              {formatNumber(networkStats?.latestCheckpointHeight || 0)}
+            </span>
+            <span className="tl">height</span>
           </span>
           <span className="ticker-cell">
-            <span className="tv">{formatNumber(networkStats?.totalStaked || 0)}</span>
+            <span className="tv">
+              {formatNumber(networkStats?.totalStaked || 0)}
+            </span>
             <span className="tl">staked</span>
             <span className="sep" />
             <span className="tv">{networkStats?.validatorCount || 0}</span>
             <span className="tl">validators</span>
           </span>
           <span className="ticker-cell">
-            <span className="tv dim">{gasStats?.current?.toFixed(4) || "0.0100"}</span>
+            <span className="tv warm">
+              {gasStats?.current?.toFixed(4) || "0.0100"}
+            </span>
             <span className="tl">gas</span>
             <span className="sep" />
-            <span className="tv dim">{formatNumber(gasStats?.totalBurned || 0, 2)}</span>
+            <span className="tv warm">
+              {formatNumber(gasStats?.totalBurned || 0, 2)}
+            </span>
             <span className="tl">burned</span>
           </span>
         </div>
-        {finalityStats && (finalityStats.avgTimeToFinality > 0 || finalityStats.pendingCount > 0 || finalityStats.avgConfirmationMs != null) && (
-          <div className="ticker-row secondary">
-            <span className="ticker-cell">
-              <span className="tv cyan">{finalityStats.avgConfirmationMs != null ? `${finalityStats.avgConfirmationMs}ms` : "-"}</span>
-              <span className="tl">fast-path</span>
-            </span>
-            <span className="ticker-cell">
-              <span className="tv cyan">{(finalityStats.avgTimeToFinality / 1000).toFixed(1)}s</span>
-              <span className="tl">checkpoint</span>
-            </span>
-            <span className="ticker-cell">
-              <span className="tv cyan">{finalityStats.pendingCount}</span>
-              <span className="tl">pending</span>
-            </span>
-            <span className="ticker-cell">
-              <span className="tv cyan">{finalityStats.checkpointsPerMinute.toFixed(1)}/min</span>
-              <span className="tl">cp rate</span>
-              <span className="sep" />
-              <span className="tv cyan">{(finalityStats.lastCheckpointAge / 1000).toFixed(0)}s</span>
-              <span className="tl">ago</span>
-            </span>
-          </div>
-        )}
+        {finalityStats &&
+          (finalityStats.avgTimeToFinality > 0 ||
+            finalityStats.pendingCount > 0 ||
+            finalityStats.avgConfirmationMs != null) && (
+            <div className="ticker-row secondary">
+              <span className="ticker-cell">
+                <span className="tv cyan">
+                  {finalityStats.avgConfirmationMs != null
+                    ? `${finalityStats.avgConfirmationMs}ms`
+                    : "-"}
+                </span>
+                <span className="tl">convergence</span>
+              </span>
+              <span className="ticker-cell">
+                <span className="tv cyan">
+                  {finalityStats.checkpointsPerMinute > 0
+                    ? `${(60 / finalityStats.checkpointsPerMinute).toFixed(1)}s`
+                    : "-"}
+                </span>
+                <span className="tl">snapshot</span>
+              </span>
+              <span className="ticker-cell">
+                <span className="tv cyan">{finalityStats.pendingCount}</span>
+                <span className="tl">pending</span>
+              </span>
+              <span className="ticker-cell">
+                <span className="tv cyan">
+                  {finalityStats.checkpointsPerMinute.toFixed(1)}/min
+                </span>
+                <span className="tl">cp rate</span>
+                <span className="sep" />
+                <span className="tv cyan">
+                  {(finalityStats.lastCheckpointAge / 1000).toFixed(0)}s
+                </span>
+                <span className="tl">ago</span>
+              </span>
+            </div>
+          )}
       </div>
 
       <SearchBar onResult={setSearchResult} />
@@ -583,6 +693,11 @@ function App() {
       {tab === "rooms" && (
         <ChatRoomsTab onWalletOpen={() => setWalletOpen(true)} />
       )}
+      {/* <div className="">
+        <span style={{ fontSize: 10 }}>
+          rinku is an experimental work-in-progress 🫡
+        </span>
+      </div> */}
     </div>
   );
 }

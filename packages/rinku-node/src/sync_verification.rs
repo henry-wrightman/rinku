@@ -590,6 +590,12 @@ mod tests {
             previous_hash: None,
             signature: None,
             genesis_hash: None,
+            finalized_tx_hashes: Vec::new(),
+            state_root: None,
+            receipt_root: None,
+            tip_count: None,
+            validator_signatures: Vec::new(),
+            signer_bitmap: None,
         };
         let mut tx_checkpoint_heights = std::collections::HashMap::new();
         for tx in &transactions {
@@ -602,6 +608,7 @@ mod tests {
             to_checkpoint: 2,
             tx_checkpoint_heights,
             validators: Vec::new(),
+            precomputed_proofs: Vec::new(),
         };
         let result = verify_delta(&delta);
         assert_eq!(result, VerificationResult::Valid);

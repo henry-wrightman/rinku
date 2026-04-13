@@ -9,15 +9,15 @@ use rinku_core::types::{SignedTransaction, Transaction, TransactionKind};
 
 /// With Sparse DAG Sampling (MAX_SAMPLED_TIPS=16), tips grow more slowly.
 /// These thresholds are still generous to handle burst scenarios.
-const UPPER_THRESHOLD: usize = 100;
+const UPPER_THRESHOLD: usize = 500;
 const LOWER_THRESHOLD: usize = 50;
 /// Consolidate same number as MAX_SAMPLED_TIPS for efficient merging
-const TIPS_PER_CONSOLIDATION: usize = 16;
+const TIPS_PER_CONSOLIDATION: usize = 32;
 
 /// Dynamic consolidation intervals based on TPS
-const INTERVAL_HIGH_TPS_MS: u64 = 150; // >500 TPS: aggressive
+const INTERVAL_HIGH_TPS_MS: u64 = 200; // >500 TPS: aggressive
 const INTERVAL_MEDIUM_TPS_MS: u64 = 500; // 50-500 TPS: balanced
-const INTERVAL_LOW_TPS_MS: u64 = 1500; // 10-50 TPS: relaxed
+const INTERVAL_LOW_TPS_MS: u64 = 800; // 10-50 TPS: relaxed
 const INTERVAL_IDLE_MS: u64 = 10000; // <10 TPS: minimal overhead
 
 /// TPS thresholds for interval selection
@@ -25,11 +25,12 @@ const TPS_HIGH: f64 = 500.0;
 const TPS_MEDIUM: f64 = 50.0;
 const TPS_LOW: f64 = 10.0;
 
-/// Minimum tips to trigger anchor creation
-/// Set to 3 to avoid premature consolidation on low-activity chains. A value of 2
-/// caused unnecessary consolidation when only 1 user transaction existed alongside
-/// the genesis tx, creating redundant self-transfers.
-const MIN_TIPS_FOR_ANCHOR: usize = 3;
+/// Minimum tips to trigger anchor creation.
+/// Set to 1 so the consolidator always injects anchors even after DAG pruning
+/// reduces tip count. Previously set to 3, which caused leaders to have 0
+/// eligible transactions when tips dropped below the threshold post-pruning,
+/// stalling the chain for 20+ seconds until takeover rotation.
+const MIN_TIPS_FOR_ANCHOR: usize = 1;
 
 pub struct TipConsolidator {
     state: NodeState,
@@ -134,6 +135,11 @@ impl TipConsolidator {
             return;
         }
 
+        let tps = self.state.get_finalized_tps().await;
+        if tps < 1.0 && tip_count <= TIPS_PER_CONSOLIDATION {
+            return;
+        }
+
         // In aggressive mode (high tips), always consolidate
         // In normal mode, respect dynamic interval timing
         if !self.is_consolidating {
@@ -164,9 +170,12 @@ impl TipConsolidator {
             .unwrap()
             .as_millis() as u64;
 
-        // Use timestamp as nonce for anchor transactions (system tx bypass nonce validation)
-        // This ensures unique hashes for each anchor without consuming validator's account nonce
-        let nonce = now;
+        // Use 0 as nonce for anchor transactions (system tx bypass nonce validation)
+        // Timestamp in the tx.timestamp field already ensures unique hashes.
+        // Previously used timestamp as nonce, but if a consolidation tx ever got executed
+        // (e.g., kind field lost during serialization), it would corrupt account.nonce
+        // to a timestamp value (~1.77 trillion) instead of a sequential integer.
+        let nonce = 0;
 
         // Create anchor transaction: zero-value self-transfer with Consolidation kind
         let inner_tx = Transaction {

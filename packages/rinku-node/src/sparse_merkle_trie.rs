@@ -31,7 +31,7 @@ fn key_to_path(key: &[u8; 32]) -> Vec<bool> {
     path
 }
 
-fn compute_default_hashes() -> Vec<[u8; 32]> {
+pub fn compute_default_hashes() -> Vec<[u8; 32]> {
     let mut defaults = vec![EMPTY_HASH; TREE_DEPTH + 1];
     for i in (0..TREE_DEPTH).rev() {
         defaults[i] = hash_pair(&defaults[i + 1], &defaults[i + 1]);
@@ -188,6 +188,7 @@ impl SparseMultiProof {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct SparseMerkleTrie {
     root_hash: [u8; 32],
     cache: HashMap<[u8; 32], TrieNode>,
@@ -268,6 +269,26 @@ impl SparseMerkleTrie {
 
         self.root_hash = new_root;
         Ok(new_root)
+    }
+
+    pub fn batch_set(&mut self, entries: &[([u8; 32], Vec<u8>)], storage: Option<&RedbStorage>) -> Result<[u8; 32]> {
+        for (key, value) in entries {
+            self.set(key, value.clone(), storage)?;
+        }
+        Ok(self.root_hash)
+    }
+
+    pub fn fork(&self) -> Self {
+        let mut forked_cache = self.cache.clone();
+        for (hash, node) in &self.dirty_nodes {
+            forked_cache.insert(*hash, node.clone());
+        }
+        Self {
+            root_hash: self.root_hash,
+            cache: forked_cache,
+            dirty_nodes: HashMap::new(),
+            default_hashes: self.default_hashes.clone(),
+        }
     }
 
     fn set_recursive(
@@ -526,6 +547,14 @@ impl SparseMerkleTrie {
 
         debug!("Flushed {} trie nodes to storage", count);
         Ok(count)
+    }
+
+    pub fn take_dirty_nodes(&mut self) -> HashMap<[u8; 32], TrieNode> {
+        std::mem::take(&mut self.dirty_nodes)
+    }
+
+    pub fn insert_cache(&mut self, hash: [u8; 32], node: TrieNode) {
+        self.cache.insert(hash, node);
     }
 
     pub fn dirty_node_count(&self) -> usize {

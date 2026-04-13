@@ -30,6 +30,8 @@ pub enum NodeEvent {
         height: u64,
         txs_finalized: usize,
         reward: f64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        validator_rewards: Vec<(String, f64)>,
     },
     AccountUpdated {
         address: String,

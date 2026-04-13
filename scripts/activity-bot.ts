@@ -6,18 +6,50 @@ import {
   arrayToHex as coreArrayToHex,
 } from "@rinku/core";
 
-const NODE_URL = process.env.RINKU_NODE_URL || "http://localhost:3001";
-const FAUCET_URL = process.env.RINKU_FAUCET_URL || "http://localhost:3001";
-const RELAYER_NODE_URL = process.env.RINKU_RELAYER_URL || NODE_URL;
+const NODE_URLS = (
+  process.env.RINKU_NODE_URLS ||
+  process.env.RINKU_NODE_URL ||
+  "http://localhost:3001"
+)
+  .split(",")
+  .map((url) => url.trim())
+  .filter(Boolean);
+const PRIMARY_NODE_URL = NODE_URLS[0] || "http://localhost:3001";
+const FAUCET_URL = process.env.RINKU_FAUCET_URL || PRIMARY_NODE_URL;
+const RELAYER_NODE_URL = process.env.RINKU_RELAYER_URL || PRIMARY_NODE_URL;
+
+let nodeUrlIndex = 0;
+function assignNodeUrl(): string {
+  if (NODE_URLS.length === 0) {
+    return "http://localhost:3001";
+  }
+  const url = NODE_URLS[nodeUrlIndex % NODE_URLS.length];
+  nodeUrlIndex = (nodeUrlIndex + 1) % NODE_URLS.length;
+  return url;
+}
+
+function getNodeUrl(): string {
+  return NODE_URLS.length > 0
+    ? NODE_URLS[Math.floor(Math.random() * NODE_URLS.length)]
+    : "http://localhost:3001";
+}
+
+function nodeUrl(path: string): string {
+  return `${getNodeUrl()}${path}`;
+}
+
+function walletUrl(bw: BotWallet, path: string): string {
+  return `${bw.stickyNodeUrl}${path}`;
+}
 
 const FAUCET_INTERVAL_MS = parseInt(process.env.FAUCET_INTERVAL || "60000");
 const TX_INTERVAL_MS = parseInt(process.env.TX_INTERVAL || "500");
-const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "15");
+const MAX_WALLETS = parseInt(process.env.MAX_WALLETS || "100");
 const FAUCET_COOLDOWN_MS = 61000;
 const FETCH_TIMEOUT_MS = 15000;
-const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "3");
-const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "4");
-const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.25");
+const CONCURRENT_TX_COUNT = parseInt(process.env.CONCURRENT_TX || "50"); // 100 & 5 respectively topped out at ~12tps at 100 tips bp
+const BATCH_TX_COUNT = parseInt(process.env.BATCH_TX_COUNT || "20"); // 50 & 10 respectively topped out at ~27-30tps
+const BATCH_TX_CHANCE = parseFloat(process.env.BATCH_TX_CHANCE || "0.8");
 const NONCE_WAIT_TIMEOUT_MS = parseInt(
   process.env.NONCE_WAIT_TIMEOUT_MS || "6000",
 );
@@ -41,7 +73,7 @@ const BALANCE_CACHE_MS = parseInt(process.env.BALANCE_CACHE_MS || "30000");
 
 // Gas-aware throttling - pause when gas gets too high
 const GAS_THROTTLE_THRESHOLD = parseFloat(
-  process.env.GAS_THROTTLE_THRESHOLD || "1000",
+  process.env.GAS_THROTTLE_THRESHOLD || "10000",
 ); // Pause when gas > 1000 RKU (uncapped for testnet testing)
 const GAS_RESUME_THRESHOLD = parseFloat(
   process.env.GAS_RESUME_THRESHOLD || "1",
@@ -54,6 +86,29 @@ const globalLockedSenders = new Set<string>();
 // Local nonce tracking - tracks expected next nonce per sender to avoid API races
 const localNonces = new Map<string, number>();
 const lastNonceSync = new Map<string, number>(); // Kept for invalidateAndResyncNonce
+const nonceLocks = new Map<string, Promise<void>>();
+
+async function withNonceLock<T>(
+  fingerprint: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = nonceLocks.get(fingerprint) ?? Promise.resolve();
+  let releaseLock!: () => void;
+  const next = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  const chain = previous.then(() => next);
+  nonceLocks.set(fingerprint, chain);
+  try {
+    await previous;
+    return await fn();
+  } finally {
+    releaseLock();
+    if (nonceLocks.get(fingerprint) === chain) {
+      nonceLocks.delete(fingerprint);
+    }
+  }
+}
 
 // Lock a sender for the duration of a transaction
 function lockSender(fingerprint: string): boolean {
@@ -72,27 +127,46 @@ function getNextNonce(fingerprint: string): number | undefined {
   return localNonces.get(fingerprint);
 }
 
-// Increment local nonce after successful tx submission
-function incrementLocalNonce(fingerprint: string): void {
-  const current = localNonces.get(fingerprint) ?? 0;
-  localNonces.set(fingerprint, current + 1);
+async function queryHighestNonceFromAllNodes(
+  fingerprint: string,
+): Promise<number> {
+  const urls = NODE_URLS.length > 0 ? NODE_URLS : [PRIMARY_NODE_URL];
+  const MULTI_NODE_TIMEOUT = 3000;
+  const results = await Promise.allSettled(
+    urls.map(async (url) => {
+      const res = await fetchWithTimeout(
+        `${url}/api/account/${fingerprint}`,
+        {},
+        MULTI_NODE_TIMEOUT,
+      );
+      if (res.ok) {
+        const data = (await res.json()) as { nonce?: number };
+        return data.nonce ?? 0;
+      }
+      return 0;
+    }),
+  );
+  let maxNonce = 0;
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value > maxNonce) {
+      maxNonce = r.value;
+    }
+  }
+  return maxNonce;
 }
 
-// Force re-sync nonce from chain (after errors)
-// FINALITY-FIRST: With finality-first execution, we prefer to sync from chain
-// only after checkpoint finalization has happened (chain nonce updated)
 async function invalidateAndResyncNonce(
   wallet: Wallet,
   fingerprint: string,
 ): Promise<void> {
   lastNonceSync.delete(fingerprint);
-  // Don't delete local nonce - keep it as fallback
   try {
-    const state = await wallet.refresh();
-    const chainNonce = state.nonce ?? 0;
     const localNonce = localNonces.get(fingerprint) ?? 0;
-    // Use max of chain and local - chain may have caught up after finalization
-    const newNonce = Math.max(chainNonce, localNonce);
+    const [multiNodeNonce] = await Promise.all([
+      queryHighestNonceFromAllNodes(fingerprint),
+      ensureWalletState(wallet),
+    ]);
+    const newNonce = Math.max(multiNodeNonce, localNonce);
     localNonces.set(fingerprint, newNonce);
     lastNonceSync.set(fingerprint, Date.now());
   } catch {
@@ -119,42 +193,61 @@ function updateNonceFromError(fingerprint: string, errorMsg: string): boolean {
   return false;
 }
 
-// Initialize nonce tracking for a sender (call once after wallet created or on first use)
-// Always ensures localNonces is set after this call
-// FINALITY-FIRST: With finality-first execution, chain nonce only updates after checkpoint
-// finalization (~15s), so we trust local tracking and only sync from chain occasionally
 async function initializeNonceTracking(
   wallet: Wallet,
   fingerprint: string,
 ): Promise<number> {
-  // If we already have a local nonce, trust it (finality-first means chain lags behind)
   const existingLocal = localNonces.get(fingerprint);
   if (existingLocal !== undefined) {
     return existingLocal;
   }
 
-  // For new wallets, check if we should sync from chain
-  // Only sync occasionally to catch up after long pauses or restarts
   const lastSync = lastNonceSync.get(fingerprint) ?? 0;
-  const shouldSyncFromChain = Date.now() - lastSync > 60000; // Only sync every 60s
+  const shouldSyncFromChain = Date.now() - lastSync > 60000;
 
   if (shouldSyncFromChain) {
     try {
-      const state = await wallet.refresh();
-      const chainNonce = state.nonce ?? 0;
-      localNonces.set(fingerprint, chainNonce);
+      const [multiNodeNonce] = await Promise.all([
+        queryHighestNonceFromAllNodes(fingerprint),
+        ensureWalletState(wallet),
+      ]);
+      localNonces.set(fingerprint, multiNodeNonce);
       lastNonceSync.set(fingerprint, Date.now());
-      return chainNonce;
+      return multiNodeNonce;
     } catch {
-      // If refresh fails, start from 0
       localNonces.set(fingerprint, 0);
       return 0;
     }
   }
 
-  // Default: start from 0 for brand new wallets
   localNonces.set(fingerprint, 0);
   return 0;
+}
+
+async function reserveNonce(
+  wallet: Wallet,
+  fingerprint: string,
+): Promise<number> {
+  return withNonceLock(fingerprint, async () => {
+    const current = await initializeNonceTracking(wallet, fingerprint);
+    const reserved = current;
+    localNonces.set(fingerprint, current + 1);
+    lastNonceSync.set(fingerprint, Date.now());
+    return reserved;
+  });
+}
+
+function rollbackNonce(fingerprint: string, nonce: number): void {
+  const current = localNonces.get(fingerprint);
+  if (current !== undefined && current === nonce + 1) {
+    localNonces.set(fingerprint, nonce);
+  }
+}
+
+async function ensureWalletState(wallet: Wallet): Promise<void> {
+  try {
+    await wallet.refresh();
+  } catch {}
 }
 
 // Cached tips with auto-refresh
@@ -168,7 +261,7 @@ async function getFreshTips(): Promise<string[]> {
     return cachedTipUrls;
   }
   try {
-    const res = await fetchWithTimeout(`${NODE_URL}/api/tipUrls`, {}, 3000);
+    const res = await fetchWithTimeout(nodeUrl("/api/tipUrls"), {}, 3000);
     if (res.ok) {
       const data = (await res.json()) as { tipUrls: string[] };
       cachedTipUrls = data.tipUrls || [];
@@ -182,7 +275,7 @@ async function getFreshTips(): Promise<string[]> {
 
 async function getTipParents(limit: number = 2): Promise<string[]> {
   try {
-    const res = await fetchWithTimeout(`${NODE_URL}/api/tips`, {}, 3000);
+    const res = await fetchWithTimeout(nodeUrl("/api/tips"), {}, 3000);
     if (res.ok) {
       const data = (await res.json()) as { tips: string[] };
       const tips = data.tips || [];
@@ -202,6 +295,7 @@ interface BotWallet {
   hasContract: boolean;
   cachedBalance: number;
   lastBalanceFetch: number;
+  stickyNodeUrl: string;
 }
 
 interface DeployedContract {
@@ -280,7 +374,7 @@ async function fetchGasPrice(): Promise<number> {
     return currentGasPrice;
   }
   try {
-    const res = await fetchWithTimeout(`${NODE_URL}/api/gas/price`, {}, 3000);
+    const res = await fetchWithTimeout(nodeUrl("/api/gas/price"), {}, 3000);
     if (res.ok) {
       const data = (await res.json()) as { current: number };
       if (typeof data.current === "number") {
@@ -359,16 +453,16 @@ async function createNewWallet(): Promise<void> {
 
   pendingOperations++;
   try {
-    const wallet = new Wallet(NODE_URL);
+    const walletNodeUrl = assignNodeUrl();
+    const wallet = new Wallet(walletNodeUrl);
     const fingerprint = await wallet.create();
 
     const success = await faucetRequest(fingerprint);
 
     if (success) {
-      // FINALITY-FIRST: Initialize local nonce to 0 for new wallets
-      // Don't fetch from chain - faucet tx may not be finalized yet
       localNonces.set(fingerprint, 0);
       lastNonceSync.set(fingerprint, Date.now());
+      await ensureWalletState(wallet);
 
       wallets.push({
         wallet,
@@ -378,6 +472,7 @@ async function createNewWallet(): Promise<void> {
         hasContract: false,
         cachedBalance: 100,
         lastBalanceFetch: Date.now(),
+        stickyNodeUrl: walletNodeUrl,
       });
       totalFaucetHits++;
       log(
@@ -482,17 +577,13 @@ async function doSingleTransaction(
   amount: number,
   fee: number,
 ): Promise<boolean> {
+  let usedNonce: number | undefined;
   try {
-    // Initialize nonce tracking and get current nonce
-    const nonce = await initializeNonceTracking(
-      sender.wallet,
-      sender.fingerprint,
-    );
+    const nonce = await reserveNonce(sender.wallet, sender.fingerprint);
+    usedNonce = nonce;
 
-    // Get fresh tips
     const tipUrls = await getTipParents();
 
-    // Create transaction with explicit nonce (skip refresh to avoid race)
     const signedTx = await sender.wallet.createSignedTransactionWithOptions({
       to: recipient.fingerprint,
       amount,
@@ -502,17 +593,14 @@ async function doSingleTransaction(
       skipRefresh: true,
     });
 
-    // Submit transaction
     const publicKey = await sender.wallet.getPublicKey();
-    const res = await fetchWithTimeout(`${NODE_URL}/api/tx`, {
+    const res = await fetchWithTimeout(walletUrl(sender, "/api/tx"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tx: signedTx, publicKey: Array.from(publicKey) }),
     });
 
     if (res.ok) {
-      // Increment local nonce on success
-      incrementLocalNonce(sender.fingerprint);
       totalTransactions++;
       return true;
     } else {
@@ -522,11 +610,7 @@ async function doSingleTransaction(
       const errMsg = errData.error || "";
 
       if (errMsg.toLowerCase().includes("nonce")) {
-        // FINALITY-FIRST: Parse expected nonce from error and update local tracking
-        // This is faster than re-syncing from chain which may still be behind
         if (updateNonceFromError(sender.fingerprint, errMsg)) {
-          // Successfully parsed and updated nonce - don't log as error
-          // This is normal during finality-first operation
         } else {
           log(
             `Nonce error for ${sender.fingerprint.slice(0, 12)}: ${errMsg.slice(0, 60)}`,
@@ -535,7 +619,7 @@ async function doSingleTransaction(
         }
       } else {
         log(`Transaction failed: ${errMsg.slice(0, 60)}`);
-        await invalidateAndResyncNonce(sender.wallet, sender.fingerprint);
+        rollbackNonce(sender.fingerprint, nonce);
       }
       errors++;
       return false;
@@ -543,7 +627,9 @@ async function doSingleTransaction(
   } catch (err: any) {
     const errMsg = err?.message || "";
     log(`Transaction error: ${errMsg.slice(0, 60)}`);
-    await invalidateAndResyncNonce(sender.wallet, sender.fingerprint);
+    if (usedNonce !== undefined) {
+      rollbackNonce(sender.fingerprint, usedNonce);
+    }
     errors++;
     return false;
   }
@@ -594,7 +680,12 @@ async function doConcurrentTransactions(): Promise<void> {
               skippedDueToBalance++;
               return false;
             }
-            const result = await doSingleTransaction(sender, recipient, amount, gasPrice);
+            const result = await doSingleTransaction(
+              sender,
+              recipient,
+              amount,
+              gasPrice,
+            );
             if (result) invalidateBalanceCache(sender);
             return result;
           })
@@ -664,17 +755,17 @@ async function doBatchTransactions(): Promise<void> {
 
       try {
         // Initialize nonce tracking and get balance in one call
-        const nonce = await initializeNonceTracking(
-          sender.wallet,
-          sender.fingerprint,
-        );
-
         const balance = await getCachedBalance(sender);
         const needed = amount + gasPrice + 5;
         if (balance < needed) {
           skippedDueToBalance++;
           continue;
         }
+
+            const nonce = await reserveNonce(
+              sender.wallet,
+              sender.fingerprint,
+            );
 
         // Get fresh tips
         const tipUrls = await getTipParents();
@@ -701,8 +792,6 @@ async function doBatchTransactions(): Promise<void> {
             publicKey: Array.from(publicKey),
             usedNonce: nonce,
           });
-          // Pre-increment local nonce for next tx from same sender (if any in batch)
-          incrementLocalNonce(sender.fingerprint);
         }
       } catch {
         continue;
@@ -710,61 +799,77 @@ async function doBatchTransactions(): Promise<void> {
     }
 
     if (preparedTxs.length === 0) {
-      // Unlock all senders if no transactions were prepared
       for (const fp of lockedForThisBatch) {
         unlockSender(fp);
       }
       return;
     }
 
-    const res = await fetchWithTimeout(`${NODE_URL}/api/tx/batch`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        transactions: preparedTxs.map((p) => ({
-          tx: p.signedTx,
-          publicKey: p.publicKey,
-        })),
-      }),
-    });
+    const byNode = new Map<string, typeof preparedTxs>();
+    for (const ptx of preparedTxs) {
+      const url = ptx.sender.stickyNodeUrl;
+      if (!byNode.has(url)) byNode.set(url, []);
+      byNode.get(url)!.push(ptx);
+    }
 
-    if (res.ok) {
-      const result = (await res.json()) as {
-        total: number;
-        successful: number;
-        failed: number;
-        results?: Array<{ status?: string; error?: string }>;
-      };
-      totalBatchTransactions += result.successful;
-      totalTransactions += result.successful;
-      log(
-        `Batch TX: ${result.successful}/${result.total} succeeded via batch API`,
-      );
+    const batchPromises = Array.from(byNode.entries()).map(
+      async ([batchNodeUrl, txGroup]) => {
+        try {
+          const res = await fetchWithTimeout(`${batchNodeUrl}/api/tx/batch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              transactions: txGroup.map((p) => ({
+                tx: p.signedTx,
+                publicKey: p.publicKey,
+              })),
+            }),
+          });
 
-      // Note: nonces were pre-incremented during preparation
-      // If some failed, we need to re-sync ALL senders in batch to fix any nonce drift
-      if (result.failed > 0) {
-        log(
-          `Batch had ${result.failed} failures - re-syncing nonces for affected senders`,
-        );
-        for (const tx of preparedTxs) {
-          await invalidateAndResyncNonce(
-            tx.sender.wallet,
-            tx.sender.fingerprint,
-          );
+          if (res.ok) {
+            const result = (await res.json()) as {
+              total: number;
+              successful: number;
+              failed: number;
+            };
+            totalBatchTransactions += result.successful;
+            totalTransactions += result.successful;
+            if (result.failed > 0) {
+              for (const tx of txGroup) {
+                await invalidateAndResyncNonce(
+                  tx.sender.wallet,
+                  tx.sender.fingerprint,
+                );
+              }
+            }
+            return result;
+          } else {
+            for (const tx of txGroup) {
+              await invalidateAndResyncNonce(
+                tx.sender.wallet,
+                tx.sender.fingerprint,
+              );
+            }
+            errors++;
+            return null;
+          }
+        } catch {
+          errors++;
+          return null;
         }
-      }
-    } else {
-      const errData = (await res.json().catch(() => ({}))) as {
-        error?: string;
-      };
-      log(`Batch TX failed: ${JSON.stringify(errData).slice(0, 50)}`);
+      },
+    );
 
-      // Invalidate all nonces on batch failure (forces re-sync from chain)
-      for (const tx of preparedTxs) {
-        await invalidateAndResyncNonce(tx.sender.wallet, tx.sender.fingerprint);
-      }
-      errors++;
+    const results = await Promise.all(batchPromises);
+    const totalSuccessful = results.reduce(
+      (sum, r) => sum + (r?.successful ?? 0),
+      0,
+    );
+    const totalInBatch = results.reduce((sum, r) => sum + (r?.total ?? 0), 0);
+    if (totalInBatch > 0) {
+      log(
+        `Batch TX: ${totalSuccessful}/${totalInBatch} succeeded across ${byNode.size} node(s)`,
+      );
     }
   } catch (err: any) {
     errors++;
@@ -797,7 +902,7 @@ async function deployContract(): Promise<void> {
     }
 
     const previewRes = await fetchWithTimeout(
-      `${NODE_URL}/api/contracts/deploy`,
+      walletUrl(creator, "/api/contracts/deploy"),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -827,10 +932,7 @@ async function deployContract(): Promise<void> {
       initState: {},
     });
 
-    const nonce = await initializeNonceTracking(
-      creator.wallet,
-      creator.fingerprint,
-    );
+    const nonce = await reserveNonce(creator.wallet, creator.fingerprint);
     const parents = await getTipParents();
     const signedTx = await creator.wallet.createSignedTransactionWithOptions({
       to: contractId,
@@ -844,14 +946,13 @@ async function deployContract(): Promise<void> {
     });
 
     const publicKey = await creator.wallet.getPublicKey();
-    const res = await fetchWithTimeout(`${NODE_URL}/api/tx`, {
+    const res = await fetchWithTimeout(walletUrl(creator, "/api/tx"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tx: signedTx, publicKey: Array.from(publicKey) }),
     });
 
     if (res.ok) {
-      incrementLocalNonce(creator.fingerprint);
       deployedContracts.push({
         contractId,
         ownerFingerprint: creator.fingerprint,
@@ -912,7 +1013,7 @@ async function callContract(): Promise<void> {
     }
 
     const dryRunRes = await fetchWithTimeout(
-      `${NODE_URL}/api/contracts/${contract.contractId}/call`,
+      walletUrl(caller, `/api/contracts/${contract.contractId}/call`),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -964,10 +1065,7 @@ async function callContract(): Promise<void> {
       input,
     });
 
-    const nonce = await initializeNonceTracking(
-      caller.wallet,
-      caller.fingerprint,
-    );
+    const nonce = await reserveNonce(caller.wallet, caller.fingerprint);
     const parents = await getTipParents();
     const signedTx = await caller.wallet.createSignedTransactionWithOptions({
       to: contract.contractId,
@@ -981,14 +1079,13 @@ async function callContract(): Promise<void> {
     });
 
     const publicKey = await caller.wallet.getPublicKey();
-    const res = await fetchWithTimeout(`${NODE_URL}/api/tx`, {
+    const res = await fetchWithTimeout(walletUrl(caller, "/api/tx"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tx: signedTx, publicKey: Array.from(publicKey) }),
     });
 
     if (res.ok) {
-      incrementLocalNonce(caller.fingerprint);
       totalContractCalls++;
       log(
         `Contract call: ${entrypoint}() on ${contract.contractId.slice(0, 12)}...`,
@@ -1021,19 +1118,17 @@ async function doStaking(): Promise<void> {
   if (nonStakers.length === 0) return;
 
   pendingOperations++;
+  const staker = pickRandom(nonStakers);
+  let usedNonce: number | undefined;
   try {
-    const staker = pickRandom(nonStakers);
     const balance = await getCachedBalance(staker);
 
     if (balance < 200) return;
 
     const stakeAmount = Math.floor(balance * 0.3);
 
-    // Use nonce tracking for staking transactions
-    const nonce = await initializeNonceTracking(
-      staker.wallet,
-      staker.fingerprint,
-    );
+    const nonce = await reserveNonce(staker.wallet, staker.fingerprint);
+    usedNonce = nonce;
     const parents = await getTipParents();
     const signedTx = await staker.wallet.createSignedTransactionWithOptions({
       to: staker.fingerprint,
@@ -1045,23 +1140,36 @@ async function doStaking(): Promise<void> {
       skipRefresh: true,
     });
     const publicKey = await staker.wallet.getPublicKey();
-    const res = await fetchWithTimeout(`${NODE_URL}/api/tx`, {
+    const res = await fetchWithTimeout(walletUrl(staker, "/api/tx"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tx: signedTx, publicKey: Array.from(publicKey) }),
     });
 
     if (res.ok) {
-      incrementLocalNonce(staker.fingerprint);
       staker.isStaking = true;
       totalStakes++;
       log(
         `Staked: ${staker.fingerprint.slice(0, 16)}... staked ${stakeAmount} RKU`,
       );
     } else {
-      await invalidateAndResyncNonce(staker.wallet, staker.fingerprint);
+      const errData = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      const errMsg = errData.error || "";
+      if (errMsg.toLowerCase().includes("nonce")) {
+        if (!updateNonceFromError(staker.fingerprint, errMsg)) {
+          await invalidateAndResyncNonce(staker.wallet, staker.fingerprint);
+        }
+      } else {
+        rollbackNonce(staker.fingerprint, nonce);
+      }
+      errors++;
     }
   } catch (err: any) {
+    if (usedNonce !== undefined) {
+      rollbackNonce(staker.fingerprint, usedNonce);
+    }
     log(`Staking error: ${err.message}`);
     errors++;
   } finally {
@@ -1075,11 +1183,12 @@ async function claimRewards(): Promise<void> {
 
   pendingOperations++;
   const claimer = pickRandom(wallets);
+  let usedNonce: number | undefined;
   try {
     log(`Rewards check: ${claimer.fingerprint.slice(0, 16)}...`);
 
     const summaryRes = await fetchWithTimeout(
-      `${NODE_URL}/api/rewards/${claimer.fingerprint}`,
+      walletUrl(claimer, `/api/rewards/${claimer.fingerprint}`),
     );
     if (!summaryRes.ok) {
       log(`Rewards check failed: endpoint returned ${summaryRes.status}`);
@@ -1098,11 +1207,8 @@ async function claimRewards(): Promise<void> {
       `Rewards found: ${summary.pendingRewards.toFixed(4)} pending for ${claimer.fingerprint.slice(0, 16)}...`,
     );
 
-    // Use nonce tracking for reward claims
-    const nonce = await initializeNonceTracking(
-      claimer.wallet,
-      claimer.fingerprint,
-    );
+    const nonce = await reserveNonce(claimer.wallet, claimer.fingerprint);
+    usedNonce = nonce;
     const parents = await getTipParents();
     const signedTx = await claimer.wallet.createSignedTransactionWithOptions({
       to: claimer.fingerprint,
@@ -1114,14 +1220,13 @@ async function claimRewards(): Promise<void> {
       skipRefresh: true,
     });
     const publicKey = await claimer.wallet.getPublicKey();
-    const res = await fetchWithTimeout(`${NODE_URL}/api/tx`, {
+    const res = await fetchWithTimeout(walletUrl(claimer, "/api/tx"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tx: signedTx, publicKey: Array.from(publicKey) }),
     });
 
     if (res.ok) {
-      incrementLocalNonce(claimer.fingerprint);
       const result = (await res.json()) as { hash?: string };
       if (result.hash) {
         totalRewardsClaimed++;
@@ -1132,13 +1237,25 @@ async function claimRewards(): Promise<void> {
         log(`Rewards claim submitted but no hash returned`);
       }
     } else {
-      await invalidateAndResyncNonce(claimer.wallet, claimer.fingerprint);
+      const errData = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      const errMsg = errData.error || "";
+      if (errMsg.toLowerCase().includes("nonce")) {
+        if (!updateNonceFromError(claimer.fingerprint, errMsg)) {
+          await invalidateAndResyncNonce(claimer.wallet, claimer.fingerprint);
+        }
+      } else {
+        rollbackNonce(claimer.fingerprint, nonce);
+      }
       log(
         `Rewards claim failed: ${res.status} for ${claimer.fingerprint.slice(0, 16)}...`,
       );
     }
   } catch (err: any) {
-    await invalidateAndResyncNonce(claimer.wallet, claimer.fingerprint);
+    if (usedNonce !== undefined) {
+      rollbackNonce(claimer.fingerprint, usedNonce);
+    }
     log(`Rewards claim error: ${err.message}`);
   } finally {
     pendingOperations--;
@@ -1234,7 +1351,7 @@ let relayerDiscoveryFailures = 0;
 
 async function discoverRelayerNodeUrl(): Promise<string | null> {
   try {
-    const res = await fetchWithTimeout(`${NODE_URL}/api/relay/pool`, {}, 5000);
+    const res = await fetchWithTimeout(nodeUrl("/api/relay/pool"), {}, 5000);
     if (res.ok) {
       const data = (await res.json()) as {
         relayers?: Array<{
@@ -1306,10 +1423,7 @@ async function doRelayTransaction(): Promise<void> {
       if (recipients.length === 0) return;
       const recipient = pickRandom(recipients);
 
-      const nonce = await initializeNonceTracking(
-        sender.wallet,
-        sender.fingerprint,
-      );
+      const nonce = await reserveNonce(sender.wallet, sender.fingerprint);
 
       const expiryMs = Date.now() + 120000;
       const maxGasPrice = Math.max(currentGasPrice * 5, 10);
@@ -1350,7 +1464,6 @@ async function doRelayTransaction(): Promise<void> {
           relayer: string;
         };
         if (result.success) {
-          incrementLocalNonce(sender.fingerprint);
           totalRelaySuccesses++;
           totalTransactions++;
           log(
@@ -1379,6 +1492,7 @@ async function doRelayTransaction(): Promise<void> {
           }
         } else {
           log(`Relay TX failed: ${errMsg.slice(0, 80)}`);
+          rollbackNonce(sender.fingerprint, nonce);
         }
         errors++;
       }
@@ -1406,11 +1520,7 @@ async function fundRelayer(): Promise<boolean> {
   let address = relayerAddress;
   if (!address) {
     try {
-      const res = await fetchWithTimeout(
-        `${NODE_URL}/api/relay/pool`,
-        {},
-        3000,
-      );
+      const res = await fetchWithTimeout(nodeUrl("/api/relay/pool"), {}, 3000);
       if (res.ok) {
         const data = (await res.json()) as {
           relayers?: Array<{ address: string }>;
@@ -1425,7 +1535,7 @@ async function fundRelayer(): Promise<boolean> {
 
   if (!address) {
     try {
-      const res = await fetchWithTimeout(`${NODE_URL}/api/node/info`, {}, 3000);
+      const res = await fetchWithTimeout(nodeUrl("/api/node/info"), {}, 3000);
       if (res.ok) {
         const data = (await res.json()) as { validatorAddress?: string };
         if (data.validatorAddress) {
@@ -1464,7 +1574,7 @@ async function fundRelayer(): Promise<boolean> {
 
 async function checkRelayPool(): Promise<void> {
   try {
-    const res = await fetchWithTimeout(`${NODE_URL}/api/relay/pool`, {}, 3000);
+    const res = await fetchWithTimeout(nodeUrl("/api/relay/pool"), {}, 3000);
     if (res.ok) {
       const data = (await res.json()) as {
         relayers?: Array<{
@@ -1540,7 +1650,8 @@ function printStats(): void {
 
   getAverageWalletBalance().then((avg) => {
     const needed = currentGasPrice + 10;
-    const status = avg >= needed * 2 ? "OK" : avg >= needed ? "LOW" : "CRITICAL";
+    const status =
+      avg >= needed * 2 ? "OK" : avg >= needed ? "LOW" : "CRITICAL";
     console.log(
       `  Avg Balance: ${avg.toFixed(2)} (need ~${needed.toFixed(2)} per tx) [${status}]`,
     );
@@ -1552,7 +1663,7 @@ function printStats(): void {
 
 async function checkTipCount(): Promise<void> {
   try {
-    const res = await fetchWithTimeout(`${NODE_URL}/api/dag/summary`);
+    const res = await fetchWithTimeout(nodeUrl("/api/dag/summary"));
     if (res.ok) {
       const data = (await res.json()) as {
         tipCount: number;
@@ -1594,6 +1705,7 @@ async function doConsolidation(): Promise<void> {
 
       if (!lockSender(sender.fingerprint)) continue;
 
+      let usedNonce: number | undefined;
       try {
         const balance = await getCachedBalance(sender);
         const fee = gasPrice * 1.2;
@@ -1613,17 +1725,57 @@ async function doConsolidation(): Promise<void> {
           continue;
         }
 
-        await sender.wallet.sendWithCustomTips(
-          receiver.fingerprint,
-          0.001,
-          fee,
-          tipSlice,
+        const nonce = await reserveNonce(sender.wallet, sender.fingerprint);
+        usedNonce = nonce;
+        const signedTx =
+          await sender.wallet.createSignedTransactionWithOptions({
+            to: receiver.fingerprint,
+            amount: 0.001,
+            fee,
+            nonce,
+            tipUrls: tipSlice,
+            skipRefresh: true,
+          });
+
+        const publicKey = await sender.wallet.getPublicKey();
+        const res = await fetchWithTimeout(
+          walletUrl(sender, "/api/tx"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tx: signedTx,
+              publicKey: Array.from(publicKey),
+            }),
+          },
         );
 
-        totalConsolidations++;
-        totalTransactions++;
-        log(`Consolidation TX merged ${tipSlice.length} tips`);
+        if (res.ok) {
+          totalConsolidations++;
+          totalTransactions++;
+          log(`Consolidation TX merged ${tipSlice.length} tips`);
+        } else {
+          const errData = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          const errMsg = errData.error || "";
+          if (errMsg.toLowerCase().includes("nonce")) {
+            if (!updateNonceFromError(sender.fingerprint, errMsg)) {
+              await invalidateAndResyncNonce(
+                sender.wallet,
+                sender.fingerprint,
+              );
+            }
+          } else {
+            rollbackNonce(sender.fingerprint, nonce);
+          }
+          errors++;
+          log(`Consolidation tx failed: ${errMsg.slice(0, 60)}`);
+        }
       } catch (ex) {
+        if (usedNonce !== undefined) {
+          rollbackNonce(sender.fingerprint, usedNonce);
+        }
         errors++;
         log(`Consolidation error: ${ex}`);
       } finally {
@@ -1640,7 +1792,7 @@ async function main() {
   console.log("=".repeat(55));
   console.log("RINKU ACTIVITY BOT - LONG-RUNNING TESTNET SIMULATION");
   console.log("=".repeat(55));
-  console.log(`Node: ${NODE_URL}`);
+  console.log(`Node(s): ${NODE_URLS.join(", ") || PRIMARY_NODE_URL}`);
   console.log(`Faucet: ${FAUCET_URL}`);
   console.log(`Concurrent transactions: ${CONCURRENT_TX_COUNT}`);
   console.log(`TX interval: ${TX_INTERVAL_MS / 1000}s`);
@@ -1714,7 +1866,9 @@ async function main() {
     cleanupNonceMaps();
     if (checkMemoryPressure()) {
       const memMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-      log(`Memory pressure detected: ${memMB} MB > ${MEMORY_LIMIT_MB} MB limit`);
+      log(
+        `Memory pressure detected: ${memMB} MB > ${MEMORY_LIMIT_MB} MB limit`,
+      );
       while (wallets.length > 5) {
         const removed = wallets.pop()!;
         localNonces.delete(removed.fingerprint);
@@ -1729,7 +1883,9 @@ async function main() {
 
   log("Long-running bot started!");
   log("Features: Concurrent TX, Contracts, Staking, Rewards");
-  log(`Memory-safe mode: ${MAX_WALLETS} max wallets, ${MEMORY_LIMIT_MB} MB limit`);
+  log(
+    `Memory-safe mode: ${MAX_WALLETS} max wallets, ${MEMORY_LIMIT_MB} MB limit`,
+  );
   log("Press Ctrl+C to stop.");
 }
 

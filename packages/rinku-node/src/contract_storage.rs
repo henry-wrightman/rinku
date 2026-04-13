@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{debug, info};
 
 use crate::sparse_merkle_trie::{hash_contract_key, SparseMerkleTrie, MerkleProof, SparseMultiProof};
@@ -124,6 +125,30 @@ impl ContractStorageManager {
 
     pub fn flush(&mut self, storage: &RedbStorage) -> Result<usize> {
         self.trie.flush_to_storage(storage)
+    }
+
+    pub async fn flush_async(&mut self, storage: Arc<RedbStorage>) -> Result<usize> {
+        let dirty_nodes = self.trie.take_dirty_nodes();
+        let count = dirty_nodes.len();
+        if count == 0 {
+            return Ok(0);
+        }
+
+        let cache_copy = dirty_nodes.clone();
+        crate::storage::blocking_io(move || {
+            for (hash, node) in &dirty_nodes {
+                storage.put_trie(hash, node)?;
+            }
+            Ok(count)
+        })
+        .await?;
+
+        for (hash, node) in cache_copy {
+            self.trie.insert_cache(hash, node);
+        }
+
+        debug!("Async-flushed {} trie nodes to storage", count);
+        Ok(count)
     }
 
     /// Returns independent per-key proofs. For a combined multiproof that shares

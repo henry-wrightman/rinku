@@ -369,8 +369,6 @@ pub fn verify_account_state_proof(proof: &rinku_core::types::AccountStateProof) 
 }
 
 pub fn verify_account_state_proof_detailed(proof: &rinku_core::types::AccountStateProof) -> AccountProofVerificationDetail {
-    // Version 2+ uses u64 micro-units for deterministic cross-language verification
-    // Leaf format: "account:{address}:{balance_micro}:{nonce}:{staked_micro}"
     let leaf_data = format!(
         "account:{}:{}:{}:{}",
         proof.address,
@@ -378,13 +376,88 @@ pub fn verify_account_state_proof_detailed(proof: &rinku_core::types::AccountSta
         proof.nonce,
         proof.staked_micro
     );
-    let leaf_hash = sha256_hex_for_proof(&leaf_data);
+
+    if proof.version >= 4 {
+        verify_account_state_proof_smt(proof, &leaf_data)
+    } else {
+        verify_account_state_proof_flat(proof, &leaf_data)
+    }
+}
+
+fn verify_account_state_proof_smt(proof: &rinku_core::types::AccountStateProof, leaf_data: &str) -> AccountProofVerificationDetail {
+    use sha2::{Sha256, Digest};
+    let leaf_hash_bytes: [u8; 32] = {
+        let mut h = Sha256::new();
+        h.update(leaf_data.as_bytes());
+        h.finalize().into()
+    };
+    let leaf_hash = hex::encode(leaf_hash_bytes);
+
+    let key = crate::sparse_merkle_trie::hash_account_key(&proof.address);
+    let path = (0..256).map(|i| {
+        let byte_idx = i / 8;
+        let bit_idx = 7 - (i % 8);
+        (key[byte_idx] >> bit_idx) & 1 == 1
+    }).collect::<Vec<bool>>();
+
+    let default_hashes = crate::sparse_merkle_trie::compute_default_hashes();
+
+    let mut current_hash = leaf_hash_bytes;
+    for (i, &go_right) in path.iter().enumerate().rev() {
+        let sibling = if i < proof.merkle_proof.len() {
+            match hex::decode(&proof.merkle_proof[i]) {
+                Ok(bytes) if bytes.len() == 32 => {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&bytes);
+                    arr
+                }
+                _ => default_hashes[i + 1],
+            }
+        } else {
+            default_hashes[i + 1]
+        };
+
+        let mut h = Sha256::new();
+        if go_right {
+            h.update(sibling);
+            h.update(current_hash);
+        } else {
+            h.update(current_hash);
+            h.update(sibling);
+        }
+        current_hash = h.finalize().into();
+    }
+
+    let computed_root = hex::encode(current_hash);
+    let valid = computed_root == proof.state_root;
+
+    if !valid {
+        tracing::warn!(
+            "SMT account proof verification FAILED for {}: computed_root={} vs expected={}",
+            &proof.address[..16.min(proof.address.len())],
+            &computed_root[..16],
+            &proof.state_root[..16]
+        );
+    }
+
+    AccountProofVerificationDetail {
+        valid,
+        leaf_data: leaf_data.to_string(),
+        leaf_hash,
+        computed_root,
+        expected_root: proof.state_root.clone(),
+        proof_length: proof.merkle_proof.len(),
+        merkle_index: 0,
+    }
+}
+
+fn verify_account_state_proof_flat(proof: &rinku_core::types::AccountStateProof, leaf_data: &str) -> AccountProofVerificationDetail {
+    let leaf_hash = sha256_hex_for_proof(leaf_data);
     let mut current_hash = leaf_hash.clone();
 
     let mut idx = proof.merkle_index;
 
     for sibling_hex in &proof.merkle_proof {
-        // Internal node format: "node:{left_hash}:{right_hash}"
         let (left, right) = if idx % 2 == 0 {
             (current_hash.clone(), sibling_hex.clone())
         } else {
@@ -403,20 +476,11 @@ pub fn verify_account_state_proof_detailed(proof: &rinku_core::types::AccountSta
             &current_hash[..16],
             &proof.state_root[..16]
         );
-        tracing::debug!(
-            "Proof details: leaf_data='{}', balance_micro={}, nonce={}, staked_micro={}, index={}, proof_len={}",
-            leaf_data,
-            proof.balance_micro,
-            proof.nonce,
-            proof.staked_micro,
-            proof.merkle_index,
-            proof.merkle_proof.len()
-        );
     }
     
     AccountProofVerificationDetail {
         valid,
-        leaf_data,
+        leaf_data: leaf_data.to_string(),
         leaf_hash,
         computed_root: current_hash,
         expected_root: proof.state_root.clone(),

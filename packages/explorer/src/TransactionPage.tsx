@@ -405,7 +405,7 @@ function TransactionPage() {
         setTrustScore({ loading: false, error: "Failed to fetch trust score" });
       });
 
-    // Fetch fast-path finality status
+    // Fetch convergence finality status
     fetch(`${NODE_URL}/api/tx/fast/${tx.hash}`)
       .then((res) => res.json())
       .then((data: FastPathStatusData) => {
@@ -551,12 +551,14 @@ function TransactionPage() {
                   fontWeight: "bold",
                 }}
               >
-                {fpStatus.status}
+                {fpStatus.status === "confirmed" || fpStatus.status === "executed" || fpStatus.status === "finalized" ? "finalized" : fpStatus.status}
                 {fpStatus.finality_time_ms != null &&
                   ` (${fpStatus.finality_time_ms}ms)`}
                 {fpStatus.quorum_percent > 0 &&
+                  fpStatus.status !== "confirmed" &&
+                  fpStatus.status !== "executed" &&
                   fpStatus.status !== "finalized" &&
-                  ` · ${fpStatus.quorum_percent}% quorum`}
+                  ` · ${fpStatus.quorum_percent}% convergence`}
               </span>
             </div>
           )}

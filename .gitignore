@@ -29,9 +29,11 @@ packages/node/.rinku-data/
 
 # Unecessary
 .cache/
+.npm-cache/
 .upm/
 .config/
 rinku-node-bin
 .replit
 replit.md
 *wallet.json
+/logs/*

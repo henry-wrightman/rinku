@@ -182,7 +182,7 @@ impl PartitionDetector {
 
         let our_address = state.node_validator_address.clone();
         let validator_addrs: Vec<String> = state.validators.keys().cloned().collect();
-        tracing::info!(
+        tracing::debug!(
             "Partition visibility check: our_addr={:?}, peer_validator_addrs={:?}, known_validators={:?}",
             our_address, peer_validator_addresses, validator_addrs
         );

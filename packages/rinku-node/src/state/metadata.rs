@@ -154,7 +154,9 @@ impl NodeState {
         let mut state = self.inner.write().await;
         state.genesis_hash = Some(hash.clone());
         drop(state);
-        if let Err(e) = self.storage.save_genesis_hash(&hash) {
+        let storage = self.storage.clone();
+        let hash_clone = hash.clone();
+        if let Err(e) = crate::storage::blocking_io(move || storage.save_genesis_hash(&hash_clone)).await {
             warn!("Failed to persist genesis hash: {}", e);
         }
     }

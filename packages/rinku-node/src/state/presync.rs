@@ -113,7 +113,13 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
         .with_tcp(
             tcp::Config::default(),
             noise::Config::new,
-            yamux::Config::default,
+            || {
+                let mut cfg = yamux::Config::default();
+                cfg.set_max_num_streams(1024);
+                cfg.set_receive_window_size(16 * 1024 * 1024);
+                cfg.set_max_buffer_size(16 * 1024 * 1024);
+                cfg
+            },
         )
         .map(|builder| {
             builder.with_behaviour(|_| {
@@ -190,6 +196,7 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
                                     checkpoint_height: 0,
                                     validator_address: None,
                                     capabilities: vec!["sync".to_string()],
+                                    known_peer_addrs: Vec::new(),
                                 };
                                 swarm.behaviour_mut().send_request(&actual_peer, SyncRequest::Handshake(handshake));
                                 handshake_sent = true;
@@ -330,6 +337,8 @@ pub fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapsho
             partition_epoch: None,
             visible_stake_pct: None,
             merge_report_hash: None,
+            view_change_certificate: None,
+            view: 0,
         }
     }).collect();
     

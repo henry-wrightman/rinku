@@ -1,0 +1,47 @@
+name: Coverage
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  rust:
+    name: Rust coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-tarpaulin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+      - name: Run tarpaulin
+        run: cargo tarpaulin --workspace --out Lcov --output-dir coverage/rust --exclude rinku-contract-sdk
+      - name: Upload Rust coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/rust/lcov.info
+          flags: rust
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  node:
+    name: Node coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run core tests with coverage
+        run: npm run test:coverage -w @rinku/core
+      - name: Upload Node coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: packages/core/coverage/lcov.info
+          flags: node
+          token: ${{ secrets.CODECOV_TOKEN }}

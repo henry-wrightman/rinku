@@ -50,11 +50,14 @@ pub struct EmissionSnapshot {
     pub total_emitted: u64,
     #[serde(with = "micro_serde")]
     pub total_burned: u64,
+    #[serde(default)]
+    pub last_reward_height: u64,
 }
 
 pub struct EmissionService {
     total_emitted: u64,
     total_burned: u64,
+    last_reward_height: u64,
 }
 
 impl EmissionService {
@@ -62,6 +65,7 @@ impl EmissionService {
         Self {
             total_emitted: 0,
             total_burned: 0,
+            last_reward_height: 0,
         }
     }
 
@@ -69,6 +73,7 @@ impl EmissionService {
         Self {
             total_emitted,
             total_burned,
+            last_reward_height: 0,
         }
     }
 
@@ -91,6 +96,36 @@ impl EmissionService {
 
     pub fn record_emission(&mut self, amount: u64) {
         self.total_emitted += amount;
+    }
+
+    pub fn record_emission_for_height(&mut self, height: u64, amount: u64) -> bool {
+        if height <= self.last_reward_height {
+            return false;
+        }
+        self.total_emitted += amount;
+        self.last_reward_height = height;
+        true
+    }
+
+    pub fn set_last_reward_height(&mut self, height: u64) {
+        self.last_reward_height = self.last_reward_height.max(height);
+    }
+
+    pub fn rollback_to_height(&mut self, target_height: u64) {
+        if target_height >= self.last_reward_height {
+            return;
+        }
+        let mut reverted_emission = 0u64;
+        for h in (target_height + 1)..=self.last_reward_height {
+            reverted_emission += self.get_checkpoint_reward(h);
+        }
+        self.total_emitted = self.total_emitted.saturating_sub(reverted_emission);
+        let old_height = self.last_reward_height;
+        self.last_reward_height = target_height;
+        tracing::info!(
+            "Emission rollback: height {} -> {}, reverted {} micro-units of emission",
+            old_height, target_height, reverted_emission
+        );
     }
 
     pub fn record_burn(&mut self, amount: u64) {
@@ -150,6 +185,10 @@ impl EmissionService {
         }
     }
 
+    pub fn get_last_reward_height(&self) -> u64 {
+        self.last_reward_height
+    }
+
     pub fn get_total_emitted(&self) -> u64 {
         self.total_emitted
     }
@@ -162,11 +201,16 @@ impl EmissionService {
         EmissionSnapshot {
             total_emitted: self.total_emitted,
             total_burned: self.total_burned,
+            last_reward_height: self.last_reward_height,
         }
     }
 
     pub fn from_json(snapshot: EmissionSnapshot) -> Self {
-        Self::with_initial(snapshot.total_emitted, snapshot.total_burned)
+        Self {
+            total_emitted: snapshot.total_emitted,
+            total_burned: snapshot.total_burned,
+            last_reward_height: snapshot.last_reward_height,
+        }
     }
 
     pub fn merge_from(&mut self, snapshot: EmissionSnapshot) -> (u64, u64) {
@@ -175,6 +219,7 @@ impl EmissionService {
         
         self.total_emitted = self.total_emitted.max(snapshot.total_emitted);
         self.total_burned = self.total_burned.max(snapshot.total_burned);
+        self.last_reward_height = self.last_reward_height.max(snapshot.last_reward_height);
         
         let emitted_delta = self.total_emitted - old_emitted;
         let burned_delta = self.total_burned - old_burned;

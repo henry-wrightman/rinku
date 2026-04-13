@@ -88,15 +88,17 @@ impl TransactionKind {
         self.partition_safety() == PartitionSafety::Safe
     }
 
-    pub fn allowed_during_partition(&self, partition_budget_remaining: Option<u64>, tx_cost: u64) -> bool {
+    pub fn allowed_during_partition(
+        &self,
+        partition_budget_remaining: Option<u64>,
+        tx_cost: u64,
+    ) -> bool {
         match self.partition_safety() {
             PartitionSafety::Safe => true,
-            PartitionSafety::BoundedSpend => {
-                match partition_budget_remaining {
-                    Some(budget) => tx_cost <= budget,
-                    None => true,
-                }
-            }
+            PartitionSafety::BoundedSpend => match partition_budget_remaining {
+                Some(budget) => tx_cost <= budget,
+                None => true,
+            },
             PartitionSafety::CpOnly => false,
         }
     }
@@ -114,10 +116,22 @@ impl std::fmt::Display for PartitionSafety {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum TransactionLane {
+    FastPath,
+    Checkpoint,
+}
+
+impl Default for TransactionLane {
+    fn default() -> Self {
+        TransactionLane::FastPath
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FastPathStatus {
     Pending,
     Confirmed,
-    Executed,
     Finalized,
 }
 
@@ -151,12 +165,30 @@ pub struct FastPathFinality {
     pub registered_at_ms: u64,
     pub confirmed_at_ms: Option<u64>,
     pub checkpoint_height: Option<u64>,
+    #[serde(default)]
+    pub tx_created_at_ms: Option<u64>,
 }
 
 impl FastPathFinality {
     pub fn finality_time_ms(&self) -> Option<u64> {
-        self.confirmed_at_ms.map(|confirmed| confirmed.saturating_sub(self.registered_at_ms))
+        let start = self.tx_created_at_ms.unwrap_or(self.registered_at_ms);
+        self.confirmed_at_ms
+            .map(|confirmed| confirmed.saturating_sub(start))
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FastPathCertificate {
+    pub batch_id: String,
+    pub tx_hashes: Vec<String>,
+    pub tx_merkle_root: String,
+    pub aggregated_signature: String,
+    pub signer_bitmap: Vec<u8>,
+    #[serde(with = "micro_serde")]
+    pub total_stake: u64,
+    pub height: u64,
+    pub timestamp_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,21 +231,27 @@ pub struct SignedTransaction {
 }
 
 impl Transaction {
-    /// All transactions are now fast-path eligible for sub-500ms finality.
-    /// Balance/nonce validation is performed by validators before ACKing.
-    pub fn is_fast_path_eligible(&self) -> bool {
-        // All transaction types can use fast-path finality
-        // Validators will only ACK if the transaction is valid (correct balance, nonce, etc.)
-        true
+    pub fn classify_lane(&self) -> TransactionLane {
+        match self.kind {
+            Some(TransactionKind::Contract) => TransactionLane::Checkpoint,
+            _ => TransactionLane::FastPath,
+        }
     }
-    
+
+    pub fn is_fast_path_eligible(&self) -> bool {
+        self.classify_lane() == TransactionLane::FastPath
+    }
+
     pub fn is_data_only(&self) -> bool {
-        self.amount == 0 && 
-        (self.memo.is_some() || self.references.is_some()) &&
-        !matches!(self.kind, Some(TransactionKind::Stake) | 
-                            Some(TransactionKind::Unstake) | 
-                            Some(TransactionKind::ClaimRewards) |
-                            Some(TransactionKind::Contract))
+        self.amount == 0
+            && (self.memo.is_some() || self.references.is_some())
+            && !matches!(
+                self.kind,
+                Some(TransactionKind::Stake)
+                    | Some(TransactionKind::Unstake)
+                    | Some(TransactionKind::ClaimRewards)
+                    | Some(TransactionKind::Contract)
+            )
     }
 }
 
@@ -221,7 +259,7 @@ impl SignedTransaction {
     pub fn is_fast_path_eligible(&self) -> bool {
         self.tx.is_fast_path_eligible()
     }
-    
+
     pub fn is_data_only(&self) -> bool {
         self.tx.is_data_only()
     }
@@ -281,25 +319,33 @@ pub fn from_micro_units(micro: u64) -> f64 {
 
 /// Self-contained proof of account state at a specific checkpoint
 /// This proof can be verified offline without querying any node
-/// 
+///
 /// ## Canonical Leaf Encoding (version 2+)
 /// Account leaves are hashed using the format:
 /// `SHA256("account:{address}:{balance_micro}:{nonce}:{staked_micro}")`
-/// 
+///
 /// Where:
 /// - `address`: lowercase hex account address (40 chars)
 /// - `balance_micro`: u64 micro-units (1 RKU = 100,000,000 micro-RKU)
 /// - `nonce`: u64 transaction counter
 /// - `staked_micro`: u64 micro-units of staked balance
-/// 
+///
 /// Example: `"account:abc123...def:1000000000:5:500000000"`
 /// represents 10.0 RKU balance, nonce 5, 5.0 RKU staked
-/// 
+///
 /// Internal nodes are hashed using: `SHA256("node:{left_hash}:{right_hash}")`
-/// 
+///
 /// ## Verification Steps
+/// ### v4+ (Sparse Merkle Trie proofs):
 /// 1. Reconstruct leaf hash: `SHA256("account:{address}:{balance_micro}:{nonce}:{staked_micro}")`
-/// 2. Walk merkle_proof siblings from leaf to root
+/// 2. Derive key path bits from `SHA256(address)` (256-bit path)
+/// 3. Walk merkle_proof siblings (indexed by depth) from leaf to root using `SHA256(left||right)`
+/// 4. Compare computed root against state_root
+/// 5. Optionally verify checkpoint BLS signature against validator set
+///
+/// ### v2-v3 (Flat sorted Merkle tree proofs - legacy):
+/// 1. Reconstruct leaf hash: `SHA256("account:{address}:{balance_micro}:{nonce}:{staked_micro}")`
+/// 2. Walk merkle_proof siblings from leaf to root using `SHA256("node:{left}:{right}")`
 /// 3. Compare computed root against state_root
 /// 4. Optionally verify checkpoint BLS signature against validator set
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -326,7 +372,7 @@ pub struct AccountStateProof {
     /// Staked amount in RKU (f64) for display convenience.
     #[serde(default)]
     pub staked: f64,
-    
+
     // === REWARD STATE (v3+) - For deterministic cross-node synchronization ===
     /// Pending rewards in micro-units (u64). Used for direct sync instead of inference.
     #[serde(default)]
@@ -346,7 +392,7 @@ pub struct AccountStateProof {
     /// Total claimed rewards in RKU (f64) for display convenience.
     #[serde(default)]
     pub claimed_rewards_total: f64,
-    
+
     pub checkpoint_height: u64,
     pub checkpoint_hash: String,
     pub checkpoint_timestamp: u64,
@@ -388,7 +434,11 @@ pub struct Account {
     pub reputation_penalty: f64,
     #[serde(default)]
     pub penalty_decay_checkpoint: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "micro_serde_option")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "micro_serde_option"
+    )]
     pub partition_budget: Option<u64>,
     #[serde(default, with = "micro_serde")]
     pub partition_budget_spent: u64,
@@ -442,6 +492,10 @@ pub struct Checkpoint {
     pub visible_stake_pct: Option<f64>,
     #[serde(default)]
     pub merge_report_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_change_certificate: Option<ViewChangeCertificate>,
+    #[serde(default)]
+    pub view: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -470,6 +524,15 @@ pub struct Validator {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FastPathFinalizationCert {
+    pub total_stake: u64,
+    pub quorum_required: u64,
+    pub confirmed_at_ms: u64,
+    pub acks: Vec<FastPathAck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DagNode {
     pub hash: String,
     pub tx: SignedTransaction,
@@ -484,9 +547,9 @@ pub struct DagNode {
     #[serde(default)]
     pub partition_epoch: Option<u64>,
     #[serde(default)]
-    pub provisional_finality: bool,
-    #[serde(default)]
     pub rolled_back: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_path_cert: Option<FastPathFinalizationCert>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -530,7 +593,7 @@ impl Default for GasConfig {
         Self {
             min_gas_price: 100_000,
             max_gas_price: 1_000_000_000,
-            target_txs_per_period: 150,
+            target_txs_per_period: 600,
             adjustment_factor: 0.125,
             period_duration_ms: 15000,
         }
@@ -643,7 +706,7 @@ impl AggregatedWeight {
         }
         self.boost_stake_micro as f64 / self.total_network_stake_micro as f64
     }
-    
+
     /// Calculate suppress ratio (0.0 to 1.0)
     pub fn suppress_ratio(&self) -> f64 {
         if self.total_network_stake_micro == 0 {
@@ -651,7 +714,7 @@ impl AggregatedWeight {
         }
         self.suppress_stake_micro as f64 / self.total_network_stake_micro as f64
     }
-    
+
     /// Calculate net weight ratio (-1.0 to 1.0)
     pub fn net_weight_ratio(&self) -> f64 {
         if self.total_network_stake_micro == 0 {
@@ -659,7 +722,7 @@ impl AggregatedWeight {
         }
         self.net_weight as f64 / self.total_network_stake_micro as f64
     }
-    
+
     /// Trust score normalized to 0-100 scale (50 = neutral)
     pub fn trust_score(&self) -> u8 {
         let ratio = self.net_weight_ratio();
@@ -670,7 +733,7 @@ impl AggregatedWeight {
 
 /// Self-contained proof of a transaction's weight/trust score at a specific checkpoint.
 /// This proof can be verified offline without querying any node.
-/// 
+///
 /// ## Verification Steps:
 /// 1. Verify each attestation's BLS signature against known validator set
 /// 2. Verify stake amounts match validator registry at checkpoint
@@ -707,7 +770,12 @@ pub struct TransactionWeightProof {
 
 impl TransactionWeightProof {
     /// Create an empty/default weight proof for a transaction with no attestations
-    pub fn empty(tx_hash: String, checkpoint_height: u64, checkpoint_hash: String, checkpoint_timestamp: u64) -> Self {
+    pub fn empty(
+        tx_hash: String,
+        checkpoint_height: u64,
+        checkpoint_hash: String,
+        checkpoint_timestamp: u64,
+    ) -> Self {
         Self {
             version: 1,
             tx_hash,
@@ -753,3 +821,36 @@ pub struct WeightTrieLeaf {
     pub attestation_count: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewChange {
+    pub height: u64,
+    pub view: u32,
+    pub validator_address: String,
+    pub validator_stake: u64,
+    pub reason: ViewChangeReason,
+    pub bls_signature: Option<String>,
+    pub timestamp_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ViewChangeReason {
+    LeaderTimeout,
+    LeaderBehind,
+    InvalidCheckpoint,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ViewChangeCertificate {
+    pub height: u64,
+    pub view: u32,
+    pub votes: Vec<ViewChangeVote>,
+    pub total_stake: u64,
+    pub quorum_stake: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewChangeVote {
+    pub validator_address: String,
+    pub validator_stake: u64,
+    pub bls_signature: Option<String>,
+}

@@ -18,6 +18,7 @@ mod dag_pruning;
 #[cfg(feature = "wasm")]
 mod wasm_runtime;
 mod emission;
+mod erasure;
 mod events;
 mod websocket;
 mod fast_path;
@@ -51,7 +52,7 @@ use checkpoint::CheckpointService;
 use config::NodeConfig;
 use emission::EmissionService;
 use fork_remediation::ForkRemediationService;
-use gas::{GasConfig, GasService};
+use gas::GasConfig;
 use gossip::{CheckpointVoteSigner, GossipService};
 #[cfg(feature = "p2p")]
 use network::{HandshakeConfig, NetworkConfig, NetworkService};
@@ -63,7 +64,7 @@ use tokio::sync::RwLock;
 use validator::ValidatorKeyManager;
 use validator_identity::ValidatorIdentityService;
 
-#[tokio::main]
+#[tokio::main(worker_threads = 4)]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let export_key = args.iter().any(|a| a == "--export-key");
@@ -363,8 +364,12 @@ async fn main() -> Result<()> {
         info!("Validator key loaded: {}...", &addr[..16.min(addr.len())]);
     }
 
-    let _gas_service = GasService::new(GasConfig::default());
-    info!("Gas service initialized");
+    info!("EIP-1559 gas pricing active (target={} txs/period, adjustment={}, min={}, max={})",
+        GasConfig::default().target_txs_per_period,
+        GasConfig::default().adjustment_factor,
+        GasConfig::default().min_gas_price,
+        GasConfig::default().max_gas_price
+    );
 
     let _rewards_service = RewardsService::new(RewardConfig::default());
     info!("Rewards service initialized");
@@ -430,7 +435,7 @@ async fn main() -> Result<()> {
             let mut registered = 0;
             for (address, _) in &genesis_seed {
                 if rewards.get_stake(address).is_none() {
-                    if let Ok(_) = rewards.stake(address, GENESIS_VALIDATOR_STAKE) {
+                    if let Ok(_) = rewards.stake(address, GENESIS_VALIDATOR_STAKE, "") {
                         registered += 1;
                     }
                 }
@@ -498,7 +503,7 @@ async fn main() -> Result<()> {
                         let mut rewards = state.rewards.write().await;
                         for (address, _) in &genesis_seed {
                             if rewards.get_stake(address).is_none() {
-                                let _ = rewards.stake(address, GENESIS_VALIDATOR_STAKE);
+                                let _ = rewards.stake(address, GENESIS_VALIDATOR_STAKE, "");
                             }
                         }
                     }
@@ -592,20 +597,24 @@ async fn main() -> Result<()> {
 
     // Start libp2p NetworkService for production P2P (before GossipService so we can pass the handle)
     #[cfg(feature = "p2p")]
-    let (network_handle, p2p_message_rx, p2p_sync_rx, p2p_response_tx) = if config.p2p.enabled {
+    let (network_handle, p2p_message_rx, p2p_priority_rx, p2p_checkpoint_rx, p2p_sync_rx, p2p_vote_rx, p2p_response_tx) = if config.p2p.enabled {
         let network_config = NetworkConfig {
             listen_addr: config.p2p.listen_addr.clone(),
             bootstrap_peers: config.p2p.bootstrap_peers.clone(),
             enable_mdns: config.p2p.enable_mdns,
             data_dir: Some(config.data_dir.clone()),
+            external_addr: config.p2p.external_addr.clone(),
         };
         
         match NetworkService::new(network_config) {
             Ok((mut network_service, mut handle)) => {
                 let p2p_message_rx = handle.take_message_rx();
+                let p2p_priority_rx = handle.take_priority_message_rx();
+                let p2p_checkpoint_rx = handle.take_checkpoint_message_rx();
                 let p2p_sync_rx = handle.take_sync_incoming_rx();
+                let p2p_vote_rx = handle.take_vote_incoming_rx();
                 let p2p_response_tx = Some(handle.response_sender());
-                let shared_handle = Arc::new(tokio::sync::Mutex::new(handle));
+                let shared_handle = Arc::new(handle);
                 let mut handshake_config = HandshakeConfig::default();
                 handshake_config.chain_id = config.chain_id.clone();
                 handshake_config.network_id = config.network_id.clone();
@@ -635,16 +644,16 @@ async fn main() -> Result<()> {
                     }
                 });
                 
-                (Some(shared_handle), p2p_message_rx, p2p_sync_rx, p2p_response_tx)
+                (Some(shared_handle), p2p_message_rx, p2p_priority_rx, p2p_checkpoint_rx, p2p_sync_rx, p2p_vote_rx, p2p_response_tx)
             }
             Err(e) => {
                 warn!("Failed to start P2P network: {}", e);
-                (None, None, None, None)
+                (None, None, None, None, None, None, None)
             }
         }
     } else {
         info!("P2P networking disabled (using HTTP gossip only)");
-        (None, None, None, None)
+        (None, None, None, None, None, None, None)
     };
 
     #[cfg(feature = "p2p")]
@@ -671,7 +680,8 @@ async fn main() -> Result<()> {
         #[cfg(feature = "p2p")]
         if let Some(ref handle) = network_handle {
             service.set_network_handle(handle.clone());
-            service.set_p2p_channels(p2p_message_rx, p2p_sync_rx, p2p_response_tx);
+            service.set_p2p_channels(p2p_message_rx, p2p_priority_rx, p2p_checkpoint_rx, p2p_sync_rx, p2p_response_tx);
+            service.set_p2p_vote_channel(p2p_vote_rx);
             info!("GossipService connected to libp2p network (lock-free channels)");
         }
         
@@ -690,11 +700,11 @@ async fn main() -> Result<()> {
 
     let gossip_service = gossip_service.map(|gs| std::sync::Arc::new(gs));
 
-    // Wire up GossipService to CheckpointService for immediate checkpoint broadcast
     if let Some(ref gs) = gossip_service {
         checkpoint_service = checkpoint_service.with_gossip_service(gs.clone());
     }
-    checkpoint_service = checkpoint_service.with_event_bus(event_bus.clone());
+    checkpoint_service = checkpoint_service
+        .with_event_bus(event_bus.clone());
 
     let checkpoint_handle = tokio::spawn(async move {
         if let Err(e) = checkpoint_service.start().await {

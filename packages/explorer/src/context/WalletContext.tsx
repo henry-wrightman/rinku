@@ -162,6 +162,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return [];
   }, []);
 
+  const fetchCurrentGasPrice = useCallback(async (): Promise<number> => {
+    try {
+      const res = await fetch(`${API_URL}/gas/price`);
+      if (res.ok) {
+        const data = await res.json();
+        return data.current ?? 0.001;
+      }
+    } catch (e) {
+      console.error("Failed to fetch gas price:", e);
+    }
+    return 0.001;
+  }, []);
+
   const submitTransactionInner = async (
     payload: SubmitTxPayload,
   ): Promise<SubmitTxResult> => {
@@ -172,8 +185,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
     const nonce = localNonceRef.current ?? 0;
 
-    const tips = await fetchTips();
+    const [tips, networkGasPrice] = await Promise.all([
+      fetchTips(),
+      fetchCurrentGasPrice(),
+    ]);
     const parentCount = payload.parentCount ?? 8;
+    const effectiveGasPrice = payload.gasPrice ?? networkGasPrice;
 
     const signedTx = await createSignedTransaction(wallet, {
       to: payload.to,
@@ -181,7 +198,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       nonce,
       parents: tips.slice(0, parentCount),
       kind: payload.kind || "transfer",
-      gasPrice: payload.gasPrice ?? 0.001,
+      gasPrice: effectiveGasPrice,
       memo: payload.memo,
       references: payload.references,
       data: payload.data,
@@ -218,14 +235,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           retryNonce = Math.max(localNonceRef.current ?? 0, freshAccount.nonce);
         }
 
-        const retryTips = await fetchTips();
+        const [retryTips, retryGasPrice] = await Promise.all([
+          fetchTips(),
+          fetchCurrentGasPrice(),
+        ]);
         const retrySigned = await createSignedTransaction(wallet, {
           to: payload.to,
           amount: payload.amount,
           nonce: retryNonce,
           parents: retryTips.slice(0, parentCount),
           kind: payload.kind || "transfer",
-          gasPrice: payload.gasPrice ?? 0.001,
+          gasPrice: payload.gasPrice ?? retryGasPrice,
           memo: payload.memo,
           references: payload.references,
           data: payload.data,

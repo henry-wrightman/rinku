@@ -42,20 +42,28 @@ export function FaucetTab({ onSuccess }: FaucetTabProps) {
     }
   };
 
-  const { status: wsStatus, lastEvent } = useWebSocketContext();
-  const lastFaucetRef = useRef(lastEvent);
+  const { status: wsStatus, lastBatch } = useWebSocketContext();
+  const lastBatchIdRef = useRef(0);
+  const faucetRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetchStats();
+    return () => {
+      if (faucetRefreshRef.current) clearTimeout(faucetRefreshRef.current);
+    };
   }, []);
 
   useEffect(() => {
-    if (!lastEvent || lastEvent === lastFaucetRef.current) return;
-    lastFaucetRef.current = lastEvent;
-    if (lastEvent.type === 'NewTransaction' || lastEvent.type === 'FastPathExecuted') {
-      fetchStats();
+    if (!lastBatch || lastBatch.id === lastBatchIdRef.current) return;
+    lastBatchIdRef.current = lastBatch.id;
+    const relevant = lastBatch.items.some(e => e.type === 'NewTransaction' || e.type === 'FastPathExecuted');
+    if (relevant && !faucetRefreshRef.current) {
+      faucetRefreshRef.current = setTimeout(() => {
+        faucetRefreshRef.current = null;
+        fetchStats();
+      }, 500);
     }
-  }, [lastEvent]);
+  }, [lastBatch]);
 
   useEffect(() => {
     if (wsStatus === 'connected') return;

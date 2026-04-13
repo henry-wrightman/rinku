@@ -123,16 +123,27 @@ export function TokenomicsTab() {
     fetchData();
   }, [fetchData]);
 
-  const { status: wsStatus, lastEvent } = useWebSocketContext();
-  const lastTokenRef = useRef(lastEvent);
+  const { status: wsStatus, lastBatch } = useWebSocketContext();
+  const lastBatchIdRef = useRef(0);
+  const tokenRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!lastEvent || lastEvent === lastTokenRef.current) return;
-    lastTokenRef.current = lastEvent;
-    if (lastEvent.type === 'CheckpointCreated') {
-      fetchData();
+    return () => {
+      if (tokenRefreshRef.current) clearTimeout(tokenRefreshRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!lastBatch || lastBatch.id === lastBatchIdRef.current) return;
+    lastBatchIdRef.current = lastBatch.id;
+    const relevant = lastBatch.items.some(e => e.type === 'CheckpointCreated');
+    if (relevant && !tokenRefreshRef.current) {
+      tokenRefreshRef.current = setTimeout(() => {
+        tokenRefreshRef.current = null;
+        fetchData();
+      }, 500);
     }
-  }, [lastEvent]);
+  }, [lastBatch]);
 
   useEffect(() => {
     if (wsStatus === 'connected') return;

@@ -120,7 +120,6 @@ export function RewardsTab() {
         to: keyPair.fingerprint,
         amount: stakeAmount,
         kind: "stake",
-        gasPrice: 0.001,
         parentCount: 2,
       });
       if (data.hash) {
@@ -154,7 +153,6 @@ export function RewardsTab() {
         to: keyPair.fingerprint,
         amount: staking.stakedAmount,
         kind: "unstake",
-        gasPrice: 0.001,
         parentCount: 2,
       });
       if (data.hash) {
@@ -186,7 +184,6 @@ export function RewardsTab() {
         to: keyPair.fingerprint,
         amount: 0,
         kind: "claim_rewards",
-        gasPrice: 0.001,
         parentCount: 2,
       });
       if (data.hash) {
@@ -287,30 +284,30 @@ export function RewardsTab() {
             <div className="rewards-breakdown">
               <div className="reward-type">
                 <span className="label">tip rewards</span>
-                <span className="amount">{rewards.tipRewards.toFixed(2)}</span>
+                <span className="amount">{rewards.tipRewards.toFixed(4)}</span>
               </div>
               <div className="reward-type">
                 <span className="label">stake rewards</span>
                 <span className="amount">
-                  {rewards.stakeRewards.toFixed(2)}
+                  {rewards.stakeRewards.toFixed(4)}
                 </span>
               </div>
               <div className="reward-type">
                 <span className="label">witness rewards</span>
                 <span className="amount">
-                  {rewards.witnessRewards.toFixed(2)}
+                  {rewards.witnessRewards.toFixed(4)}
                 </span>
               </div>
               <div className="reward-type total">
                 <span className="label">total earned</span>
                 <span className="amount">
-                  {rewards.totalRewards.toFixed(2)}
+                  {rewards.totalRewards.toFixed(4)}
                 </span>
               </div>
               <div className="reward-type pending">
                 <span className="label">pending</span>
                 <span className="amount">
-                  {rewards.pendingRewards.toFixed(2)}
+                  {rewards.pendingRewards.toFixed(4)}
                 </span>
                 {rewards.pendingRewards > 0 && (
                   <button className="claim-btn" onClick={handleClaim}>

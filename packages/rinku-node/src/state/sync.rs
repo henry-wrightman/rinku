@@ -105,7 +105,7 @@ impl NodeState {
                     missing_hashes.contains(&n.hash)
                 } else {
                     n.checkpoint_height
-                        .map(|h| h >= from_checkpoint)
+                        .map(|h| h > from_checkpoint)
                         .unwrap_or(true)
                 }
             })
@@ -133,6 +133,7 @@ impl NodeState {
             .filter_map(|n| n.checkpoint_height.map(|h| (n.hash.clone(), h)))
             .collect();
 
+        let dag_tx_count = dag_txs.len() as u64;
         let contracts = state.contracts.clone();
         let total_burned = state.total_burned;
         let total_to_validators = state.total_to_validators;
@@ -182,7 +183,7 @@ impl NodeState {
             total_supply: state.total_supply,
             genesis_time: state.genesis_time,
             dag_transactions: dag_txs,
-            total_transactions: state.total_transactions,
+            total_transactions: std::cmp::max(state.total_transactions, dag_tx_count),
             contracts,
             rewards_snapshot,
             emission_snapshot,
@@ -282,6 +283,8 @@ impl NodeState {
         );
         
         state.accounts = merged_accounts;
+        state.fast_path_finalized_txs.clear();
+        state.fast_path_finalized_order.clear();
         
         let old_validator_count = state.validators.len();
         let genesis_validators = &self.config.trust.genesis_validators;
@@ -462,6 +465,8 @@ impl NodeState {
         }
         
         state.checkpoints = snapshot.checkpoints.clone();
+        let sync_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        self.checkpoint_height_cache.store(sync_height, std::sync::atomic::Ordering::Relaxed);
         state.current_gas_price = snapshot.gas_price;
         state.total_supply = snapshot.total_supply;
         state.genesis_time = snapshot.genesis_time;
@@ -529,8 +534,8 @@ impl NodeState {
             checkpoint_height: Some(0),
             received_at_ms: Some(now_ms),
             partition_epoch: None,
-            provisional_finality: false,
             rolled_back: false,
+            fast_path_cert: None,
         };
         let _ = state.dag.add_node(genesis_node);
 
@@ -663,9 +668,9 @@ impl NodeState {
                 finalized: is_finalized,
                 checkpoint_height,
                 received_at_ms: Some(tx.tx.timestamp),
-            partition_epoch: None,
-            provisional_finality: false,
+                partition_epoch: None,
                 rolled_back: false,
+                fast_path_cert: None,
             };
 
             if state.dag.add_node(node).is_ok() {

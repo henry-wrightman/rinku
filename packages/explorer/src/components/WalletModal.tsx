@@ -490,10 +490,10 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                                   tx.fast_path_status === "executed" ||
                                   tx.fast_path_status === "finalized") &&
                                 tx.fast_path_finality_ms
-                                  ? `Fast-path in ${tx.fast_path_finality_ms}ms${tx.finalized ? " + checkpoint finalized" : ""}`
+                                  ? `Finalized in ${tx.fast_path_finality_ms}ms${tx.finalized ? " · anchored in snapshot" : ""}`
                                   : tx.finalized
-                                    ? "Checkpoint finalized"
-                                    : "Pending confirmation"
+                                    ? "Anchored in snapshot"
+                                    : "Pending finality"
                               }
                             >
                               {tx.fast_path_status === "confirmed" ||
@@ -551,7 +551,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                                 <span
                                   className={`detail-value ${tx.finalized ? "finalized" : "pending"}`}
                                 >
-                                  {tx.finalized ? "Finalized" : "Pending"}
+                                  {tx.finalized ? "Anchored" : "Pending"}
                                 </span>
                               </div>
                               {tx.memo && (

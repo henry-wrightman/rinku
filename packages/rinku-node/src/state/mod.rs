@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
@@ -25,16 +26,17 @@ pub(crate) mod presync;
 mod accounts;
 mod metadata;
 mod dag;
-mod checkpoints;
+pub(crate) mod checkpoints;
 mod stats;
 mod proofs;
 mod transactions;
-pub use transactions::FastPathExecResult;
+pub use transactions::{FastPathExecResult, FastPathExecEntry, FastPathBatchExecEntry};
 mod validators;
 mod sync;
 mod fork;
 mod contracts;
 pub mod partition;
+pub mod wal;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionResult {
@@ -125,8 +127,8 @@ pub struct StateInner {
     pub genesis_hash: Option<String>,
     pub total_burned: u64,
     pub total_to_validators: u64,
-    pub txs_this_period: u64,
-    pub period_start_ms: u64,
+    pub _txs_this_period: u64,
+    pub _period_start_ms: u64,
     pub total_transactions: u64,
     pub config: NodeConfig,
     pub last_checkpoint_time_ms: u64,
@@ -142,6 +144,93 @@ pub struct StateInner {
     pub has_synced_from_network: bool,
     pub weight_trie: Option<WeightTrie>,
     pub partition_state: partition::PartitionState,
+    pub checkpoint_accounts_snapshot: Option<(u64, HashMap<String, (u64, u64, u64)>)>,
+    pub pre_checkpoint_accounts_snapshot: Option<(u64, HashMap<String, (u64, u64, u64)>)>,
+    pub fast_path_finalized_txs: HashMap<String, FastPathFinalizedEntry>,
+    pub fast_path_finalized_order: VecDeque<String>,
+    pub state_trie: crate::sparse_merkle_trie::SparseMerkleTrie,
+}
+
+#[derive(Clone, Debug)]
+pub struct FastPathFinalizedEntry {
+    pub from: String,
+    pub to: String,
+    pub amount: u64,
+    pub nonce: u64,
+    pub gas_price: Option<u64>,
+    pub kind: Option<rinku_core::types::TransactionKind>,
+    pub hash: String,
+    pub finalized_at_ms: u64,
+}
+
+impl StateInner {
+    pub fn build_state_trie_from_accounts(accounts: &HashMap<String, Account>) -> crate::sparse_merkle_trie::SparseMerkleTrie {
+        use crate::sparse_merkle_trie::{SparseMerkleTrie, hash_account_key};
+        let mut trie = SparseMerkleTrie::new();
+        for (addr, acc) in accounts {
+            let key = hash_account_key(addr);
+            let value = format!("account:{}:{}:{}:{}", addr, acc.balance, acc.nonce, acc.staked);
+            let _ = trie.set(&key, value.into_bytes(), None);
+        }
+        trie
+    }
+
+    pub fn update_state_trie_accounts(&mut self, changed_addresses: &[String]) {
+        use crate::sparse_merkle_trie::hash_account_key;
+        for addr in changed_addresses {
+            let key = hash_account_key(addr);
+            if let Some(acc) = self.accounts.get(addr) {
+                let value = format!("account:{}:{}:{}:{}", addr, acc.balance, acc.nonce, acc.staked);
+                let _ = self.state_trie.set(&key, value.into_bytes(), None);
+            }
+        }
+    }
+
+    pub fn clear_checkpoint_finalized_txs(
+        &mut self,
+        finalized_hashes: &std::collections::HashSet<String>,
+    ) -> usize {
+        let mut removed = 0usize;
+        for hash in finalized_hashes {
+            if self.fast_path_finalized_txs.remove(hash).is_some() {
+                removed += 1;
+            }
+        }
+        if !finalized_hashes.is_empty() {
+            self.fast_path_finalized_order.retain(|h| !finalized_hashes.contains(h));
+        }
+        const MAX_FAST_PATH_POOL: usize = 5000;
+        while self.fast_path_finalized_txs.len() > MAX_FAST_PATH_POOL {
+            if let Some(oldest) = self.fast_path_finalized_order.pop_front() {
+                self.fast_path_finalized_txs.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        removed
+    }
+
+    pub fn compute_changed_accounts(
+        &self,
+        pre_snapshot: &HashMap<String, (u64, u64, u64)>,
+    ) -> std::collections::HashSet<String> {
+        let mut changed = std::collections::HashSet::new();
+        for (addr, (old_bal, old_nonce, old_staked)) in pre_snapshot {
+            if let Some(acc) = self.accounts.get(addr) {
+                if acc.balance != *old_bal || acc.nonce != *old_nonce || acc.staked != *old_staked {
+                    changed.insert(addr.clone());
+                }
+            } else {
+                changed.insert(addr.clone());
+            }
+        }
+        for addr in self.accounts.keys() {
+            if !pre_snapshot.contains_key(addr) {
+                changed.insert(addr.clone());
+            }
+        }
+        changed
+    }
 }
 
 #[derive(Clone)]
@@ -154,11 +243,17 @@ pub struct NodeState {
     pub rewards: Arc<RwLock<RewardsService>>,
     start_time: std::time::Instant,
     pub loaded_from_persistence: bool,
+    pub checkpoint_height_cache: Arc<AtomicU64>,
+    pub dag_write_semaphore: Arc<tokio::sync::Semaphore>,
+    deferred_batch_txs: Arc<tokio::sync::Mutex<Vec<rinku_core::types::SignedTransaction>>>,
+    deferred_batch_retry_counts: Arc<tokio::sync::Mutex<std::collections::HashMap<String, u32>>>,
+    pub wal: Arc<tokio::sync::Mutex<wal::WriteAheadLog>>,
 }
 
 pub struct StateRootWithProofs {
     pub state_root: String,
     pub proofs: std::collections::HashMap<String, rinku_core::types::AccountStateProof>,
+    pub executed_tx_hashes: std::collections::HashSet<String>,
 }
 
 impl NodeState {
@@ -172,6 +267,7 @@ impl NodeState {
     }
     
     pub async fn new(config: NodeConfig) -> Result<Self> {
+        let wal_data_dir = config.data_dir.clone();
         let storage = RedbStorage::open(&config.data_dir)?;
         let storage = Arc::new(storage);
 
@@ -239,9 +335,9 @@ impl NodeState {
                             }
                         }),
                         received_at_ms: Some(entry.tx.tx.timestamp),
-            partition_epoch: None,
-            provisional_finality: false,
+                        partition_epoch: None,
                         rolled_back: false,
+                        fast_path_cert: entry.fast_path_cert.clone(),
                     };
                     let _ = dag.add_node(node);
                 }
@@ -277,6 +373,12 @@ impl NodeState {
                 let stored_genesis_hash = storage.load_genesis_hash().unwrap_or(None);
                 info!("Loaded genesis hash: {:?}", stored_genesis_hash.as_ref().map(|h| &h[..16.min(h.len())]));
                 
+                let state_trie = {
+                    let start = std::time::Instant::now();
+                    let t = StateInner::build_state_trie_from_accounts(&accounts);
+                    info!("Built state trie from {} accounts in {}ms (root: {})", accounts.len(), start.elapsed().as_millis(), t.root_hex());
+                    t
+                };
                 StateInner {
                     dag,
                     accounts,
@@ -289,8 +391,8 @@ impl NodeState {
                     genesis_hash: stored_genesis_hash,
                     total_burned: 0,
                     total_to_validators: 0,
-                    txs_this_period: 0,
-                    period_start_ms: now_ms,
+                    _txs_this_period: 0,
+                    _period_start_ms: now_ms,
                     total_transactions: tx_count,
                     config: config.clone(),
                     last_checkpoint_time_ms: last_checkpoint_time,
@@ -313,6 +415,11 @@ impl NodeState {
                         Some(wt)
                     },
                     partition_state: partition::PartitionState::default(),
+                    checkpoint_accounts_snapshot: None,
+                    pre_checkpoint_accounts_snapshot: None,
+                    fast_path_finalized_txs: HashMap::new(),
+                    fast_path_finalized_order: VecDeque::new(),
+                    state_trie,
                 }
             } else {
                 if let Some(snapshot) = presync::try_presync_from_peers(&config.p2p.bootstrap_peers, config.is_genesis_node).await {
@@ -354,9 +461,9 @@ impl NodeState {
                             finalized: is_finalized,
                             checkpoint_height,
                             received_at_ms: Some(tx.tx.timestamp),
-            partition_epoch: None,
-            provisional_finality: false,
+                            partition_epoch: None,
                             rolled_back: false,
+                            fast_path_cert: None,
                         };
                         let _ = dag.add_node(node);
                     }
@@ -375,6 +482,8 @@ impl NodeState {
                         info!("PRE-SYNC: Saved peer genesis hash: {}", &genesis_hash[..16.min(genesis_hash.len())]);
                     }
                     
+                    let state_trie = StateInner::build_state_trie_from_accounts(&snapshot.accounts);
+                    info!("PRE-SYNC: Built state trie from {} accounts (root: {})", snapshot.accounts.len(), state_trie.root_hex());
                     let inner = StateInner {
                         dag,
                         accounts: snapshot.accounts.clone(),
@@ -387,8 +496,8 @@ impl NodeState {
                         genesis_hash: snapshot.genesis_hash.clone(),
                         total_burned: snapshot.total_burned,
                         total_to_validators: snapshot.total_to_validators,
-                        txs_this_period: 0,
-                        period_start_ms: now_ms,
+                        _txs_this_period: 0,
+                        _period_start_ms: now_ms,
                         total_transactions: snapshot.total_transactions,
                         config: config.clone(),
                         last_checkpoint_time_ms: last_checkpoint_time,
@@ -404,13 +513,22 @@ impl NodeState {
                         has_synced_from_network: true,
                         weight_trie: Some(WeightTrie::new()),
                         partition_state: partition::PartitionState::default(),
+                        checkpoint_accounts_snapshot: None,
+                        pre_checkpoint_accounts_snapshot: None,
+                        fast_path_finalized_txs: HashMap::new(),
+                        fast_path_finalized_order: VecDeque::new(),
+                        state_trie,
                     };
                     
-                    let emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
+                    let mut emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
                         EmissionService::from_json(em_snapshot)
                     } else {
                         EmissionService::new()
                     };
+                    let restored_height = snapshot.checkpoints.last().map(|c| c.height).unwrap_or(0);
+                    if restored_height > 0 {
+                        emission.set_last_reward_height(restored_height);
+                    }
                     
                     let slashing = if let Some(sl_snapshot) = snapshot.slashing_snapshot {
                         SlashingService::from_json(sl_snapshot)
@@ -429,6 +547,7 @@ impl NodeState {
                         RewardsService::new(crate::rewards::RewardConfig::default())
                     };
                     
+                    let initial_height = inner.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
                     let node_state = Self {
                         config,
                         inner: Arc::new(RwLock::new(inner)),
@@ -438,6 +557,17 @@ impl NodeState {
                         rewards: Arc::new(RwLock::new(rewards)),
                         start_time: std::time::Instant::now(),
                         loaded_from_persistence: false,
+                        checkpoint_height_cache: Arc::new(AtomicU64::new(initial_height)),
+                        dag_write_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
+                        deferred_batch_txs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+                        deferred_batch_retry_counts: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+                        wal: {
+                            let mut w = wal::WriteAheadLog::new(&wal_data_dir);
+                            if let Err(e) = w.open() {
+                                warn!("WAL: failed to open: {}", e);
+                            }
+                            Arc::new(tokio::sync::Mutex::new(w))
+                        },
                     };
                     
                     node_state.recalculate_dag_weights().await;
@@ -512,9 +642,9 @@ impl NodeState {
                     finalized: true,
                     checkpoint_height: Some(0),
                     received_at_ms: Some(genesis_time * 1000),
-            partition_epoch: None,
-            provisional_finality: false,
+                    partition_epoch: None,
                     rolled_back: false,
+                    fast_path_cert: None,
                 };
                 let _ = dag.add_node(genesis_node);
                 info!(
@@ -557,12 +687,16 @@ impl NodeState {
             partition_epoch: None,
             visible_stake_pct: None,
                     merge_report_hash: None,
+                    view_change_certificate: None,
+                    view: 0,
                 };
                 
                 info!("Genesis hash created: {}", &genesis_hash[..16.min(genesis_hash.len())]);
                 
                 let _ = storage.save_genesis_hash(&genesis_hash);
                 
+                let state_trie = StateInner::build_state_trie_from_accounts(&accounts);
+                info!("Genesis: Built state trie from {} accounts (root: {})", accounts.len(), state_trie.root_hex());
                 StateInner {
                     dag,
                     accounts,
@@ -575,8 +709,8 @@ impl NodeState {
                     genesis_hash: Some(genesis_hash),
                     total_burned: 0,
                     total_to_validators: 0,
-                    txs_this_period: 0,
-                    period_start_ms: now_ms,
+                    _txs_this_period: 0,
+                    _period_start_ms: now_ms,
                     total_transactions: 1,
                     config: config.clone(),
                     last_checkpoint_time_ms: now_ms,
@@ -592,10 +726,15 @@ impl NodeState {
                     has_synced_from_network: false,
                     weight_trie: Some(WeightTrie::new()),
                     partition_state: partition::PartitionState::default(),
+                    checkpoint_accounts_snapshot: None,
+                    pre_checkpoint_accounts_snapshot: None,
+                    fast_path_finalized_txs: HashMap::new(),
+                    fast_path_finalized_order: VecDeque::new(),
+                    state_trie,
                 }
             };
 
-        let emission = if let Some(snapshot) = storage.load_emission()? {
+        let mut emission = if let Some(snapshot) = storage.load_emission()? {
             info!(
                 "Restored emission: {:.2} RKU emitted, {:.2} RKU burned",
                 snapshot.total_emitted,
@@ -605,6 +744,10 @@ impl NodeState {
         } else {
             EmissionService::new()
         };
+        {
+            let local_height = inner.checkpoints.last().map(|c| c.height).unwrap_or(0);
+            emission.set_last_reward_height(local_height);
+        }
         
         let slashing = SlashingService::new();
 
@@ -619,6 +762,7 @@ impl NodeState {
             RewardsService::new(crate::rewards::RewardConfig::default())
         };
 
+        let initial_height = inner.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
         let node_state = Self {
             config,
             inner: Arc::new(RwLock::new(inner)),
@@ -628,6 +772,17 @@ impl NodeState {
             rewards: Arc::new(RwLock::new(rewards)),
             start_time: std::time::Instant::now(),
             loaded_from_persistence,
+            checkpoint_height_cache: Arc::new(AtomicU64::new(initial_height)),
+            dag_write_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
+            deferred_batch_txs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            deferred_batch_retry_counts: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            wal: {
+                let mut w = wal::WriteAheadLog::new(&wal_data_dir);
+                if let Err(e) = w.open() {
+                    warn!("WAL: failed to open: {}", e);
+                }
+                Arc::new(tokio::sync::Mutex::new(w))
+            },
         };
         
         node_state.recalculate_dag_weights().await;
@@ -643,6 +798,75 @@ impl NodeState {
             }
         }
         
+        {
+            let mut wal_guard = node_state.wal.lock().await;
+            match wal_guard.recover() {
+                Ok(Some(recovery)) => {
+                    match recovery.action {
+                        wal::WalRecoveryAction::Replay => {
+                            info!(
+                                "WAL RECOVERY: replaying {} account updates from uncommitted checkpoint h={}",
+                                recovery.account_updates.len(), recovery.height
+                            );
+                            let mut state = node_state.inner.write().await;
+                            let local_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+                            if recovery.height > local_height {
+                                let mut changed: Vec<String> = Vec::new();
+                                for (addr, balance, nonce, staked) in &recovery.account_updates {
+                                    changed.push(addr.clone());
+                                    if let Some(acc) = state.accounts.get_mut(addr) {
+                                        acc.balance = *balance;
+                                        acc.nonce = *nonce;
+                                        acc.staked = *staked;
+                                    } else {
+                                        state.accounts.insert(addr.clone(), rinku_core::types::Account {
+                                            address: addr.clone(),
+                                            balance: *balance,
+                                            nonce: *nonce,
+                                            first_seen: 0,
+                                            staked: *staked,
+                                            unbonding: 0,
+                                            unbonding_release: None,
+                                            latest_balance_proof: None,
+                                            partition_violations: 0,
+                                            reputation_penalty: 0.0,
+                                            penalty_decay_checkpoint: None,
+                                            partition_budget: None,
+                                            partition_budget_spent: 0,
+                                        });
+                                    }
+                                }
+                                state.update_state_trie_accounts(&changed);
+                                info!(
+                                    "WAL RECOVERY: applied {} account updates for h={}, committing WAL",
+                                    changed.len(), recovery.height
+                                );
+                            } else {
+                                info!(
+                                    "WAL RECOVERY: h={} already applied (local={}), skipping replay",
+                                    recovery.height, local_height
+                                );
+                            }
+                            drop(state);
+                            let _ = wal_guard.truncate();
+                        }
+                        wal::WalRecoveryAction::Rollback => {
+                            info!(
+                                "WAL RECOVERY: rolling back incomplete checkpoint h={} (no account updates)",
+                                recovery.height
+                            );
+                            let _ = wal_guard.truncate();
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!("WAL RECOVERY: failed: {} — starting clean", e);
+                    let _ = wal_guard.truncate();
+                }
+            }
+        }
+
         Ok(node_state)
     }
 }

@@ -1,10 +1,10 @@
-use crate::storage::RedbStorage;
+use crate::storage::{DagSnapshotEntry, RedbStorage};
 use anyhow::Result;
 use rinku_core::types::SignedTransaction;
 use std::collections::{HashSet, VecDeque};
 use tracing::{debug, info};
 
-pub const DEFAULT_RETENTION_CHECKPOINTS: u64 = 500;
+pub const DEFAULT_RETENTION_CHECKPOINTS: u64 = 50;
 pub const DEFAULT_MAX_DAG_NODES: usize = 100_000;
 pub const PRUNING_BATCH_SIZE: usize = 1000;
 
@@ -96,8 +96,8 @@ impl DagPruningService {
         let mut checkpoints_pruned = 0u64;
         let mut keys_to_delete: Vec<Vec<u8>> = Vec::new();
 
-        storage.iter_dag::<SignedTransaction, _>(|key, tx| {
-            if self.should_prune_transaction(&tx, prune_boundary, finalized_tx_hashes) {
+        storage.iter_dag::<DagSnapshotEntry, _>(|key, entry| {
+            if self.should_prune_transaction(&entry.tx, prune_boundary, finalized_tx_hashes) {
                 keys_to_delete.push(key);
             }
         })?;
@@ -203,8 +203,8 @@ impl DagPruningService {
         }
 
         let mut count = 0;
-        storage.iter_dag::<SignedTransaction, _>(|_key, tx| {
-            if self.should_prune_transaction(&tx, prune_boundary, finalized_tx_hashes) {
+        storage.iter_dag::<DagSnapshotEntry, _>(|_key, entry| {
+            if self.should_prune_transaction(&entry.tx, prune_boundary, finalized_tx_hashes) {
                 count += 1;
             }
         })?;

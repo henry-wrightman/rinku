@@ -47,10 +47,17 @@ impl NodeState {
 
         let last_checkpoint_age = now_ms.saturating_sub(state.last_checkpoint_time_ms);
 
-        // Calculate checkpoints per minute based on genesis time
-        let elapsed_minutes = (now_ms / 1000).saturating_sub(state.genesis_time) as f64 / 60.0;
-        let checkpoints_per_minute = if elapsed_minutes > 0.0 {
-            state.checkpoints.len() as f64 / elapsed_minutes
+        let checkpoints_per_minute = if state.checkpoints.len() >= 2 {
+            let window_size = state.checkpoints.len().min(120);
+            let start_idx = state.checkpoints.len() - window_size;
+            let oldest_ts = state.checkpoints[start_idx].timestamp;
+            let newest_ts = state.checkpoints[state.checkpoints.len() - 1].timestamp;
+            let window_secs = newest_ts.saturating_sub(oldest_ts);
+            if window_secs > 0 {
+                (window_size.saturating_sub(1)) as f64 / (window_secs as f64 / 60.0)
+            } else {
+                0.0
+            }
         } else {
             0.0
         };
@@ -164,7 +171,7 @@ impl NodeState {
             checkpoint_height: state.checkpoints.last().map(|cp| cp.height).unwrap_or(0),
             finalized_count,
             unfinalized_count,
-            total_transactions: state.total_transactions,
+            total_transactions: std::cmp::max(state.total_transactions, dag_nodes as u64),
             tips: state.dag.tips(),
             gas_price: state.current_gas_price,
             total_burned: state.total_burned,

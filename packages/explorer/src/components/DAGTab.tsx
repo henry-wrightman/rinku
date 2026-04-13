@@ -55,21 +55,16 @@ const statusInfo = (node: DAGNode) => {
     const ms = node.fast_path_finality_ms
       ? `${node.fast_path_finality_ms}ms`
       : "";
-    if (node.finalized)
-      return {
-        text: `confirmed${ms ? ` ${ms}` : ""} + finalized`,
-        color: "#a3be8c",
-        cls: "st-final",
-      };
     return {
-      text: `confirmed${ms ? ` ${ms}` : ""}`,
+      text: `finalized${ms ? ` ${ms}` : ""}`,
       color: "#a3be8c",
       cls: "st-confirmed",
+      anchored: !!node.finalized,
     };
   }
   if (node.finalized)
-    return { text: "finalized", color: "#a3be8c", cls: "st-final" };
-  return { text: "pending", color: "#ebcb8b", cls: "st-pending" };
+    return { text: null, color: "#a3be8c", cls: "st-final", anchored: true };
+  return { text: "pending", color: "#ebcb8b", cls: "st-pending", anchored: false };
 };
 
 interface ProofState {
@@ -87,8 +82,9 @@ interface DAGTabProps {
   onPageChange: (page: number) => void;
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 const NEW_TX_DURATION = 3000;
+const MAX_VISIBLE_PER_GROUP = 5;
 
 export function DAGTab({
   nodes,
@@ -103,7 +99,19 @@ export function DAGTab({
     {},
   );
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const pinnedNodeRef = useRef<DAGNode | null>(null);
   const prevHashesRef = useRef<Set<string>>(new Set());
+
+  const expandRow = useCallback((node: DAGNode | null) => {
+    if (node) {
+      pinnedNodeRef.current = node;
+      setExpandedHash(node.hash);
+    } else {
+      pinnedNodeRef.current = null;
+      setExpandedHash(null);
+    }
+  }, []);
 
   useEffect(() => {
     const currentHashes = new Set(nodes.map((n) => n.hash));
@@ -170,7 +178,18 @@ export function DAGTab({
     }
   }, []);
 
-  if (nodes.length === 0) {
+  if (expandedHash) {
+    const found = nodes.find((n) => n.hash === expandedHash);
+    if (found) {
+      pinnedNodeRef.current = found;
+    }
+  }
+
+  const pinned = pinnedNodeRef.current;
+  const hasPinnedInPage = pinned && nodes.some((n) => n.hash === pinned.hash);
+  const effectiveNodes = pinned && !hasPinnedInPage ? [pinned, ...nodes] : nodes;
+
+  if (effectiveNodes.length === 0) {
     return <div className="empty">no transactions yet</div>;
   }
 
@@ -195,7 +214,7 @@ export function DAGTab({
   };
 
   const grouped = new Map<string, DAGNode[]>();
-  for (const node of nodes) {
+  for (const node of effectiveNodes) {
     const key = node.kind || "transfer";
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(node);
@@ -222,6 +241,7 @@ export function DAGTab({
   const renderRow = (node: DAGNode) => {
     const isNew = newHashes.has(node.hash);
     const isExpanded = expandedHash === node.hash;
+    const isPinned = isExpanded && pinned?.hash === node.hash && !hasPinnedInPage;
     const st = statusInfo(node);
     const kc = kindColor(node.kind);
     const kl = kindLabel(node.kind);
@@ -230,9 +250,9 @@ export function DAGTab({
     return (
       <div
         key={node.hash}
-        className={`tx-row ${isNew ? "tx-new" : ""} ${st.cls}`}
+        className={`tx-row ${isNew ? "tx-new" : ""} ${isPinned ? "tx-pinned" : ""} ${st.cls}`}
         style={{ borderLeftColor: kc }}
-        onClick={() => setExpandedHash(isExpanded ? null : node.hash)}
+        onClick={() => expandRow(isExpanded ? null : node)}
       >
         <div className="tx-row-main">
           <span className="tx-kind" style={{ color: kc }}>
@@ -251,7 +271,8 @@ export function DAGTab({
             {truncate(node.to, 5)}
           </span>
           <span className="tx-time">{timeAgo(node.ts)}</span>
-          <span className={`tx-status ${st.cls}`}>{st.text}</span>
+          {st.text && <span className={`tx-status ${st.cls}`}>{st.text}</span>}
+          {st.anchored && <span className="tx-status st-anchored">anchored</span>}
           {node.trust_score !== undefined &&
             node.attestation_count !== undefined &&
             node.attestation_count > 0 && (
@@ -337,17 +358,46 @@ export function DAGTab({
     );
   };
 
+  const toggleGroup = (kind: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  };
+
   return (
     <div className="dag-feed">
-      {sortedGroups.map((g) => (
-        <div className="feed-group" key={g.kind}>
-          <div className="feed-group-header">
-            <span className="feed-dot" style={{ background: g.color }} />
-            {g.label} ({g.nodes.length})
+      {sortedGroups.map((g) => {
+        const isGroupExpanded = expandedGroups.has(g.kind);
+        const cap = isGroupExpanded ? g.nodes.length : MAX_VISIBLE_PER_GROUP;
+        const visible = g.nodes.slice(0, cap);
+        const pinnedInGroup = pinned && !hasPinnedInPage && (pinned.kind || "transfer") === g.kind
+          && !visible.some((n) => n.hash === pinned.hash);
+        if (pinnedInGroup) {
+          visible.unshift(pinned);
+        }
+        const hidden = g.nodes.length - visible.length;
+
+        return (
+          <div className="feed-group" key={g.kind}>
+            <div className="feed-group-header">
+              <span className="feed-dot" style={{ background: g.color }} />
+              {g.label} ({g.nodes.length})
+              {g.nodes.length > MAX_VISIBLE_PER_GROUP && (
+                <span
+                  className="feed-group-toggle"
+                  onClick={() => toggleGroup(g.kind)}
+                >
+                  {isGroupExpanded ? "collapse" : `+${hidden} more`}
+                </span>
+              )}
+            </div>
+            {visible.map(renderRow)}
           </div>
-          {g.nodes.map(renderRow)}
-        </div>
-      ))}
+        );
+      })}
 
       <Pagination
         page={page}

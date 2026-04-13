@@ -6,6 +6,26 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
+pub async fn blocking_io<F, R>(f: F) -> Result<R>
+where
+    F: FnOnce() -> Result<R> + Send + 'static,
+    R: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
+}
+
+pub async fn blocking_cpu<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .expect("spawn_blocking join error")
+}
+
 use crate::contracts::ContractState;
 use crate::emission::EmissionSnapshot;
 use crate::rewards::RewardsSnapshot;
@@ -20,6 +40,8 @@ pub struct DagSnapshotEntry {
     pub finalized: bool,
     #[serde(default)]
     pub checkpoint_height: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_path_cert: Option<rinku_core::types::FastPathFinalizationCert>,
 }
 
 pub const TABLE_ACCOUNTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("accounts");
@@ -162,7 +184,7 @@ impl RedbStorage {
     }
 
     pub fn put_dag<T: Serialize>(&self, key: &[u8], value: &T) -> Result<()> {
-        let data = bincode::serialize(value)?;
+        let data = serde_json::to_vec(value)?;
         let db = self.db_read();
         let write_txn = db.begin_write()?;
         {
@@ -179,7 +201,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_DAG)?;
         match table.get(key)? {
             Some(data) => {
-                let value: T = bincode::deserialize(data.value())?;
+                let value: T = serde_json::from_slice(data.value())?;
                 Ok(Some(value))
             }
             None => Ok(None),
@@ -198,7 +220,7 @@ impl RedbStorage {
     }
 
     pub fn put_checkpoint<T: Serialize>(&self, key: &[u8], value: &T) -> Result<()> {
-        let data = bincode::serialize(value)?;
+        let data = serde_json::to_vec(value)?;
         let db = self.db_read();
         let write_txn = db.begin_write()?;
         {
@@ -215,7 +237,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_CHECKPOINTS)?;
         match table.get(key)? {
             Some(data) => {
-                let value: T = bincode::deserialize(data.value())?;
+                let value: T = serde_json::from_slice(data.value())?;
                 Ok(Some(value))
             }
             None => Ok(None),
@@ -394,7 +416,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_DAG)?;
         for entry in table.iter()? {
             let (key, value) = entry?;
-            if let Ok(v) = bincode::deserialize::<T>(value.value()) {
+            if let Ok(v) = serde_json::from_slice::<T>(value.value()) {
                 callback(key.value().to_vec(), v);
             }
         }
@@ -411,7 +433,7 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_CHECKPOINTS)?;
         for entry in table.iter()? {
             let (key, value) = entry?;
-            if let Ok(v) = bincode::deserialize::<T>(value.value()) {
+            if let Ok(v) = serde_json::from_slice::<T>(value.value()) {
                 callback(key.value().to_vec(), v);
             }
         }
@@ -474,6 +496,28 @@ impl RedbStorage {
         
         {
             let mut table = write_txn.open_table(TABLE_DAG)?;
+            let current_hashes: std::collections::HashSet<&[u8]> = dag_entries.iter()
+                .map(|e| e.tx.hash.as_bytes())
+                .collect();
+            let stale_keys: Vec<Vec<u8>> = {
+                let mut keys = Vec::new();
+                let iter = table.iter()?;
+                for result in iter {
+                    if let Ok((key, _)) = result {
+                        let k = key.value().to_vec();
+                        if !current_hashes.contains(k.as_slice()) {
+                            keys.push(k);
+                        }
+                    }
+                }
+                keys
+            };
+            if !stale_keys.is_empty() {
+                debug!("Cleaning {} stale TABLE_DAG entries (keeping {})", stale_keys.len(), dag_entries.len());
+                for key in &stale_keys {
+                    table.remove(key.as_slice())?;
+                }
+            }
             for entry in dag_entries {
                 let data = serde_json::to_vec(entry)?;
                 table.insert(entry.tx.hash.as_bytes(), data.as_slice())?;
@@ -600,9 +644,10 @@ impl RedbStorage {
                         if let Ok(tx) = serde_json::from_slice::<SignedTransaction>(value.value()) {
                             dag_entries.push(DagSnapshotEntry {
                                 tx,
-                                parents: Vec::new(), // No parent info in old format
-                                finalized: true, // Assume finalized in old snapshots
+                                parents: Vec::new(),
+                                finalized: true,
                                 checkpoint_height: None,
+                                fast_path_cert: None,
                             });
                         }
                     }

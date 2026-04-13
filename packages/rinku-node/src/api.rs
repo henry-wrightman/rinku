@@ -100,6 +100,7 @@ struct AccountResponse {
     fingerprint: String,
     balance: f64,
     nonce: u64,
+    effective_nonce: u64,
     staked: f64,
 }
 
@@ -117,6 +118,7 @@ struct AccountTransactionItem {
     fast_path_status: Option<String>,
     fast_path_confirmed_at_ms: Option<u64>,
     fast_path_finality_ms: Option<u64>,
+    lane: String,
 }
 
 #[derive(Serialize)]
@@ -274,6 +276,7 @@ struct DagNodeResponse {
     trust_score: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     attestation_count: Option<u32>,
+    lane: String,
 }
 
 #[derive(Serialize)]
@@ -603,7 +606,7 @@ async fn health() -> Json<HealthResponse> {
 async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusResponse> {
     let tips = state.get_tips().await;
     let (dag_size, _, _) = state.get_dag_stats().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let total_transactions = state.get_total_transactions().await;
     // Use rewards service for accurate staking data
     let rewards = state.rewards.read().await;
@@ -671,7 +674,7 @@ async fn get_bootstrap_info(State(state): State<NodeState>) -> Json<BootstrapInf
 async fn get_node_status(State(state): State<NodeState>) -> Json<NodeStatusResponse> {
     let tips = state.get_tips().await;
     let (dag_size, _, _) = state.get_dag_stats().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let total_transactions = state.get_total_transactions().await;
     // Use rewards service for accurate staking data
     let rewards = state.rewards.read().await;
@@ -759,7 +762,7 @@ async fn post_bootstrap(
 
     let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
     let total_available = all_txs.len();
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     
     let transactions: Vec<_> = all_txs.into_iter().take(limit).collect();
     let has_more = total_available > limit;
@@ -790,7 +793,7 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Result<Json<Snapsh
     info!("Snapshot sync request received");
     
     let snapshot = state.get_sync_snapshot().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     
     info!(
         "Snapshot sync response: {} accounts, {} validators, {} checkpoints, {} dag txs",
@@ -944,6 +947,12 @@ async fn get_sync_transactions(
                 previous_hash: cp.previous_hash.clone(),
                 signature: cp.aggregated_signature.clone(),
                 genesis_hash: state_guard.genesis_hash.clone(),
+                finalized_tx_hashes: cp.finalized_tx_hashes.clone(),
+                state_root: Some(cp.state_root.clone()),
+                receipt_root: Some(cp.receipt_root.clone()),
+                tip_count: Some(cp.tip_count),
+                validator_signatures: cp.validator_signatures.clone(),
+                signer_bitmap: cp.signer_bitmap.clone(),
             })
             .collect();
         let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -1075,6 +1084,12 @@ async fn post_sync_delta(
                 previous_hash: cp.previous_hash.clone(),
                 signature: cp.aggregated_signature.clone(),
                 genesis_hash: state_guard.genesis_hash.clone(),
+                finalized_tx_hashes: cp.finalized_tx_hashes.clone(),
+                state_root: Some(cp.state_root.clone()),
+                receipt_root: Some(cp.receipt_root.clone()),
+                tip_count: Some(cp.tip_count),
+                validator_signatures: cp.validator_signatures.clone(),
+                signer_bitmap: cp.signer_bitmap.clone(),
             })
             .collect();
         let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -1185,9 +1200,7 @@ async fn handle_faucet_request(
         .map(|hash| format!("rinku://tx/h/{}", hash))
         .collect();
 
-    let faucet_account = state.get_account("faucet").await;
-    // Use current nonce (not +1) - add_transaction will increment it
-    let nonce = faucet_account.map(|a| a.nonce).unwrap_or(0);
+    let nonce = state.get_effective_nonce_for("faucet").await;
 
     let inner_tx = rinku_core::types::Transaction {
         from: "faucet".to_string(),
@@ -1305,7 +1318,7 @@ async fn get_faucet_stats(State(state): State<NodeState>) -> Json<FaucetStatsRes
 
 async fn get_stats(State(state): State<NodeState>) -> Json<StatsResponse> {
     let (dag_nodes, tips, accounts) = state.get_dag_stats().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let gas_price = state.get_gas_price().await;
     let total_supply = state.get_total_supply().await;
     let rewards = state.rewards.read().await;
@@ -1346,16 +1359,21 @@ async fn get_account(
     Path(address): Path<String>,
 ) -> impl IntoResponse {
     match state.get_account(&address).await {
-        Some(account) => (
-            StatusCode::OK,
-            Json(AccountResponse {
-                fingerprint: account.address,
-                balance: from_micro_units(account.balance),
-                nonce: account.nonce,
-                staked: from_micro_units(account.staked),
-            }),
-        )
-            .into_response(),
+        Some(account) => {
+            let effective_nonce = state.get_effective_nonce_for(&account.address).await;
+            let effective_balance = state.get_effective_balance_for(&account.address).await;
+            (
+                StatusCode::OK,
+                Json(AccountResponse {
+                    fingerprint: account.address,
+                    balance: from_micro_units(effective_balance),
+                    nonce: account.nonce,
+                    effective_nonce,
+                    staked: from_micro_units(account.staked),
+                }),
+            )
+                .into_response()
+        }
         None => ApiError::not_found("Account not found").into_response(),
     }
 }
@@ -1382,7 +1400,6 @@ async fn get_account_transactions_with_fast_path(
                             let status = match fp.status {
                                 rinku_core::types::FastPathStatus::Pending => "pending",
                                 rinku_core::types::FastPathStatus::Confirmed => "confirmed",
-                                rinku_core::types::FastPathStatus::Executed => "executed",
                                 rinku_core::types::FastPathStatus::Finalized => "finalized",
                             };
                             (Some(status.to_string()), fp.confirmed_at_ms, fp.finality_time_ms())
@@ -1405,6 +1422,10 @@ async fn get_account_transactions_with_fast_path(
                     }
                 };
             
+            let lane_str = match stx.tx.classify_lane() {
+                rinku_core::types::TransactionLane::FastPath => "fast_path",
+                rinku_core::types::TransactionLane::Checkpoint => "checkpoint",
+            };
             result.push(AccountTransactionItem {
                 hash: stx.hash.clone(),
                 from: stx.tx.from.clone(),
@@ -1418,6 +1439,7 @@ async fn get_account_transactions_with_fast_path(
                 fast_path_status,
                 fast_path_confirmed_at_ms,
                 fast_path_finality_ms,
+                lane: lane_str.to_string(),
             });
         }
         result
@@ -1706,26 +1728,19 @@ async fn submit_transaction(
             });
             // Broadcast to peers after successful local add
             if let Some(ref gossip) = api_state.gossip_service {
-                if is_fast_path_eligible {
-                    // Auto-detect: use fast-path for eligible transactions
-                    let (validator_addr, _) = api_state.node_state.get_validator_info().await;
-                    let validator_stake = if let Some(ref addr) = validator_addr {
-                        api_state.node_state.get_validator_stake(addr).await.unwrap_or(0)
-                    } else {
-                        0
-                    };
-                    
-                    if let Some(addr) = validator_addr {
-                        gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
-                        info!("Transaction {} broadcast via FAST-PATH", &inner.hash[..16.min(inner.hash.len())]);
-                    } else {
-                        // No validator identity, fall back to regular broadcast
-                        gossip.broadcast_transaction(tx).await;
-                        info!("Transaction {} broadcast to peers (no validator for fast-path)", &inner.hash[..16.min(inner.hash.len())]);
-                    }
+                let (validator_addr, _) = api_state.node_state.get_validator_info().await;
+                let validator_stake = if let Some(ref addr) = validator_addr {
+                    api_state.node_state.get_validator_stake(addr).await.unwrap_or(0)
+                } else {
+                    0
+                };
+                
+                if let Some(addr) = validator_addr {
+                    gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
+                    info!("Transaction {} broadcast via fast-path protocol", &inner.hash[..16.min(inner.hash.len())]);
                 } else {
                     gossip.broadcast_transaction(tx).await;
-                    info!("Transaction {} broadcast to peers", &inner.hash[..16.min(inner.hash.len())]);
+                    info!("Transaction {} broadcast to peers (no validator identity)", &inner.hash[..16.min(inner.hash.len())]);
                 }
             }
             (
@@ -2011,17 +2026,31 @@ async fn submit_batch_transaction(
     let successful = results.iter().filter(|r| r.is_ok()).count();
     let failed = results.len() - successful;
 
-    // Broadcast successful transactions to peers
     if let Some(ref gossip) = api_state.gossip_service {
+        let (validator_addr, _) = api_state.node_state.get_validator_info().await;
+        let validator_stake = if let Some(ref addr) = validator_addr {
+            api_state.node_state.get_validator_stake(addr).await.unwrap_or(0)
+        } else {
+            0
+        };
+
         for (i, result) in results.iter().enumerate() {
             if result.is_ok() {
                 if let Some(tx) = txs_for_broadcast.get(i) {
-                    gossip.broadcast_transaction(tx.clone()).await;
+                    if let Some(ref addr) = validator_addr {
+                        if validator_stake > 0 {
+                            gossip.broadcast_fast_path_transaction(tx.clone(), addr, validator_stake).await;
+                        } else {
+                            gossip.broadcast_transaction(tx.clone()).await;
+                        }
+                    } else {
+                        gossip.broadcast_transaction(tx.clone()).await;
+                    }
                 }
             }
         }
         if successful > 0 {
-            info!("Broadcast {} transactions to peers", successful);
+            info!("Broadcast {} transactions to peers via fast-path", successful);
         }
     }
 
@@ -2139,6 +2168,14 @@ async fn get_dag(
                 .map(|(score, count)| (Some(*score), Some(*count)))
                 .unwrap_or((None, None));
             
+            let lane = if let Some(ref k) = n.kind {
+                match k {
+                    rinku_core::types::TransactionKind::Contract => "checkpoint",
+                    _ => "fast_path",
+                }
+            } else {
+                "fast_path"
+            };
             DagNodeResponse {
                 hash: n.hash,
                 from: n.from,
@@ -2159,6 +2196,7 @@ async fn get_dag(
                 fast_path_finality_ms,
                 trust_score,
                 attestation_count,
+                lane: lane.to_string(),
             }
         })
         .collect();
@@ -2169,13 +2207,14 @@ async fn get_dag(
 }
 
 async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> {
-    let accounts = state.get_all_accounts().await;
+    let accounts = state.get_all_accounts_with_effective().await;
     Json(AccountsResponse {
         accounts: accounts
             .into_iter()
-            .map(|a| AccountResponse {
-                fingerprint: a.address,
-                balance: from_micro_units(a.balance),
+            .map(|(a, eff_nonce, eff_balance)| AccountResponse {
+                fingerprint: a.address.clone(),
+                balance: from_micro_units(eff_balance),
+                effective_nonce: eff_nonce,
                 nonce: a.nonce,
                 staked: from_micro_units(a.staked),
             })
@@ -2405,6 +2444,7 @@ struct TransactionResponse {
     fast_path_confirmed_at_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fast_path_finality_ms: Option<u64>,
+    lane: String,
 }
 
 async fn get_transaction(
@@ -2439,10 +2479,9 @@ async fn get_transaction(
         let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
             if let Some(ref gossip) = api_state.gossip_service {
                 if let Some(fp) = gossip.get_fast_path_status(&hash).await {
-                    let is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Executed | rinku_core::types::FastPathStatus::Finalized);
+                    let _is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Finalized);
                     let status = match fp.status {
                         rinku_core::types::FastPathStatus::Confirmed => "confirmed",
-                        rinku_core::types::FastPathStatus::Executed => "executed",
                         rinku_core::types::FastPathStatus::Finalized => "finalized",
                         rinku_core::types::FastPathStatus::Pending => "pending",
                     };
@@ -2458,6 +2497,10 @@ async fn get_transaction(
         
         let redacted_data = tx.tx.data.clone();
 
+        let lane_str = match tx.tx.classify_lane() {
+            rinku_core::types::TransactionLane::FastPath => "fast_path",
+            rinku_core::types::TransactionLane::Checkpoint => "checkpoint",
+        };
         Ok(Json(TransactionResponse {
             hash: tx.hash.clone(),
             from: tx.tx.from.clone(),
@@ -2478,6 +2521,7 @@ async fn get_transaction(
             fast_path_status,
             fast_path_confirmed_at_ms,
             fast_path_finality_ms,
+            lane: lane_str.to_string(),
         }))
     } else {
         // Debug: log lookup failure with DAG stats
@@ -2571,7 +2615,6 @@ async fn get_transaction_replies(
                 if let Some(fp) = fast_path_statuses.get(&tx_hash) {
                     let status = match fp.status {
                         rinku_core::types::FastPathStatus::Confirmed => "confirmed",
-                        rinku_core::types::FastPathStatus::Executed => "executed",
                         rinku_core::types::FastPathStatus::Finalized => "finalized",
                         rinku_core::types::FastPathStatus::Pending => "pending",
                     };
@@ -2584,6 +2627,14 @@ async fn get_transaction_replies(
 
             let redacted_data = data;
             
+            let lane_str = if let Some(ref k) = kind {
+                match k {
+                    rinku_core::types::TransactionKind::Contract => "checkpoint",
+                    _ => "fast_path",
+                }
+            } else {
+                "fast_path"
+            };
             TransactionResponse {
                 hash: tx_hash.clone(),
                 from,
@@ -2604,6 +2655,7 @@ async fn get_transaction_replies(
                 fast_path_status,
                 fast_path_confirmed_at_ms,
                 fast_path_finality_ms,
+                lane: lane_str.to_string(),
             }
         })
         .collect();
@@ -2763,7 +2815,7 @@ struct TokenomicsSupplyResponse {
 
 async fn get_tokenomics_supply(State(state): State<NodeState>) -> Json<TokenomicsSupplyResponse> {
     let total_supply = state.get_total_supply().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let (_, gas_burned, _, _) = state.get_gas_stats().await;
     
     // Get actual emission stats from emission service
@@ -2829,7 +2881,7 @@ struct EmissionResponse {
 }
 
 async fn get_tokenomics_emission(State(state): State<NodeState>) -> Json<EmissionResponse> {
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let emission = state.emission.read().await;
     let stats = emission.get_stats(checkpoint_height);
     
@@ -3169,7 +3221,7 @@ async fn verify_proof_endpoint(
     use crate::proofs::{decode_vo, verify_vo, decode_self_contained_proof, verify_self_contained_proof, decode_account_state_proof, verify_account_state_proof_detailed};
     
     let proof_url = req.proof_url.trim();
-    let current_checkpoint_height = state.get_checkpoint_height().await as u64;
+    let current_checkpoint_height = state.get_checkpoint_height() as u64;
     
     if proof_url.starts_with("rinku://vo/") {
         match decode_vo(proof_url) {
@@ -3323,22 +3375,27 @@ async fn generate_transaction_proof(
         }
     };
 
-    // Build validator leaves from checkpoint's validator signatures (not global state)
-    let validator_leaves: Vec<MerkleSumLeaf> = checkpoint
-        .validator_signatures
-        .iter()
-        .filter(|sig| sig.bls_public_key.is_some())
-        .enumerate()
-        .map(|(i, sig)| {
-            MerkleSumLeaf {
-                index: i,
-                address: sig.validator.clone(),
-                bls_public_key: sig.bls_public_key.clone().unwrap_or_default(),
-                weight_units: sig.weight,
-                weight: from_micro_units(sig.weight),
-            }
-        })
-        .collect();
+    let fast_path_cert_data = state.get_fast_path_cert(&hash).await;
+
+    let (validator_leaves, acked_indices): (Vec<MerkleSumLeaf>, Vec<usize>) = {
+        let leaves: Vec<MerkleSumLeaf> = checkpoint
+            .validator_signatures
+            .iter()
+            .filter(|sig| sig.bls_public_key.is_some())
+            .enumerate()
+            .map(|(i, sig)| {
+                MerkleSumLeaf {
+                    index: i,
+                    address: sig.validator.clone(),
+                    bls_public_key: sig.bls_public_key.clone().unwrap_or_default(),
+                    weight_units: sig.weight,
+                    weight: from_micro_units(sig.weight),
+                }
+            })
+            .collect();
+        let indices: Vec<usize> = (0..leaves.len()).collect();
+        (leaves, indices)
+    };
 
     if validator_leaves.is_empty() {
         return Ok(Json(TransactionProofResponse {
@@ -3347,15 +3404,15 @@ async fn generate_transaction_proof(
             proof_url: None,
             proof_size_bytes: None,
             qr_viable: None,
-            error: Some("Checkpoint has no validators with BLS public keys".to_string()),
+            error: Some("No validators available for proof generation".to_string()),
         }));
     }
 
     let validator_tree = build_merkle_sum_tree(&validator_leaves);
 
-    // Generate membership proofs for all signers
-    let membership_proofs: Vec<_> = (0..validator_leaves.len())
-        .filter_map(|idx| get_merkle_sum_proof(&validator_leaves, idx))
+    let membership_proofs: Vec<_> = acked_indices
+        .iter()
+        .filter_map(|&idx| get_merkle_sum_proof(&validator_leaves, idx))
         .collect();
 
     let now_ms = std::time::SystemTime::now()
@@ -4085,7 +4142,7 @@ async fn get_metrics(State(state): State<NodeState>) -> String {
     use sysinfo::{System, Pid};
     
     let (dag_nodes, tips, accounts) = state.get_dag_stats().await;
-    let checkpoint_height = state.get_checkpoint_height().await;
+    let checkpoint_height = state.get_checkpoint_height();
     let gas_price = state.get_gas_price().await;
     // Use rewards service for accurate staking data (not deprecated state.validators)
     let rewards = state.rewards.read().await;

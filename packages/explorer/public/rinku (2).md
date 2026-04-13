@@ -5,11 +5,11 @@
 
 ## Abstract
 
-The next wave of distributed computing is not data centers - it is autonomous agents: drone swarms, robotic fleets, and mobile sensor networks operating on adhoc mesh infrastructure where connectivity is intermittent by design, not an edge case. Existing distributed ledgers are structurally insufficient for this environment; they halt when the network partitions, require persistent RPC infrastructure for state verification, or their smart contracts assume a synchronized, always-online world.
+Existing distributed ledgers assume persistent, well-connected infrastructure. They halt when the network partitions, require always-on RPC endpoints for state verification, and their smart contracts presume a synchronized world. These assumptions break in intermittently connected environments - ad-hoc mesh networks, field deployments with unreliable backhaul, maritime and remote operations, disaster response coordination, and autonomous agent fleets - where connectivity gaps are routine operating conditions, not exceptional failures.
 
-Rinku is a DAG-based distributed ledger built around three primitives designed for exactly this environment. Tunable consistency allows the protocol to navigate the CAP tradeoff dynamically: delivering CP-like checkpoint finality when quorum is reachable, degrading gracefully to provisional availability during partitions, and deterministically reconciling state when connectivity is restored - ensuring that a swarm of robots on a local mesh can transact continuously and settle correctly when they reconnect to the broader network. VerifiableObjects are self-contained, URL-encoded cryptographic proofs that carry everything needed for offline verification - no full node, no RPC endpoint, no network access. An autonomous agent can receive payment, verify it locally with a single BLS check, and execute its task before ever touching external infrastructure. BYOP (Bring Your Own Proof) smart contracts accept VerifiableObjects as inputs, enabling contract logic to execute against proven external state without synchronous cross-chain or cross-contract calls - service terms, payment conditions, and execution receipts composable without centralized coordination.
+Rinku is a DAG-based distributed ledger built around three primitives designed for these environments. **Tunable consistency** navigates the CAP tradeoff dynamically: delivering checkpoint finality when quorum is reachable, degrading gracefully to provisional availability during partitions, and deterministically reconciling divergent state when connectivity is restored. **VerifiableObjects** are self-contained, URL-encoded cryptographic proofs that carry everything needed for offline verification - no full node, no RPC endpoint, no network access. Any participant can receive a payment proof, verify it locally with a single BLS check, and act on it before ever touching external infrastructure. **BYOP (Bring Your Own Proof)** smart contracts accept VerifiableObjects as inputs, enabling contract logic to execute against proven external state without synchronous cross-chain or cross-contract calls - composable without centralized coordination.
 
-Together, these three primitives describe a ledger that does not merely tolerate the mesh-native economy - it is designed for it. The native RKU token has a hard cap of 30 million units with checkpoint-based emission, weighted proof-of-stake rewards, and an adaptive fee burn mechanism.
+Together, these primitives describe a ledger designed for environments where partitions are a first-class operating condition. The native RKU token has a hard cap of 30 million units with checkpoint-based emission and weighted proof-of-stake rewards.
 
 ---
 
@@ -27,10 +27,9 @@ Together, these three primitives describe a ledger that does not merely tolerate
 10. [Smart Contracts & WASM Runtime](#10-smart-contracts)
 11. [Economic Model](#11-economic-model)
 12. [Slashing & Economic Security](#12-slashing)
-13. [Privacy Layer](#13-privacy)
-14. [Networking & P2P Protocol](#14-networking)
-15. [Future Work](#15-future-work)
-16. [Conclusion](#16-conclusion)
+13. [Networking & P2P Protocol](#13-networking)
+14. [Future Work](#14-future-work)
+15. [Conclusion](#15-conclusion)
 
 - [References](#references)
 
@@ -40,9 +39,9 @@ Together, these three primitives describe a ledger that does not merely tolerate
 
 Distributed ledgers have achieved remarkable success in environments where network connectivity is reliable and persistent. Bitcoin's Nakamoto consensus and Ethereum's Gasper protocol deliver strong probabilistic or deterministic finality under the assumption that a sufficient fraction of participants can communicate within reasonable time. BFT-family protocols - Tendermint, HotStuff, Bullshark, Mysticeti - push finality latency down to seconds or sub-seconds, but all share a fundamental constraint: they halt when the network cannot reach quorum.
 
-Admittedly, this constraint is acceptable for data-center-class infrastructure where partitions are rare & short-lived. However it is unacceptable for mesh-native or fragmented environments; ad-hoc wireless networks, mobile-first deployments in regions with less than consistent connectivity; any setting where partitions are expected operating conditions rather than rare edge cases. Furthermore, these environments shouldn't be disallowed the same economic primatives that the others readily support.
+This constraint is acceptable for data-center-class infrastructure where partitions are rare and short-lived. It is insufficient for a growing class of environments where intermittent connectivity is the norm: ad-hoc wireless mesh networks, mobile-first deployments in regions with unreliable backhaul, maritime and remote field operations, disaster response coordination, autonomous agent fleets, and industrial IoT meshes. These environments require the same economic primitives - verifiable payments, enforceable contracts, trustless state sharing - that well-connected infrastructure readily supports.
 
-Thankfully, there is no shortage of academic literature that offer rich solutions for partition tolerance - CRDTs, eventual consistency, Bayou-style conflict resolution, anti-entropy protocols; but these techniques have seen limited adoption in production blockchain design. The gap exists because financial state is not naturally commutative: transferring tokens is an inherently non-idempotent operation where order matters and conflicts have economic consequences.
+The distributed systems literature offers rich solutions for partition tolerance - CRDTs, eventual consistency, Bayou-style conflict resolution, anti-entropy protocols - but these techniques have seen limited adoption in production blockchain design. The gap exists because financial state is not naturally commutative: transferring tokens is an inherently non-idempotent operation where order matters and conflicts have economic consequences.
 
 Rinku bridges this gap. It provides a distributed ledger designed for environments where partitions are a first-class operating condition, not a side-effect to be circumnavigated. The protocol maintains strong finality when the network is connected and degrades gracefully to provisional operation during partitions, with a deterministic merge protocol that reconciles state when connectivity is restored.
 
@@ -58,7 +57,7 @@ So far, these have proven fairly sufficient for strongly connected infrastructur
 
 ### 1.2 Rinku's Position
 
-Rinku takes a different position: **tunable consistency**. When the network is fully connected, Mysticeti-FPC delivers sub-second transaction acceptance and checkpoint-based settlement finality. When partitions occur, the network degrades gracefully to provisional acceptance - transactions continue locally, and state reconciles deterministically when partitions heal. This ensures zero disruption to availability, while equally retaining consistency and concensus.
+Rinku takes a different position: **tunable consistency**. When the network is fully connected, Mysticeti-FPC delivers sub-second transaction acceptance and checkpoint-based settlement finality. When partitions occur, the network degrades gracefully to provisional acceptance - transactions continue locally, and state reconciles deterministically when partitions heal.
 
 The core invariant: **no honest user is prevented from transacting during a partition.** Naturally, the cost of this guarantee is that some transactions may be rolled back during merge if they conflict with transactions from other partitions. Intentional abuse is economically penalized.
 
@@ -138,13 +137,13 @@ An adversary **cannot**:
 - Double-spend without detection and penalty (nonce reuse is detected during merge; Section 12)
 - Exploit partition tolerance for profit without incurring economic penalties that exceed the potential gain (Section 12.4)
 
-**Sybil resistance.** Identity and influence in the protocol are derived from staked RKU. Weight calculations use sub-linear stake scaling (`stake^0.5 * 2.0`) to reduce the advantage of large stakers while maintaining Sybil resistance. Creating many low-stake validators provides diminishing returns compared to a single high-stake validator.
+**Sybil resistance.** Identity and influence in the protocol are derived from staked RKU. Weight calculations use sub-linear stake scaling (`stake^0.5 * 2.0`) to reduce the advantage of large stakers while maintaining Sybil resistance. Note: sub-linear scaling technically *rewards* stake splitting — N validators at stake S/N each yield aggregate weight proportional to `S^0.5 * N^0.5`, which grows with N. Sybil resistance is therefore load-bearing on the minimum stake requirement (`MIN_STAKE` = 100 RKU): creating N Sybil identities requires N × 100 RKU locked capital, limiting the practical splitting advantage. See Section 12.5 for detailed analysis.
 
 ---
 
 ## 3. VerifiableObject System {#3-verifiable-objects}
 
-VerifiableObjects (VOs) are Rinku's universal container for portable, self-proving cryptographic claims. Every proof type in the system produces a `rinku://vo/` URL with embedded proof data and freshness metadata. VOs are the primary interface between the Rinku protocol and external consumers - they are how the ledger communicates provable facts to the world. Furthermore, the resource allocation typically required for the standard verification via extraneous resources (i.e running a node), or API / reliable network connectivity to network validation is no longer necessary. This could prove exceptionally powerful for lightweight operators, such as drones.
+VerifiableObjects (VOs) are Rinku's universal container for portable, self-proving cryptographic claims. Every proof type in the system produces a `rinku://vo/` URL with embedded proof data and freshness metadata. VOs are the primary interface between the Rinku protocol and external consumers - they are how the ledger communicates provable facts to the world. By embedding all verification data within the proof itself, VOs eliminate the requirement for full-node infrastructure, RPC endpoints, or reliable network connectivity for state verification.
 
 ### 3.1 Proof Types
 
@@ -242,11 +241,13 @@ Formally, Rinku's position in the CAP design space is:
 
 | Mode | Consistency | Availability | Partition Tolerance |
 |------|------------|-------------|-------------------|
-| Normal | Strong (checkpoint finality) | Full (fast-path + checkpoint) | N/A (no partition) |
-| Partitioned | Provisional (local consistency only) | Full (all Safe/BoundedSpend operations) | Full |
-| Post-merge | Strong (deterministic reconciliation) | Temporarily reduced (merge computation) | N/A (partition healed) |
+| Normal | Strong (checkpoint finality) | Full (fast-path + checkpoint) | CP: consistency is preserved; if quorum becomes unreachable, finality pauses rather than forking |
+| Partitioned | Provisional (local consistency only) | Partial (Safe and BoundedSpend transactions only; CpOnly transactions are rejected) | AP: availability is preserved for eligible transaction types at the cost of global consistency |
+| Post-merge | Strong (deterministic reconciliation) | Temporarily reduced (merge computation) | Transitional: partition has healed; deterministic convergence restores CP semantics |
 
-During partition, Rinku explicitly sacrifices global consistency in favor of local availability. The key insight is that this sacrifice is **bounded and recoverable**: the transaction taxonomy (Section 9.8) limits which operations can proceed, the partition budget system bounds the economic exposure, and the merge protocol deterministically recovers global consistency.
+Note: partition tolerance is a design property of the protocol, not a runtime state. Rinku is always partition-tolerant in the sense that partitions do not cause data loss or protocol-level inconsistency - the system's *response* to partitions is what varies between CP (Normal) and AP (Partitioned) behavior.
+
+During partition, Rinku explicitly sacrifices global consistency in favor of local availability for eligible transaction types. The key insight is that this sacrifice is **bounded and recoverable**: the transaction taxonomy (Section 9.8) limits which operations can proceed, the partition budget system bounds the economic exposure, and the merge protocol deterministically recovers global consistency.
 
 This is not eventual consistency in the CRDT sense - Rinku does not guarantee that all operations commute. Instead, it guarantees that non-commutative operations (financial transfers) are either merge-safe by design (within partition budget) or subject to explicit, deterministic conflict resolution with graduated economic penalties for abuse.
 
@@ -283,7 +284,7 @@ Rinku implements a multi-mode synchronization system optimized for different sce
 
 **Persistent storage.** All state is persisted using `redb`, a lightweight embedded database. The persistent transaction counter (`total_transactions`) is stored in metadata alongside `gas_price`, `total_supply`, and `genesis_time`, ensuring accurate counts survive DAG pruning across restarts.
 
-**Ghost account prevention.** During sync, account push-back filters out stale accounts (zero balance, zero nonce) to prevent state contamination from obsolete data.
+**Ghost account prevention.** During sync, account push-back filters out stale accounts (zero balance, zero nonce) to prevent state contamination from obsolete data. **Known edge case:** this heuristic incorrectly filters legitimate accounts that have been fully drained (sent their entire balance with no incoming transactions). Such accounts would need to receive funds again to reappear in the synced state. In practice, this affects only accounts with exactly zero balance *and* zero nonce — an account that ever transacted (nonce > 0) is preserved regardless of balance.
 
 ---
 
@@ -291,9 +292,11 @@ Rinku implements a multi-mode synchronization system optimized for different sce
 
 Rinku implements a dual-layer confirmation model: fast-path acceptance for sub-second confirmation, and checkpoint-based finality for strong, provable settlement.
 
+**Relationship to Mysticeti.** Rinku's consensus is inspired by Mysticeti [3] but is not a faithful implementation of the Mysticeti protocol. Mysticeti uses a round-based uncertified DAG where blocks themselves serve as votes, achieving consensus through DAG structure rather than explicit vote messages. Rinku borrows the core insight of sub-round-trip confirmation through parallel voting but implements it differently: fast-path uses explicit `FastPathAck` messages (point-vote accumulation) rather than DAG-embedded certificates, and checkpoint finality uses a traditional leader-based proposal with BLS aggregate signatures rather than Mysticeti's commit rule over the DAG. The term "Mysticeti-FPC" (Fast-Path Confirmation) is used to acknowledge the intellectual lineage while distinguishing the implementation.
+
 ### 6.1 Fast-Path Acceptance
 
-Fast-path provides sub-second (100–500ms) transaction **acceptance** through stake-weighted validator voting:
+Fast-path provides sub-second transaction **acceptance** through stake-weighted validator voting (observed median ~43ms, p95 ~200ms, p99 ~500ms; see Appendix C.2):
 
 - Validators receive transactions via gossip and broadcast ACK votes
 - A transaction is fast-path accepted when accumulated ACK stake exceeds 2/3 of total active stake
@@ -320,7 +323,7 @@ The checkpoint creation flow:
 2. Transactions are filtered using a `PROPAGATION_GRACE_MS` window (default 5 seconds) to ensure sufficient time for gossip propagation - this increases the likelihood that other validators have received the same transaction set.
 3. The leader computes the `tx_merkle_root` over the filtered transaction hashes and the `state_root` from the Sparse Merkle Trie.
 4. The leader broadcasts the `Checkpoint` via a `CheckpointAnnouncement` gossip message (which includes transaction bodies to prevent balance divergence).
-5. Non-leader validators receive the checkpoint, compare the `tx_merkle_root` against their own unfinalized transactions, and either adopt the checkpoint (if roots match) or enter a sync phase to reconcile missing transactions.
+5. Non-leader validators receive the checkpoint, verify the BLS aggregate signature against the known validator set (see Section 6.3), compare the `tx_merkle_root` against their own unfinalized transactions, and either adopt the checkpoint (if roots match) or enter a sync phase to reconcile missing transactions. Checkpoints that fail BLS verification are rejected outright.
 
 ### 6.3 BLS Aggregate Signatures
 
@@ -332,7 +335,9 @@ Rinku uses the BLS12-381 signature scheme (via the `blst` library, `min_pk` vari
 
 **Signer bitmaps.** To identify which validators contributed to an aggregate signature without transmitting the full validator list, Rinku uses a compact bitfield. The `signer_bitmap` is a `Vec<u8>` where the *i*-th bit corresponds to the *i*-th validator in the deterministically sorted validator set. A set bit indicates that validator signed the checkpoint. This enables any verifier with knowledge of the validator set to reconstruct the aggregate public key and verify the aggregate signature.
 
-**Verification.** Given a checkpoint hash, aggregate signature, signer bitmap, and validator set, verification proceeds: (1) parse the bitmap to identify signers, (2) aggregate their public keys, (3) verify the aggregate signature against the aggregate public key and checkpoint hash. This is a constant-time operation regardless of the number of signers (a single pairing check).
+**Verification.** Given a checkpoint hash, aggregate signature, signer bitmap, and validator set, verification proceeds: (1) parse the bitmap to identify signers, (2) compute the signer stake as the sum of effective stakes of all signers and check that `signer_stake / total_stake ≥ 2/3` (stake-weighted quorum, not signer-count quorum), (3) aggregate the signer public keys, (4) verify the aggregate signature against the aggregate public key and checkpoint hash. This is a constant-time operation regardless of the number of signers (a single pairing check). Verification is enforced at checkpoint reception — both the gossip handler (`CheckpointAnnouncement`) and the leader fallback path reject checkpoints that fail BLS verification. Checkpoints that lack an aggregate signature (e.g., during initial genesis bootstrap or sync of legacy checkpoints) are accepted with a warning log but not rejected, allowing gradual rollout of BLS enforcement.
+
+**Rogue-key mitigation.** BLS aggregate signatures are vulnerable to rogue public key attacks where an adversary constructs a public key that cancels another validator's key during aggregation, allowing forgery of aggregate signatures. Rinku mitigates this by using the `min_pk` variant of BLS12-381 (public keys on G1, signatures on G2) and requiring proof-of-knowledge (PoK) of the BLS secret key at validator registration: each validator must produce a valid BLS signature over a registration message containing their address and stake transaction hash. This signature serves as a PoK and is verified before the validator's BLS public key is added to the active validator set. This follows the construction described by Boneh, Drijvers, and Neven [5] for secure multi-signature aggregation without the need for a deaggregation step.
 
 **Double-sign detection.** The `ConsensusService` monitors for validators that sign two different checkpoint hashes at the same height. Double-signing triggers an immediate 15% stake slash and addition to a `slashed_validators` set, which reduces the validator's voting power in all pending rounds.
 
@@ -352,17 +357,20 @@ Since all validators in consensus share the same `previous_checkpoint_hash` and 
 
 **Rotation.** Because `checkpoint_height` is an input to the randomness, the leader changes every checkpoint. The combination of height-based rotation and stake-weighted selection ensures both fairness (proportional to stake) and unpredictability (cannot be known until the previous checkpoint finalizes).
 
-**Liveness fallback.** If the elected leader fails to produce a checkpoint within a configurable timeout (`leader_timeout_ms`, default 45 seconds), a fallback mechanism activates. The `should_fallback` function uses a modified height input (`checkpoint_height + 1000000`) for randomness, effectively electing an emergency replacement leader. This ensures liveness even if the primary leader is offline.
+**Liveness fallback.** If the elected leader fails to produce a checkpoint within a configurable timeout (`leader_timeout_ms`, default 45 seconds), a fallback mechanism activates. The `should_fallback` function uses a modified height input (`checkpoint_height + 1000000`) for randomness, effectively electing an emergency replacement leader. This ensures liveness even if the primary leader is offline. **Clock skew consideration:** different validators may trigger the fallback at slightly different wall-clock times due to clock skew, potentially resulting in a brief window where both the primary and fallback leaders are producing checkpoints simultaneously. This is safe — duplicate checkpoint proposals at the same height are resolved by the BLS quorum mechanism (only one can achieve 2/3 stake), and the other is discarded. However, clock skew increases the time to finality during leader failure by up to the skew magnitude.
 
 ### 6.5 Relationship Between Acceptance and Finality
 
 | Property | Fast-Path Acceptance | Checkpoint Finality |
 |----------|---------------------|-------------------|
-| Latency | 100–500ms | ~10s |
+| Latency | ~43ms median, ~500ms p99 | ~10s |
 | Quorum | >2/3 active stake (ACK votes) | >2/3 total stake (checkpoint signatures) |
+| Stake basis | Active stake only (online validators) | Total stake (all registered validators) |
 | Durability | Not persisted; lost on restart | Persisted; survives restart and sync |
 | Irreversibility | Can theoretically be excluded from checkpoint | Irreversible under honest majority |
 | Proof artifact | Fast-path ACK set | BLS-signed checkpoint with state/receipt roots |
+
+**Active vs. total stake security gap.** Fast-path quorum is measured against *active* stake (online validators), while checkpoint quorum is measured against *total* stake (all registered validators). If a significant fraction of total stake is offline, fast-path can confirm transactions with a lower absolute stake threshold than checkpoint finality. For example, if 40% of total stake is inactive, fast-path confirmation requires only >2/3 of the remaining 60% = >40% of total stake, while checkpoint finality still requires >2/3 of total stake = >66.67%. This gap is acceptable because fast-path acceptance is explicitly not a finality guarantee — it is a high-confidence signal that may be overridden by checkpoint finality. Applications requiring strong guarantees should wait for checkpoint finality.
 
 ---
 
@@ -387,9 +395,9 @@ Rinku uses a **Sparse DAG Sampling** algorithm to prevent tip explosion while ma
 
 **Orphan parent handling.** If a transaction arrives with parent references to hashes not found in the local DAG (orphan parents), the node automatically injects current known tips as parents. This ensures the transaction attaches to the main graph even if some referenced parents were pruned or never received.
 
-### 7.3 Weight Calculation
+### 7.3 DAG Weight Calculation
 
-Transaction weight is computed as:
+Transaction weight in the DAG context (distinct from WPoS reward weight in Section 11.3) determines transaction ordering priority, tip selection preference, and conflict resolution outcomes. It is computed as:
 
 ```
 effective_weight = (age_weight * balance_weight + stake_weight) * (1.0 - reputation_penalty)
@@ -414,7 +422,7 @@ The sub-linear stake weight is a deliberate design choice for decentralization: 
 
 ## 8. Partition Tolerance {#8-partition-tolerance}
 
-Consider a drone swarm operating in a contested RF environment where sub-groups regularly lose connectivity for 30-120 seconds. In this environment, partition mode is the expected operating state. The transaction classification system ensures mission-critical telemetry (Safe) continues uninterrupted, bounded resource allocation (BoundedSpend) proceeds within pre-configured limits, and consensus-critical operations (CpOnly) wait for full swarm reconnection.
+Consider any network where sub-groups regularly lose connectivity for 30-120 seconds: a fleet of field devices on an unreliable mesh, a maritime vessel cluster with intermittent satellite uplink, or a disaster response team operating on degraded infrastructure. In these environments, partition mode is the expected operating state, not an edge case. The transaction classification system ensures that data-only operations (Safe) continue uninterrupted, bounded financial transactions (BoundedSpend) proceed within pre-configured risk limits, and consensus-critical operations like staking changes (CpOnly) wait for full network reconnection.
 
 ### 8.1 Detection
 
@@ -475,6 +483,8 @@ During partition mode, all receipts and VerifiableObjects carry the `partition_e
 
 This section describes the core protocol innovation: a deterministic 5-phase merge protocol that reconciles divergent partition state while preserving maximum valid work from all partitions. This section is intended to be the most rigorous in the paper and will be the primary target of formal analysis.
 
+**Scope assumption: two-partition merge.** The current merge protocol is designed and analyzed for the two-partition case: a single network split that produces two independent partition groups, which later reconnect and reconcile. Three-way or multi-way partitions (where the network fragments into three or more independent groups simultaneously) require a fundamentally different merge coordination protocol — pairwise merge of three independent provisional chains may not commute, and the merge order could affect the final state. For the current protocol version, multi-way partitions are handled by sequential pairwise merges (each reconnecting pair merges independently, with subsequent merges treating the merged state as the new baseline). Formal analysis of commutativity guarantees for sequential pairwise merge, and a native multi-party merge protocol, are future work.
+
 ### 9.1 Determinism Requirements
 
 All merge computation must produce identical results on every node given the same inputs. This is the foundational constraint - without it, nodes would diverge after merge, which is worse than the partition itself.
@@ -525,7 +535,7 @@ This may be innocent (the user didn't know about the partition and transacted on
 
 For each conflict, a deterministic winner is selected:
 
-**Direct double-spends:** Winner is the transaction with higher cumulative DAG weight in the merged graph. If weights are within a 1.5x proximity threshold, tiebreaker is the partition with higher `visible_stake_pct` at the time of the provisional checkpoint that finalized the transaction. If still tied, the transaction with the lexicographically lower hash wins.
+**Direct double-spends:** Winner is the transaction with higher cumulative DAG weight in the merged graph. If weights are within the `WEIGHT_PROXIMITY` threshold (1.5x), a tiebreaker applies. Formally, two weights W_a and W_b are considered "proximate" when `max(W_a, W_b) / min(W_a, W_b) < 1.5` — i.e., neither weight exceeds 1.5 times the other. When weights are proximate, the tiebreaker is the partition with higher `visible_stake_pct` at the time of the provisional checkpoint that finalized the transaction. If still tied, the transaction with the lexicographically lower hash wins.
 
 **Economic overdrafts:** All transactions from the conflicting account are ordered by nonce ascending, then cumulative weight descending. Starting from the pre-partition balance (in micro-units), transactions are replayed in this order. The first transaction that would cause an overdraft - and all subsequent transactions from that account - are marked as losers.
 
@@ -573,9 +583,11 @@ function cascade_rollback(losing_txs, all_txs):
 
 **Convergence guarantee:** Each iteration can only add rollbacks, never remove them. The valid transaction set shrinks monotonically. Since the transaction set is finite, the algorithm terminates.
 
-**Proof of convergence.** Let S_i be the set of surviving transactions after iteration i. The algorithm guarantees S_{i+1} ⊆ S_i (monotonic shrinkage) because: (1) each iteration resets balances and replays from scratch, so previously-valid transactions remain valid if no new rollbacks affect their dependencies; (2) newly rolled-back transactions only occur when a dependency (balance or nonce) is broken by a prior rollback. Since S_i shrinks monotonically and is bounded below by the empty set, the algorithm converges in at most |S_0| iterations. In practice, cascades are shallow - most transactions don't depend on funds from rolled-back transactions - and convergence occurs in 1-3 iterations.
+**Proof of convergence (termination).** Let S_i be the set of surviving transactions after iteration i. The algorithm guarantees S_{i+1} ⊆ S_i (monotonic shrinkage): each iteration either produces at least one newly rolled-back transaction (|S_{i+1}| < |S_i|) or produces no new rollbacks (S_{i+1} = S_i, and the algorithm terminates). Since |S_i| ≥ 0 and decreases by at least 1 per non-terminal iteration, the algorithm terminates in at most |S_0| steps.
 
-**Complexity:** Worst case O(n^2) where n is the number of transactions in the partition period. In practice, cascades are shallow - most transactions don't depend on funds from rolled-back transactions. A partition lasting hours with thousands of transactions is expected to reconcile in seconds.
+**Proof of convergence (correctness).** Every node computing the cascade on the same input set produces identical output because: (1) the initial losing set is determined by the deterministic conflict resolution algorithm (Section 9.4); (2) `snapshot_balances_at_fork_point()` returns the same u64 micro-unit balances on all nodes (anchored to a common confirmed checkpoint); (3) `canonical_sort` produces an identical total order on all nodes (Section 9.1); (4) the replay loop is a pure deterministic function — for each transaction in canonical order, the balance check (`balances[tx.from] < cost`) and nonce continuity check (`tx.nonce > expected_nonce[tx.from]`) produce identical boolean results given identical input state; (5) because balances are reset from the fork-point snapshot at the start of each iteration and the rolled-back set only grows, the inputs to each iteration are fully determined by the growing `rolled_back` set, which is itself deterministic. Therefore S_i is identical on all nodes for all i, and the final state (balances and surviving transaction set) is identical.
+
+**Complexity:** Worst case O(n^2) where n is the number of transactions in the partition period. Each iteration is O(n) (replay all transactions), and at most n iterations occur. In practice, cascades are shallow — empirically, most transactions do not depend on funds from rolled-back transactions, and convergence occurs in 1–3 iterations. For a partition with k direct conflicts and an average dependency chain depth of d, the expected iteration count is O(d), which is typically O(1) for well-distributed transaction graphs.
 
 ### 9.6 Phase 5 - State Reconciliation
 
@@ -727,7 +739,11 @@ Contracts are compiled to WASM using standard Rust toolchain targeting `wasm32-u
 | **Maximum emittable** | 24,000,000 RKU |
 | **Halving interval** | 3,150,000 checkpoints (~1 year at 10s intervals) |
 | **Total halvings** | 5 |
-| **Minimum reward floor** | 0.122887 RKU per checkpoint |
+| **Minimum reward floor** | 0.122887 RKU per checkpoint (= initial_reward / 2^5, permanent floor that does not halve further) |
+
+**Genesis allocation distribution.** The 6,000,000 RKU genesis allocation is distributed as follows: each of the 3 genesis validators receives an initial balance sufficient to stake `GENESIS_VALIDATOR_STAKE` (50,000 RKU each, totaling 150,000 RKU staked). The remaining 5,850,000 RKU constitutes the genesis reserve, held in the genesis account for future distribution via governance (not yet implemented), ecosystem grants, and faucet funding on testnet. No single entity holds a controlling share of the genesis allocation — the maximum individual holding at genesis (if all reserve were concentrated) would be ~19.5% of total supply, insufficient for unilateral quorum influence (requires >33.33%).
+
+**Halving interval derivation.** The interval of 3,150,000 checkpoints is derived from the target of approximately 1 year per halving epoch at the design checkpoint interval of 10 seconds: `365.25 days × 24 hours × 3600 seconds / 10 seconds ≈ 3,155,760`, rounded to 3,150,000 for a clean constant. Five halvings produce a geometric emission decay (initial reward ~3.93 RKU → 1.965 → 0.983 → 0.491 → 0.246), after which the reward floor of 0.122887 RKU applies permanently — this floor does not halve further, ensuring perpetual validator incentives. With the floor in place, total supply asymptotically approaches but never exceeds 30,000,000 RKU because the emission logic enforces `min(reward, MAX_SUPPLY - current_supply)`.
 
 **Emission schedule:**
 
@@ -756,12 +772,12 @@ Where `effective_weight` is computed using the dual-weight system (Section 11.3)
 
 Rewards are credited directly to the validator's liquid balance (not to their staked balance), allowing validators to compound their stake through explicit re-staking or use rewards for other purposes.
 
-### 11.3 Weighted Proof-of-Stake (WPoS)
+### 11.3 Weighted Proof-of-Stake (WPoS) Reward Distribution
 
-Checkpoint rewards are distributed through a dual-weight system:
+Checkpoint rewards are distributed through a dual-weight system. Note: the "weight" in WPoS reward distribution is distinct from the DAG transaction weight described in Section 7.3. DAG weight determines transaction ordering priority and conflict resolution; WPoS weight determines validator reward shares.
 
-- **Stake weight (70%):** Proportional to amount staked
-- **Age weight (30%):** Rewards long-term active participation; requires minimum 100 RKU bond; decays 10% per missed checkpoint
+- **Stake weight (70%):** Proportional to amount staked. The 70/30 split is calibrated to ensure that stake remains the dominant factor in reward distribution (preventing age-only validators from receiving outsized rewards) while providing a meaningful incentive for continuous participation.
+- **Age weight (30%):** Rewards long-term active participation; requires minimum 100 RKU bond; decays 10% per missed checkpoint. Age weight is computed as `min(checkpoints_since_stake / TARGET_AGE, 1.0)` where `TARGET_AGE` is 1000 checkpoints (~2.7 hours). This ramps linearly from 0 to 1.0 over the target period, rewarding validators who maintain continuous uptime. The 10% decay per missed checkpoint penalizes intermittent validators.
 
 ### 11.4 Staking Requirements
 
@@ -803,6 +819,8 @@ The adaptive burn creates deflationary pressure that increases as the token supp
 ### 11.8 Micro-Unit Precision
 
 All internal accounting uses `u64` micro-units with 8 decimal places (1 RKU = 100,000,000 micro-RKU). This eliminates floating-point precision errors, which is particularly critical for deterministic merge reconciliation (Section 9).
+
+**Boundary disclosure.** The `AccountStateProof` API response struct intentionally carries both canonical `u64` micro-unit fields (`balance_micro`, `staked_micro`) and `f64` display fields (`balance`, `staked`) for JSON readability. The `f64` fields are derived from micro-units via `from_micro_units()` at serialization time and are provided for human consumption only. All consensus-critical operations — merge reconciliation, balance checks, gas enforcement, reward calculation — operate exclusively on `u64` micro-units. Cross-network state exchange (sync snapshots, gossip messages) also uses `u64`. The `f64` representation is lossy for values exceeding 2^53 micro-units (~90,071,992 RKU), which is above the hard cap and therefore does not affect correctness in practice.
 
 ---
 
@@ -853,34 +871,35 @@ Where `penalty_height` is the checkpoint at which the penalty was applied (store
 
 **Cascade attack analysis.** An attacker cannot deliberately cause cascades against specific victims without first losing their own funds in a direct conflict. Cascade rollbacks are a second-order effect - they require the attacker to sacrifice their own transaction first. The attacker bears the full penalty for the initiating conflict; cascade victims bear no penalty. The attacker cannot profit from cascading because the rolled-back funds return to their pre-partition state, not to the attacker.
 
+### 12.5 Acknowledged Security Considerations
+
+The following security properties are areas of active analysis and represent known open questions in the current protocol design:
+
+**Nothing-at-stake for fast-path ACKs.** Validators have no explicit penalty for selective ACK withholding — a validator can delay or omit ACKs for competitor transactions to slow their fast-path confirmation. Mitigation: fast-path is a latency optimization, not a finality mechanism; withheld ACKs only delay confirmation (the transaction still reaches checkpoint finality). Liveness failure penalties (Section 12.1) provide indirect deterrence for persistent non-participation. Formal analysis of selective withholding incentives is future work.
+
+**Partition budget replay via rapid cycling.** The partition budget resets per partition epoch. An adversary who can rapidly induce partition cycling (NORMAL → PARTITIONED → NORMAL → PARTITIONED) could multiply the effective budget by the number of cycles. Mitigation: the T_conf (30s) and T_recovery (10s) timeouts impose a minimum 40-second cycle time, bounding the cycling rate. Additionally, rapid cycling itself requires control over network connectivity affecting >1/3 of stake, which is a strong adversary assumption. A minimum inter-epoch delay or cumulative budget across epochs is under consideration.
+
+**Merge strategic delay.** A validator whose transactions will lose conflict resolution has an incentive to delay broadcasting their MergePayload. Currently, no explicit timeout enforcement or penalty for delayed merge participation is described. In practice, merge is orchestrated by the reconnecting nodes and does not require the cooperation of the validator whose transactions lose — the winning partition's state is adopted. Formal timeout-based merge liveness guarantees are future work.
+
+**Slashing evidence authentication.** `SlashingEvidence` gossip messages carry the conflicting signed messages as proof. The evidence itself is self-authenticating — the conflicting signatures are verifiable by any node against the validator's public key. However, the gossip message wrapper is not signed by the evidence submitter, meaning any node can relay (but not forge) slashing evidence. This is by design: evidence should be freely relayable, and forgery is impossible because the evidence contains the validator's own signatures.
+
+**VO proof replay within freshness window.** The `max_age_checkpoints` mechanism prevents stale proof replay but does not prevent repeated submission of the same valid proof within the freshness window. For BYOP contract interactions, this means a contract must implement its own replay protection (e.g., tracking consumed proof hashes) if single-use semantics are required. The protocol provides the freshness primitive; application-layer replay protection is the contract's responsibility.
+
+**BYOP front-running.** The receipt-composition pattern (Section 3.4) is vulnerable to front-running: an attacker observing a pending BYOP transaction can submit a competing transaction with a more favorable oracle receipt within the freshness window. This is a general MEV concern shared with all receipt-composable systems. Mitigation strategies include shorter freshness windows, commit-reveal schemes at the contract layer, and encrypted mempool proposals (future work).
+
+**Signer bitmap authentication.** The signer bitmap identifying which validators signed a checkpoint is not independently signed — it is embedded within the checkpoint data structure alongside the aggregate BLS signature. The bitmap's integrity is implicitly verified: if the bitmap is tampered with (claiming additional signers), the aggregate public key reconstruction will not match the aggregate signature, and verification will fail. An attacker cannot inflate the apparent quorum without possessing the corresponding BLS private keys.
+
+**Validator set evolution for offline VO verification.** A VO generated at checkpoint N cannot be verified offline by a party holding only the genesis validator set if the validator set changed between genesis and checkpoint N. Offline verification requires the verifier to hold a validator set that was active at the VO's checkpoint height. For long-lived offline verification, VOs should embed the signer membership proofs (Section 4.2, item 5) that chain back to a known anchor. Full validator set evolution proofs (chaining validator set changes through signed checkpoints) are future work.
+
+**Validator exit before slashing.** A validator that double-signs could attempt to front-run slashing by submitting an unstake transaction during the 24-hour cooldown. Mitigation: the 14-day unbonding period (Section 11.4) means staked tokens remain slashable for 14 days after unstaking, regardless of when the unstake was initiated. Slashing evidence submitted during the unbonding period is applied to the locked stake. A double-signer cannot escape slashing by unstaking.
+
+**Sub-linear stake and Sybil resistance.** The sub-linear stake weight formula (`stake^0.5 * 2.0`) means that splitting stake across N identities yields higher aggregate weight than a single large stake (N validators at stake S/N each have total weight `N * (S/N)^0.5 * 2.0 = 2.0 * S^0.5 * N^0.5`). Sybil resistance is therefore load-bearing on the minimum stake requirement (100 RKU): creating N Sybil validators requires N * 100 RKU, limiting the splitting advantage. The practical break-even point where splitting becomes profitable depends on the attacker's total stake relative to the minimum.
+
 ---
 
-## 13. Privacy Layer {#13-privacy}
+## 13. Networking & P2P Protocol {#13-networking}
 
-### 13.1 ZK-SNARK Integration
-
-Rinku supports optional privacy-preserving transactions using Groth16 ZK-SNARKs:
-
-- Privacy proofs generated client-side using `snarkjs` / `circomlibjs`
-- Verification artifacts hosted on CDN for client-side proof generation
-- Poseidon-based Merkle tree for efficient in-circuit state verification
-
-### 13.2 Selective Disclosure
-
-The combination of Sparse Merkle Tries and self-contained proofs enables selective disclosure: users can prove specific financial or state facts (e.g., "my balance exceeds X" or "I am a member of set Y") without revealing their full transaction history or exact balance.
-
-### 13.3 Contract-Layer Privacy
-
-Privacy features at the contract layer complement the optional ZK privacy layer:
-
-- **Sender obfuscation.** Contracts can implement a mixer pattern where transfers are routed through the contract, breaking the direct link between sender and recipient on the public DAG. The contract maintains internal transfer records encrypted to the participants.
-- **Gasless meta-transactions.** A relayer pattern allows users to submit transactions through a third party who pays the gas fee. The user signs the transaction payload; the relayer wraps it in an outer transaction and submits it to the network. The contract verifies the inner signature and executes on behalf of the original user. This provides economic privacy (the user's account doesn't need to hold RKU for gas) and can be combined with sender obfuscation for stronger anonymity.
-
----
-
-## 14. Networking & P2P Protocol {#14-networking}
-
-### 14.1 Gossipsub
+### 13.1 Gossipsub
 
 Rinku's gossip protocol operates on the `rinku/1.0.0` topic with the following message types:
 
@@ -908,7 +927,7 @@ Rinku's gossip protocol operates on the `rinku/1.0.0` topic with the following m
 
 **Deduplication.** A `BoundedHashSet` (`known_txs`) tracks recently seen transaction hashes to prevent infinite gossip loops. The set has a bounded capacity and evicts oldest entries when full.
 
-### 14.2 Lock-Free Message Handling
+### 13.2 Lock-Free Message Handling
 
 Rinku's P2P receive path is designed to eliminate mutex contention on the critical message-processing path:
 
@@ -918,11 +937,11 @@ Rinku's P2P receive path is designed to eliminate mutex contention on the critic
 
 This architecture eliminates the 5-25ms polling latency per message that would occur if the receive path needed to acquire a mutex on every incoming message, which is critical for maintaining sub-second fast-path acceptance latency under load.
 
-### 14.3 Connection Management
+### 13.3 Connection Management
 
 **Idle timeout.** Connections have a 600-second idle timeout, configured to prevent premature `KeepAliveTimeout` disconnects on low-traffic deployments where minutes may pass between gossip messages.
 
-**Mesh maintenance.** The network service periodically checks if the number of validated peers is below `MIN_MESH_PEERS` (1). If the mesh is unhealthy, it re-dials bootstrap peers to restore connectivity. The `InsufficientPeers` publish error (which occurs during startup or reconnection when no gossipsub peers are available) is logged at trace level to avoid log noise during expected transient states.
+**Mesh maintenance.** The network service periodically checks if the number of validated peers is below `MIN_MESH_PEERS`. If the mesh is unhealthy, it re-dials bootstrap peers to restore connectivity. The `InsufficientPeers` publish error (which occurs during startup or reconnection when no gossipsub peers are available) is logged at trace level to avoid log noise during expected transient states. Note: `MIN_MESH_PEERS` is currently set to 1, which is a **testnet configuration** suitable for small validator sets (3 nodes). In production, this value must be increased to prevent a single Sybil peer from capturing a validator's entire network view. A production recommendation of `MIN_MESH_PEERS ≥ 3` (or a fraction of the validator set) will be established based on mainnet validator set size.
 
 **Peer discovery.** Nodes exchange `PeerDiscovery` messages containing their known peer addresses. New peers are added to the connection pool and validated against the validator identity service. The `/api/peers` endpoint exposes the current P2P peer list as the primary field, with legacy HTTP peer information included only when non-empty.
 
@@ -930,27 +949,27 @@ This architecture eliminates the 5-25ms polling latency per message that would o
 
 ---
 
-## 15. Future Work {#15-future-work}
+## 14. Future Work {#14-future-work}
 
-### 15.1 CRDT-Compatible State Types
+### 14.1 CRDT-Compatible State Types
 
 For contract storage, introduce merge-friendly data types (sets, append-only logs, max counters, OR-maps) that can be safely updated during partitions without conflict. Ideal for social, messaging, and collaborative applications. Would integrate with the transaction classification system (Section 9.8) to automatically determine AP-safety - contracts that exclusively use CRDT-compatible state types could be classified as Safe rather than BoundedSpend.
 
-### 15.2 Object Ownership Model
+### 14.2 Object Ownership Model
 
 Explore single-writer object ownership where owned objects can be processed during partitions without conflict, while shared objects remain CP-only. This model is inspired by Sui's object-centric programming model: if an object has a single owner, mutations by that owner are inherently conflict-free across partitions. The challenge is integrating this with Rinku's account-based (rather than object-based) state model.
 
-### 15.3 Cross-Chain Proof Composability
+### 14.3 Cross-Chain Proof Composability
 
 Leverage BYOP and VerifiableObjects for cross-chain interoperability. Since VOs are self-contained and carry their own verification data, a Rinku VO could be submitted to a contract on another chain (or vice versa) as a `ProofInput`. The receiving chain would verify the proof's BLS signature against a registered Rinku validator set root. This pattern enables receipt-composable bridges without trusted relayers - the bridge contract verifies the proof's mathematical validity rather than trusting a third party to relay state.
 
-### 15.4 Contract-Level Merge Hooks
+### 14.4 Contract-Level Merge Hooks
 
 Allow contracts to define custom merge resolution logic for their storage, replacing the default "last-write-wins by weight" rule with application-aware conflict resolution. This would address the pathological contract state corruption risk identified in Section 9.1. A contract could implement a `merge_resolve(key, local_value, remote_value, local_weight, remote_weight) -> value` function that is invoked during Phase 5 of the merge protocol for each conflicting storage key.
 
 ---
 
-## 16. Conclusion {#16-conclusion}
+## 15. Conclusion {#15-conclusion}
 
 Rinku occupies a distinct position in the distributed ledger design space. Rather than making a fixed CAP tradeoff, it dynamically navigates the consistency-availability spectrum based on network conditions: strong checkpoint finality when the network is connected, provisional availability during partitions, and deterministic convergence when partitions heal.
 
@@ -970,7 +989,7 @@ Together, these mechanisms create a distributed ledger designed for environments
 
 ### A. Formal Definitions
 
-**Definition 1 (Safety).** The Rinku protocol satisfies safety if no two finalized (non-provisional) checkpoints at the same height contain conflicting state roots. Under the honest majority assumption (>2/3 stake honest), safety holds because producing conflicting finalized checkpoints requires >1/3 stake to equivocate (sign two different hashes at the same height), which is detected and slashed.
+**Definition 1 (Safety).** The Rinku protocol satisfies safety if no two finalized (non-provisional) checkpoints at the same height contain conflicting state roots. Under the honest majority assumption (>2/3 stake honest), safety holds because: (a) checkpoint BLS aggregate signatures are verified at reception against the known validator set with a 2/3 quorum requirement (Section 6.3), so accepting a conflicting checkpoint requires >1/3 stake to equivocate (sign two different hashes at the same height); and (b) double-signing is detected by the `ConsensusService` and triggers a 15% stake slash. Note: checkpoints received during snapshot sync of legacy data may lack BLS signatures and are accepted on the basis of prev_hash chain linkage only; full BLS enforcement applies to all real-time checkpoint announcements.
 
 **Definition 2 (Liveness - Normal Mode).** The protocol satisfies liveness in normal mode if every submitted valid transaction is eventually included in a finalized checkpoint, assuming >2/3 stake is reachable and the leader election mechanism produces a live leader within bounded time. The leader fallback mechanism (Section 6.4) ensures liveness even if the primary leader is offline.
 
@@ -989,8 +1008,8 @@ Together, these mechanisms create a distributed ledger designed for environments
 | HALVING_INTERVAL | 3,150,000 checkpoints | 11.1 | Reward halving period |
 | MIN_REWARD_FLOOR | 0.122887 RKU | 11.1 | Minimum checkpoint reward |
 | CHECKPOINT_INTERVAL | ~10 seconds | 6.2 | Target time between checkpoints |
-| FAST_PATH_QUORUM | 66.7% active stake | 6.1 | Fast-path acceptance threshold |
-| CHECKPOINT_QUORUM | 66.66% total stake | 6.2 | Checkpoint finality threshold |
+| FAST_PATH_QUORUM | 2/3 active stake (≈66.67%) | 6.1 | Fast-path acceptance threshold |
+| CHECKPOINT_QUORUM | 2/3 total stake (implemented as 0.6666 threshold) | 6.2 | Checkpoint finality threshold |
 | SUPER_MAJORITY | 75% total stake | 6.3 | Higher-security operations |
 | LEADER_TIMEOUT | 45 seconds | 6.4 | Fallback leader election trigger |
 | PROPAGATION_GRACE | 5,000 ms | 6.2 | Transaction propagation window |
@@ -1014,16 +1033,16 @@ Together, these mechanisms create a distributed ledger designed for environments
 | OVERDRAFT_REPUTATION | 0.10 decaying | 12.1 | Recoverable reputation penalty |
 | REPUTATION_DECAY_PERIOD | 100 checkpoints | 12.3 | Linear decay window (~16 min) |
 | DOUBLE_SIGN_SLASH | 15% | 12.1 | Stake slash for checkpoint equivocation |
-| IDLE_TIMEOUT | 600 seconds | 14.3 | P2P connection idle timeout |
-| MIN_MESH_PEERS | 1 | 14.3 | Minimum gossipsub mesh size |
-| MAX_PROPAGATION_BATCH | 100 | 14.1 | Transaction propagation batch size |
+| IDLE_TIMEOUT | 600 seconds | 13.3 | P2P connection idle timeout |
+| MIN_MESH_PEERS | 1 (**testnet**; production TBD) | 13.3 | Minimum gossipsub mesh size |
+| MAX_PROPAGATION_BATCH | 100 | 13.1 | Transaction propagation batch size |
 | WASM_MAX_PAGES | 256 (16 MB) | 10.1 | Contract memory limit |
 | WASM_DEFAULT_FUEL | 10,000,000 | 10.2 | Default instruction fuel budget |
 | MICRO_UNIT_SCALE | 10^8 | 11.8 | Micro-units per RKU |
 
-### C. Benchmarks
+### C. Benchmarks (Preliminary Testnet Data)
 
-WIP
+The following benchmarks were collected on a 3-validator Fly.io testnet deployment and represent preliminary testnet performance. Production benchmarks with larger validator sets and realistic network conditions are pending.
 
 #### C.1 Throughput
 
@@ -1038,7 +1057,7 @@ TODO
 | p99 | ~500 ms |
 | Min | ~22 ms |
 
-Measured as time from submission to fast-path confirmation status. Only confirmed samples are included; transactions that did not achieve fast-path confirmation within 10s are excluded (they proceed to checkpoint finality instead). The p50 of ~43ms demonstrates sub-second acceptance for the majority of transactions via Mysticeti-FPC fast-path consensus.
+Measured as time from submission to fast-path confirmation status. **Methodology note:** only confirmed samples are included; transactions that did not achieve fast-path confirmation within 10s are excluded (they proceed to checkpoint finality instead). The exclusion rate and combined distribution (fast-path + checkpoint finality) will be reported in production benchmarks. The p50 of ~43ms demonstrates sub-second acceptance for the majority of transactions via fast-path consensus.
 
 #### C.3 Finality Latency (Checkpoint Inclusion)
 
@@ -1057,9 +1076,9 @@ Finality latency is dominated by the checkpoint interval (10s). Transactions tha
 | Account proof (Merkle inclusion) | 21 ms | 1,953 B | 100% (5/5) |
 | Transaction proof | 26 ms | 1,841 B | 100% (5/5) |
 | Self-contained proof (VO URL) | 21 ms | 1,703 B | 100% (5/5) |
-| Batch proof (multi-receipt) | 22 ms | TODO | TODO |
+| Batch proof (multi-receipt) | 22 ms | In development | In development |
 
-All proof types are generated in under 30ms. Self-contained VerifiableObject URLs encode at ~1.7KB, enabling URL-portable verification without external state. Account proofs include the Sparse Merkle Trie inclusion path and weigh ~2KB.
+All individual proof types are generated in under 30ms. Self-contained VerifiableObject URLs encode at ~1.7KB, enabling URL-portable verification without external state. Account proofs include the Sparse Merkle Trie inclusion path and weigh ~2KB. **BatchProof** aggregation (shared checkpoint context and Merkle multiproof across multiple receipts) is implemented at the type level but end-to-end benchmarks including response size and multi-receipt verification are pending completion.
 
 ---
 

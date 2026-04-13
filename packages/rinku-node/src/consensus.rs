@@ -634,7 +634,17 @@ impl ConsensusService {
                     Ok(s) => s,
                     Err(_) => continue,
                 };
-                if bls_verify(&checkpoint_hash, &signature, bls_pk) {
+                let hash_clone = checkpoint_hash.clone();
+                let sig_clone = signature.clone();
+                let pk_clone = bls_pk.clone();
+                let valid = match tokio::task::spawn_blocking(move || bls_verify(&hash_clone, &sig_clone, &pk_clone)).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!("BLS verify spawn_blocking failed during quorum check: {}", e);
+                        false
+                    }
+                };
+                if valid {
                     verified_stake += stake;
                 }
             }
