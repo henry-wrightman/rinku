@@ -28,6 +28,7 @@ mod gossip;
 mod leader_election;
 mod mempool_cleanup;
 mod merge;
+mod micro_checkpoint;
 mod partition_detector;
 
 #[cfg(feature = "p2p")]
@@ -43,6 +44,7 @@ mod trust;
 mod validator;
 mod validator_identity;
 mod versioning;
+mod write_set;
 #[cfg(feature = "zk")]
 mod zk;
 #[cfg(feature = "tui")]

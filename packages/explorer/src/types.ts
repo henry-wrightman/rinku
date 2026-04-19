@@ -4,6 +4,7 @@ export interface Account {
   nonce: number;
   staked: number;
   firstTxTimestamp: number;
+  totalClaimed?: number;
 }
 
 export type TransactionKind = 'transfer' | 'stake' | 'unstake' | 'claim_rewards' | 'contract' | 'consolidation' | 'reward';
@@ -30,6 +31,7 @@ export interface DAGNode {
   fast_path_finality_ms?: number;
   trust_score?: number;
   attestation_count?: number;
+  effectiveAmount?: number;
 }
 
 export interface AggregatedWeight {

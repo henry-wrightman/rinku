@@ -254,7 +254,9 @@ impl NodeState {
             account.staked = staked_amount;
             state.accounts.insert(address.to_string(), account);
         }
-        state.update_state_trie_accounts(&[address.to_string()]);
+        let trie_updates = state.collect_trie_updates_for_addresses(&[address.to_string()]);
+        drop(state);
+        self.update_trie_with_tuples(&trie_updates).await;
     }
 
     pub async fn apply_contract_transfer_effects(&self, effects: &[crate::contracts::TransferEffect]) -> anyhow::Result<()> {
@@ -316,7 +318,9 @@ impl NodeState {
         let changed: Vec<String> = effects.iter()
             .flat_map(|e| vec![e.from.clone(), e.to.clone()])
             .collect();
-        state.update_state_trie_accounts(&changed);
+        let trie_updates = state.collect_trie_updates_for_addresses(&changed);
+        drop(state);
+        self.update_trie_with_tuples(&trie_updates).await;
         Ok(())
     }
 

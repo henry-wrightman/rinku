@@ -1092,6 +1092,7 @@ mod tests {
             partition_epoch: None,
             rolled_back: false,
             fast_path_cert: None,
+            effective_amount: None,
         }
     }
 

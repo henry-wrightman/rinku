@@ -293,12 +293,9 @@ const getApiBaseUrl = () => {
   }
 
   if (import.meta.env.PROD) {
-    // Production on Replit: transform port in hostname
+    // Production: transform port in hostname
     const host = window.location.hostname;
-    console.log(
-      "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}`,
-    );
+    console.log("prod api url", `https://${host.replace(/-5000\./, "-3001.")}`);
     return `https://${host.replace(/-5000\./, "-3001.")}`;
   }
   return ""; // Dev: use Vite proxy (fetch calls already include /api prefix)
@@ -509,13 +506,13 @@ function HashTransactionPage() {
                 </span>
               </div>
               <div className="meta-row">
-                <span className="label">snapshot</span>
+                <span className="label">checkpoint</span>
                 <span className="value mono">
                   {truncate(prunedInfo.checkpointId, 16)}
                 </span>
               </div>
               <div className="meta-row">
-                <span className="label">snapshot height</span>
+                <span className="label">checkpoint height</span>
                 <span className="value">{prunedInfo.checkpointHeight}</span>
               </div>
               <div className="meta-row">
@@ -526,7 +523,7 @@ function HashTransactionPage() {
             <div className="tx-note" style={{ marginTop: 16 }}>
               <p>
                 Pruned transactions are still part of the permanent ledger. The
-                snapshot contains a Merkle root that cryptographically proves
+                checkpoint contains a Merkle root that cryptographically proves
                 this transaction existed.
               </p>
               <p style={{ marginTop: 12 }}>
@@ -699,7 +696,7 @@ function HashTransactionPage() {
           </div>
           {tx.amount === 0 && (tx.memo || tx.references) && !tx.finalized && (
             <div className="meta-row">
-              <span className="label">convergence</span>
+              <span className="label">fast-path</span>
               <span className="value" style={{ color: "#88c0d0" }}>
                 eligible (~200ms finality)
               </span>
@@ -719,7 +716,7 @@ function HashTransactionPage() {
           {tx.finality && (
             <>
               <div className="meta-row">
-                <span className="label">snapshot</span>
+                <span className="label">checkpoint</span>
                 <span className="value mono">
                   {truncate(tx.finality.checkpointId, 16)}
                 </span>

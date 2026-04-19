@@ -111,6 +111,8 @@ pub struct RewardsSummary {
     #[serde(with = "micro_serde")]
     pub total_rewards: u64,
     #[serde(with = "micro_serde")]
+    pub claimed_rewards: u64,
+    #[serde(with = "micro_serde")]
     pub pending_rewards: u64,
 }
 
@@ -449,6 +451,23 @@ impl RewardsService {
         Ok(amount)
     }
 
+    pub fn unstake_rollback(&mut self, staker: &str, amount: u64, tx_hash: &str) {
+        self.processed_stake_tx_hashes.remove(tx_hash);
+        self.processed_stake_tx_order.retain(|h| h != tx_hash);
+        if let Some(stake) = self.stakes.get_mut(staker) {
+            stake.amount = stake.amount.saturating_sub(amount);
+            if stake.amount == 0 {
+                self.stakes.remove(staker);
+            }
+        }
+        tracing::info!(
+            "STAKE ROLLBACK: {} rolled back {} for tx {}",
+            &staker[..16.min(staker.len())],
+            amount,
+            &tx_hash[..16.min(tx_hash.len())]
+        );
+    }
+
     pub fn get_stake(&self, staker: &str) -> Option<&StakePosition> {
         self.stakes.get(staker)
     }
@@ -516,6 +535,7 @@ impl RewardsService {
             stake_rewards: stake,
             witness_rewards: witness,
             total_rewards: authoritative_total,
+            claimed_rewards: claimed,
             pending_rewards: pending,
         }
     }

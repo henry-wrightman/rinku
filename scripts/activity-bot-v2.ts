@@ -200,7 +200,7 @@ async function queryNonce(
       return data.effective_nonce ?? data.nonce ?? 0;
     }
   } catch {}
-  return 0;
+  return -1;
 }
 
 async function queryHighestNonce(fingerprint: string): Promise<number> {
@@ -436,7 +436,7 @@ async function sendTransaction(
 ): Promise<boolean> {
   try {
     const freshNonce = await queryNonce(sender.fingerprint, sender.nodeUrl);
-    if (freshNonce > 0 && freshNonce !== sender.nonce) {
+    if (freshNonce >= 0 && freshNonce !== sender.nonce) {
       sender.nonce = freshNonce;
     }
 
@@ -485,10 +485,10 @@ async function sendTransaction(
         try {
           await new Promise((r) => setTimeout(r, 500));
           let confirmedNonce = await queryNonce(sender.fingerprint, sender.nodeUrl);
-          if (confirmedNonce <= 0) {
+          if (confirmedNonce < 0) {
             confirmedNonce = await queryHighestNonce(sender.fingerprint);
           }
-          if (confirmedNonce > 0) {
+          if (confirmedNonce >= 0) {
             sender.nonce = confirmedNonce;
           }
         } catch {
@@ -517,11 +517,16 @@ async function sendTransaction(
         }
       } else if (errMsg.toLowerCase().includes("nonce")) {
         await new Promise((r) => setTimeout(r, 300));
-        const expectedMatch = errMsg.match(/expected\s+(\d+)/i);
-        if (expectedMatch) {
-          sender.nonce = parseInt(expectedMatch[1], 10);
+        const freshNonceRecovery = await queryNonce(sender.fingerprint, sender.nodeUrl);
+        if (freshNonceRecovery >= 0) {
+          sender.nonce = freshNonceRecovery;
         } else {
-          sender.nonce = await queryHighestNonce(sender.fingerprint);
+          const expectedMatch = errMsg.match(/expected\s+(\d+)/i);
+          if (expectedMatch) {
+            sender.nonce = parseInt(expectedMatch[1], 10);
+          } else {
+            sender.nonce = await queryHighestNonce(sender.fingerprint);
+          }
         }
       } else if (errMsg.toLowerCase().includes("does not exist")) {
         await wallet_resync(sender);
@@ -600,7 +605,7 @@ function reportStats() {
 }
 
 async function refillLowBalances() {
-  const lowAccounts = accounts.filter((a) => a.balance < 10 && !a.busy);
+  const lowAccounts = accounts.filter((a) => a.balance < 30 && !a.busy);
   for (const acc of lowAccounts.slice(0, 5)) {
     const success = await faucetRequest(acc.fingerprint);
     if (success) {
@@ -631,7 +636,7 @@ async function runRealisticMode() {
       }
 
       const recipient = pickRandomOther(accounts, slot);
-      const amount = Math.max(0.001, Number((Math.random() * 0.99).toFixed(3)));
+      const amount = Math.max(0.001, Number((Math.random() * 0.1).toFixed(3)));
 
       const sent = await sendTransaction(slot, recipient, amount);
       if (sent) {

@@ -18,12 +18,9 @@ const getApiBaseUrl = () => {
   }
 
   if (import.meta.env.PROD) {
-    // Production on Replit: transform port in hostname
+    // Production: transform port in hostname
     const host = window.location.hostname;
-    console.log(
-      "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}`,
-    );
+    console.log("prod api url", `https://${host.replace(/-5000\./, "-3001.")}`);
     return `https://${host.replace(/-5000\./, "-3001.")}`;
   }
   return ""; // Dev: use Vite proxy (fetch calls already include /api prefix)
@@ -42,6 +39,7 @@ interface TransactionData {
   hash?: string;
   kind?: TransactionKind;
   data?: string;
+  effectiveAmount?: number;
 }
 
 interface ApiResponse {
@@ -405,7 +403,7 @@ function TransactionPage() {
         setTrustScore({ loading: false, error: "Failed to fetch trust score" });
       });
 
-    // Fetch convergence finality status
+    // Fetch fast-path finality status
     fetch(`${NODE_URL}/api/tx/fast/${tx.hash}`)
       .then((res) => res.json())
       .then((data: FastPathStatusData) => {
@@ -499,7 +497,10 @@ function TransactionPage() {
         </div>
 
         <div className="tx-amount">
-          {tx.amount.toLocaleString()} <span className="unit">RKU</span>
+          {(tx.effectiveAmount != null && tx.effectiveAmount > 0)
+            ? tx.effectiveAmount.toLocaleString()
+            : tx.amount.toLocaleString()}{" "}
+          <span className="unit">RKU</span>
           {(tx.fee ?? 0) > 0 && (
             <span
               className="fee"
@@ -551,14 +552,18 @@ function TransactionPage() {
                   fontWeight: "bold",
                 }}
               >
-                {fpStatus.status === "confirmed" || fpStatus.status === "executed" || fpStatus.status === "finalized" ? "finalized" : fpStatus.status}
+                {fpStatus.status === "confirmed" ||
+                fpStatus.status === "executed" ||
+                fpStatus.status === "finalized"
+                  ? "finalized"
+                  : fpStatus.status}
                 {fpStatus.finality_time_ms != null &&
                   ` (${fpStatus.finality_time_ms}ms)`}
                 {fpStatus.quorum_percent > 0 &&
                   fpStatus.status !== "confirmed" &&
                   fpStatus.status !== "executed" &&
                   fpStatus.status !== "finalized" &&
-                  ` · ${fpStatus.quorum_percent}% convergence`}
+                  ` · ${fpStatus.quorum_percent}% quorum`}
               </span>
             </div>
           )}

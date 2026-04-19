@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { DAGNode, TransactionKind } from "../types";
 import { truncate, timeAgo } from "../utils";
 import { Pagination } from "./Pagination";
+import { useDisplayRateLimiter } from "../hooks/useDisplayRateLimiter";
 
 const getApiBaseUrl = () => {
   const envApiUrl = import.meta.env.VITE_API_URL;
@@ -64,7 +65,12 @@ const statusInfo = (node: DAGNode) => {
   }
   if (node.finalized)
     return { text: null, color: "#a3be8c", cls: "st-final", anchored: true };
-  return { text: "pending", color: "#ebcb8b", cls: "st-pending", anchored: false };
+  return {
+    text: "pending",
+    color: "#ebcb8b",
+    cls: "st-pending",
+    anchored: false,
+  };
 };
 
 interface ProofState {
@@ -80,11 +86,15 @@ interface DAGTabProps {
   totalNodes: number;
   hasMore: boolean;
   onPageChange: (page: number) => void;
+  currentTps?: number;
 }
 
 const PAGE_SIZE = 50;
 const NEW_TX_DURATION = 3000;
 const MAX_VISIBLE_PER_GROUP = 5;
+const STREAM_MODE_TPS_THRESHOLD = 20;
+const STREAM_MAX_VISIBLE = 12;
+const STREAM_CADENCE_MS = 100;
 
 export function DAGTab({
   nodes,
@@ -93,6 +103,7 @@ export function DAGTab({
   totalNodes,
   hasMore,
   onPageChange,
+  currentTps = 0,
 }: DAGTabProps) {
   const [newHashes, setNewHashes] = useState<Set<string>>(new Set());
   const [proofStates, setProofStates] = useState<Record<string, ProofState>>(
@@ -131,52 +142,61 @@ export function DAGTab({
     prevHashesRef.current = currentHashes;
   }, [nodes]);
 
-  const copyProofUrl = useCallback(async (hash: string) => {
-    setProofStates((prev) => ({
-      ...prev,
-      [hash]: { loading: true, copied: false },
-    }));
-
-    try {
-      const apiUrl = NODE_URL.endsWith("/api") ? NODE_URL : `${NODE_URL}/api`;
-      const res = await fetch(`${apiUrl}/tx/${hash}/proof`);
-      const data = await res.json();
-
-      if (data.proofUrl) {
-        await navigator.clipboard.writeText(data.proofUrl);
-        setProofStates((prev) => ({
-          ...prev,
-          [hash]: { loading: false, copied: true },
-        }));
-        setTimeout(() => {
-          setProofStates((prev) => ({
-            ...prev,
-            [hash]: { loading: false, copied: false },
-          }));
-        }, 2000);
-      } else {
-        setProofStates((prev) => ({
-          ...prev,
-          [hash]: {
-            loading: false,
-            copied: false,
-            error: data.error || "Not finalized",
-          },
-        }));
-        setTimeout(() => {
-          setProofStates((prev) => ({
-            ...prev,
-            [hash]: { loading: false, copied: false },
-          }));
-        }, 2000);
-      }
-    } catch {
+  const copyProofUrl = useCallback(
+    async (hash: string, isFastPath: boolean) => {
       setProofStates((prev) => ({
         ...prev,
-        [hash]: { loading: false, copied: false, error: "Failed" },
+        [hash]: { loading: true, copied: false },
       }));
-    }
-  }, []);
+
+      const setResult = (state: ProofState) => {
+        setProofStates((prev) => ({ ...prev, [hash]: state }));
+        if (state.copied || state.error) {
+          setTimeout(() => {
+            setProofStates((prev) => ({
+              ...prev,
+              [hash]: { loading: false, copied: false },
+            }));
+          }, 2000);
+        }
+      };
+
+      try {
+        const apiUrl = NODE_URL.endsWith("/api") ? NODE_URL : `${NODE_URL}/api`;
+        const endpoints = isFastPath
+          ? [
+              `${apiUrl}/tx/${hash}/fast-path-proof`,
+              `${apiUrl}/tx/${hash}/proof`,
+            ]
+          : [`${apiUrl}/tx/${hash}/proof`];
+
+        let proofUrl: string | null = null;
+        for (const endpoint of endpoints) {
+          try {
+            const res = await fetch(endpoint);
+            if (!res.ok) continue;
+            const data = await res.json();
+            if (data.proofUrl || data.url) {
+              proofUrl = data.proofUrl || data.url;
+              break;
+            }
+          } catch {
+            continue;
+          }
+        }
+
+        if (proofUrl) {
+          await navigator.clipboard.writeText(proofUrl);
+          setResult({ loading: false, copied: true });
+        } else {
+          setResult({ loading: false, copied: false, error: "No proof yet" });
+        }
+      } catch {
+        setResult({ loading: false, copied: false, error: "Failed" });
+      }
+    },
+    [],
+  );
 
   if (expandedHash) {
     const found = nodes.find((n) => n.hash === expandedHash);
@@ -187,7 +207,8 @@ export function DAGTab({
 
   const pinned = pinnedNodeRef.current;
   const hasPinnedInPage = pinned && nodes.some((n) => n.hash === pinned.hash);
-  const effectiveNodes = pinned && !hasPinnedInPage ? [pinned, ...nodes] : nodes;
+  const effectiveNodes =
+    pinned && !hasPinnedInPage ? [pinned, ...nodes] : nodes;
 
   if (effectiveNodes.length === 0) {
     return <div className="empty">no transactions yet</div>;
@@ -195,12 +216,12 @@ export function DAGTab({
 
   const GROUP_ORDER: (TransactionKind | "transfer")[] = [
     "transfer",
-    "consolidation",
     "stake",
     "unstake",
     "claim_rewards",
     "contract",
     "reward",
+    "consolidation",
   ];
 
   const GROUP_LABELS: Record<string, string> = {
@@ -236,12 +257,13 @@ export function DAGTab({
       nodes: grouped.get(k)!,
       color: "#d8dee9",
     })),
-  ].sort((a, b) => a.nodes.length - b.nodes.length);
+  ];
 
   const renderRow = (node: DAGNode) => {
     const isNew = newHashes.has(node.hash);
     const isExpanded = expandedHash === node.hash;
-    const isPinned = isExpanded && pinned?.hash === node.hash && !hasPinnedInPage;
+    const isPinned =
+      isExpanded && pinned?.hash === node.hash && !hasPinnedInPage;
     const st = statusInfo(node);
     const kc = kindColor(node.kind);
     const kl = kindLabel(node.kind);
@@ -260,7 +282,11 @@ export function DAGTab({
           </span>
           <span className="tx-hash">{truncate(node.hash, 10)}</span>
           <span className="tx-amount">
-            {node.amount > 0 ? `${node.amount.toLocaleString()} RKU` : ""}
+            {node.effectiveAmount != null && node.effectiveAmount > 0
+              ? `${node.effectiveAmount.toLocaleString()} RKU`
+              : node.amount > 0
+                ? `${node.amount.toLocaleString()} RKU`
+                : ""}
           </span>
           {node.fee > 0 && (
             <span className="tx-fee">+{node.fee.toFixed(5)}</span>
@@ -272,7 +298,9 @@ export function DAGTab({
           </span>
           <span className="tx-time">{timeAgo(node.ts)}</span>
           {st.text && <span className={`tx-status ${st.cls}`}>{st.text}</span>}
-          {st.anchored && <span className="tx-status st-anchored">anchored</span>}
+          {st.anchored && (
+            <span className="tx-status st-anchored">anchored</span>
+          )}
           {node.trust_score !== undefined &&
             node.attestation_count !== undefined &&
             node.attestation_count > 0 && (
@@ -330,7 +358,10 @@ export function DAGTab({
                   vote
                 </Link>
               )}
-              {node.finalized && (
+              {(node.finalized ||
+                node.fast_path_status === "confirmed" ||
+                node.fast_path_status === "executed" ||
+                node.fast_path_status === "finalized") && (
                 <span
                   className="link"
                   style={{
@@ -340,7 +371,14 @@ export function DAGTab({
                         ? "#bf616a"
                         : "#88c0d0",
                   }}
-                  onClick={() => copyProofUrl(node.hash)}
+                  onClick={() =>
+                    copyProofUrl(
+                      node.hash,
+                      node.fast_path_status === "confirmed" ||
+                        node.fast_path_status === "executed" ||
+                        node.fast_path_status === "finalized",
+                    )
+                  }
                 >
                   {proofStates[node.hash]?.loading
                     ? "..."
@@ -367,50 +405,124 @@ export function DAGTab({
     });
   };
 
+  const streamMode = currentTps >= STREAM_MODE_TPS_THRESHOLD;
+
   return (
     <div className="dag-feed">
-      {sortedGroups.map((g) => {
-        const isGroupExpanded = expandedGroups.has(g.kind);
-        const cap = isGroupExpanded ? g.nodes.length : MAX_VISIBLE_PER_GROUP;
-        const visible = g.nodes.slice(0, cap);
-        const pinnedInGroup = pinned && !hasPinnedInPage && (pinned.kind || "transfer") === g.kind
-          && !visible.some((n) => n.hash === pinned.hash);
-        if (pinnedInGroup) {
-          visible.unshift(pinned);
-        }
-        const hidden = g.nodes.length - visible.length;
-
-        return (
-          <div className="feed-group" key={g.kind}>
-            <div className="feed-group-header">
-              <span className="feed-dot" style={{ background: g.color }} />
-              {g.label} ({g.nodes.length})
-              {g.nodes.length > MAX_VISIBLE_PER_GROUP && (
-                <span
-                  className="feed-group-toggle"
-                  onClick={() => toggleGroup(g.kind)}
-                >
-                  {isGroupExpanded ? "collapse" : `+${hidden} more`}
-                </span>
-              )}
-            </div>
-            {visible.map(renderRow)}
-          </div>
-        );
-      })}
-
-      <Pagination
-        page={page}
-        totalItems={totalNodes}
-        pageSize={PAGE_SIZE}
-        onPageChange={onPageChange}
+      <DagFeedHeader
+        streamMode={streamMode}
+        currentTps={currentTps}
+        nodes={effectiveNodes}
       />
+      {streamMode ? (
+        <StreamFeed nodes={effectiveNodes} renderRow={renderRow} />
+      ) : (
+        sortedGroups.map((g) => {
+          const isGroupExpanded = expandedGroups.has(g.kind);
+          const cap = isGroupExpanded ? g.nodes.length : MAX_VISIBLE_PER_GROUP;
+          const visible = g.nodes.slice(0, cap);
+          const pinnedInGroup =
+            pinned &&
+            (pinned.kind || "transfer") === g.kind &&
+            !visible.some((n) => n.hash === pinned.hash);
+          if (pinnedInGroup) {
+            visible.unshift(pinned);
+          }
+          const hidden = g.nodes.length - visible.length;
+
+          return (
+            <div className="feed-group" key={g.kind}>
+              <div className="feed-group-header">
+                <span className="feed-dot" style={{ background: g.color }} />
+                {g.label} ({g.nodes.length})
+                {g.nodes.length > MAX_VISIBLE_PER_GROUP && (
+                  <span
+                    className="feed-group-toggle"
+                    onClick={() => toggleGroup(g.kind)}
+                  >
+                    {isGroupExpanded ? "collapse" : `+${hidden} more`}
+                  </span>
+                )}
+              </div>
+              {visible.map(renderRow)}
+            </div>
+          );
+        })
+      )}
+
+      {!streamMode && (
+        <Pagination
+          page={page}
+          totalItems={totalNodes}
+          pageSize={PAGE_SIZE}
+          onPageChange={onPageChange}
+        />
+      )}
 
       {merkleRoot && (
         <div style={{ marginTop: 16, color: "#444", fontSize: 11 }}>
           merkle root: {truncate(merkleRoot, 16)}
         </div>
       )}
+    </div>
+  );
+}
+
+interface DagFeedHeaderProps {
+  streamMode: boolean;
+  currentTps: number;
+  nodes: DAGNode[];
+}
+
+function DagFeedHeader({ streamMode, currentTps, nodes }: DagFeedHeaderProps) {
+  const result = useDisplayRateLimiter(streamMode ? nodes : [], {
+    targetCadenceMs: STREAM_CADENCE_MS,
+    maxVisible: 1,
+  });
+
+  if (!streamMode) return null;
+
+  const tps = Math.round(currentTps);
+  const overflow = result.overflowPerSec;
+  const queue = result.queueDepth;
+
+  return (
+    <div className="stream-header">
+      {/* <span className="stream-mode-badge">stream mode</span>
+      <span className="stream-tps">
+        <span className="stream-tps-num">{tps}</span>
+        <span className="stream-tps-label">tps</span>
+      </span> */}
+      {overflow > 0 && (
+        <span className="stream-overflow">+{overflow}/s flowing past</span>
+      )}
+      {queue > 0 && <span className="stream-queue">queue: {queue}</span>}
+    </div>
+  );
+}
+
+interface StreamFeedProps {
+  nodes: DAGNode[];
+  renderRow: (node: DAGNode) => React.ReactNode;
+}
+
+function StreamFeed({ nodes, renderRow }: StreamFeedProps) {
+  const { visibleNodes } = useDisplayRateLimiter(nodes, {
+    targetCadenceMs: STREAM_CADENCE_MS,
+    maxVisible: STREAM_MAX_VISIBLE,
+  });
+
+  if (visibleNodes.length === 0) {
+    return <div className="empty">waiting for stream...</div>;
+  }
+
+  return (
+    <div className="stream-feed">
+      {visibleNodes.map((node) => (
+        <div key={node.hash} className="stream-row-wrapper">
+          {renderRow(node)}
+        </div>
+      ))}
     </div>
   );
 }

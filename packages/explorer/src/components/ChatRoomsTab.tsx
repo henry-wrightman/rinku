@@ -54,8 +54,12 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [optimisticJoins, setOptimisticJoins] = useState<Set<string>>(new Set());
-  const [optimisticMessagesByRoom, setOptimisticMessagesByRoom] = useState<Record<string, ChatMessage[]>>({});
+  const [optimisticJoins, setOptimisticJoins] = useState<Set<string>>(
+    new Set(),
+  );
+  const [optimisticMessagesByRoom, setOptimisticMessagesByRoom] = useState<
+    Record<string, ChatMessage[]>
+  >({});
   const [optimisticRooms, setOptimisticRooms] = useState<RoomMeta[]>([]);
   const [joinRoomInput, setJoinRoomInput] = useState("");
   const [systemEvents, setSystemEvents] = useState<ChatMessage[]>([]);
@@ -89,33 +93,50 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
             if (meta) roomList.push(meta);
           }
           setRooms(roomList);
-          setOptimisticRooms(prev => prev.filter(
-            r => !roomIds.includes(r.id)
-          ));
+          setOptimisticRooms((prev) =>
+            prev.filter((r) => !roomIds.includes(r.id)),
+          );
         }
 
         if (activeRoom) {
-          const meta = data.state[`room:${activeRoom}:meta`] as RoomMeta | undefined;
+          const meta = data.state[`room:${activeRoom}:meta`] as
+            | RoomMeta
+            | undefined;
           if (meta) {
             setRoomMeta(meta);
-            const memberList = data.state[`room:${activeRoom}:members`] as string[] | undefined;
+            const memberList = data.state[`room:${activeRoom}:members`] as
+              | string[]
+              | undefined;
             if (memberList) {
               const prev = prevMembersRef.current;
               if (prev.length > 0) {
-                const left = prev.filter(m => !memberList.includes(m));
-                const joined = memberList.filter(m => !prev.includes(m));
+                const left = prev.filter((m) => !memberList.includes(m));
+                const joined = memberList.filter((m) => !prev.includes(m));
                 const now = Math.floor(Date.now() / 1000);
                 const newEvents: ChatMessage[] = [];
                 for (const addr of left) {
-                  newEvents.push({ seq: -100000 - now, author: "system", ts: now, content: `${addr.slice(0, 10)}... left the room` });
+                  newEvents.push({
+                    seq: -100000 - now,
+                    author: "system",
+                    ts: now,
+                    content: `${addr.slice(0, 10)}... left the room`,
+                  });
                 }
                 for (const addr of joined) {
-                  if (addr !== keyPair?.fingerprint || !optimisticJoins.has(activeRoom)) {
-                    newEvents.push({ seq: -100000 - now - 1, author: "system", ts: now, content: `${addr.slice(0, 10)}... joined the room` });
+                  if (
+                    addr !== keyPair?.fingerprint ||
+                    !optimisticJoins.has(activeRoom)
+                  ) {
+                    newEvents.push({
+                      seq: -100000 - now - 1,
+                      author: "system",
+                      ts: now,
+                      content: `${addr.slice(0, 10)}... joined the room`,
+                    });
                   }
                 }
                 if (newEvents.length > 0) {
-                  setSystemEvents(prev => [...prev.slice(-20), ...newEvents]);
+                  setSystemEvents((prev) => [...prev.slice(-20), ...newEvents]);
                 }
               }
               prevMembersRef.current = memberList;
@@ -129,18 +150,22 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
             const startSeq = count > fetchCount ? count - fetchCount : 0;
             for (let seq = startSeq; seq < count; seq++) {
               const slot = seq % cap;
-              const msg = data.state[`room:${activeRoom}:msg:${slot}`] as ChatMessage | undefined;
+              const msg = data.state[`room:${activeRoom}:msg:${slot}`] as
+                | ChatMessage
+                | undefined;
               if (msg) msgs.push(msg);
             }
             setMessages(msgs);
             if (activeRoom) {
-              setOptimisticMessagesByRoom(prev => {
+              setOptimisticMessagesByRoom((prev) => {
                 const roomMsgs = prev[activeRoom] || [];
                 if (roomMsgs.length === 0) return prev;
                 const now = Math.floor(Date.now() / 1000);
-                const filtered = roomMsgs.filter(om => {
-                  const matchByContent = msgs.some(m => m.content === om.content);
-                  const tooOld = (now - om.ts) > 30;
+                const filtered = roomMsgs.filter((om) => {
+                  const matchByContent = msgs.some(
+                    (m) => m.content === om.content,
+                  );
+                  const tooOld = now - om.ts > 30;
                   return !matchByContent && !tooOld;
                 });
                 if (filtered.length === 0) {
@@ -171,9 +196,12 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
   }, [contractId, fetchContractState]);
 
   useEffect(() => {
-    if (!contractId || !lastBatch || lastBatch.id === lastBatchIdRef.current) return;
+    if (!contractId || !lastBatch || lastBatch.id === lastBatchIdRef.current)
+      return;
     lastBatchIdRef.current = lastBatch.id;
-    const relevant = lastBatch.items.some(e => e.type === 'FastPathExecuted' || e.type === 'CheckpointCreated');
+    const relevant = lastBatch.items.some(
+      (e) => e.type === "CheckpointCreated",
+    );
     if (relevant && !chatRoomRefreshRef.current) {
       chatRoomRefreshRef.current = setTimeout(() => {
         chatRoomRefreshRef.current = null;
@@ -183,12 +211,15 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
   }, [lastBatch, contractId, fetchContractState]);
 
   useEffect(() => {
-    if (!contractId || wsStatus === 'connected') return;
+    if (!contractId || wsStatus === "connected") return;
     const interval = setInterval(fetchContractState, 3000);
     return () => clearInterval(interval);
   }, [wsStatus, contractId, fetchContractState]);
 
-  const callContract = async (entrypoint: string, input: Record<string, unknown>) => {
+  const callContract = async (
+    entrypoint: string,
+    input: Record<string, unknown>,
+  ) => {
     if (!walletReady || !keyPair || !contractId) return null;
     setError(null);
     setSubmitting(true);
@@ -205,13 +236,8 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
         kind: "contract",
         data: contractData,
       });
-      const pollState = async () => {
-        for (let i = 0; i < 5; i++) {
-          await new Promise(r => setTimeout(r, 3000));
-          await fetchContractState();
-        }
-      };
-      pollState();
+      setTimeout(() => fetchContractState(), 200);
+      setTimeout(() => fetchContractState(), 1500);
       return result;
     } catch (e: any) {
       setError(e.message);
@@ -253,27 +279,33 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
       });
 
       const txHash = result.hash;
-      setStatus(`chat contract deployed! tx: ${txHash.slice(0, 16)}... (waiting for finalization...)`);
+      setStatus(
+        `chat contract deployed! tx: ${txHash.slice(0, 16)}... (waiting for finalization...)`,
+      );
 
       const pollForContract = async (attempts: number) => {
         for (let i = 0; i < attempts; i++) {
-          await new Promise(r => setTimeout(r, 3000));
+          await new Promise((r) => setTimeout(r, 3000));
           try {
             const res = await fetch(`${NODE_URL}/contracts`);
             const data = await res.json();
             const contracts = data.contracts || [];
             const found = contracts.find(
-              (c: any) => c.creator === keyPair.fingerprint
+              (c: any) => c.creator === keyPair.fingerprint,
             );
             if (found) {
               setContractId(found.contractId);
               localStorage.setItem("rinku_chat_contract", found.contractId);
-              setStatus(`connected to chat contract: ${found.contractId.slice(0, 16)}...`);
+              setStatus(
+                `connected to chat contract: ${found.contractId.slice(0, 16)}...`,
+              );
               return;
             }
           } catch {}
         }
-        setStatus(`deploy tx submitted. enter the contract id manually after finalization.`);
+        setStatus(
+          `deploy tx submitted. enter the contract id manually after finalization.`,
+        );
       };
       pollForContract(10);
     } catch (e: any) {
@@ -305,16 +337,19 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
       setStatus(`room created!`);
       setActiveRoom(roomId);
       setSidebarOpen(false);
-      setOptimisticJoins(prev => new Set(prev).add(roomId));
-      setOptimisticRooms(prev => [...prev, {
-        id: roomId,
-        name: roomName,
-        owner: keyPair!.fingerprint,
-        created_at: Math.floor(Date.now() / 1000),
-        member_count: 1,
-        message_count: 0,
-        capacity: 50,
-      }]);
+      setOptimisticJoins((prev) => new Set(prev).add(roomId));
+      setOptimisticRooms((prev) => [
+        ...prev,
+        {
+          id: roomId,
+          name: roomName,
+          owner: keyPair!.fingerprint,
+          created_at: Math.floor(Date.now() / 1000),
+          member_count: 1,
+          message_count: 0,
+          capacity: 50,
+        },
+      ]);
     }
   };
 
@@ -322,14 +357,14 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
     const result = await callContract("join_room", { id: roomId });
     if (result) {
       setActiveRoom(roomId);
-      setOptimisticJoins(prev => new Set(prev).add(roomId));
+      setOptimisticJoins((prev) => new Set(prev).add(roomId));
       setStatus(`joined #${roomId}`);
     }
   };
 
   const handleLeaveRoom = async (roomId: string) => {
     await callContract("leave_room", { id: roomId });
-    setOptimisticJoins(prev => {
+    setOptimisticJoins((prev) => {
       const next = new Set(prev);
       next.delete(roomId);
       return next;
@@ -351,23 +386,26 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
     setMessageInput("");
     const seq = optimisticSeqRef.current--;
     const roomId = activeRoom;
-    setOptimisticMessagesByRoom(prev => ({
+    setOptimisticMessagesByRoom((prev) => ({
       ...prev,
-      [roomId]: [...(prev[roomId] || []), {
-        seq,
-        author: keyPair.fingerprint,
-        ts: Math.floor(Date.now() / 1000),
-        content,
-      }],
+      [roomId]: [
+        ...(prev[roomId] || []),
+        {
+          seq,
+          author: keyPair.fingerprint,
+          ts: Math.floor(Date.now() / 1000),
+          content,
+        },
+      ],
     }));
     const result = await callContract("send_message", {
       id: roomId,
       content,
     });
     if (!result) {
-      setOptimisticMessagesByRoom(prev => ({
+      setOptimisticMessagesByRoom((prev) => ({
         ...prev,
-        [roomId]: (prev[roomId] || []).filter(m => m.seq !== seq),
+        [roomId]: (prev[roomId] || []).filter((m) => m.seq !== seq),
       }));
     }
     inputRef.current?.focus();
@@ -388,7 +426,7 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
     if (result) {
       setActiveRoom(roomId);
       setSidebarOpen(false);
-      setOptimisticJoins(prev => new Set(prev).add(roomId));
+      setOptimisticJoins((prev) => new Set(prev).add(roomId));
       setStatus(`joined #${roomId}`);
     }
   };
@@ -400,21 +438,27 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
     return false;
   };
 
-  const isActiveMember = activeRoom && (
-    members.includes(keyPair?.fingerprint || "") || optimisticJoins.has(activeRoom)
-  );
+  const isActiveMember =
+    activeRoom &&
+    (members.includes(keyPair?.fingerprint || "") ||
+      optimisticJoins.has(activeRoom));
 
   const allRooms = [
     ...rooms,
-    ...optimisticRooms.filter(or => !rooms.some(r => r.id === or.id)),
+    ...optimisticRooms.filter((or) => !rooms.some((r) => r.id === or.id)),
   ];
 
-  const optimisticMessages = activeRoom ? (optimisticMessagesByRoom[activeRoom] || []) : [];
+  const optimisticMessages = activeRoom
+    ? optimisticMessagesByRoom[activeRoom] || []
+    : [];
   const allMessages = [
     ...messages,
     ...systemEvents,
-    ...optimisticMessages.filter(om =>
-      !messages.some(m => m.content === om.content && m.author === om.author)
+    ...optimisticMessages.filter(
+      (om) =>
+        !messages.some(
+          (m) => m.content === om.content && m.author === om.author,
+        ),
     ),
   ].sort((a, b) => {
     const aReal = a.seq >= 0 ? a.seq : a.ts;
@@ -467,9 +511,7 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
           </div>
 
           <div className="cr-contract-input-section">
-            <label className="cr-label">
-              or enter existing contract id
-            </label>
+            <label className="cr-label">or enter existing contract id</label>
             <div className="cr-contract-input-row">
               <input
                 type="text"
@@ -478,7 +520,10 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
                 onChange={(e) => setContractInput(e.target.value)}
                 className="cr-input"
               />
-              <button onClick={handleSetContract} disabled={!contractInput.trim()}>
+              <button
+                onClick={handleSetContract}
+                disabled={!contractInput.trim()}
+              >
                 connect
               </button>
             </div>
@@ -496,7 +541,9 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
           onClick={() => setSidebarOpen(!sidebarOpen)}
         >
           {sidebarOpen ? "close" : activeRoom ? `#${activeRoom}` : "rooms"}
-          <span className="cr-toggle-icon">{sidebarOpen ? "\u2715" : "\u2630"}</span>
+          <span className="cr-toggle-icon">
+            {sidebarOpen ? "\u2715" : "\u2630"}
+          </span>
         </button>
 
         <div className={`cr-sidebar ${sidebarOpen ? "open" : ""}`}>
@@ -522,7 +569,9 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
               <div className="cr-empty-rooms">no rooms yet</div>
             ) : (
               allRooms.map((room) => {
-                const isOptimistic = optimisticRooms.some(r => r.id === room.id) && !rooms.some(r => r.id === room.id);
+                const isOptimistic =
+                  optimisticRooms.some((r) => r.id === room.id) &&
+                  !rooms.some((r) => r.id === room.id);
                 return (
                   <div
                     key={room.id}
@@ -538,7 +587,11 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
                   >
                     <span>#{room.id}</span>
                     <span className="cr-room-meta">
-                      {isOptimistic ? "pending" : `${room.member_count}u ${room.message_count}m`}
+                      {isOptimistic ? (
+                        <span className="cr-spinner" aria-label="pending" />
+                      ) : (
+                        `${room.member_count}u ${room.message_count}m`
+                      )}
                     </span>
                   </div>
                 );
@@ -582,7 +635,9 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
                   placeholder="room-id"
                   value={joinRoomInput}
                   onChange={(e) => setJoinRoomInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleJoinRoomById(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleJoinRoomById();
+                  }}
                   className="cr-sidebar-input"
                 />
                 <button
@@ -606,24 +661,24 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
         </div>
 
         {sidebarOpen && (
-          <div className="cr-sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+          <div
+            className="cr-sidebar-overlay"
+            onClick={() => setSidebarOpen(false)}
+          />
         )}
 
         <div className="cr-main">
           {!activeRoom ? (
-            <div className="cr-placeholder">
-              select a room or create one
-            </div>
+            <div className="cr-placeholder">select a room or create one</div>
           ) : (
             <>
               <div className="cr-room-header">
                 <div>
-                  <span className="cr-room-title">
-                    #{activeRoom}
-                  </span>
+                  <span className="cr-room-title">#{activeRoom}</span>
                   {roomMeta && (
                     <span className="cr-room-info">
-                      {roomMeta.member_count} members | {roomMeta.message_count} messages
+                      {roomMeta.member_count} members | {roomMeta.message_count}{" "}
+                      messages
                     </span>
                   )}
                 </div>
@@ -651,12 +706,8 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
 
               {(error || status) && (
                 <div className="cr-inline-status">
-                  {error && (
-                    <span className="cr-error-text">{error}</span>
-                  )}
-                  {status && (
-                    <span className="cr-success-text">{status}</span>
-                  )}
+                  {error && <span className="cr-error-text">{error}</span>}
+                  {status && <span className="cr-success-text">{status}</span>}
                 </div>
               )}
 
@@ -693,7 +744,7 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
                         <span className="cr-msg-content">{msg.content}</span>
                         {isPending && (
                           <span className="cr-msg-pending">
-                            pending
+                            <span className="cr-spinner" aria-label="pending" />
                           </span>
                         )}
                       </div>
@@ -727,7 +778,12 @@ export function ChatRoomsTab({ onWalletOpen }: Props) {
 
               {members.length > 0 && (
                 <div className="cr-members-bar">
-                  members: {members.map(m => m === keyPair?.fingerprint ? "you" : formatAddr(m)).join(", ")}
+                  members:{" "}
+                  {members
+                    .map((m) =>
+                      m === keyPair?.fingerprint ? "you" : formatAddr(m),
+                    )
+                    .join(", ")}
                 </div>
               )}
             </>

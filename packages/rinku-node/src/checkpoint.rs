@@ -1826,19 +1826,6 @@ impl CheckpointService {
             state.checkpoint_accounts_snapshot = Some((height, snapshot));
         }
 
-        {
-            let compact_start = std::time::Instant::now();
-            let old_dirty = state.state_trie.dirty_node_count();
-            state.state_trie = crate::state::StateInner::build_state_trie_from_accounts(&state.accounts);
-            let compact_ms = compact_start.elapsed().as_millis();
-            if compact_ms > 2 || old_dirty > 5000 {
-                tracing::info!(
-                    "SMT compaction at h={}: rebuilt trie from {} accounts (was {} dirty nodes, took {}ms)",
-                    height, state.accounts.len(), old_dirty, compact_ms
-                );
-            }
-        }
-
         if is_partitioned {
             for hash in &hashes {
                 if let Some(node) = state.dag.get_node_mut(hash) {
@@ -1849,6 +1836,11 @@ impl CheckpointService {
 
         let snapshot_finalized_count = hashes.len() as u64;
         drop(state);
+
+        // Async SMT compaction: rebuild the trie off the critical path when dirty
+        // nodes accumulate. Threshold is tuned to fire roughly every 2-4 proposer
+        // checkpoints at ~50 TPS; see maybe_spawn_compaction for details.
+        self.state.maybe_spawn_compaction(height, 50_000);
 
         if snapshot_finalized_count > 0 {
             self.state
@@ -2903,6 +2895,7 @@ impl CheckpointService {
                                     partition_epoch: None,
                                     rolled_back: false,
                                     fast_path_cert: None,
+                                    effective_amount: None,
                                 };
                                 if state.dag.add_node(node).is_ok() {
                                     added += 1;
@@ -3357,10 +3350,12 @@ impl CheckpointService {
                             for (fingerprint, account) in sync_snapshot.accounts {
                                 state.accounts.insert(fingerprint, account);
                             }
-                            state.state_trie =
-                                crate::state::StateInner::build_state_trie_from_accounts(
+                            {
+                                let new_trie = crate::state::StateInner::build_state_trie_from_accounts(
                                     &state.accounts,
                                 );
+                                *self.state.state_trie.lock().await = new_trie;
+                            }
 
                             state.validators.clear();
                             for (addr, validator) in sync_snapshot.validators {
@@ -3386,6 +3381,7 @@ impl CheckpointService {
                                     partition_epoch: None,
                                     rolled_back: false,
                                     fast_path_cert: None,
+                                    effective_amount: None,
                                 };
                                 let _ = state.dag.add_node(node);
                             }

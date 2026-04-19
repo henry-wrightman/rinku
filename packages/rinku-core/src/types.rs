@@ -143,6 +143,65 @@ impl Default for FastPathStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WriteSetEntry {
+    pub key: String,
+    pub value_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteSet {
+    pub entries: Vec<WriteSetEntry>,
+    pub hash: String,
+}
+
+impl WriteSet {
+    pub fn from_entries(mut entries: Vec<WriteSetEntry>) -> Self {
+        entries.sort_by(|a, b| a.key.cmp(&b.key));
+        let canonical = entries
+            .iter()
+            .map(|e| format!("{}:{}", e.key, e.value_hash))
+            .collect::<Vec<_>>()
+            .join("|");
+        let hash = crate::crypto::sha256_hex(&canonical);
+        Self { entries, hash }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn keys(&self) -> Vec<&str> {
+        self.entries.iter().map(|e| e.key.as_str()).collect()
+    }
+
+    pub fn conflicts_with(&self, other: &WriteSet) -> bool {
+        let mut i = 0;
+        let mut j = 0;
+        while i < self.entries.len() && j < other.entries.len() {
+            match self.entries[i].key.cmp(&other.entries[j].key) {
+                std::cmp::Ordering::Equal => return true,
+                std::cmp::Ordering::Less => i += 1,
+                std::cmp::Ordering::Greater => j += 1,
+            }
+        }
+        false
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MicroCheckpoint {
+    pub sequence: u64,
+    pub state_root: String,
+    pub timestamp_ms: u64,
+    pub tx_hashes: Vec<String>,
+    pub changed_accounts: Vec<String>,
+    pub parent_qcc_height: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FastPathAck {
     pub tx_hash: String,
     pub validator_address: String,
@@ -150,6 +209,8 @@ pub struct FastPathAck {
     pub validator_stake: u64,
     pub bls_signature: Option<String>,
     pub timestamp_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_set_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,13 +228,28 @@ pub struct FastPathFinality {
     pub checkpoint_height: Option<u64>,
     #[serde(default)]
     pub tx_created_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_set_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub micro_checkpoint_seq: Option<u64>,
 }
 
 impl FastPathFinality {
+    /// Wallet-rooted finality time: client-supplied `tx.tx.timestamp` -> 2/3 quorum confirmed.
+    /// Includes client clock, wallet->API RTT, and any client-side queueing.
+    /// Use this for per-transaction "when is my tx safe?" answers in wallet UIs.
     pub fn finality_time_ms(&self) -> Option<u64> {
         let start = self.tx_created_at_ms.unwrap_or(self.registered_at_ms);
         self.confirmed_at_ms
             .map(|confirmed| confirmed.saturating_sub(start))
+    }
+
+    /// Validator-internal quorum latency: this validator's first observation of the tx
+    /// (`registered_at_ms`) -> 2/3 quorum reached (`confirmed_at_ms`). Excludes client
+    /// clock skew and wallet->API network. Use this for network-health dashboards.
+    pub fn validator_finality_time_ms(&self) -> Option<u64> {
+        self.confirmed_at_ms
+            .map(|confirmed| confirmed.saturating_sub(self.registered_at_ms))
     }
 }
 
@@ -233,13 +309,37 @@ pub struct SignedTransaction {
 impl Transaction {
     pub fn classify_lane(&self) -> TransactionLane {
         match self.kind {
-            Some(TransactionKind::Contract) => TransactionLane::Checkpoint,
+            Some(TransactionKind::Contract) => {
+                if self.is_contract_fast_path_candidate() {
+                    TransactionLane::FastPath
+                } else {
+                    TransactionLane::Checkpoint
+                }
+            }
             _ => TransactionLane::FastPath,
         }
     }
 
     pub fn is_fast_path_eligible(&self) -> bool {
         self.classify_lane() == TransactionLane::FastPath
+    }
+
+    fn is_contract_fast_path_candidate(&self) -> bool {
+        if !matches!(self.kind, Some(TransactionKind::Contract)) {
+            return false;
+        }
+        if self.to.is_empty() || self.data.is_none() {
+            return false;
+        }
+        if self.to == "contract:deploy" {
+            return false;
+        }
+        if let Some(ref data) = self.data {
+            if let Ok(parsed) = ContractTransactionData::from_data_field(data) {
+                return matches!(parsed, ContractTransactionData::Call { .. });
+            }
+        }
+        false
     }
 
     pub fn is_data_only(&self) -> bool {
@@ -442,6 +542,8 @@ pub struct Account {
     pub partition_budget: Option<u64>,
     #[serde(default, with = "micro_serde")]
     pub partition_budget_spent: u64,
+    #[serde(default, with = "micro_serde")]
+    pub total_claimed: u64,
 }
 
 impl Account {
@@ -460,6 +562,7 @@ impl Account {
             penalty_decay_checkpoint: None,
             partition_budget: None,
             partition_budget_spent: 0,
+            total_claimed: 0,
         }
     }
 }
@@ -550,6 +653,8 @@ pub struct DagNode {
     pub rolled_back: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fast_path_cert: Option<FastPathFinalizationCert>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "micro_serde_option")]
+    pub effective_amount: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

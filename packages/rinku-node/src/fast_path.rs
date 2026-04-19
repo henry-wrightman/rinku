@@ -93,6 +93,8 @@ impl FastPathService {
             confirmed_at_ms: None,
             checkpoint_height: None,
             tx_created_at_ms: Some(tx.tx.timestamp),
+            write_set_hash: None,
+            micro_checkpoint_seq: None,
         };
 
         inner.pending_txs.insert(tx.hash.clone(), finality.clone());
@@ -281,6 +283,10 @@ impl FastPathService {
             total_validator_stake: inner.total_validator_stake,
             quorum_threshold: inner.config.quorum_threshold,
             avg_confirmation_ms,
+            p50_confirmation_ms: avg_confirmation_ms,
+            p90_confirmation_ms: None,
+            p99_confirmation_ms: None,
+            sample_count: count,
         }
     }
 }
@@ -293,7 +299,13 @@ pub struct FastPathStats {
     pub confirmed_count: usize,
     pub total_validator_stake: u64,
     pub quorum_threshold: f64,
+    /// Median (p50) of validator-internal quorum latency over the last 15s.
+    /// Mirrored to `avg_confirmation_ms` for explorer backwards-compatibility.
     pub avg_confirmation_ms: Option<u64>,
+    pub p50_confirmation_ms: Option<u64>,
+    pub p90_confirmation_ms: Option<u64>,
+    pub p99_confirmation_ms: Option<u64>,
+    pub sample_count: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -303,6 +315,8 @@ pub struct FastPathBroadcast {
     pub sender_validator: String,
     pub sender_stake: u64,
     pub timestamp_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_set_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -313,6 +327,8 @@ pub struct FastPathAckMessage {
     pub validator_stake: u64,
     pub bls_signature: Option<String>,
     pub timestamp_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_set_hash: Option<String>,
 }
 
 impl From<FastPathAckMessage> for FastPathAck {
@@ -323,6 +339,7 @@ impl From<FastPathAckMessage> for FastPathAck {
             validator_stake: msg.validator_stake,
             bls_signature: msg.bls_signature,
             timestamp_ms: msg.timestamp_ms,
+            write_set_hash: msg.write_set_hash,
         }
     }
 }
@@ -380,6 +397,7 @@ mod tests {
             validator_stake: 40_000_000_000,
             bls_signature: None,
             timestamp_ms: 1000,
+            write_set_hash: None,
         };
         let result = service.add_ack(ack1).await.unwrap();
         assert_eq!(result.status, FastPathStatus::Pending);
@@ -390,6 +408,7 @@ mod tests {
             validator_stake: 40_000_000_000,
             bls_signature: None,
             timestamp_ms: 1001,
+            write_set_hash: None,
         };
         let result = service.add_ack(ack2).await.unwrap();
         assert_eq!(result.status, FastPathStatus::Confirmed);

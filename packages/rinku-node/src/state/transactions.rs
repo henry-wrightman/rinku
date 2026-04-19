@@ -16,6 +16,7 @@ pub struct FastPathExecEntry {
     pub amount: u64,
     pub from_account: Option<Account>,
     pub to_account: Option<Account>,
+    pub write_set_hash: Option<String>,
 }
 
 pub type FastPathBatchExecEntry = FastPathExecEntry;
@@ -350,6 +351,7 @@ impl NodeState {
             partition_epoch: None,
             rolled_back: false,
             fast_path_cert: None,
+            effective_amount: None,
         };
 
         let mut state = self.inner.write().await;
@@ -446,22 +448,149 @@ impl NodeState {
                             amount: tx.tx.amount,
                             from_account: None,
                             to_account: None,
+                            write_set_hash: None,
                         });
                         executed_indices.insert(idx);
                         continue;
                     }
 
                     if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract)) {
+                        if !tx.tx.is_fast_path_eligible() {
+                            results_map.insert(idx, FastPathExecEntry {
+                                hash: tx.hash.clone(),
+                                result: FastPathExecResult::Deferred,
+                                from_addr: tx.tx.from.clone(),
+                                to_addr: tx.tx.to.clone(),
+                                amount: tx.tx.amount,
+                                from_account: None,
+                                to_account: None,
+                                write_set_hash: None,
+                            });
+                            executed_indices.insert(idx);
+                            continue;
+                        }
+
+                        let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+                        let (acc_balance, acc_nonce) = if let Some(acc) = state.accounts.get(&tx.tx.from) {
+                            (acc.balance, acc.nonce)
+                        } else {
+                            results_map.insert(idx, FastPathExecEntry {
+                                hash: tx.hash.clone(),
+                                result: FastPathExecResult::Rejected,
+                                from_addr: tx.tx.from.clone(),
+                                to_addr: tx.tx.to.clone(),
+                                amount: tx.tx.amount,
+                                from_account: None,
+                                to_account: None,
+                                write_set_hash: None,
+                            });
+                            executed_indices.insert(idx);
+                            continue;
+                        };
+
+                        let required = gas_fee;
+                        if acc_balance < required || tx.tx.nonce != acc_nonce {
+                            let result = if acc_balance < required {
+                                FastPathExecResult::Rejected
+                            } else if tx.tx.nonce < acc_nonce {
+                                FastPathExecResult::AlreadyApplied
+                            } else {
+                                FastPathExecResult::Deferred
+                            };
+                            if matches!(result, FastPathExecResult::Deferred) {
+                                skipped_senders.insert(tx.tx.from.clone());
+                                continue;
+                            }
+                            results_map.insert(idx, FastPathExecEntry {
+                                hash: tx.hash.clone(),
+                                result,
+                                from_addr: tx.tx.from.clone(),
+                                to_addr: tx.tx.to.clone(),
+                                amount: tx.tx.amount,
+                                from_account: None,
+                                to_account: None,
+                                write_set_hash: None,
+                            });
+                            executed_indices.insert(idx);
+                            continue;
+                        }
+
+                        if let Some(from_acc) = state.accounts.get_mut(&tx.tx.from) {
+                            from_acc.balance = from_acc.balance.saturating_sub(required);
+                            from_acc.nonce = tx.tx.nonce + 1;
+                        }
+                        changed_addrs.push(tx.tx.from.clone());
+
+                        state.total_burned += gas_fee;
+                        state.total_transactions += 1;
+
+                        if !state.fast_path_finalized_txs.contains_key(&tx.hash) {
+                            state.fast_path_finalized_txs.insert(tx.hash.clone(), super::FastPathFinalizedEntry {
+                                from: tx.tx.from.clone(),
+                                to: tx.tx.to.clone(),
+                                amount: tx.tx.amount,
+                                nonce: tx.tx.nonce,
+                                gas_price: tx.tx.gas_price,
+                                kind: tx.tx.kind.clone(),
+                                hash: tx.hash.clone(),
+                                finalized_at_ms: now_ms,
+                            });
+                            state.fast_path_finalized_order.push_back(tx.hash.clone());
+                            const FAST_PATH_FINALIZED_CAP: usize = 5000;
+                            while state.fast_path_finalized_txs.len() > FAST_PATH_FINALIZED_CAP {
+                                if let Some(oldest) = state.fast_path_finalized_order.pop_front() {
+                                    state.fast_path_finalized_txs.remove(&oldest);
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        let from_snap = state.accounts.get(&tx.tx.from).cloned();
+                        let contract_ws = if let Some(ref from_acc) = from_snap {
+                            let contract_key = format!("contract:{}:state", tx.tx.to);
+                            let entries = vec![
+                                rinku_core::types::WriteSetEntry {
+                                    key: tx.tx.from.clone(),
+                                    value_hash: rinku_core::crypto::sha256_hex(&format!(
+                                        "account:{}:{}:{}:{}",
+                                        tx.tx.from, from_acc.balance, from_acc.nonce, from_acc.staked
+                                    )),
+                                },
+                                rinku_core::types::WriteSetEntry {
+                                    key: contract_key,
+                                    value_hash: rinku_core::crypto::sha256_hex(&format!(
+                                        "contract_call:{}:{}",
+                                        tx.tx.to, tx.hash
+                                    )),
+                                },
+                            ];
+                            let ws = rinku_core::types::WriteSet::from_entries(entries);
+                            Some(ws.hash.clone())
+                        } else {
+                            None
+                        };
+
+                        tracing::debug!(
+                            "FastPath CONTRACT-EXEC tx {} ({} -> contract {}, gas={})",
+                            &tx.hash[..16.min(tx.hash.len())],
+                            &tx.tx.from[..16.min(tx.tx.from.len())],
+                            &tx.tx.to[..16.min(tx.tx.to.len())],
+                            gas_fee,
+                        );
+
                         results_map.insert(idx, FastPathExecEntry {
                             hash: tx.hash.clone(),
-                            result: FastPathExecResult::Deferred,
+                            result: FastPathExecResult::Executed,
                             from_addr: tx.tx.from.clone(),
                             to_addr: tx.tx.to.clone(),
                             amount: tx.tx.amount,
-                            from_account: None,
+                            from_account: from_snap,
                             to_account: None,
+                            write_set_hash: contract_ws,
                         });
                         executed_indices.insert(idx);
+                        progress = true;
                         continue;
                     }
 
@@ -482,6 +611,7 @@ impl NodeState {
                             amount: tx.tx.amount,
                             from_account: None,
                             to_account: None,
+                            write_set_hash: None,
                         });
                         executed_indices.insert(idx);
                         continue;
@@ -519,6 +649,7 @@ impl NodeState {
                             amount: tx.tx.amount,
                             from_account: None,
                             to_account: None,
+                            write_set_hash: None,
                         });
                         executed_indices.insert(idx);
                         continue;
@@ -596,6 +727,22 @@ impl NodeState {
                         None
                     };
 
+                    let ws_hash = if let Some(ref from_acc) = from_snap {
+                        let ws = if is_stake_tx {
+                            crate::write_set::compute_stake_write_set(&tx.tx.from, from_acc)
+                        } else if !tx.tx.to.is_empty() {
+                            let to_acc_ref = to_snap.as_ref().unwrap();
+                            crate::write_set::compute_transfer_write_set(
+                                &tx.tx.from, &tx.tx.to, from_acc, to_acc_ref,
+                            )
+                        } else {
+                            crate::write_set::compute_stake_write_set(&tx.tx.from, from_acc)
+                        };
+                        Some(ws.hash.clone())
+                    } else {
+                        None
+                    };
+
                     tracing::debug!(
                         "FastPath EXECUTED tx {} ({} -> {}, amount={}, gas={}, kind={:?})",
                         &tx.hash[..16.min(tx.hash.len())],
@@ -614,6 +761,7 @@ impl NodeState {
                         amount: tx.tx.amount,
                         from_account: from_snap,
                         to_account: to_snap,
+                        write_set_hash: ws_hash,
                     });
 
                     executed_indices.insert(idx);
@@ -631,13 +779,16 @@ impl NodeState {
                         amount: tx.tx.amount,
                         from_account: None,
                         to_account: None,
+                        write_set_hash: None,
                     });
                 }
             }
 
-            if !changed_addrs.is_empty() {
-                state.update_state_trie_accounts(&changed_addrs);
-            }
+            let trie_updates = if !changed_addrs.is_empty() {
+                state.collect_trie_updates_for_addresses(&changed_addrs)
+            } else {
+                Vec::new()
+            };
 
             let executed_count = results_map.values().filter(|e| matches!(e.result, FastPathExecResult::Executed)).count();
             let deferred_count = results_map.values().filter(|e| matches!(e.result, FastPathExecResult::Deferred)).count();
@@ -647,6 +798,10 @@ impl NodeState {
                     "FAST-PATH-BATCH: {} txs → executed={} deferred={} | lock_held={}ms",
                     txs.len(), executed_count, deferred_count, batch_ms
                 );
+            }
+            drop(state);
+            if !trie_updates.is_empty() {
+                self.update_trie_with_tuples(&trie_updates).await;
             }
         }
 
@@ -1059,6 +1214,7 @@ impl NodeState {
         let mut unstake_credits: Vec<(String, u64)> = Vec::new();
         let mut claim_credits: Vec<(String, u64)> = Vec::new();
         let mut finalized_stake_deltas: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+        let mut effective_amounts: Vec<(String, u64)> = Vec::new();
 
         {
             let mut rewards = self.rewards.write().await;
@@ -1085,6 +1241,7 @@ impl NodeState {
                                 .and_modify(|d: &mut (u64, u64)| d.0 += tx.tx.amount)
                                 .or_insert((tx.tx.amount, staked_at));
                         }
+                        effective_amounts.push((tx.hash.clone(), tx.tx.amount));
                     }
                     TransactionKind::Unstake => {
                         match rewards.unstake(from_addr) {
@@ -1096,6 +1253,7 @@ impl NodeState {
                                     );
                                 }
                                 unstake_credits.push((from_addr.clone(), amount));
+                                effective_amounts.push((tx.hash.clone(), amount));
                             }
                             Err(e) => {
                                 tracing::warn!("Failed to process unstake tx: {}", e);
@@ -1113,6 +1271,7 @@ impl NodeState {
                             }
                             claim_credits.push((from_addr.clone(), claimed));
                         }
+                        effective_amounts.push((tx.hash.clone(), claimed));
                     }
                     _ => {}
                 }
@@ -1132,6 +1291,7 @@ impl NodeState {
             for (addr, claimed) in &claim_credits {
                 if let Some(account) = state.accounts.get_mut(addr) {
                     account.balance += claimed;
+                    account.total_claimed += claimed;
                     special_changed.push(addr.clone());
                 }
             }
@@ -1142,24 +1302,31 @@ impl NodeState {
                     special_changed.push(addr.clone());
                 }
             }
+            for (hash, amount) in &effective_amounts {
+                if let Some(node) = state.dag.get_node_mut(hash) {
+                    node.effective_amount = Some(*amount);
+                }
+            }
             if !special_changed.is_empty() {
-                state.update_state_trie_accounts(&special_changed);
+                let trie_updates = state.collect_trie_updates_for_addresses(&special_changed);
+                let mut trie = self.state_trie.lock().await;
+                Self::apply_trie_updates_inline(&mut trie, &trie_updates);
             }
         }
 
         for tx in special_txs {
             if matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract)) {
-                if skip_hashes.contains(&tx.hash) {
-                    tracing::debug!(
-                        "Skipping contract re-execution for fast-path-finalized tx {}",
+                let is_fp_pre_finalized = skip_hashes.contains(&tx.hash);
+                if is_fp_pre_finalized {
+                    tracing::info!(
+                        "CONTRACT-CHECKPOINT: fast-path-pre-finalized contract tx {} — running WASM execution (gas already deducted by fast-path)",
                         &tx.hash[..16.min(tx.hash.len())]
                     );
-                    continue;
                 }
                 if let Some(ref data) = tx.tx.data {
                     match rinku_core::types::ContractTransactionData::from_data_field(data) {
                         Ok(contract_data) => {
-                            self.execute_contract_transaction(tx, contract_data).await;
+                            self.execute_contract_transaction(tx, contract_data, is_fp_pre_finalized).await;
                         }
                         Err(e) => {
                             tracing::error!("Failed to parse contract tx data during finalization: {}", e);
@@ -1277,7 +1444,9 @@ impl NodeState {
             let mut state = self.inner.write().await;
             let result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
             if !result.changed_addresses.is_empty() {
-                state.update_state_trie_accounts(&result.changed_addresses);
+                let trie_updates = state.collect_trie_updates_for_addresses(&result.changed_addresses);
+                drop(state);
+                self.update_trie_with_tuples(&trie_updates).await;
             }
             result
         };
@@ -1524,7 +1693,9 @@ impl NodeState {
             if !is_stake_tx && !is_unstake_tx && !is_claim_tx && !is_contract_tx && !tx.tx.to.is_empty() {
                 changed.push(tx.tx.to.clone());
             }
-            state.update_state_trie_accounts(&changed);
+            let trie_updates = state.collect_trie_updates_for_addresses(&changed);
+            let mut trie = self.state_trie.lock().await;
+            Self::apply_trie_updates_inline(&mut trie, &trie_updates);
         }
         
         self.execute_transaction_side_effects(tx).await;
@@ -1551,6 +1722,12 @@ impl NodeState {
                     };
                     if let Some((amount, staked_at)) = stake_update {
                         self.update_account_staked(from_addr, amount, Some(staked_at / 1000)).await;
+                    }
+                    {
+                        let mut state = self.inner.write().await;
+                        if let Some(node) = state.dag.get_node_mut(&tx.hash) {
+                            node.effective_amount = Some(stake_amount);
+                        }
                     }
                 }
                 TransactionKind::Unstake => {
@@ -1579,7 +1756,12 @@ impl NodeState {
                                 account.balance
                             );
                         }
-                        state.update_state_trie_accounts(&[from_addr.to_string()]);
+                        if let Some(node) = state.dag.get_node_mut(&tx.hash) {
+                            node.effective_amount = Some(unstaked_amount);
+                        }
+                        let trie_updates = state.collect_trie_updates_for_addresses(&[from_addr.to_string()]);
+                        drop(state);
+                        self.update_trie_with_tuples(&trie_updates).await;
                     }
                 }
                 TransactionKind::ClaimRewards => {
@@ -1592,11 +1774,18 @@ impl NodeState {
                         &from_addr[..16.min(from_addr.len())],
                         claimed
                     );
+                    {
+                        let mut state = self.inner.write().await;
+                        if let Some(node) = state.dag.get_node_mut(&tx.hash) {
+                            node.effective_amount = Some(claimed);
+                        }
+                    }
                     if claimed > 0 {
                         let mut state = self.inner.write().await;
                         if let Some(account) = state.accounts.get_mut(from_addr) {
                             let old_balance = account.balance;
                             account.balance += claimed;
+                            account.total_claimed += claimed;
                             tracing::info!(
                                 "[EXECUTION] Claim for {}: old_balance={:.8}, new_balance={:.8}",
                                 &from_addr[..16.min(from_addr.len())],
@@ -1604,14 +1793,16 @@ impl NodeState {
                                 account.balance
                             );
                         }
-                        state.update_state_trie_accounts(&[from_addr.to_string()]);
+                        let trie_updates = state.collect_trie_updates_for_addresses(&[from_addr.to_string()]);
+                        drop(state);
+                        self.update_trie_with_tuples(&trie_updates).await;
                     }
                 }
                 TransactionKind::Contract => {
                     if let Some(ref data) = tx.tx.data {
                         match rinku_core::types::ContractTransactionData::from_data_field(data) {
                             Ok(contract_data) => {
-                                self.execute_contract_transaction(tx, contract_data).await;
+                                self.execute_contract_transaction(tx, contract_data, false).await;
                             }
                             Err(e) => {
                                 tracing::error!("Failed to parse contract tx data during finalization: {}", e);
@@ -1628,6 +1819,7 @@ impl NodeState {
         &self,
         tx: &SignedTransaction,
         contract_data: rinku_core::types::ContractTransactionData,
+        _fp_pre_finalized: bool,
     ) {
         let runtime = crate::contracts::ContractRuntime::new();
         let gas_price = {
@@ -1788,7 +1980,9 @@ impl NodeState {
             }
             state.total_burned += execution_fee / 2;
             state.total_to_validators += execution_fee / 2;
-            state.update_state_trie_accounts(&[from.to_string()]);
+            let trie_updates = state.collect_trie_updates_for_addresses(&[from.to_string()]);
+            let mut trie = self.state_trie.lock().await;
+            Self::apply_trie_updates_inline(&mut trie, &trie_updates);
             tracing::info!(
                 "Contract execution fee: {} total gas ({} additional) = {} micro from {}",
                 gas_used, additional_gas, execution_fee, &from[..16.min(from.len())]
@@ -1899,6 +2093,7 @@ impl NodeState {
             partition_epoch: None,
             rolled_back: false,
             fast_path_cert: None,
+            effective_amount: None,
         };
 
         state.dag.add_node(node)?;
@@ -2087,6 +2282,7 @@ impl NodeState {
                     partition_epoch: None,
                     rolled_back: false,
                     fast_path_cert: None,
+                    effective_amount: None,
                 };
                 let _ = state.dag.add_node(node);
             }
@@ -2154,6 +2350,7 @@ impl NodeState {
                 partition_epoch: None,
                 rolled_back: false,
                 fast_path_cert: None,
+                effective_amount: None,
             };
 
             match state.dag.add_node(node) {
@@ -2298,6 +2495,7 @@ impl NodeState {
                 partition_epoch: None,
                 rolled_back: false,
                 fast_path_cert: None,
+                effective_amount: None,
             };
             
             let result = state
@@ -2332,7 +2530,7 @@ impl NodeState {
             .collect()
     }
     
-    pub async fn get_transactions_by_address(&self, address: &str, limit: usize) -> Vec<(SignedTransaction, bool)> {
+    pub async fn get_transactions_by_address(&self, address: &str, limit: usize) -> Vec<(SignedTransaction, bool, Option<u64>)> {
         let state = self.inner.read().await;
         let mut txs: Vec<_> = state.dag
             .get_all_nodes()
@@ -2340,7 +2538,8 @@ impl NodeState {
             .filter(|n| n.tx.tx.from == address || n.tx.tx.to == address)
             .map(|n| {
                 let finalized = n.finalized;
-                (n.tx.clone(), finalized)
+                let effective_amount = n.effective_amount;
+                (n.tx.clone(), finalized, effective_amount)
             })
             .collect();
         
@@ -2349,9 +2548,9 @@ impl NodeState {
         txs
     }
 
-    pub async fn get_transaction_with_weight(&self, hash: &str) -> Option<(SignedTransaction, f64)> {
+    pub async fn get_transaction_with_weight(&self, hash: &str) -> Option<(SignedTransaction, f64, Option<u64>)> {
         let state = self.inner.read().await;
-        let result = state.dag.get_node(hash).map(|n| (n.tx.clone(), n.weight));
+        let result = state.dag.get_node(hash).map(|n| (n.tx.clone(), n.weight, n.effective_amount));
         if result.is_none() {
             let all_hashes: Vec<_> = state.dag.get_all_nodes().iter().take(5).map(|n| &n.hash).collect();
             tracing::debug!("get_transaction_with_weight: hash '{}' not found. DAG has {} nodes. Sample hashes: {:?}", 

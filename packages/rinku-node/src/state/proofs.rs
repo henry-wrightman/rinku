@@ -15,6 +15,9 @@ impl NodeState {
             if node.tx.tx.nonce < confirmed_nonce {
                 continue;
             }
+            if state.fast_path_finalized_txs.contains_key(&node.tx.hash) {
+                continue;
+            }
             let gas = node.tx.tx.gas_price.unwrap_or(state.current_gas_price);
             pending_gas += gas;
 
@@ -47,33 +50,44 @@ impl NodeState {
         (effective_balance, effective_nonce)
     }
 
-    /// Get the expected nonce for a sender, accounting for pending (unfinalized) transactions.
-    /// Only counts *contiguous* pending nonces starting from confirmed_nonce to avoid
-    /// nonce-gap deadlocks: if nonce N is lost but N+1..N+K are in the DAG, we return N
-    /// (not N+K) so the sender re-submits the missing nonce and unblocks the chain.
+    /// Get the expected nonce for a sender, accounting for pending (unfinalized) transactions
+    /// AND fast-path-finalized-but-not-yet-checkpointed transactions.
+    ///
+    /// The nonce floor is: max(account.nonce, max_fast_path_nonce+1).
+    /// This prevents a stale window during the checkpoint phase gap where DAG entries
+    /// have been marked finalized (removed from unfinalized tracking) but the account
+    /// nonce hasn't been updated yet by batch execution.
     pub(crate) fn get_effective_nonce(state: &StateInner, sender: &str) -> u64 {
         let confirmed_nonce = state.accounts.get(sender).map(|a| a.nonce).unwrap_or(0);
+
+        let fp_nonce_floor = state.fast_path_finalized_txs.values()
+            .filter(|e| e.from == sender)
+            .map(|e| e.nonce.saturating_add(1))
+            .max()
+            .unwrap_or(0);
+
+        let base_nonce = confirmed_nonce.max(fp_nonce_floor);
 
         let mut pending_nonces: Vec<u64> = state
             .dag
             .get_unfinalized_for_sender(sender)
             .iter()
             .map(|node| node.tx.tx.nonce)
-            .filter(|&n| n >= confirmed_nonce)
+            .filter(|&n| n >= base_nonce)
             .collect();
         pending_nonces.sort_unstable();
         pending_nonces.dedup();
 
         let mut contiguous = 0u64;
         for &nonce in &pending_nonces {
-            if nonce == confirmed_nonce + contiguous {
+            if nonce == base_nonce + contiguous {
                 contiguous += 1;
             } else {
                 break;
             }
         }
 
-        confirmed_nonce + contiguous
+        base_nonce + contiguous
     }
 
     /// Get effective balance for a sender, accounting for pending (unfinalized) transactions
@@ -90,9 +104,12 @@ impl NodeState {
     /// Internal nodes: "node:left_hash:right_hash"
     pub async fn compute_state_root(&self) -> String {
         let root_start = std::time::Instant::now();
-        let state = self.inner.read().await;
-        let num_accounts = state.accounts.len();
-        let root = state.state_trie.root_hex();
+        let num_accounts = {
+            let state = self.inner.read().await;
+            state.accounts.len()
+        };
+        let trie = self.state_trie.lock().await;
+        let root = trie.root_hex();
         let root_ms = root_start.elapsed().as_millis();
         if root_ms > 10 {
             tracing::info!("STATE-ROOT (SMT): computed in {}ms ({} accounts)", root_ms, num_accounts);
@@ -127,10 +144,11 @@ impl NodeState {
         let root_start = std::time::Instant::now();
 
         if pending_txs.is_empty() {
-            let state = self.inner.read().await;
-            let state_root = state.state_trie.root_hex();
-            let num_accounts = state.accounts.len();
-            drop(state);
+            let num_accounts = {
+                let state = self.inner.read().await;
+                state.accounts.len()
+            };
+            let state_root = self.state_trie.lock().await.root_hex();
 
             let root_ms = root_start.elapsed().as_millis();
             if root_ms > 5 {
@@ -155,8 +173,10 @@ impl NodeState {
             .collect();
         
         let mut sim_changed_addrs: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let original_root = state.state_trie.root_hex();
-        let forked_trie = state.state_trie.fork();
+        let (original_root, forked_trie) = {
+            let trie = self.state_trie.lock().await;
+            (trie.root_hex(), trie.fork())
+        };
         
         
         struct TxParentInfo {
@@ -740,7 +760,8 @@ impl NodeState {
             
             use crate::sparse_merkle_trie::hash_account_key;
             let key = hash_account_key(address);
-            match state.state_trie.prove(&key, None) {
+            let trie = self.state_trie.lock().await;
+            match trie.prove(&key, None) {
                 Ok(proof_data) => {
                     let proof: Vec<String> = proof_data.siblings.iter().map(|s| hex::encode(s)).collect();
                     (bal, n, stk, proof)
@@ -814,7 +835,7 @@ impl NodeState {
         let (balance_micro, nonce, staked_micro) = snapshot.get(address).copied()?;
         
         use crate::sparse_merkle_trie::hash_account_key;
-        let mut on_demand_trie = state.state_trie.fork();
+        let mut on_demand_trie = self.state_trie.lock().await.fork();
         for (addr, (balance, n, staked)) in snapshot.iter() {
             let key = hash_account_key(addr);
             let value = format!("account:{}:{}:{}:{}", addr, balance, n, staked);
@@ -1053,7 +1074,9 @@ impl NodeState {
             let fast_path_stake_adjustments: Vec<(String, u64)>;
 
             if sync_count > 0 {
-                state.update_state_trie_accounts(&synced_addresses);
+                let trie_updates = state.collect_trie_updates_for_addresses(&synced_addresses);
+                let mut trie = self.state_trie.lock().await;
+                Self::apply_trie_updates_inline(&mut trie, &trie_updates);
 
                 let fp_count = state.fast_path_finalized_txs.len();
 

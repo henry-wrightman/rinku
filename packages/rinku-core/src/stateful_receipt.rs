@@ -186,6 +186,24 @@ pub enum VerifiableObject {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         freshness: Option<ProofFreshness>,
     },
+    #[serde(rename = "fast_path_proof")]
+    FastPathProof {
+        tx_hash: String,
+        tx_from: String,
+        tx_to: String,
+        tx_amount: f64,
+        tx_nonce: u64,
+        write_set_hash: String,
+        micro_checkpoint_seq: u64,
+        state_root: String,
+        merkle_proof: Vec<String>,
+        merkle_index: usize,
+        finality_ms: u64,
+        confirmed_validators: Vec<String>,
+        chain_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        freshness: Option<ProofFreshness>,
+    },
     #[serde(rename = "state_witness")]
     StateWitness {
         contract_id: Option<String>,
@@ -291,6 +309,7 @@ impl VerifiableObject {
             VerifiableObject::Custom { checkpoint_height, .. } => *checkpoint_height,
             VerifiableObject::BatchProof { finality, .. } => finality.checkpoint_height,
             VerifiableObject::StateWitness { checkpoint_height, .. } => *checkpoint_height,
+            VerifiableObject::FastPathProof { micro_checkpoint_seq, .. } => *micro_checkpoint_seq,
         }
     }
 
@@ -303,6 +322,7 @@ impl VerifiableObject {
             VerifiableObject::Custom { chain_id, .. } => chain_id.as_deref(),
             VerifiableObject::BatchProof { chain_id, .. } => chain_id.as_deref(),
             VerifiableObject::StateWitness { chain_id, .. } => chain_id.as_deref(),
+            VerifiableObject::FastPathProof { chain_id, .. } => chain_id.as_deref(),
         }
     }
 
@@ -315,6 +335,7 @@ impl VerifiableObject {
             VerifiableObject::Custom { .. } => "custom",
             VerifiableObject::BatchProof { .. } => "batch_proof",
             VerifiableObject::StateWitness { .. } => "state_witness",
+            VerifiableObject::FastPathProof { .. } => "fast_path_proof",
         }
     }
 
@@ -327,6 +348,7 @@ impl VerifiableObject {
             VerifiableObject::Custom { freshness, .. } => freshness.as_ref(),
             VerifiableObject::BatchProof { freshness, .. } => freshness.as_ref(),
             VerifiableObject::StateWitness { freshness, .. } => freshness.as_ref(),
+            VerifiableObject::FastPathProof { freshness, .. } => freshness.as_ref(),
         }
     }
 }
@@ -622,6 +644,13 @@ impl ValidatedProofContext {
                         entry.value.clone().unwrap_or(Value::Null),
                     );
                 }
+            }
+            VerifiableObject::FastPathProof { tx_hash, write_set_hash, micro_checkpoint_seq, state_root, finality_ms, .. } => {
+                extracted.insert("tx_hash".to_string(), Value::String(tx_hash.clone()));
+                extracted.insert("write_set_hash".to_string(), Value::String(write_set_hash.clone()));
+                extracted.insert("micro_checkpoint_seq".to_string(), Value::Number(serde_json::Number::from(*micro_checkpoint_seq)));
+                extracted.insert("state_root".to_string(), Value::String(state_root.clone()));
+                extracted.insert("finality_ms".to_string(), Value::Number(serde_json::Number::from(*finality_ms)));
             }
         }
 

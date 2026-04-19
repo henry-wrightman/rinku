@@ -334,6 +334,7 @@ impl MergeOrchestrator {
                     penalty_decay_checkpoint: None,
                     partition_budget: None,
                     partition_budget_spent: 0,
+                    total_claimed: 0,
                 });
             }
         }
@@ -361,6 +362,7 @@ impl MergeOrchestrator {
                     partition_epoch: Some(report.merge_epoch),
                     rolled_back: false,
                     fast_path_cert: None,
+                    effective_amount: None,
                 };
                 let _ = state.dag.add_node(node);
             }

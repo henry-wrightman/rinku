@@ -96,12 +96,14 @@ struct TipUrlsResponse {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct AccountResponse {
     fingerprint: String,
     balance: f64,
     nonce: u64,
     effective_nonce: u64,
     staked: f64,
+    total_claimed: f64,
 }
 
 #[derive(Serialize)]
@@ -119,6 +121,10 @@ struct AccountTransactionItem {
     fast_path_confirmed_at_ms: Option<u64>,
     fast_path_finality_ms: Option<u64>,
     lane: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effective_amount: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -277,6 +283,8 @@ struct DagNodeResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     attestation_count: Option<u32>,
     lane: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "effectiveAmount")]
+    effective_amount: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -337,7 +345,46 @@ struct FinalityMetricsResponse {
     checkpoints_per_minute: f64,
     last_checkpoint_age: u64,
     tx_throughput: f64,
+    /// Validator-internal quorum p50 (ms). Mirrored from `p50_confirmation_ms`
+    /// for backwards-compat with explorers reading this field.
     avg_confirmation_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p50_confirmation_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p90_confirmation_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p99_confirmation_ms: Option<u64>,
+    fast_path_sample_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    micro_checkpoint: Option<MicroCheckpointStatsResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conflict_tracker: Option<ConflictTrackerStatsResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lane_distribution: Option<LaneDistributionResponse>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MicroCheckpointStatsResponse {
+    current_sequence: u64,
+    stored_checkpoints: usize,
+    pending_write_sets: usize,
+    tracked_txs: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConflictTrackerStatsResponse {
+    in_flight_keys: usize,
+    in_flight_txs: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaneDistributionResponse {
+    fast_path_confirmed: usize,
+    fast_path_pending: usize,
+    fast_path_executed: usize,
 }
 
 #[derive(Serialize)]
@@ -1370,6 +1417,7 @@ async fn get_account(
                     nonce: account.nonce,
                     effective_nonce,
                     staked: from_micro_units(account.staked),
+                    total_claimed: from_micro_units(account.total_claimed),
                 }),
             )
                 .into_response()
@@ -1386,7 +1434,7 @@ async fn get_account_transactions_with_fast_path(
     
     let transactions: Vec<AccountTransactionItem> = {
         let mut result = Vec::new();
-        for (stx, finalized) in txs {
+        for (stx, finalized, eff_amount) in txs {
             let direction = if stx.tx.from == address {
                 "sent".to_string()
             } else {
@@ -1426,6 +1474,19 @@ async fn get_account_transactions_with_fast_path(
                 rinku_core::types::TransactionLane::FastPath => "fast_path",
                 rinku_core::types::TransactionLane::Checkpoint => "checkpoint",
             };
+            let kind_str = stx.tx.kind.as_ref().map(|k| match k {
+                rinku_core::types::TransactionKind::Transfer => "transfer",
+                rinku_core::types::TransactionKind::Stake => "stake",
+                rinku_core::types::TransactionKind::Unstake => "unstake",
+                rinku_core::types::TransactionKind::ClaimRewards => "claim_rewards",
+                rinku_core::types::TransactionKind::Contract => "contract",
+                rinku_core::types::TransactionKind::Consolidation => "consolidation",
+                rinku_core::types::TransactionKind::Reward => "reward",
+                rinku_core::types::TransactionKind::DataOnly => "data_only",
+            }.to_string());
+
+            let effective_amt = eff_amount.map(|a| from_micro_units(a));
+
             result.push(AccountTransactionItem {
                 hash: stx.hash.clone(),
                 from: stx.tx.from.clone(),
@@ -1440,6 +1501,8 @@ async fn get_account_transactions_with_fast_path(
                 fast_path_confirmed_at_ms,
                 fast_path_finality_ms,
                 lane: lane_str.to_string(),
+                kind: kind_str,
+                effective_amount: effective_amt,
             });
         }
         result
@@ -1595,7 +1658,7 @@ async fn get_transaction_receipt(
     State(state): State<NodeState>,
     Path(hash): Path<String>,
 ) -> impl IntoResponse {
-    if let Some((tx, _weight)) = state.get_transaction_with_weight(&hash).await {
+    if let Some((tx, _weight, _eff_amount)) = state.get_transaction_with_weight(&hash).await {
         let finalized = state.is_finalized(&hash).await;
         
         let (checkpoint_height, checkpoint_hash, state_root) = if finalized {
@@ -1736,8 +1799,13 @@ async fn submit_transaction(
                 };
                 
                 if let Some(addr) = validator_addr {
-                    gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
-                    info!("Transaction {} broadcast via fast-path protocol", &inner.hash[..16.min(inner.hash.len())]);
+                    if is_fast_path_eligible {
+                        gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
+                        info!("Transaction {} broadcast via fast-path protocol", &inner.hash[..16.min(inner.hash.len())]);
+                    } else {
+                        gossip.broadcast_transaction(tx).await;
+                        info!("Transaction {} broadcast to peers (checkpoint lane)", &inner.hash[..16.min(inner.hash.len())]);
+                    }
                 } else {
                     gossip.broadcast_transaction(tx).await;
                     info!("Transaction {} broadcast to peers (no validator identity)", &inner.hash[..16.min(inner.hash.len())]);
@@ -2038,7 +2106,7 @@ async fn submit_batch_transaction(
             if result.is_ok() {
                 if let Some(tx) = txs_for_broadcast.get(i) {
                     if let Some(ref addr) = validator_addr {
-                        if validator_stake > 0 {
+                        if validator_stake > 0 && tx.is_fast_path_eligible() {
                             gossip.broadcast_fast_path_transaction(tx.clone(), addr, validator_stake).await;
                         } else {
                             gossip.broadcast_transaction(tx.clone()).await;
@@ -2197,6 +2265,7 @@ async fn get_dag(
                 trust_score,
                 attestation_count,
                 lane: lane.to_string(),
+                effective_amount: n.effective_amount.map(|v| from_micro_units(v)),
             }
         })
         .collect();
@@ -2217,6 +2286,7 @@ async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> 
                 effective_nonce: eff_nonce,
                 nonce: a.nonce,
                 staked: from_micro_units(a.staked),
+                total_claimed: from_micro_units(a.total_claimed),
             })
             .collect(),
     })
@@ -2377,28 +2447,74 @@ async fn get_gas_stats(State(state): State<NodeState>) -> Json<GasStatsResponse>
 
 async fn get_finality_metrics(State(api_state): State<ApiState>) -> Json<FinalityMetricsResponse> {
     let state = &api_state.node_state;
-    let total_transactions = state.get_total_transactions().await as usize;
-    let (finalized_count, pending_count) = state.get_finalized_stats().await;
-    let (avg_ms, median_ms, p95_ms, last_checkpoint_age_ms, checkpoints_per_min) = 
-        state.get_finality_timing().await;
-    
-    // Use total_transactions as denominator (not dag_nodes which shrinks after pruning)
-    // finality_rate = (total - pending) / total
+
+    // Single inner.read() for all DAG/finality numbers. Replaces three back-to-back
+    // read-lock acquisitions (get_total_transactions, get_finalized_stats,
+    // get_finality_timing) that each had to queue independently behind any
+    // checkpoint-apply writer.
+    let (
+        total_transactions_u64,
+        finalized_count,
+        pending_count,
+        avg_ms,
+        median_ms,
+        p95_ms,
+        last_checkpoint_age_ms,
+        checkpoints_per_min,
+    ) = state.get_finality_summary().await;
+    let total_transactions = total_transactions_u64 as usize;
+
     let finality_rate = if total_transactions > 0 {
         let finalized = total_transactions.saturating_sub(pending_count);
         finalized as f64 / total_transactions as f64
     } else {
-        1.0 // No transactions = 100% finalized
+        1.0
     };
-    let tx_throughput = if total_transactions > 0 { (total_transactions as f64) / 60.0 } else { 0.0 };
-    
-    // Get fast-path confirmation stats if available
-    let avg_confirmation_ms = if let Some(ref gossip) = api_state.gossip_service {
-        gossip.get_fast_path_stats().await.avg_confirmation_ms
+    let tx_throughput = if total_transactions > 0 {
+        (total_transactions as f64) / 60.0
     } else {
-        None
+        0.0
     };
-    
+
+    // Single gossip.inner.read() for both fast-path stats and lane distribution,
+    // replacing two separate read-lock acquisitions.
+    let (fp_stats, lane, micro_checkpoint, conflict_tracker) =
+        if let Some(ref gossip) = api_state.gossip_service {
+            let (stats, (fp_finalized, fp_pending, fp_executed)) =
+                gossip.get_dashboard_snapshot().await;
+            let mc_stats = gossip.micro_checkpoint_service.get_stats().await;
+            let mc = MicroCheckpointStatsResponse {
+                current_sequence: mc_stats.current_sequence,
+                stored_checkpoints: mc_stats.stored_checkpoints,
+                pending_write_sets: mc_stats.pending_write_sets,
+                tracked_txs: mc_stats.tracked_txs,
+            };
+            let (in_flight_keys, in_flight_txs) = gossip.get_conflict_tracker_stats().await;
+            let ct = ConflictTrackerStatsResponse {
+                in_flight_keys,
+                in_flight_txs,
+            };
+            let ld = LaneDistributionResponse {
+                fast_path_confirmed: fp_finalized,
+                fast_path_pending: fp_pending,
+                fast_path_executed: fp_executed,
+            };
+            (Some(stats), Some(ld), Some(mc), Some(ct))
+        } else {
+            (None, None, None, None)
+        };
+
+    let (avg_confirmation_ms, p50, p90, p99, fp_sample_count) = match fp_stats {
+        Some(s) => (
+            s.avg_confirmation_ms,
+            s.p50_confirmation_ms,
+            s.p90_confirmation_ms,
+            s.p99_confirmation_ms,
+            s.sample_count,
+        ),
+        None => (None, None, None, None, 0),
+    };
+
     Json(FinalityMetricsResponse {
         avg_time_to_finality: avg_ms,
         median_time_to_finality: median_ms,
@@ -2411,7 +2527,44 @@ async fn get_finality_metrics(State(api_state): State<ApiState>) -> Json<Finalit
         last_checkpoint_age: last_checkpoint_age_ms,
         tx_throughput,
         avg_confirmation_ms,
+        p50_confirmation_ms: p50,
+        p90_confirmation_ms: p90,
+        p99_confirmation_ms: p99,
+        fast_path_sample_count: fp_sample_count,
+        micro_checkpoint,
+        conflict_tracker,
+        lane_distribution: lane,
     })
+}
+
+async fn get_micro_checkpoint_stats(
+    State(api_state): State<ApiState>,
+) -> Json<serde_json::Value> {
+    if let Some(ref gossip) = api_state.gossip_service {
+        let mc_stats = gossip.micro_checkpoint_service.get_stats().await;
+        let (in_flight_keys, in_flight_txs) = gossip.get_conflict_tracker_stats().await;
+        Json(serde_json::json!({
+            "currentSequence": mc_stats.current_sequence,
+            "storedCheckpoints": mc_stats.stored_checkpoints,
+            "pendingWriteSets": mc_stats.pending_write_sets,
+            "trackedTxs": mc_stats.tracked_txs,
+            "conflictTracker": {
+                "inFlightKeys": in_flight_keys,
+                "inFlightTxs": in_flight_txs,
+            }
+        }))
+    } else {
+        Json(serde_json::json!({
+            "currentSequence": 0,
+            "storedCheckpoints": 0,
+            "pendingWriteSets": 0,
+            "trackedTxs": 0,
+            "conflictTracker": {
+                "inFlightKeys": 0,
+                "inFlightTxs": 0,
+            }
+        }))
+    }
 }
 
 #[derive(Serialize)]
@@ -2445,6 +2598,8 @@ struct TransactionResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     fast_path_finality_ms: Option<u64>,
     lane: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "effectiveAmount")]
+    effective_amount: Option<f64>,
 }
 
 async fn get_transaction(
@@ -2456,7 +2611,7 @@ async fn get_transaction(
     tracing::debug!("Looking up transaction hash: {}", hash);
     
     // Get transaction with weight from DAG node
-    if let Some((tx, weight)) = state.get_transaction_with_weight(&hash).await {
+    if let Some((tx, weight, eff_amount)) = state.get_transaction_with_weight(&hash).await {
         tracing::debug!("Found transaction {} in DAG", hash);
         let finalized = state.is_finalized(&hash).await;
         // Normalize parents to /tx/h/{hash} format for explorer navigation
@@ -2522,6 +2677,7 @@ async fn get_transaction(
             fast_path_confirmed_at_ms,
             fast_path_finality_ms,
             lane: lane_str.to_string(),
+            effective_amount: eff_amount.map(|v| from_micro_units(v)),
         }))
     } else {
         // Debug: log lookup failure with DAG stats
@@ -2656,6 +2812,7 @@ async fn get_transaction_replies(
                 fast_path_confirmed_at_ms,
                 fast_path_finality_ms,
                 lane: lane_str.to_string(),
+                effective_amount: None,
             }
         })
         .collect();
@@ -3787,6 +3944,7 @@ struct RewardsAddressResponse {
     witness_rewards: f64,
     total_rewards: f64,
     pending_rewards: f64,
+    claimed_rewards: f64,
 }
 
 async fn get_rewards_address(
@@ -3803,6 +3961,7 @@ async fn get_rewards_address(
         witness_rewards: from_micro_units(summary.witness_rewards),
         total_rewards: from_micro_units(summary.total_rewards),
         pending_rewards: from_micro_units(summary.pending_rewards),
+        claimed_rewards: from_micro_units(summary.claimed_rewards),
     })
 }
 
@@ -4467,6 +4626,113 @@ async fn get_tx_weight(
     }))
 }
 
+async fn get_fast_path_proof(
+    State(api_state): State<ApiState>,
+    Path(hash): Path<String>,
+) -> impl IntoResponse {
+    let gossip = match &api_state.gossip_service {
+        Some(g) => g,
+        None => {
+            return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+                "error": "Gossip service not available"
+            }))).into_response();
+        }
+    };
+
+    let finality = match gossip.get_fast_path_status(&hash).await {
+        Some(f) => f,
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": "Transaction not found in fast-path pipeline"
+            }))).into_response();
+        }
+    };
+
+    let write_set_hash = match finality.write_set_hash {
+        Some(ref wsh) => wsh.clone(),
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": "No write-set hash available for this transaction"
+            }))).into_response();
+        }
+    };
+
+    let tx_info = {
+        let inner = api_state.node_state.inner.read().await;
+        inner.fast_path_finalized_txs.get(&hash).map(|e| (e.from.clone(), e.to.clone(), e.amount, e.nonce))
+    };
+
+    let (tx_from, tx_to, tx_amount_micro, tx_nonce) = match tx_info {
+        Some(info) => info,
+        None => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": "Transaction not found in fast-path finalized pool"
+            }))).into_response();
+        }
+    };
+
+    let micro_cp = gossip.micro_checkpoint_service
+        .get_micro_checkpoint_for_tx(&hash)
+        .await;
+
+    let (state_root, merkle_proof_strs, merkle_index, mc_seq) = if let Some(ref mc) = micro_cp {
+        let trie = api_state.node_state.state_trie.lock().await;
+        let trie_key = crate::sparse_merkle_trie::hash_account_key(&tx_from);
+        let proof_result = trie.prove(&trie_key, None);
+        match proof_result {
+            Ok(proof) => {
+                let siblings: Vec<String> = proof.siblings.iter()
+                    .map(|s| hex::encode(s))
+                    .collect();
+                (mc.state_root.clone(), siblings, 0usize, mc.sequence)
+            }
+            Err(_) => (mc.state_root.clone(), vec![], 0usize, mc.sequence)
+        }
+    } else {
+        let trie = api_state.node_state.state_trie.lock().await;
+        let root = trie.root_hex();
+        (root, vec![], 0usize, finality.micro_checkpoint_seq.unwrap_or(0))
+    };
+
+    let finality_ms = finality.finality_time_ms().unwrap_or(0);
+    let confirmed_validators: Vec<String> = finality.acks.iter()
+        .map(|a| a.validator_address.clone())
+        .collect();
+
+    let chain_id = std::env::var("CHAIN_ID").ok();
+
+    let vo = rinku_core::stateful_receipt::VerifiableObject::FastPathProof {
+        tx_hash: hash.clone(),
+        tx_from,
+        tx_to,
+        tx_amount: tx_amount_micro as f64 / 100_000_000.0,
+        tx_nonce,
+        write_set_hash,
+        micro_checkpoint_seq: mc_seq,
+        state_root,
+        merkle_proof: merkle_proof_strs,
+        merkle_index,
+        finality_ms,
+        confirmed_validators,
+        chain_id,
+        freshness: Some(rinku_core::stateful_receipt::ProofFreshness::new(
+            finality.checkpoint_height.unwrap_or(0),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            api_state.node_state.get_checkpoint_height(),
+            Some(10),
+        )),
+    };
+
+    (StatusCode::OK, Json(serde_json::json!({
+        "version": 1,
+        "url": format!("rinku://vo/{}/fast-path-proof", hash),
+        "proof": vo,
+    }))).into_response()
+}
+
 pub async fn start_api_server(
     state: NodeState,
     gossip_service: Option<Arc<GossipService>>,
@@ -4509,6 +4775,8 @@ pub async fn start_api_server(
         .route("/api/finality/metrics", get(get_finality_metrics))
         .route("/api/tx/:hash/vote", post(post_weight_vote))
         .route("/api/partition/merge", post(post_partition_merge))
+        .route("/api/tx/:hash/fast-path-proof", get(get_fast_path_proof))
+        .route("/api/micro-checkpoints/stats", get(get_micro_checkpoint_stats))
         .layer(cors.clone())
         .with_state(api_state);
 

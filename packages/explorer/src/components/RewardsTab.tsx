@@ -11,6 +11,7 @@ interface RewardsSummary {
   witnessRewards: number;
   totalRewards: number;
   pendingRewards: number;
+  claimedRewards: number;
   rewardHistory: Reward[];
 }
 
@@ -304,6 +305,14 @@ export function RewardsTab() {
                   {rewards.totalRewards.toFixed(4)}
                 </span>
               </div>
+              {rewards.claimedRewards > 0 && (
+                <div className="reward-type">
+                  <span className="label">claimed</span>
+                  <span className="amount" style={{ color: "#88c0d0" }}>
+                    {rewards.claimedRewards.toFixed(4)}
+                  </span>
+                </div>
+              )}
               <div className="reward-type pending">
                 <span className="label">pending</span>
                 <span className="amount">

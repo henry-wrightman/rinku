@@ -73,10 +73,10 @@ const getApiBaseUrl = () => {
   }
 
   if (import.meta.env.PROD) {
-    // Production on Replit: transform port in hostname
+    // Production: transform port in hostname
     const host = window.location.hostname;
     console.log(
-      "prod api url (Replit)",
+      "prod api url",
       `https://${host.replace(/-5000\./, "-3001.")}/api`,
     );
     return `https://${host.replace(/-5000\./, "-3001.")}/api`;
@@ -136,7 +136,9 @@ export function TokenomicsTab() {
   useEffect(() => {
     if (!lastBatch || lastBatch.id === lastBatchIdRef.current) return;
     lastBatchIdRef.current = lastBatch.id;
-    const relevant = lastBatch.items.some(e => e.type === 'CheckpointCreated');
+    const relevant = lastBatch.items.some(
+      (e) => e.type === "CheckpointCreated",
+    );
     if (relevant && !tokenRefreshRef.current) {
       tokenRefreshRef.current = setTimeout(() => {
         tokenRefreshRef.current = null;
@@ -146,7 +148,7 @@ export function TokenomicsTab() {
   }, [lastBatch]);
 
   useEffect(() => {
-    if (wsStatus === 'connected') return;
+    if (wsStatus === "connected") return;
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
   }, [wsStatus]);

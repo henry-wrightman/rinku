@@ -201,7 +201,10 @@ export function ThreadTab({ onWalletOpen }: Props) {
           </span>
         )}
         {isFinalized && (
-          <span className="status-icon finalized" title="anchored in snapshot">
+          <span
+            className="status-icon finalized"
+            title="anchored in checkpoint"
+          >
             &#x25C6;
           </span>
         )}

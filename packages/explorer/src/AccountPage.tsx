@@ -18,12 +18,9 @@ const getApiBaseUrl = () => {
   }
 
   if (import.meta.env.PROD) {
-    // Production on Replit: transform port in hostname
+    // Production: transform port in hostname
     const host = window.location.hostname;
-    console.log(
-      "prod api url (Replit)",
-      `https://${host.replace(/-5000\./, "-3001.")}`,
-    );
+    console.log("prod api url", `https://${host.replace(/-5000\./, "-3001.")}`);
     return `https://${host.replace(/-5000\./, "-3001.")}`;
   }
   return ""; // Dev: use Vite proxy (fetch calls already include /api prefix)
@@ -35,6 +32,7 @@ interface AccountData {
   balance: number;
   nonce: number;
   firstTxTimestamp?: number;
+  totalClaimed?: number;
 }
 
 interface Transaction {
@@ -46,6 +44,7 @@ interface Transaction {
   ts: number;
   url?: string;
   kind?: TransactionKind;
+  effectiveAmount?: number;
 }
 
 interface StakingStatus {
@@ -64,6 +63,7 @@ interface RewardsSummary {
   witnessRewards: number;
   totalRewards: number;
   pendingRewards: number;
+  claimedRewards: number;
 }
 
 interface StateProofData {
@@ -112,8 +112,7 @@ function AccountPage() {
       const dagData = await dagRes.json();
       const accountTxs = (dagData.nodes || [])
         .filter(
-          (node: any) =>
-            node && (node.from === address || node.to === address),
+          (node: any) => node && (node.from === address || node.to === address),
         )
         .map((node: any) => ({
           hash: node.hash,
@@ -124,6 +123,7 @@ function AccountPage() {
           ts: node.ts,
           url: node.url,
           kind: node.kind,
+          effectiveAmount: node.effectiveAmount,
         }))
         .sort((a: Transaction, b: Transaction) => b.ts - a.ts);
 
@@ -159,13 +159,16 @@ function AccountPage() {
     lastBatchIdRef.current = lastBatch.id;
     let shouldRefresh = false;
     for (const evt of lastBatch.items) {
-      if (evt.type === 'AccountUpdated') {
+      if (evt.type === "AccountUpdated") {
         const data = evt.data as { address: string };
         if (data.address === address) {
           shouldRefresh = true;
           break;
         }
-      } else if (evt.type === 'FastPathExecuted' || evt.type === 'CheckpointCreated') {
+      } else if (
+        evt.type === "FastPathExecuted" ||
+        evt.type === "CheckpointCreated"
+      ) {
         shouldRefresh = true;
         break;
       }
@@ -187,7 +190,7 @@ function AccountPage() {
   }, []);
 
   useEffect(() => {
-    if (wsStatus === 'connected') return;
+    if (wsStatus === "connected") return;
     const interval = setInterval(fetchAccountData, 5000);
     return () => clearInterval(interval);
   }, [wsStatus, address]);
@@ -235,7 +238,9 @@ function AccountPage() {
     setProofLoading(true);
     try {
       // Use on-demand endpoint to get fresh proof at current checkpoint
-      const res = await fetch(`${NODE_URL}/api/account/${address}/proof/current`);
+      const res = await fetch(
+        `${NODE_URL}/api/account/${address}/proof/current`,
+      );
       const data = await res.json();
       setStateProof(data);
     } catch (e) {
@@ -305,6 +310,14 @@ function AccountPage() {
             <span className="label">nonce</span>
             <span className="value">{account.nonce}</span>
           </div>
+          {account.totalClaimed != null && account.totalClaimed > 0 && (
+            <div className="meta-row">
+              <span className="label">total claimed</span>
+              <span className="value" style={{ color: "#88c0d0" }}>
+                {account.totalClaimed.toLocaleString()} RKU
+              </span>
+            </div>
+          )}
           {account.firstTxTimestamp && (
             <div className="meta-row">
               <span className="label">first seen</span>
@@ -372,6 +385,14 @@ function AccountPage() {
                   {rewards.totalRewards.toFixed(2)}
                 </span>
               </div>
+              {rewards.claimedRewards > 0 && (
+                <div className="meta-row">
+                  <span className="label">claimed</span>
+                  <span className="value" style={{ color: "#88c0d0" }}>
+                    {rewards.claimedRewards.toFixed(2)}
+                  </span>
+                </div>
+              )}
               {rewards.pendingRewards > 0 && (
                 <div className="meta-row">
                   <span className="label">pending</span>
@@ -389,9 +410,10 @@ function AccountPage() {
             state proof
           </h3>
           <p style={{ opacity: 0.6, marginBottom: 12, fontSize: 12 }}>
-            Generate a self-contained proof of this account's balance that can be verified offline.
+            Generate a self-contained proof of this account's balance that can
+            be verified offline.
           </p>
-          
+
           {!stateProof ? (
             <button
               className="btn-small"
@@ -405,11 +427,21 @@ function AccountPage() {
             <div className="tx-meta">
               <div className="meta-row">
                 <span className="label">status</span>
-                <span className="value" style={{ color: stateProof.verified ? "#22c55e" : "#ef4444" }}>
+                <span
+                  className="value"
+                  style={{ color: stateProof.verified ? "#22c55e" : "#ef4444" }}
+                >
                   {stateProof.verified ? "✓ verified" : "✗ unverified"}
                 </span>
               </div>
-              <div className="meta-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
+              <div
+                className="meta-row"
+                style={{
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  gap: 8,
+                }}
+              >
                 <span className="label">proof url</span>
                 <div style={{ display: "flex", gap: 8, width: "100%" }}>
                   <textarea
@@ -442,7 +474,8 @@ function AccountPage() {
             </div>
           ) : (
             <div style={{ color: "#ef4444", fontSize: 12 }}>
-              {stateProof.error || "No proof available - account may not have finalized transactions yet."}
+              {stateProof.error ||
+                "No proof available - account may not have finalized transactions yet."}
             </div>
           )}
         </div>
@@ -511,11 +544,13 @@ function AccountPage() {
                       }}
                     >
                       {isSpecialTx ? "" : isIncoming ? "+" : "-"}
-                      {tx.amount > 0
-                        ? `${tx.amount} RKU`
-                        : isSpecialTx
-                          ? ""
-                          : "0 RKU"}
+                      {tx.effectiveAmount != null && tx.effectiveAmount > 0
+                        ? `${tx.effectiveAmount} RKU`
+                        : tx.amount > 0
+                          ? `${tx.amount} RKU`
+                          : isSpecialTx
+                            ? ""
+                            : "0 RKU"}
                     </span>
                   </Link>
                 );

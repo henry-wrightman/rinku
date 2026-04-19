@@ -2,6 +2,20 @@ use super::*;
 use base64::Engine;
 use crate::bls::verify_aggregated_checkpoint_signature;
 
+struct CheckpointPipelineGuard {
+    counter: Arc<std::sync::atomic::AtomicUsize>,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+impl Drop for CheckpointPipelineGuard {
+    fn drop(&mut self) {
+        let prev = self.counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        if prev == 1 {
+            self.notify.notify_waiters();
+        }
+    }
+}
+
 pub enum BlsVerifyResult {
     NoSignature,
     ValidWithQuorum,
@@ -277,6 +291,12 @@ impl NodeState {
     pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint) -> anyhow::Result<()> {
         use rinku_core::merkle::MerkleTree;
 
+        self.checkpoint_in_progress.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        let _guard = CheckpointPipelineGuard {
+            counter: self.checkpoint_in_progress.clone(),
+            notify: self.checkpoint_complete_notify.clone(),
+        };
+
         let batch_start = std::time::Instant::now();
 
         let unfinalized_hashes = {
@@ -453,6 +473,7 @@ impl NodeState {
                             Some(rinku_core::types::TransactionKind::Stake)
                                 | Some(rinku_core::types::TransactionKind::Unstake)
                                 | Some(rinku_core::types::TransactionKind::ClaimRewards)
+                                | Some(rinku_core::types::TransactionKind::Contract)
                         )
                 })
                 .cloned()
@@ -467,7 +488,7 @@ impl NodeState {
 
             if fast_path_skipped > 0 {
                 tracing::info!(
-                    "Non-proposer checkpoint h={}: skipping {} fast-path TXs (already applied), {} contract-lane TXs to execute",
+                    "Proposer checkpoint h={}: skipping {} fast-path TXs (already applied), {} contract-lane TXs to execute",
                     height, fast_path_skipped, contract_lane_txs.len()
                 );
             }
@@ -521,6 +542,16 @@ impl NodeState {
 
             (batch_result, all_txs, finalized_count, fast_path_skipped, from_deferred, retry_counts, height, fast_path_already_finalized, prev_deferred, fp_special_txs)
         };
+
+        if !batch_result.changed_addresses.is_empty() {
+            let trie_updates = {
+                let state = self.inner.read().await;
+                state.collect_trie_updates_for_addresses(&batch_result.changed_addresses)
+            };
+            if !trie_updates.is_empty() {
+                self.update_trie_with_tuples(&trie_updates).await;
+            }
+        }
 
         if finalized_count > 0 {
             self.record_finalized_batch(finalized_count as u64).await;
@@ -605,6 +636,12 @@ impl NodeState {
         finalized_tx_hashes: Vec<String>,
         proofs: &[rinku_core::types::AccountStateProof],
     ) -> Result<usize> {
+        self.checkpoint_in_progress.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        let _guard = CheckpointPipelineGuard {
+            counter: self.checkpoint_in_progress.clone(),
+            notify: self.checkpoint_complete_notify.clone(),
+        };
+
         let apply_start = std::time::Instant::now();
 
         let expected_state_root = checkpoint.state_root.clone();
@@ -726,6 +763,7 @@ impl NodeState {
                             penalty_decay_checkpoint: None,
                             partition_budget: None,
                             partition_budget_spent: 0,
+                            total_claimed: 0,
                         },
                     );
                 }
@@ -753,9 +791,12 @@ impl NodeState {
 
             use crate::sparse_merkle_trie::hash_account_key;
 
-            for addr in &pruned_addrs {
-                let key = hash_account_key(addr);
-                let _ = state.state_trie.delete(&key, None);
+            {
+                let mut trie = self.state_trie.lock().await;
+                for addr in &pruned_addrs {
+                    let key = hash_account_key(addr);
+                    let _ = trie.delete(&key, None);
+                }
             }
 
             let mut changed_addrs: Vec<String> = Vec::new();
@@ -772,9 +813,13 @@ impl NodeState {
             incremental_changed = changed_addrs.len();
             incremental_pruned = pruned;
 
-            state.update_state_trie_accounts(&changed_addrs);
+            {
+                let trie_updates = state.collect_trie_updates_for_addresses(&changed_addrs);
+                let mut trie = self.state_trie.lock().await;
+                Self::apply_trie_updates_inline(&mut trie, &trie_updates);
+            }
 
-            let local_root = state.state_trie.root_hex();
+            let local_root = self.state_trie.lock().await.root_hex();
             if local_root != expected_state_root {
                 tracing::warn!(
                     "PROOF-VERIFIED INCREMENTAL MISMATCH at h={}: local {} != expected {} ({} changed, {} pruned) — falling back to full rebuild",
@@ -785,8 +830,11 @@ impl NodeState {
                     pruned
                 );
 
-                state.state_trie = StateInner::build_state_trie_from_accounts(&state.accounts);
-                let rebuild_root = state.state_trie.root_hex();
+                {
+                    let new_trie = StateInner::build_state_trie_from_accounts(&state.accounts);
+                    *self.state_trie.lock().await = new_trie;
+                }
+                let rebuild_root = self.state_trie.lock().await.root_hex();
                 if rebuild_root != expected_state_root {
                     tracing::error!(
                         "PROOF-VERIFIED ROOT MISMATCH at h={}: rebuilt trie root {} != checkpoint state_root {} ({} accounts, {} pruned) — rolling back",
@@ -797,7 +845,10 @@ impl NodeState {
                         pruned
                     );
                     state.accounts = accounts_backup;
-                    state.state_trie = StateInner::build_state_trie_from_accounts(&state.accounts);
+                    {
+                        let new_trie = StateInner::build_state_trie_from_accounts(&state.accounts);
+                        *self.state_trie.lock().await = new_trie;
+                    }
                     state.pre_checkpoint_accounts_snapshot = None;
                     return Err(anyhow::anyhow!(
                         "Proof-verified root mismatch at h={}: local {} != expected {}",
@@ -851,20 +902,21 @@ impl NodeState {
                 .map(|(addr, acc)| (addr.clone(), (acc.balance, acc.nonce, acc.staked)))
                 .collect();
             state.checkpoint_accounts_snapshot = Some((height, snapshot));
-
-            const DAG_EVICTION_RETENTION: u64 = 50;
-            if height > DAG_EVICTION_RETENTION {
-                let eviction_boundary = height - DAG_EVICTION_RETENTION;
-                let evicted = state.dag.evict_finalized_before(eviction_boundary);
-                if evicted > 0 {
-                    tracing::info!(
-                        "Proof-verified DAG eviction: removed {} nodes older than h={}",
-                        evicted, eviction_boundary
-                    );
-                }
-            }
         };
         let write_ms = lock_start.elapsed().as_millis();
+
+        const DAG_EVICTION_RETENTION: u64 = 50;
+        if height > DAG_EVICTION_RETENTION {
+            let eviction_boundary = height - DAG_EVICTION_RETENTION;
+            let mut state = self.inner.write().await;
+            let evicted = state.dag.evict_finalized_before(eviction_boundary);
+            if evicted > 0 {
+                tracing::info!(
+                    "Proof-verified DAG eviction: removed {} nodes older than h={}",
+                    evicted, eviction_boundary
+                );
+            }
+        }
 
         let finalized_count = proofs.len();
         if finalized_count > 0 {
@@ -896,6 +948,8 @@ impl NodeState {
             incremental_changed, incremental_pruned
         );
 
+        self.maybe_spawn_compaction(height, 50_000);
+
         Ok(0)
     }
 
@@ -905,6 +959,12 @@ impl NodeState {
         finalized_tx_hashes: Vec<String>,
         _skip_fast_path_reapply: bool,
     ) -> Result<usize> {
+        self.checkpoint_in_progress.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        let _guard = CheckpointPipelineGuard {
+            counter: self.checkpoint_in_progress.clone(),
+            notify: self.checkpoint_complete_notify.clone(),
+        };
+
         let batch_start = std::time::Instant::now();
 
         let mut prev_deferred = {
@@ -1109,6 +1169,7 @@ impl NodeState {
                         Some(rinku_core::types::TransactionKind::Stake)
                             | Some(rinku_core::types::TransactionKind::Unstake)
                             | Some(rinku_core::types::TransactionKind::ClaimRewards)
+                            | Some(rinku_core::types::TransactionKind::Contract)
                     )
             })
             .cloned()
@@ -1145,6 +1206,7 @@ impl NodeState {
         };
 
         let all_txs = contract_lane_txs;
+        let all_finalized_hash_set: std::collections::HashSet<String> = finalized_tx_hashes.iter().cloned().collect();
 
         let t_phase2 = std::time::Instant::now();
         let batch_result = {
@@ -1177,6 +1239,22 @@ impl NodeState {
 
             let result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
 
+            if finalized_count > 0 && !all_finalized_hash_set.is_empty() {
+                let fp_counted_at_checkpoint = state.fast_path_finalized_txs.keys()
+                    .filter(|h| all_finalized_hash_set.contains(h.as_str()))
+                    .count() as u64;
+                let batch_counted = result.executed_count as u64;
+                let total_accounted = fp_counted_at_checkpoint + batch_counted;
+                if total_accounted < finalized_count as u64 {
+                    let reconcile = finalized_count as u64 - total_accounted;
+                    state.total_transactions += reconcile;
+                    tracing::info!(
+                        "TX-COUNT-RECONCILE h={}: +{} (finalized={}, fp_counted={}, batch_counted={})",
+                        height, reconcile, finalized_count, fp_counted_at_checkpoint, batch_counted
+                    );
+                }
+            }
+
             {
                 let finalized_fp_hashes: std::collections::HashSet<String> = fast_path_already_finalized.iter().cloned().collect();
                 let cleared = state.clear_checkpoint_finalized_txs(&finalized_fp_hashes);
@@ -1205,22 +1283,33 @@ impl NodeState {
                 state.checkpoint_accounts_snapshot = None;
             }
 
-            const DAG_EVICTION_RETENTION: u64 = 50;
-            if height > DAG_EVICTION_RETENTION {
-                let eviction_boundary = height - DAG_EVICTION_RETENTION;
-                let pre_count = state.dag.node_count();
-                let evicted = state.dag.evict_finalized_before(eviction_boundary);
-                if evicted > 0 {
-                    tracing::info!(
-                        "In-memory DAG eviction: removed {} finalized nodes older than h={} ({} -> {} nodes)",
-                        evicted, eviction_boundary, pre_count, state.dag.node_count()
-                    );
-                }
-            }
-
             result
         };
         let phase2_ms = t_phase2.elapsed().as_millis();
+
+        if !batch_result.changed_addresses.is_empty() {
+            let trie_updates = {
+                let state = self.inner.read().await;
+                state.collect_trie_updates_for_addresses(&batch_result.changed_addresses)
+            };
+            if !trie_updates.is_empty() {
+                self.update_trie_with_tuples(&trie_updates).await;
+            }
+        }
+
+        const DAG_EVICTION_RETENTION: u64 = 50;
+        if height > DAG_EVICTION_RETENTION {
+            let eviction_boundary = height - DAG_EVICTION_RETENTION;
+            let mut state = self.inner.write().await;
+            let pre_count = state.dag.node_count();
+            let evicted = state.dag.evict_finalized_before(eviction_boundary);
+            if evicted > 0 {
+                tracing::info!(
+                    "In-memory DAG eviction: removed {} finalized nodes older than h={} ({} -> {} nodes)",
+                    evicted, eviction_boundary, pre_count, state.dag.node_count()
+                );
+            }
+        }
 
         if finalized_count > 0 {
             self.record_finalized_batch(finalized_count as u64).await;
@@ -1266,9 +1355,9 @@ impl NodeState {
 
         let total_finalized = all_txs.len();
         let newly_failed = all_txs.len().saturating_sub(batch_result.executed_count);
-        if newly_failed > 0 && fast_path_skipped == 0 {
-            tracing::warn!(
-                "Batch UNDERCOUNT: {} of {} finalized txs actually executed (skipped {})",
+        if newly_failed > 0 && fast_path_skipped == 0 && finalized_count > 0 {
+            tracing::debug!(
+                "Batch partial: {}/{} contract-lane txs executed ({} deferred/nonce-advanced — reconciled by fast-path or TX-COUNT-RECONCILE)",
                 batch_result.executed_count, all_txs.len(), newly_failed
             );
         }
@@ -1280,6 +1369,8 @@ impl NodeState {
             phase1_ms, phase2_ms,
             fast_path_skipped, from_deferred, expired_count, batch_result.gap_skipped_senders.len()
         );
+
+        self.maybe_spawn_compaction(height, 50_000);
 
         Ok(missing_tx_count)
     }

@@ -19,6 +19,7 @@ pub mod gossip;
 pub mod leader_election;
 pub mod mempool_cleanup;
 pub mod merge;
+pub mod micro_checkpoint;
 #[cfg(feature = "p2p")]
 pub mod network;
 pub mod partition_detector;
@@ -35,6 +36,7 @@ pub mod validator;
 pub mod validator_identity;
 pub mod versioning;
 pub mod websocket;
+pub mod write_set;
 #[cfg(feature = "wasm")]
 pub mod wasm_runtime;
 #[cfg(feature = "zk")]

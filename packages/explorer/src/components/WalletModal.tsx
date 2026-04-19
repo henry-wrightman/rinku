@@ -1,8 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import {
-  serializeKeyPair,
-  type SerializedKeyPair,
-} from "../crypto";
+import { serializeKeyPair, type SerializedKeyPair } from "../crypto";
 import { useRinku } from "../context/WalletContext";
 import { API_URL } from "../config";
 
@@ -490,9 +487,9 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
                                   tx.fast_path_status === "executed" ||
                                   tx.fast_path_status === "finalized") &&
                                 tx.fast_path_finality_ms
-                                  ? `Finalized in ${tx.fast_path_finality_ms}ms${tx.finalized ? " · anchored in snapshot" : ""}`
+                                  ? `Finalized in ${tx.fast_path_finality_ms}ms${tx.finalized ? " · anchored in checkpoint" : ""}`
                                   : tx.finalized
-                                    ? "Anchored in snapshot"
+                                    ? "Anchored in checkpoint"
                                     : "Pending finality"
                               }
                             >

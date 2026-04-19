@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
@@ -96,6 +96,7 @@ pub struct DagNodeInfo {
     pub weight: f64,
     pub kind: Option<rinku_core::types::TransactionKind>,
     pub sig: String,
+    pub effective_amount: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -148,7 +149,6 @@ pub struct StateInner {
     pub pre_checkpoint_accounts_snapshot: Option<(u64, HashMap<String, (u64, u64, u64)>)>,
     pub fast_path_finalized_txs: HashMap<String, FastPathFinalizedEntry>,
     pub fast_path_finalized_order: VecDeque<String>,
-    pub state_trie: crate::sparse_merkle_trie::SparseMerkleTrie,
 }
 
 #[derive(Clone, Debug)]
@@ -175,15 +175,14 @@ impl StateInner {
         trie
     }
 
-    pub fn update_state_trie_accounts(&mut self, changed_addresses: &[String]) {
-        use crate::sparse_merkle_trie::hash_account_key;
+    pub fn collect_trie_updates_for_addresses(&self, changed_addresses: &[String]) -> Vec<(String, u64, u64, u64)> {
+        let mut updates = Vec::with_capacity(changed_addresses.len());
         for addr in changed_addresses {
-            let key = hash_account_key(addr);
             if let Some(acc) = self.accounts.get(addr) {
-                let value = format!("account:{}:{}:{}:{}", addr, acc.balance, acc.nonce, acc.staked);
-                let _ = self.state_trie.set(&key, value.into_bytes(), None);
+                updates.push((addr.clone(), acc.balance, acc.nonce, acc.staked));
             }
         }
+        updates
     }
 
     pub fn clear_checkpoint_finalized_txs(
@@ -248,6 +247,11 @@ pub struct NodeState {
     deferred_batch_txs: Arc<tokio::sync::Mutex<Vec<rinku_core::types::SignedTransaction>>>,
     deferred_batch_retry_counts: Arc<tokio::sync::Mutex<std::collections::HashMap<String, u32>>>,
     pub wal: Arc<tokio::sync::Mutex<wal::WriteAheadLog>>,
+    pub checkpoint_in_progress: Arc<std::sync::atomic::AtomicUsize>,
+    pub checkpoint_complete_notify: Arc<tokio::sync::Notify>,
+    pub state_trie: Arc<tokio::sync::Mutex<crate::sparse_merkle_trie::SparseMerkleTrie>>,
+    pub compaction_in_progress: Arc<AtomicBool>,
+    pub compaction_overlay: Arc<tokio::sync::Mutex<Vec<(String, u64, u64, u64)>>>,
 }
 
 pub struct StateRootWithProofs {
@@ -259,6 +263,131 @@ pub struct StateRootWithProofs {
 impl NodeState {
     pub fn storage(&self) -> &Arc<RedbStorage> {
         &self.storage
+    }
+
+    pub async fn update_trie_for_addrs(&self, changed_addresses: &[String]) {
+        use crate::sparse_merkle_trie::hash_account_key;
+        let updates = {
+            let state = self.inner.read().await;
+            state.collect_trie_updates_for_addresses(changed_addresses)
+        };
+        let record_overlay = {
+            let mut trie = self.state_trie.lock().await;
+            for (addr, balance, nonce, staked) in &updates {
+                let key = hash_account_key(addr);
+                let value = format!("account:{}:{}:{}:{}", addr, balance, nonce, staked);
+                let _ = trie.set(&key, value.into_bytes(), None);
+            }
+            self.compaction_in_progress.load(std::sync::atomic::Ordering::Acquire)
+        };
+        if record_overlay && !updates.is_empty() {
+            self.compaction_overlay.lock().await.extend(updates);
+        }
+    }
+
+    pub async fn update_trie_with_tuples(&self, updates: &[(String, u64, u64, u64)]) {
+        let record_overlay = {
+            let mut trie = self.state_trie.lock().await;
+            Self::apply_trie_updates_inline(&mut trie, updates);
+            self.compaction_in_progress.load(std::sync::atomic::Ordering::Acquire)
+        };
+        if record_overlay && !updates.is_empty() {
+            self.compaction_overlay.lock().await.extend(updates.iter().cloned());
+        }
+    }
+
+    pub fn apply_trie_updates_inline(trie: &mut crate::sparse_merkle_trie::SparseMerkleTrie, updates: &[(String, u64, u64, u64)]) {
+        use crate::sparse_merkle_trie::hash_account_key;
+        for (addr, balance, nonce, staked) in updates {
+            let key = hash_account_key(addr);
+            let value = format!("account:{}:{}:{}:{}", addr, balance, nonce, staked);
+            let _ = trie.set(&key, value.into_bytes(), None);
+        }
+    }
+
+    pub async fn trie_root_hex(&self) -> String {
+        self.state_trie.lock().await.root_hex()
+    }
+
+    /// Async SMT compaction: rebuild the trie off the checkpoint critical path.
+    ///
+    /// CAS-claims `compaction_in_progress`. Spawns a task that snapshots accounts
+    /// under a brief read lock, rebuilds the trie on a blocking thread, then swaps
+    /// it in under the trie mutex. Concurrent trie updates during the rebuild are
+    /// recorded in `compaction_overlay` and replayed onto the new trie prior to
+    /// the swap, guaranteeing no lost updates.
+    pub fn maybe_spawn_compaction(&self, height: u64, threshold: usize) {
+        use std::sync::atomic::Ordering;
+        let inner = self.inner.clone();
+        let state_trie = self.state_trie.clone();
+        let flag = self.compaction_in_progress.clone();
+        let overlay = self.compaction_overlay.clone();
+        tokio::spawn(async move {
+            let old_dirty = {
+                let trie = state_trie.lock().await;
+                trie.dirty_node_count()
+            };
+            if old_dirty < threshold {
+                return;
+            }
+            if flag
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                return;
+            }
+            let t_overall = std::time::Instant::now();
+
+            let accounts_snapshot = {
+                let guard = inner.read().await;
+                guard.accounts.clone()
+            };
+            let snapshot_account_count = accounts_snapshot.len();
+
+            let t_build = std::time::Instant::now();
+            let new_trie = match tokio::task::spawn_blocking(move || {
+                StateInner::build_state_trie_from_accounts(&accounts_snapshot)
+            })
+            .await
+            {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!("SMT compaction (async) at h={}: rebuild task failed: {}", height, e);
+                    flag.store(false, Ordering::Release);
+                    return;
+                }
+            };
+            let build_ms = t_build.elapsed().as_millis();
+
+            let t_swap = std::time::Instant::now();
+            let mut new_trie = new_trie;
+            let mut trie_guard = state_trie.lock().await;
+            let overlay_entries: Vec<(String, u64, u64, u64)> = {
+                let mut overlay_guard = overlay.lock().await;
+                std::mem::take(&mut *overlay_guard)
+            };
+            let overlay_count = overlay_entries.len();
+            Self::apply_trie_updates_inline(&mut new_trie, &overlay_entries);
+            *trie_guard = new_trie;
+            drop(trie_guard);
+            flag.store(false, Ordering::Release);
+            let swap_ms = t_swap.elapsed().as_millis();
+            let total_ms = t_overall.elapsed().as_millis();
+            tracing::info!(
+                "SMT compaction (async) at h={}: {} accounts ({} dirty → overlay={} replayed), build={}ms swap={}ms total={}ms",
+                height, snapshot_account_count, old_dirty, overlay_count, build_ms, swap_ms, total_ms
+            );
+        });
+    }
+
+    pub async fn rebuild_trie_from_accounts(&self) {
+        let accounts = {
+            let state = self.inner.read().await;
+            state.accounts.clone()
+        };
+        let new_trie = StateInner::build_state_trie_from_accounts(&accounts);
+        let mut trie = self.state_trie.lock().await;
+        *trie = new_trie;
     }
 
     pub async fn get_chain_info(&self) -> (String, String) {
@@ -338,6 +467,7 @@ impl NodeState {
                         partition_epoch: None,
                         rolled_back: false,
                         fast_path_cert: entry.fast_path_cert.clone(),
+                        effective_amount: None,
                     };
                     let _ = dag.add_node(node);
                 }
@@ -373,12 +503,11 @@ impl NodeState {
                 let stored_genesis_hash = storage.load_genesis_hash().unwrap_or(None);
                 info!("Loaded genesis hash: {:?}", stored_genesis_hash.as_ref().map(|h| &h[..16.min(h.len())]));
                 
-                let state_trie = {
+                {
                     let start = std::time::Instant::now();
                     let t = StateInner::build_state_trie_from_accounts(&accounts);
                     info!("Built state trie from {} accounts in {}ms (root: {})", accounts.len(), start.elapsed().as_millis(), t.root_hex());
-                    t
-                };
+                }
                 StateInner {
                     dag,
                     accounts,
@@ -419,7 +548,6 @@ impl NodeState {
                     pre_checkpoint_accounts_snapshot: None,
                     fast_path_finalized_txs: HashMap::new(),
                     fast_path_finalized_order: VecDeque::new(),
-                    state_trie,
                 }
             } else {
                 if let Some(snapshot) = presync::try_presync_from_peers(&config.p2p.bootstrap_peers, config.is_genesis_node).await {
@@ -464,6 +592,7 @@ impl NodeState {
                             partition_epoch: None,
                             rolled_back: false,
                             fast_path_cert: None,
+                            effective_amount: None,
                         };
                         let _ = dag.add_node(node);
                     }
@@ -482,8 +611,10 @@ impl NodeState {
                         info!("PRE-SYNC: Saved peer genesis hash: {}", &genesis_hash[..16.min(genesis_hash.len())]);
                     }
                     
-                    let state_trie = StateInner::build_state_trie_from_accounts(&snapshot.accounts);
-                    info!("PRE-SYNC: Built state trie from {} accounts (root: {})", snapshot.accounts.len(), state_trie.root_hex());
+                    {
+                        let t = StateInner::build_state_trie_from_accounts(&snapshot.accounts);
+                        info!("PRE-SYNC: Built state trie from {} accounts (root: {})", snapshot.accounts.len(), t.root_hex());
+                    }
                     let inner = StateInner {
                         dag,
                         accounts: snapshot.accounts.clone(),
@@ -517,7 +648,6 @@ impl NodeState {
                         pre_checkpoint_accounts_snapshot: None,
                         fast_path_finalized_txs: HashMap::new(),
                         fast_path_finalized_order: VecDeque::new(),
-                        state_trie,
                     };
                     
                     let mut emission = if let Some(em_snapshot) = snapshot.emission_snapshot {
@@ -550,6 +680,9 @@ impl NodeState {
                     let initial_height = inner.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
                     let node_state = Self {
                         config,
+                        state_trie: Arc::new(tokio::sync::Mutex::new(
+                            StateInner::build_state_trie_from_accounts(&inner.accounts)
+                        )),
                         inner: Arc::new(RwLock::new(inner)),
                         storage,
                         emission: Arc::new(RwLock::new(emission)),
@@ -568,6 +701,10 @@ impl NodeState {
                             }
                             Arc::new(tokio::sync::Mutex::new(w))
                         },
+                        checkpoint_in_progress: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                        checkpoint_complete_notify: Arc::new(tokio::sync::Notify::new()),
+                        compaction_in_progress: Arc::new(AtomicBool::new(false)),
+                        compaction_overlay: Arc::new(tokio::sync::Mutex::new(Vec::new())),
                     };
                     
                     node_state.recalculate_dag_weights().await;
@@ -607,6 +744,7 @@ impl NodeState {
                         penalty_decay_checkpoint: None,
                         partition_budget: None,
                         partition_budget_spent: 0,
+                        total_claimed: 0,
                     },
                 );
                 info!("Faucet account initialized with {} micro-RKU ({} RKU)", faucet_balance, faucet_balance / 100_000_000);
@@ -645,6 +783,7 @@ impl NodeState {
                     partition_epoch: None,
                     rolled_back: false,
                     fast_path_cert: None,
+                    effective_amount: None,
                 };
                 let _ = dag.add_node(genesis_node);
                 info!(
@@ -695,8 +834,10 @@ impl NodeState {
                 
                 let _ = storage.save_genesis_hash(&genesis_hash);
                 
-                let state_trie = StateInner::build_state_trie_from_accounts(&accounts);
-                info!("Genesis: Built state trie from {} accounts (root: {})", accounts.len(), state_trie.root_hex());
+                {
+                    let t = StateInner::build_state_trie_from_accounts(&accounts);
+                    info!("Genesis: Built state trie from {} accounts (root: {})", accounts.len(), t.root_hex());
+                }
                 StateInner {
                     dag,
                     accounts,
@@ -730,7 +871,6 @@ impl NodeState {
                     pre_checkpoint_accounts_snapshot: None,
                     fast_path_finalized_txs: HashMap::new(),
                     fast_path_finalized_order: VecDeque::new(),
-                    state_trie,
                 }
             };
 
@@ -765,6 +905,9 @@ impl NodeState {
         let initial_height = inner.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
         let node_state = Self {
             config,
+            state_trie: Arc::new(tokio::sync::Mutex::new(
+                StateInner::build_state_trie_from_accounts(&inner.accounts)
+            )),
             inner: Arc::new(RwLock::new(inner)),
             storage,
             emission: Arc::new(RwLock::new(emission)),
@@ -783,6 +926,10 @@ impl NodeState {
                 }
                 Arc::new(tokio::sync::Mutex::new(w))
             },
+            checkpoint_in_progress: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            checkpoint_complete_notify: Arc::new(tokio::sync::Notify::new()),
+            compaction_in_progress: Arc::new(AtomicBool::new(false)),
+            compaction_overlay: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         };
         
         node_state.recalculate_dag_weights().await;
@@ -833,10 +980,13 @@ impl NodeState {
                                             penalty_decay_checkpoint: None,
                                             partition_budget: None,
                                             partition_budget_spent: 0,
+                                            total_claimed: 0,
                                         });
                                     }
                                 }
-                                state.update_state_trie_accounts(&changed);
+                                let trie_updates = state.collect_trie_updates_for_addresses(&changed);
+                                drop(state);
+                                node_state.update_trie_with_tuples(&trie_updates).await;
                                 info!(
                                     "WAL RECOVERY: applied {} account updates for h={}, committing WAL",
                                     changed.len(), recovery.height
@@ -846,8 +996,8 @@ impl NodeState {
                                     "WAL RECOVERY: h={} already applied (local={}), skipping replay",
                                     recovery.height, local_height
                                 );
+                                drop(state);
                             }
-                            drop(state);
                             let _ = wal_guard.truncate();
                         }
                         wal::WalRecoveryAction::Rollback => {

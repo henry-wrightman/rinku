@@ -96,6 +96,24 @@ interface PeerStats {
   lastGossipAt: number;
 }
 
+interface MicroCheckpointStats {
+  currentSequence: number;
+  storedCheckpoints: number;
+  pendingWriteSets: number;
+  trackedTxs: number;
+}
+
+interface ConflictTrackerStats {
+  inFlightKeys: number;
+  inFlightTxs: number;
+}
+
+interface LaneDistribution {
+  fastPathConfirmed: number;
+  fastPathPending: number;
+  fastPathExecuted: number;
+}
+
 interface FinalityStats {
   avgTimeToFinality: number;
   medianTimeToFinality: number;
@@ -108,6 +126,9 @@ interface FinalityStats {
   lastCheckpointAge: number;
   txThroughput: number;
   avgConfirmationMs: number | null;
+  microCheckpoint?: MicroCheckpointStats;
+  conflictTracker?: ConflictTrackerStats;
+  laneDistribution?: LaneDistribution;
 }
 
 interface VersionInfo {
@@ -154,6 +175,7 @@ function App() {
       : "dag";
   const [tab, setTabState] = useState<TabType>(initialTab);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mcpStatsExpanded, setMcpStatsExpanded] = useState(false);
 
   const setTab = useCallback(
     (newTab: TabType) => {
@@ -215,6 +237,8 @@ function App() {
     error?: string;
   } | null>(null);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+
+  const versionFetchedRef = useRef(false);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -302,14 +326,24 @@ function App() {
         setPeerStats(peerData);
       }
 
-      const versionRes = await fetch(`${NODE_URL}/version`);
-      if (versionRes.ok) {
-        const versionData = await versionRes.json();
-        setVersionInfo(versionData);
+      // Version is immutable for the lifetime of the node process — fetch once.
+      if (!versionFetchedRef.current) {
+        try {
+          const versionRes = await fetch(`${NODE_URL}/version`);
+          if (versionRes.ok) {
+            const versionData = await versionRes.json();
+            setVersionInfo(versionData);
+            versionFetchedRef.current = true;
+          }
+        } catch {
+          // leave versionFetchedRef false so we retry on next refresh
+        }
       }
     } catch (e) {
       console.error("Failed to fetch summary:", e);
       setConnected(false);
+      // If the node restarted, version may have changed — allow refetch on reconnect.
+      versionFetchedRef.current = false;
     }
   }, []);
 
@@ -345,6 +379,10 @@ function App() {
     if (!lastBatch || lastBatch.id === lastBatchIdRef.current) return;
     lastBatchIdRef.current = lastBatch.id;
     if (refreshTimerRef.current) return;
+    // Debounce dashboard refresh: WS already pushes per-event deltas, so the
+    // periodic full re-pull only needs to be coarse enough to feel "live".
+    // 1s is well below human perception threshold for stats and cuts the
+    // refresh-storm load by 4× vs. the previous 250ms.
     refreshTimerRef.current = setTimeout(() => {
       refreshTimerRef.current = null;
       fetchSummary();
@@ -426,10 +464,10 @@ function App() {
             </button>
             <h3>about rinku</h3>
             <p>
-              rinku is an experimental project and a work in progress. even when
-              it eventually launches to mainnet, it'll likely not be listed on
-              exchanges. simply an open source project to either contribute to,
-              or fork &amp; make into something better.
+              rinku is an experimental distributed ledger with self-contained
+              proofs, deterministic reconciliation, and sub-second finality
+              built for mesh-native systems. see the whitepaper for a detailed
+              protocol overview.
             </p>
           </div>
         </div>
@@ -498,7 +536,7 @@ function App() {
                     ? `${finalityStats.avgConfirmationMs}ms`
                     : "-"}
                 </span>
-                <span className="tl">convergence</span>
+                <span className="tl">fast-path</span>
               </span>
               <span className="ticker-cell">
                 <span className="tv cyan">
@@ -506,7 +544,7 @@ function App() {
                     ? `${(60 / finalityStats.checkpointsPerMinute).toFixed(1)}s`
                     : "-"}
                 </span>
-                <span className="tl">snapshot</span>
+                <span className="tl">checkpoint</span>
               </span>
               <span className="ticker-cell">
                 <span className="tv cyan">{finalityStats.pendingCount}</span>
@@ -525,6 +563,81 @@ function App() {
               </span>
             </div>
           )}
+        {/* 
+        {finalityStats?.microCheckpoint && (
+          <div className="ticker-row secondary">
+            <span className="ticker-cell">
+              <span className="tv warm">
+                #{finalityStats.microCheckpoint.currentSequence}
+              </span>
+              <span className="tl">μ-cp seq</span>
+              <button
+                type="button"
+                className="mcp-toggle"
+                onClick={() => setMcpStatsExpanded((v) => !v)}
+                aria-expanded={mcpStatsExpanded}
+                aria-label={
+                  mcpStatsExpanded
+                    ? "collapse μ-cp stats"
+                    : "expand μ-cp stats"
+                }
+                title={
+                  mcpStatsExpanded
+                    ? "collapse μ-cp stats"
+                    : "expand μ-cp stats"
+                }
+              >
+                {mcpStatsExpanded ? "[−]" : "[+]"}
+              </button>
+            </span>
+            {mcpStatsExpanded && (
+              <>
+                <span className="ticker-cell">
+                  <span className="tv warm">
+                    {finalityStats.microCheckpoint.storedCheckpoints}
+                  </span>
+                  <span className="tl">μ-cp stored</span>
+                  <span className="sep" />
+                  <span className="tv warm">
+                    {finalityStats.microCheckpoint.pendingWriteSets}
+                  </span>
+                  <span className="tl">pending ws</span>
+                </span>
+                {finalityStats.laneDistribution && (
+                  <span className="ticker-cell">
+                    <span className="tv warm">
+                      {finalityStats.laneDistribution.fastPathConfirmed}
+                    </span>
+                    <span className="tl">fp confirmed</span>
+                    <span className="sep" />
+                    <span className="tv warm">
+                      {finalityStats.laneDistribution.fastPathPending}
+                    </span>
+                    <span className="tl">fp pending</span>
+                    <span className="sep" />
+                    <span className="tv warm">
+                      {finalityStats.laneDistribution.fastPathExecuted}
+                    </span>
+                    <span className="tl">fp executed</span>
+                  </span>
+                )}
+                {finalityStats.conflictTracker && (
+                  <span className="ticker-cell">
+                    <span className="tv warm">
+                      {finalityStats.conflictTracker.inFlightTxs}
+                    </span>
+                    <span className="tl">in-flight</span>
+                    <span className="sep" />
+                    <span className="tv warm">
+                      {finalityStats.conflictTracker.inFlightKeys}
+                    </span>
+                    <span className="tl">ws keys</span>
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        )}*/}
       </div>
 
       <SearchBar onResult={setSearchResult} />
@@ -670,6 +783,7 @@ function App() {
           totalNodes={summary?.totalNodes || 0}
           hasMore={hasMore}
           onPageChange={handlePageChange}
+          currentTps={networkStats?.tps || 0}
         />
       )}
       {tab === "accounts" && <AccountsTab accounts={accounts} />}

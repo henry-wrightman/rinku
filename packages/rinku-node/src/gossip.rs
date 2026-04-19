@@ -405,6 +405,8 @@ pub enum GossipMessage {
         timestamp_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        write_set_hash: Option<String>,
     },
     TxConfirmAck {
         tx_hash: String,
@@ -415,6 +417,8 @@ pub enum GossipMessage {
         timestamp_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        write_set_hash: Option<String>,
     },
     MergePayload {
         request: crate::merge::MergeRequest,
@@ -664,13 +668,21 @@ enum FastPathVoteOp {
         sender_validator: String,
         sender_stake: u64,
         timestamp_ms: u64,
+        /// Wall-clock at gossip-receive site, before queueing into the batch.
+        /// Used as `confirmed_at_ms` if this op crosses quorum, so the metric
+        /// reflects ack-arrival, not batch-processor wakeup.
+        received_at_ms: u64,
         send_ack: bool,
+        write_set_hash: Option<String>,
     },
     AckVote {
         tx_hash: String,
         validator_address: String,
         validator_stake: u64,
         timestamp_ms: u64,
+        /// Wall-clock at gossip-receive site (see BroadcastVote::received_at_ms).
+        received_at_ms: u64,
+        write_set_hash: Option<String>,
     },
 }
 
@@ -711,6 +723,8 @@ pub struct GossipService {
     qcc_vote_tx: Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Sender<QccGossipVote>>>>,
     highest_seen_peer_height: Arc<std::sync::atomic::AtomicU64>,
     qcc_vote_lock: Arc<tokio::sync::Mutex<(u64, String)>>,
+    pub micro_checkpoint_service: crate::micro_checkpoint::MicroCheckpointService,
+    write_set_conflict_tracker: Arc<tokio::sync::Mutex<crate::write_set::WriteSetConflictTracker>>,
 }
 
 impl Clone for GossipService {
@@ -746,6 +760,8 @@ impl Clone for GossipService {
             qcc_vote_tx: self.qcc_vote_tx.clone(),
             highest_seen_peer_height: self.highest_seen_peer_height.clone(),
             qcc_vote_lock: self.qcc_vote_lock.clone(),
+            micro_checkpoint_service: self.micro_checkpoint_service.clone(),
+            write_set_conflict_tracker: self.write_set_conflict_tracker.clone(),
         }
     }
 }
@@ -852,6 +868,8 @@ impl GossipService {
             qcc_vote_tx: Arc::new(tokio::sync::Mutex::new(None)),
             highest_seen_peer_height: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             qcc_vote_lock: Arc::new(tokio::sync::Mutex::new((0u64, String::new()))),
+            micro_checkpoint_service: crate::micro_checkpoint::MicroCheckpointService::new(),
+            write_set_conflict_tracker: Arc::new(tokio::sync::Mutex::new(crate::write_set::WriteSetConflictTracker::new())),
         }
     }
 
@@ -985,6 +1003,31 @@ impl GossipService {
                 let gossip_batch = Arc::clone(&self);
                 tokio::spawn(async move {
                     gossip_batch.run_fast_path_batch_processor(vote_rx).await;
+                });
+            }
+
+            {
+                let mc_service = self.micro_checkpoint_service.clone();
+                let mc_state = self.state.clone();
+                let mc_inner = Arc::clone(&self.inner);
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_millis(
+                        crate::micro_checkpoint::MicroCheckpointService::interval_ms(),
+                    ));
+                    loop {
+                        interval.tick().await;
+                        if let Some(micro_cp) = mc_service.produce_micro_checkpoint(&mc_state).await {
+                            let mut inner = mc_inner.write().await;
+                            for tx_hash in &micro_cp.tx_hashes {
+                                if let Some(finality) = inner.fast_path_confirmed.get_mut(tx_hash) {
+                                    finality.micro_checkpoint_seq = Some(micro_cp.sequence);
+                                }
+                                if let Some(finality) = inner.fast_path_pending.get_mut(tx_hash) {
+                                    finality.micro_checkpoint_seq = Some(micro_cp.sequence);
+                                }
+                            }
+                        }
+                    }
                 });
             }
 
@@ -1187,7 +1230,7 @@ impl GossipService {
         }
 
         let mut newly_confirmed: Vec<ConfirmedTx> = Vec::new();
-        let mut acks_to_send: Vec<(String, String, u64)> = Vec::new();
+        let mut acks_to_send: Vec<(String, String, u64, Option<String>)> = Vec::new();
         let mut already_confirmed_txs: Vec<SignedTransaction> = Vec::new();
 
         {
@@ -1200,7 +1243,9 @@ impl GossipService {
                         sender_validator,
                         sender_stake,
                         timestamp_ms,
+                        received_at_ms: op_received_ms,
                         send_ack,
+                        write_set_hash: broadcast_ws_hash,
                     } => {
                         if inner.fast_path_tx_bodies.len() < 10_000 {
                             inner.fast_path_tx_bodies.entry(tx.hash.clone()).or_insert_with(|| tx.clone());
@@ -1219,6 +1264,7 @@ impl GossipService {
                                             tx.hash.clone(),
                                             addr.clone(),
                                             our_stake,
+                                            broadcast_ws_hash.clone(),
                                         ));
                                     }
                                 }
@@ -1235,13 +1281,21 @@ impl GossipService {
                                 acks: Vec::new(),
                                 total_stake_acked: 0,
                                 quorum_stake_required: quorum_threshold,
-                                registered_at_ms: timestamp_ms,
+                                // Use local receive time, not sender's timestamp_ms,
+                                // so validator_finality_time_ms is strictly local
+                                // (excludes remote validator clock skew + transit).
+                                registered_at_ms: op_received_ms,
                                 confirmed_at_ms: None,
                                 checkpoint_height: None,
                                 tx_created_at_ms: Some(tx.tx.timestamp),
+                                write_set_hash: broadcast_ws_hash.clone(),
+                                micro_checkpoint_seq: None,
                             });
                         if finality.tx_created_at_ms.is_none() {
                             finality.tx_created_at_ms = Some(tx.tx.timestamp);
+                        }
+                        if finality.write_set_hash.is_none() && broadcast_ws_hash.is_some() {
+                            finality.write_set_hash = broadcast_ws_hash.clone();
                         }
 
                         if let Some(canonical_validator) = validators.get(&sender_validator) {
@@ -1266,6 +1320,7 @@ impl GossipService {
                                         validator_stake: canonical_stake,
                                         bls_signature: None,
                                         timestamp_ms,
+                                        write_set_hash: broadcast_ws_hash.clone(),
                                     });
                                     finality.total_stake_acked += canonical_stake;
                                 }
@@ -1283,6 +1338,7 @@ impl GossipService {
                                         validator_stake: our_stake,
                                         bls_signature: None,
                                         timestamp_ms: now_ms,
+                                        write_set_hash: broadcast_ws_hash.clone(),
                                     });
                                     finality.total_stake_acked += our_stake;
                                 }
@@ -1293,7 +1349,10 @@ impl GossipService {
                             && finality.status == rinku_core::types::FastPathStatus::Pending
                         {
                             finality.status = rinku_core::types::FastPathStatus::Confirmed;
-                            finality.confirmed_at_ms = Some(now_ms);
+                            // Use the broadcast's received-at, not batch-processor wakeup,
+                            // so confirmed_at_ms reflects ack-arrival timing, not
+                            // tokio scheduling skew.
+                            finality.confirmed_at_ms = Some(op_received_ms);
                             let f = finality.clone();
                             inner
                                 .fast_path_confirmed
@@ -1309,7 +1368,7 @@ impl GossipService {
                         if send_ack {
                             if let Some(ref addr) = our_addr {
                                 if our_stake > 0 {
-                                    acks_to_send.push((tx.hash.clone(), addr.clone(), our_stake));
+                                    acks_to_send.push((tx.hash.clone(), addr.clone(), our_stake, broadcast_ws_hash.clone()));
                                 }
                             }
                         }
@@ -1319,6 +1378,8 @@ impl GossipService {
                         validator_address,
                         validator_stake,
                         timestamp_ms,
+                        received_at_ms: op_received_ms,
+                        write_set_hash: ack_ws_hash,
                     } => {
                         if inner.fast_path_executed.contains(&tx_hash) {
                             continue;
@@ -1364,7 +1425,24 @@ impl GossipService {
                                 confirmed_at_ms: None,
                                 checkpoint_height: None,
                                 tx_created_at_ms: None,
+                                write_set_hash: ack_ws_hash.clone(),
+                                micro_checkpoint_seq: None,
                             });
+
+                        if let (Some(ref existing_ws), Some(ref incoming_ws)) = (&finality.write_set_hash, &ack_ws_hash) {
+                            if existing_ws != incoming_ws {
+                                warn!(
+                                    "FastPathAck write_set_hash MISMATCH for tx {}: existing={}.. vs ack={}.. from {}",
+                                    &tx_hash[..16.min(tx_hash.len())],
+                                    &existing_ws[..8.min(existing_ws.len())],
+                                    &incoming_ws[..8.min(incoming_ws.len())],
+                                    &validator_address[..16.min(validator_address.len())],
+                                );
+                                continue;
+                            }
+                        } else if finality.write_set_hash.is_none() && ack_ws_hash.is_some() {
+                            finality.write_set_hash = ack_ws_hash.clone();
+                        }
 
                         let already_acked = finality
                             .acks
@@ -1377,6 +1455,7 @@ impl GossipService {
                                 validator_stake: canonical_stake,
                                 bls_signature: None,
                                 timestamp_ms,
+                                write_set_hash: ack_ws_hash.clone(),
                             });
                             finality.total_stake_acked += canonical_stake;
                         }
@@ -1392,6 +1471,7 @@ impl GossipService {
                                         validator_stake: our_stake,
                                         bls_signature: None,
                                         timestamp_ms: now_ms,
+                                        write_set_hash: ack_ws_hash.clone(),
                                     });
                                     finality.total_stake_acked += our_stake;
                                 }
@@ -1402,7 +1482,10 @@ impl GossipService {
                             && finality.status == rinku_core::types::FastPathStatus::Pending
                         {
                             finality.status = rinku_core::types::FastPathStatus::Confirmed;
-                            finality.confirmed_at_ms = Some(now_ms);
+                            // Use the ack's received-at, not batch-processor wakeup,
+                            // so confirmed_at_ms reflects ack-arrival timing, not
+                            // tokio scheduling skew.
+                            finality.confirmed_at_ms = Some(op_received_ms);
                             let f = finality.clone();
                             inner
                                 .fast_path_confirmed
@@ -1427,7 +1510,7 @@ impl GossipService {
             let sender_url = std::env::var("PUBLIC_URL").ok();
             if let Some(ref handle) = self_arc.network_handle {
                 let mut seen_tx_hashes = std::collections::HashSet::new();
-                for (tx_hash, validator_addr, stake) in &acks_to_send {
+                for (tx_hash, validator_addr, stake, ws_hash) in &acks_to_send {
                     if !seen_tx_hashes.insert(tx_hash.clone()) {
                         continue;
                     }
@@ -1438,6 +1521,7 @@ impl GossipService {
                         bls_signature: None,
                         timestamp_ms: now_ms,
                         sender_url: sender_url.clone(),
+                        write_set_hash: ws_hash.clone(),
                     };
                     match handle.try_broadcast(ack) {
                         Ok(_) => acks_sent += 1,
@@ -3384,6 +3468,18 @@ impl GossipService {
                 executed_cleaned, inner.fast_path_executed.len()
             );
         }
+        drop(inner);
+        {
+            let mut tracker = self.write_set_conflict_tracker.lock().await;
+            let pre = tracker.in_flight_tx_count();
+            tracker.clear_all();
+            if pre > 0 {
+                tracing::debug!(
+                    "Delta-sync finalization: cleared {} in-flight TXs from conflict tracker",
+                    pre
+                );
+            }
+        }
     }
 
     pub async fn cleanup_finalized_full(&self, finalized_hashes: &[String], checkpoint_height: u64) {
@@ -3408,6 +3504,18 @@ impl GossipService {
                 "Proposer checkpoint h={}: cleaned {} entries from gossip fast_path_executed ({} remaining)",
                 checkpoint_height, executed_cleaned, inner.fast_path_executed.len()
             );
+        }
+        drop(inner);
+        {
+            let mut tracker = self.write_set_conflict_tracker.lock().await;
+            let pre = tracker.in_flight_tx_count();
+            tracker.clear_all();
+            if pre > 0 {
+                tracing::debug!(
+                    "Checkpoint h={}: cleared {} in-flight TXs from conflict tracker",
+                    checkpoint_height, pre
+                );
+            }
         }
     }
 
@@ -5322,6 +5430,7 @@ impl GossipService {
                 sender_validator,
                 sender_stake,
                 timestamp_ms,
+                write_set_hash,
                 ..
             } => {
                 {
@@ -5332,12 +5441,18 @@ impl GossipService {
                     if inner.known_txs.contains(&tx.hash) {
                         drop(inner);
                         if let Some(vote_tx) = self.fast_path_vote_tx.get() {
+                            let received_at_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
                             if let Err(e) = vote_tx.try_send(FastPathVoteOp::BroadcastVote {
                                 tx,
                                 sender_validator,
                                 sender_stake,
                                 timestamp_ms,
+                                received_at_ms,
                                 send_ack: true,
+                                write_set_hash: write_set_hash.clone(),
                             }) {
                                 warn!(
                                     "Fast-path vote channel full (fast-path), dropped vote: {}",
@@ -5396,12 +5511,18 @@ impl GossipService {
                     }
 
                     if let Some(vote_tx) = self.fast_path_vote_tx.get() {
+                        let received_at_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
                         if let Err(e) = vote_tx.try_send(FastPathVoteOp::BroadcastVote {
                             tx,
                             sender_validator,
                             sender_stake,
                             timestamp_ms,
+                            received_at_ms,
                             send_ack: true,
+                            write_set_hash: write_set_hash.clone(),
                         }) {
                             warn!(
                                 "Fast-path vote channel full, dropped BroadcastVote: {}",
@@ -5411,12 +5532,18 @@ impl GossipService {
                     }
                 } else {
                     if let Some(vote_tx) = self.fast_path_vote_tx.get() {
+                        let received_at_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
                         if let Err(e) = vote_tx.try_send(FastPathVoteOp::BroadcastVote {
                             tx,
                             sender_validator,
                             sender_stake,
                             timestamp_ms,
+                            received_at_ms,
                             send_ack: true,
+                            write_set_hash,
                         }) {
                             warn!(
                                 "Fast-path vote channel full, dropped BroadcastVote: {}",
@@ -5434,6 +5561,7 @@ impl GossipService {
                 validator_address,
                 validator_stake,
                 timestamp_ms,
+                write_set_hash,
                 ..
             } => {
                 {
@@ -5444,11 +5572,17 @@ impl GossipService {
                 }
 
                 if let Some(vote_tx) = self.fast_path_vote_tx.get() {
+                    let received_at_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
                     if let Err(e) = vote_tx.try_send(FastPathVoteOp::AckVote {
                         tx_hash,
                         validator_address,
                         validator_stake,
                         timestamp_ms,
+                        received_at_ms,
+                        write_set_hash,
                     }) {
                         warn!("Fast-path vote channel full, dropped AckVote: {}", e);
                     }
@@ -6317,6 +6451,8 @@ impl GossipService {
                         confirmed_at_ms: None,
                         checkpoint_height: None,
                         tx_created_at_ms: Some(tx.tx.timestamp),
+                        write_set_hash: None,
+                        micro_checkpoint_seq: None,
                     });
                 let already_acked = finality
                     .acks
@@ -6329,6 +6465,7 @@ impl GossipService {
                         validator_stake,
                         bls_signature: None,
                         timestamp_ms,
+                        write_set_hash: None,
                     });
                     finality.total_stake_acked += validator_stake;
                 }
@@ -6347,6 +6484,7 @@ impl GossipService {
                 sender_stake: validator_stake,
                 timestamp_ms,
                 sender_url: public_url,
+                write_set_hash: None,
             };
 
             #[cfg(feature = "p2p")]
@@ -6366,7 +6504,7 @@ impl GossipService {
     }
 
     async fn execute_fast_path_batch_gossip(&self) {
-        const BATCH_INTERVAL_MS: u128 = 500;
+        const BATCH_INTERVAL_MS: u128 = 150;
 
         let should_run = {
             let inner = self.inner.read().await;
@@ -6376,9 +6514,19 @@ impl GossipService {
             return;
         }
 
+        // Backpressure: if a checkpoint is being applied, defer this batch
+        // without draining `confirmed_pending_execution`. Pending TXs stay
+        // queued for the next gossip tick after the checkpoint completes.
+        // Avoids contending for the state write lock during the checkpoint
+        // critical section.
+        if self.state.checkpoint_in_progress.load(std::sync::atomic::Ordering::Acquire) > 0 {
+            tracing::debug!("Fast-path batch deferred: checkpoint in progress");
+            return;
+        }
+
         let local_height = self.state.get_checkpoint_height();
         let network_height = self.highest_seen_peer_height.load(std::sync::atomic::Ordering::Relaxed);
-        if network_height > 0 && local_height < network_height {
+        if network_height > 0 && local_height + 2 <= network_height {
             let mut inner = self.inner.write().await;
             inner.last_batch_execution = std::time::Instant::now();
             return;
@@ -6420,9 +6568,121 @@ impl GossipService {
         let mut deferred_hashes: std::collections::HashSet<String> =
             std::collections::HashSet::new();
 
+        let conflicted_hashes: std::collections::HashSet<String> = {
+            let mut tracker = self.write_set_conflict_tracker.lock().await;
+            let mut conflicts = std::collections::HashSet::new();
+            for entry in &results {
+                if !matches!(entry.result, crate::state::FastPathExecResult::Executed) {
+                    continue;
+                }
+                if let Some(ref ws_hash) = entry.write_set_hash {
+                    let is_contract_tx = matches!(
+                        txs.iter().find(|t| t.hash == entry.hash).and_then(|t| t.tx.kind.as_ref()),
+                        Some(rinku_core::types::TransactionKind::Contract)
+                    );
+                    let mut ws_entries = vec![rinku_core::types::WriteSetEntry {
+                        key: entry.from_addr.clone(),
+                        value_hash: ws_hash.clone(),
+                    }];
+                    if is_contract_tx {
+                        ws_entries.push(rinku_core::types::WriteSetEntry {
+                            key: format!("contract:{}:state", entry.to_addr),
+                            value_hash: ws_hash.clone(),
+                        });
+                    }
+                    let ws = rinku_core::types::WriteSet::from_entries(ws_entries);
+                    if tracker.check_and_register(&entry.hash, &entry.from_addr, &ws) {
+                        conflicts.insert(entry.hash.clone());
+                        if is_contract_tx {
+                            tracing::warn!(
+                                "Contract fast-path CONFLICT for tx {} — deferring to checkpoint",
+                                &entry.hash[..16.min(entry.hash.len())]
+                            );
+                        }
+                    }
+                }
+            }
+            conflicts
+        };
+
+        if !conflicted_hashes.is_empty() {
+            let mut state = self.state.inner.write().await;
+            let mut rolled_back_stakes: Vec<(String, u64, String)> = Vec::new();
+            let mut rollback_changed_addrs: Vec<String> = Vec::new();
+            for entry in &results {
+                if !conflicted_hashes.contains(&entry.hash) {
+                    continue;
+                }
+                if !matches!(entry.result, crate::state::FastPathExecResult::Executed) {
+                    state.fast_path_finalized_txs.remove(&entry.hash);
+                    state.fast_path_finalized_order.retain(|h| h != &entry.hash);
+                    continue;
+                }
+                let orig_tx = txs.iter().find(|t| t.hash == entry.hash);
+                if let Some(tx) = orig_tx {
+                    let gas_fee = tx.tx.gas_price.unwrap_or(state.current_gas_price);
+                    let amount = tx.tx.amount;
+                    let is_stake = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+                    let is_unstake = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+                    let is_claim = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
+                    let is_contract = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
+
+                    if let Some(from_acc) = state.accounts.get_mut(&entry.from_addr) {
+                        from_acc.balance = from_acc.balance.saturating_add(gas_fee);
+                        if is_stake {
+                            from_acc.balance = from_acc.balance.saturating_add(amount);
+                            from_acc.staked = from_acc.staked.saturating_sub(amount);
+                            rolled_back_stakes.push((entry.from_addr.clone(), amount, entry.hash.clone()));
+                        }
+                        if from_acc.nonce > 0 {
+                            from_acc.nonce -= 1;
+                        }
+                        rollback_changed_addrs.push(entry.from_addr.clone());
+                    }
+                    if !is_stake && !is_unstake && !is_claim && !is_contract && !entry.to_addr.is_empty() {
+                        if let Some(to_acc) = state.accounts.get_mut(&entry.to_addr) {
+                            to_acc.balance = to_acc.balance.saturating_sub(amount);
+                            rollback_changed_addrs.push(entry.to_addr.clone());
+                        }
+                    }
+                    state.total_burned = state.total_burned.saturating_sub(gas_fee);
+                    state.total_transactions = state.total_transactions.saturating_sub(1);
+                    state.fast_path_finalized_txs.remove(&entry.hash);
+                    state.fast_path_finalized_order.retain(|h| h != &entry.hash);
+                    tracing::info!(
+                        "Rolled back conflicted fast-path tx {} (gas={} amount={} kind={:?} returned to {})",
+                        &entry.hash[..16.min(entry.hash.len())],
+                        gas_fee,
+                        amount,
+                        tx.tx.kind,
+                        &entry.from_addr[..16.min(entry.from_addr.len())]
+                    );
+                }
+            }
+            if !rollback_changed_addrs.is_empty() {
+                let trie_updates = state.collect_trie_updates_for_addresses(&rollback_changed_addrs);
+                drop(state);
+                self.state.update_trie_with_tuples(&trie_updates).await;
+            } else {
+                drop(state);
+            }
+
+            if !rolled_back_stakes.is_empty() {
+                let mut rewards = self.state.rewards.write().await;
+                for (addr, amount, hash) in &rolled_back_stakes {
+                    rewards.unstake_rollback(addr, *amount, hash);
+                }
+            }
+        }
+
         {
             let mut inner = self.inner.write().await;
             for entry in &results {
+                if conflicted_hashes.contains(&entry.hash) {
+                    deferred_hashes.insert(entry.hash.clone());
+                    dropped_count += 1;
+                    continue;
+                }
                 match entry.result {
                     crate::state::FastPathExecResult::Executed => {
                         inner.fast_path_executed.insert(entry.hash.clone());
@@ -6481,9 +6741,44 @@ impl GossipService {
             }
         }
 
+        {
+            let mut pending_write_sets: Vec<crate::micro_checkpoint::PendingWriteSet> = Vec::new();
+            for entry in &results {
+                if matches!(entry.result, crate::state::FastPathExecResult::Executed)
+                    && !conflicted_hashes.contains(&entry.hash)
+                {
+                    if let Some(ref ws_hash) = entry.write_set_hash {
+                        let mut changed = Vec::new();
+                        if let Some(ref acc) = entry.from_account {
+                            changed.push((entry.from_addr.clone(), acc.clone()));
+                        }
+                        if let Some(ref acc) = entry.to_account {
+                            if !entry.to_addr.is_empty() {
+                                changed.push((entry.to_addr.clone(), acc.clone()));
+                            }
+                        }
+                        pending_write_sets.push(crate::micro_checkpoint::PendingWriteSet {
+                            tx_hash: entry.hash.clone(),
+                            write_set_hash: ws_hash.clone(),
+                            changed_accounts: changed,
+                        });
+                    }
+                }
+            }
+            if !pending_write_sets.is_empty() {
+                let qcc_height = self.state.get_checkpoint_height();
+                self.micro_checkpoint_service
+                    .submit_write_sets(pending_write_sets, qcc_height)
+                    .await;
+            }
+        }
+
         if let Some(ref eb) = self.event_bus {
             for entry in &results {
                 if !matches!(entry.result, crate::state::FastPathExecResult::Executed) {
+                    continue;
+                }
+                if conflicted_hashes.contains(&entry.hash) {
                     continue;
                 }
                 eb.publish(crate::events::NodeEvent::FastPathExecuted {
@@ -6667,43 +6962,145 @@ impl GossipService {
     }
 
     pub async fn get_fast_path_stats(&self) -> crate::fast_path::FastPathStats {
-        let inner = self.inner.read().await;
+        // Snapshot under gossip read lock, then drop before touching state.rewards
+        // (avoids holding two locks simultaneously and reduces hold time).
+        let (times, pending_count, confirmed_count) = {
+            let inner = self.inner.read().await;
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            const STATS_WINDOW_MS: u64 = 15_000;
 
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        const STATS_WINDOW_MS: u64 = 15_000;
-
-        let mut times: Vec<u64> = inner
-            .fast_path_confirmed
-            .values()
-            .filter(|f| {
-                f.confirmed_at_ms
-                    .map_or(false, |ms| now_ms.saturating_sub(ms) < STATS_WINDOW_MS)
-            })
-            .filter_map(|f| f.finality_time_ms())
-            .collect();
-        times.sort();
-        let avg_confirmation_ms = if !times.is_empty() {
-            Some(times[times.len() / 2])
-        } else {
-            None
+            // Use validator-internal quorum latency (registered_at_ms -> confirmed_at_ms),
+            // NOT the wallet-rooted finality_time_ms, so the dashboard metric reflects
+            // consensus health rather than client clock skew + wallet->API RTT.
+            let mut t: Vec<u64> = inner
+                .fast_path_confirmed
+                .values()
+                .filter(|f| {
+                    f.confirmed_at_ms
+                        .map_or(false, |ms| now_ms.saturating_sub(ms) < STATS_WINDOW_MS)
+                })
+                .filter_map(|f| f.validator_finality_time_ms())
+                .collect();
+            t.sort();
+            (t, inner.fast_path_pending.len(), inner.fast_path_confirmed.len())
         };
 
-        // Get total validator stake from state
-        let rewards = self.state.rewards.read().await;
-        let total_validator_stake = rewards.get_total_staked();
-        drop(rewards);
+        let sample_count = times.len();
+        let pct = |p: f64| -> Option<u64> {
+            if times.is_empty() {
+                None
+            } else {
+                let idx = ((times.len() as f64 - 1.0) * p).round() as usize;
+                Some(times[idx.min(times.len() - 1)])
+            }
+        };
+        let p50_confirmation_ms = pct(0.50);
+        let p90_confirmation_ms = pct(0.90);
+        let p99_confirmation_ms = pct(0.99);
+
+        let total_validator_stake = {
+            let rewards = self.state.rewards.read().await;
+            rewards.get_total_staked()
+        };
 
         crate::fast_path::FastPathStats {
             enabled: true,
-            pending_count: inner.fast_path_pending.len(),
-            confirmed_count: inner.fast_path_confirmed.len(),
+            pending_count,
+            confirmed_count,
             total_validator_stake,
             quorum_threshold: 0.667,
-            avg_confirmation_ms,
+            // Mirror p50 to avg_confirmation_ms for explorer backwards-compatibility:
+            // the field name predates the percentile breakdown.
+            avg_confirmation_ms: p50_confirmation_ms,
+            p50_confirmation_ms,
+            p90_confirmation_ms,
+            p99_confirmation_ms,
+            sample_count,
         }
+    }
+
+    /// Single-lock snapshot combining fast-path stats and lane distribution
+    /// for `/finality/metrics` — replaces back-to-back read-lock acquisitions.
+    pub async fn get_dashboard_snapshot(
+        &self,
+    ) -> (crate::fast_path::FastPathStats, (usize, usize, usize)) {
+        let (times, pending_count, confirmed_count, fp_finalized, fp_pending, fp_executed) = {
+            let inner = self.inner.read().await;
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            const STATS_WINDOW_MS: u64 = 15_000;
+
+            let mut t: Vec<u64> = inner
+                .fast_path_confirmed
+                .values()
+                .filter(|f| {
+                    f.confirmed_at_ms
+                        .map_or(false, |ms| now_ms.saturating_sub(ms) < STATS_WINDOW_MS)
+                })
+                .filter_map(|f| f.validator_finality_time_ms())
+                .collect();
+            t.sort();
+            (
+                t,
+                inner.fast_path_pending.len(),
+                inner.fast_path_confirmed.len(),
+                inner.fast_path_confirmed.len(),
+                inner.fast_path_pending.len(),
+                inner.fast_path_executed.len(),
+            )
+        };
+
+        let sample_count = times.len();
+        let pct = |p: f64| -> Option<u64> {
+            if times.is_empty() {
+                None
+            } else {
+                let idx = ((times.len() as f64 - 1.0) * p).round() as usize;
+                Some(times[idx.min(times.len() - 1)])
+            }
+        };
+        let p50 = pct(0.50);
+        let p90 = pct(0.90);
+        let p99 = pct(0.99);
+
+        let total_validator_stake = {
+            let rewards = self.state.rewards.read().await;
+            rewards.get_total_staked()
+        };
+
+        let stats = crate::fast_path::FastPathStats {
+            enabled: true,
+            pending_count,
+            confirmed_count,
+            total_validator_stake,
+            quorum_threshold: 0.667,
+            avg_confirmation_ms: p50,
+            p50_confirmation_ms: p50,
+            p90_confirmation_ms: p90,
+            p99_confirmation_ms: p99,
+            sample_count,
+        };
+
+        (stats, (fp_finalized, fp_pending, fp_executed))
+    }
+
+    pub async fn get_conflict_tracker_stats(&self) -> (usize, usize) {
+        let tracker = self.write_set_conflict_tracker.lock().await;
+        (tracker.in_flight_key_count(), tracker.in_flight_tx_count())
+    }
+
+    pub async fn get_lane_distribution(&self) -> (usize, usize, usize) {
+        let inner = self.inner.read().await;
+        (
+            inner.fast_path_confirmed.len(),
+            inner.fast_path_pending.len(),
+            inner.fast_path_executed.len(),
+        )
     }
 
     pub async fn add_peer(&self, address: String) {
