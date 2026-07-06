@@ -103,7 +103,7 @@ start_node() {
     MAINNET_MODE="$mainnet_mode" \
     PUBLIC_URL="$public_url" \
     P2P_MDNS="false" \
-    CHECKPOINT_INTERVAL_MS="10000" \
+    CHECKPOINT_INTERVAL_MS="5000" \
     VALIDATOR_KEY_PASSWORD="test-$name" \
     P2P_BOOTSTRAP_PEERS="$bootstrap_peers" \
     GENESIS_VALIDATORS="$genesis_validators" \
@@ -236,6 +236,39 @@ get_checkpoint_count() {
         | grep -o '"checkpointCount":[0-9]*' | cut -d':' -f2
 }
 
+generate_test_address() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 20
+    else
+        printf '%040x' "${RANDOM}${RANDOM}${RANDOM}${RANDOM}"
+    fi
+}
+
+# Leaders skip checkpoint creation when the mempool is empty ("network idle").
+submit_test_transactions() {
+    local count="${1:-24}"
+    local nodes=(
+        "http://localhost:$GENESIS_API_PORT"
+        "http://localhost:$VAL1_API_PORT"
+        "http://localhost:$VAL2_API_PORT"
+    )
+    local submitted=0
+    local i node addr
+
+    log_info "Submitting up to $count faucet transactions..."
+    for ((i=0; i<count; i++)); do
+        node="${nodes[$((i % 3))]}"
+        addr=$(generate_test_address)
+        if curl -sf -X POST "${node}/api/faucet/request" \
+            -H "Content-Type: application/json" \
+            -d "{\"address\":\"${addr}\"}" >/dev/null 2>&1; then
+            submitted=$((submitted + 1))
+        fi
+        sleep 0.05
+    done
+    log_info "Submitted $submitted/$count faucet transactions"
+}
+
 check_validator_convergence() {
     log_info "Checking validator convergence..."
     sleep 5
@@ -261,9 +294,11 @@ check_validator_convergence() {
 }
 
 wait_for_checkpoints() {
-    log_info "Waiting for checkpoint creation (up to 2 minutes)..."
+    log_info "Waiting for checkpoint creation (up to 3 minutes)..."
+    log_info "Note: nodes skip empty checkpoints — submitting test transactions first"
+    submit_test_transactions 30
 
-    for i in {1..24}; do
+    for i in {1..36}; do
         local g_cp v1_cp v2_cp
         g_cp=$(get_checkpoint_count "$GENESIS_API_PORT")
         v1_cp=$(get_checkpoint_count "$VAL1_API_PORT")
@@ -272,13 +307,19 @@ wait_for_checkpoints() {
         echo "  Checkpoints: Genesis=${g_cp:-0}, V1=${v1_cp:-0}, V2=${v2_cp:-0}"
 
         if [ "${g_cp:-0}" -ge 3 ] && [ "${v1_cp:-0}" -ge 3 ] && [ "${v2_cp:-0}" -ge 3 ]; then
-            log_success "All nodes have reached checkpoint 3 - LEADER ELECTION WORKING!"
+            log_success "All nodes have reached checkpoint height 3 - LEADER ELECTION WORKING!"
             return 0
+        fi
+
+        if [ $((i % 6)) -eq 0 ]; then
+            submit_test_transactions 12
         fi
         sleep 5
     done
 
     log_error "Nodes failed to create checkpoints"
+    log_info "Recent checkpoint activity from genesis:"
+    grep -iE "checkpoint|leader election|network idle|skipping" "$DATA_DIR_GENESIS/node.log" 2>/dev/null | tail -15 || true
     return 1
 }
 
