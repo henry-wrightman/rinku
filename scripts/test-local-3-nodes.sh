@@ -232,6 +232,17 @@ show_logs() {
     grep -i "leader election" "$DATA_DIR_VAL1/node.log" 2>/dev/null | tail -10 || echo "No leader election logs yet"
 }
 
+CI_MODE=false
+
+run_multi_node_validation() {
+    log_info "=== Phase 5: Multi-node validation ==="
+    cd "$PROJECT_DIR"
+    npx tsx scripts/validate-multi-node.ts \
+        "http://localhost:$GENESIS_API_PORT" \
+        "http://localhost:$VAL1_API_PORT" \
+        "http://localhost:$VAL2_API_PORT"
+}
+
 main() {
     echo ""
     echo "=============================================="
@@ -245,6 +256,12 @@ main() {
         cleanup_data
         log_success "All test data cleaned"
         exit 0
+    fi
+
+    if [ "$1" = "--ci" ]; then
+        CI_MODE=true
+        shift
+        trap 'cleanup; cleanup_data' EXIT
     fi
     
     cleanup
@@ -282,6 +299,12 @@ main() {
     
     # Show logs
     show_logs
+
+    if [ "$CI_MODE" = true ]; then
+        run_multi_node_validation
+        log_success "=== CI INTEGRATION TEST COMPLETE ==="
+        exit 0
+    fi
     
     echo ""
     log_success "=== TEST COMPLETE ==="

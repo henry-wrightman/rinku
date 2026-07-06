@@ -27,6 +27,24 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
+  test-release-features:
+    name: Test / release features
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Run rinku-node tests (zk feature)
+        run: cargo test -p rinku-node --features zk --verbose
+
   test-core:
     name: Test / rinku-core
     runs-on: ubuntu-latest
