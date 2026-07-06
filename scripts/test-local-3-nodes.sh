@@ -87,38 +87,37 @@ start_node() {
     local log_file=$9
     local public_url="http://localhost:${api_port}"
 
+    if [ ! -x "$NODE_BIN" ]; then
+        log_error "Node binary not found at $NODE_BIN — run build_node first"
+        exit 1
+    fi
+
     log_info "Starting $name on API port $api_port (mainnet=$mainnet_mode)..."
     mkdir -p "$data_dir"
 
-    local env_vars=(
-        "RUST_LOG=rinku_node=info"
-        "DATA_DIR=$data_dir"
-        "API_PORT=$api_port"
-        "P2P_PORT=$p2p_port"
-        "IS_GENESIS_NODE=$is_genesis"
-        "MAINNET_MODE=$mainnet_mode"
-        "PUBLIC_URL=$public_url"
-        "P2P_MDNS=false"
-        "CHECKPOINT_INTERVAL_MS=10000"
-        "VALIDATOR_KEY_PASSWORD=test-$name"
-    )
+    RUST_LOG="rinku_node=info" \
+    DATA_DIR="$data_dir" \
+    API_PORT="$api_port" \
+    P2P_PORT="$p2p_port" \
+    IS_GENESIS_NODE="$is_genesis" \
+    MAINNET_MODE="$mainnet_mode" \
+    PUBLIC_URL="$public_url" \
+    P2P_MDNS="false" \
+    CHECKPOINT_INTERVAL_MS="10000" \
+    VALIDATOR_KEY_PASSWORD="test-$name" \
+    P2P_BOOTSTRAP_PEERS="$bootstrap_peers" \
+    GENESIS_VALIDATORS="$genesis_validators" \
+    "$NODE_BIN" >> "$log_file" 2>&1 &
 
-    if [ -n "$bootstrap_peers" ]; then
-        env_vars+=("P2P_BOOTSTRAP_PEERS=$bootstrap_peers")
-    fi
-    if [ -n "$genesis_validators" ]; then
-        env_vars+=("GENESIS_VALIDATORS=$genesis_validators")
-    fi
-
-    env "${env_vars[@]}" "$NODE_BIN" >> "$log_file" 2>&1 &
     echo $! > "$data_dir/node.pid"
     log_info "$name PID: $(cat "$data_dir/node.pid")"
 }
 
 start_genesis() {
     local mainnet_mode="${1:-false}"
+    local genesis_validators="${2:-}"
     start_node "genesis" "$DATA_DIR_GENESIS" "$GENESIS_API_PORT" "$GENESIS_P2P_PORT" \
-        "true" "$mainnet_mode" "" "" "$DATA_DIR_GENESIS/node.log"
+        "true" "$mainnet_mode" "" "$genesis_validators" "$DATA_DIR_GENESIS/node.log"
 }
 
 start_validator() {
@@ -209,7 +208,7 @@ restart_all_with_full_validators() {
     BOOTSTRAP_PEERS="/ip4/127.0.0.1/tcp/$GENESIS_P2P_PORT/p2p/$GENESIS_PEER_ID"
 
     log_info "Starting genesis with full validator list..."
-    start_genesis "true"
+    start_genesis "true" "$FULL_GENESIS_VALIDATORS"
 
     sleep 5
     wait_for_genesis
