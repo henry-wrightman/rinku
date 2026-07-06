@@ -9,9 +9,9 @@
 [![Finality](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fnetwork%2Fstats&query=%24.finalityRatio&label=finality&color=brightgreen&suffix=%25&cacheSeconds=60)](https://rinkuchan.com)
 
 **Testnet nodes:**
-[![Genesis](https://img.shields.io/website?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fapi%2Fhealth&label=genesis&up_message=online&down_message=offline&up_color=brightgreen&down_color=red)](https://rinku-genesis.fly.dev/health)
-[![Validator-1](https://img.shields.io/website?url=https%3A%2F%2Frinku-validator-1.fly.dev%2Fapi%2Fhealth&label=validator-1&up_message=online&down_message=offline&up_color=brightgreen&down_color=red)](https://rinku-validator-1.fly.dev/health)
-[![Validator-2](https://img.shields.io/website?url=https%3A%2F%2Frinku-validator-2.fly.dev%2Fapi%2Fhealth&label=validator-2&up_message=online&down_message=offline&up_color=brightgreen&down_color=red)](https://rinku-validator-2.fly.dev/health)
+[![Genesis](https://img.shields.io/website?url=https%3A%2F%2Frinku-genesis.fly.dev%2Fhealth&label=genesis&up_message=online&down_message=offline&up_color=brightgreen&down_color=red)](https://rinku-genesis.fly.dev/health)
+[![Validator-1](https://img.shields.io/website?url=https%3A%2F%2Frinku-validator-1.fly.dev%2Fhealth&label=validator-1&up_message=online&down_message=offline&up_color=brightgreen&down_color=red)](https://rinku-validator-1.fly.dev/health)
+[![Validator-2](https://img.shields.io/website?url=https%3A%2F%2Frinku-validator-2.fly.dev%2Fhealth&label=validator-2&up_message=online&down_message=offline&up_color=brightgreen&down_color=red)](https://rinku-validator-2.fly.dev/health)
 
 ---
 
