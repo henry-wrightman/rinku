@@ -1,4 +1,4 @@
-# Rinku - DAG-Based Distributed Ledger For Mesh-Native Systems
+# Rinku: A DAG-Based Distributed Ledger For Mesh-Native Systems
 
 [![Rust CI](https://github.com/henry-wrightman/rinku/actions/workflows/rust.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/rust.yml)
 [![Node.js CI](https://github.com/henry-wrightman/rinku/actions/workflows/node.js.yml/badge.svg)](https://github.com/rinku-ledger/rinku/actions/workflows/node.js.yml)
@@ -15,13 +15,7 @@
 
 ---
 
-A DAG-based distributed ledger with tunable consistency, designed for mesh-native and partition-prone environments. Delivers CP-like checkpoint finality during normal operation, provisional availability during partitions, and deterministic merge reconciliation when connectivity is restored. Self-contained VerifiableObject proofs enable offline verification without RPC infrastructure. It's also pure ai slop because i'm too mentally incapacitated to build this myself.
-
-[whitepaper](https://rinkuchan.com/rinku.pdf)
-
-**note**: Most of the code is AI-generated, due to the fact that a) i'm too retarded for rust & b) no time.
-
-As a result, pertinent todos include at least 95% test coverage & respectable audits.
+A DAG-based distributed ledger with tunable consistency, designed for mesh-native and partition-prone environments. Delivers CP-like checkpoint finality during normal operation, provisional availability during partitions, and deterministic merge reconciliation when connectivity is restored. Self-contained VerifiableObject proofs enable offline verification without RPC infrastructure. Further, one notable proof type `ContractOutput` includes state, allowing for stateless dApps. 
 
 [whitepaper](https://rinkuchan.com/rinku.pdf)
 
