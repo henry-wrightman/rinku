@@ -204,7 +204,7 @@ The runtime validates all proofs before contract execution begins and injects ve
 
 ### 4.1 URL-Native State
 
-Rinku embeds the entire ledger state within cryptographically-linked URLs. Every proof, receipt, and state witness can be encoded as a self-contained URL that carries all data necessary for offline verification. This eliminates the dependency on full-node infrastructure for trust - any party holding a Rinku URL can independently verify its claim against a checkpoint anchor.
+Rinku encodes each proof, receipt, and state witness as a self-contained URL that carries only the *partial* state it references — the specific account states or contract outputs involved in the claim — together with a compact cryptographic proof against a checkpoint anchor. It does **not** embed the entire ledger in each URL. Instead, a checkpoint's state root is a single 32-byte commitment to all ledger state, and each URL proves its own slice against that commitment; receipt size therefore scales with the number of accounts a transaction touches, not with the total size of the ledger. This eliminates the dependency on full-node infrastructure for trust - any party holding a Rinku URL can independently verify its claim against a checkpoint anchor.
 
 ### 4.2 Self-Provable Ledger
 
@@ -696,6 +696,12 @@ Contracts define `ViewKeySpec` schemas specifying which pieces of state should b
 - Finality certificate (checkpoint anchor with BLS signature)
 
 This enables **persistently stateless clients** - applications that never store blockchain state locally but can verify any claim on demand using receipts. A mobile app can render a user's profile, balance, or social feed entirely from VerifiableObjects without maintaining a local database or trusting any server.
+
+**The persistently stateless client is one end of a spectrum, not the only model.** It is important not to over-read this: what a persistently stateless client verifies offline is a VerifiableObject it *already holds*; obtaining a *fresh* claim still requires reaching a node to request a new witness. Holding no local state is the extreme that trades all offline read capability for zero cache-invalidation risk; a full node is the opposite extreme, holding all ledger state. Rinku's proof primitives do not mandate either extreme — an application is free to durably index the specific slice of state it cares about (for example, a single contract's state, or the accounts it interacts with) and serve reads from that local slice, at the cost of having to keep it reconciled with the canonical chain. The proof primitives make such a local slice *trustable* — every value in it can be checked against a checkpoint root via a self-contained proof (Section 4.2) rather than taken on faith — but they neither require nor forbid keeping one.
+
+**Offline-capable applications follow from partition tolerance, not from a separate mechanism.** An application that holds its own slice of state locally and loses connectivity is, from the protocol's perspective, simply a partitioned participant (Section 8). It can continue to read that slice offline, and — for the transaction types the taxonomy permits during partition (Safe unconditionally, BoundedSpend within budget; Section 9.8) — it can admit provisional transactions locally and reconcile deterministically with the global ledger on reconnect through the merge protocol (Section 9). This is the honest scope of what today's primitives support: **local-first operation over a self-defined slice of state, made verifiable by self-contained proofs and recoverable by the merge protocol.**
+
+**What is not yet specified.** The primitives above say nothing about *how an application delimits its slice* — whether a "domain" is defined by contract, by account set, or by transaction tag — nor about *how writes into such a domain are gated* (for example, restricting who may submit into it). Those scoping and gating mechanisms are design-stage: they are a natural direction for the protocol but are not specified or implemented, and nothing in this section should be read as a claim that domain-scoped or tag-scoped dApps exist today. What exists today is the substrate they would be built on — self-contained proofs, the partition-tolerant transaction taxonomy, and the merge protocol.
 
 ### 10.5 Contract SDK
 
