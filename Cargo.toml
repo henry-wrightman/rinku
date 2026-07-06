@@ -49,7 +49,7 @@ tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
 libp2p = { version = "0.54", features = ["tcp", "noise", "yamux", "gossipsub", "mdns", "tokio", "macros", "request-response", "cbor", "identify"] }
 
 # DAG/Graph
-petgraph = "0.6"
+petgraph = "0.8"
 
 # Persistence
 sled = "0.34"
