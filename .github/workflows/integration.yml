@@ -1,0 +1,63 @@
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  multi-node-local:
+    name: 3-node local consensus
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run 3-node integration test
+        run: bash scripts/test-local-3-nodes.sh --ci
+
+  rust-ts-parity:
+    name: Protocol conformance (TS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run Appendix G conformance vectors
+        run: npm run test -w @rinku/core -- src/__tests__/appendix-g-conformance.test.ts
+
+      - name: Run proof security tests
+        run: |
+          npm run test -w @rinku/core -- src/__tests__/checkpoint.test.ts
+          npm run test -w @rinku/core -- src/self-proof.test.ts
+          npm run test -w @rinku/core -- src/__tests__/multiproof-fuzz.test.ts
