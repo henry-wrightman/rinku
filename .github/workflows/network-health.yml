@@ -78,6 +78,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Build @rinku/core (required by validate-testnet.ts)
+        run: npm run build -w @rinku/core
+
       - name: Validate genesis node state
         run: npx tsx scripts/validate-testnet.ts https://rinku-genesis.fly.dev
 
