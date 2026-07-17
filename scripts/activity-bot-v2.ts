@@ -35,6 +35,9 @@ const DURATION_S = parseInt(
     "300"
 );
 
+/** duration=0 (or negative) runs until SIGINT/SIGTERM — for always-on Fly bots */
+const RUN_FOREVER = !Number.isFinite(DURATION_S) || DURATION_S <= 0;
+
 const MAX_CONCURRENT_REQUESTS = (() => {
   const raw = parseInt(
     process.argv.find((a) => a.startsWith("--concurrency="))?.split("=")[1] ||
@@ -612,7 +615,7 @@ async function refillLowBalances() {
 
 async function runRealisticMode() {
   log(
-    `REALISTIC MODE: ${ACCOUNT_COUNT} accounts, natural send-wait-send pattern, ${DURATION_S}s duration`
+    `REALISTIC MODE: ${ACCOUNT_COUNT} accounts, natural send-wait-send pattern, ${RUN_FOREVER ? "continuous" : `${DURATION_S}s`} duration`
   );
 
   async function accountLoop(slot: AccountSlot) {
@@ -646,7 +649,7 @@ async function runRealisticMode() {
 
 async function runStressMode() {
   log(
-    `STRESS MODE: ${ACCOUNT_COUNT} accounts, target ${TARGET_TPS} TPS, ${DURATION_S}s duration`
+    `STRESS MODE: ${ACCOUNT_COUNT} accounts, target ${TARGET_TPS} TPS, ${RUN_FOREVER ? "continuous" : `${DURATION_S}s`} duration`
   );
 
   const txIntervalMs = 1000 / TARGET_TPS;
@@ -699,7 +702,7 @@ async function main() {
   log(`Accounts: ${ACCOUNT_COUNT}`);
   log(`Max concurrent HTTP requests: ${MAX_CONCURRENT_REQUESTS}`);
   if (MODE === "stress") log(`Target TPS: ${TARGET_TPS}`);
-  log(`Duration: ${DURATION_S}s`);
+  log(`Duration: ${RUN_FOREVER ? "forever (until signal)" : `${DURATION_S}s`}`);
   log("");
 
   log("Connecting WebSockets to all nodes...");
@@ -743,10 +746,15 @@ async function main() {
   stats.startTime = Date.now();
   stats.lastReportTime = Date.now();
 
-  const durationTimer = setTimeout(() => {
-    running = false;
-    log("Duration reached, shutting down...");
-  }, DURATION_S * 1000);
+  let durationTimer: ReturnType<typeof setTimeout> | null = null;
+  if (!RUN_FOREVER) {
+    durationTimer = setTimeout(() => {
+      running = false;
+      log("Duration reached, shutting down...");
+    }, DURATION_S * 1000);
+  } else {
+    log("Running continuously — send SIGTERM/SIGINT to stop");
+  }
 
   const statsInterval = setInterval(() => {
     reportStats();
@@ -772,7 +780,7 @@ async function main() {
     await runStressMode();
   }
 
-  clearTimeout(durationTimer);
+  if (durationTimer) clearTimeout(durationTimer);
   clearInterval(statsInterval);
   clearInterval(gasInterval);
   clearInterval(refillInterval);

@@ -14,9 +14,12 @@
     "test:zk": "npm run test -w @rinku/zk",
     "dev:explorer": "npm run dev -w @rinku/explorer",
     "validate": "npx tsx scripts/validate-testnet.ts",
+    "validate:multi": "npx tsx scripts/validate-multi-node.ts",
+    "network-health": "npx tsx scripts/check-network-health.ts",
     "stress-test": "npx tsx scripts/stress-test.ts",
     "mega-stress": "npx tsx scripts/mega-stress.ts",
     "activity-bot": "npx tsx scripts/activity-bot.ts",
+    "activity-bot-v2": "npx tsx scripts/activity-bot-v2.ts",
     "fast-path-bot": "npx tsx scripts/fast-path-bot.ts",
     "p2p-test": "npx tsx scripts/p2p-sync-test.ts"
   },
@@ -33,7 +36,8 @@
     "serve": "^14.2.5",
     "snarkjs": "^0.7.6",
     "tsx": "^4.21.0",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.16",
+    "ws": "8.21.1"
   },
   "overrides": {
     "underscore": "1.13.8",

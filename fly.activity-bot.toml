@@ -5,8 +5,16 @@ primary_region = "sjc"
   dockerfile = "Dockerfile.activity-bot"
 
 [env]
+  # Multi-node load (comma-separated). Prefer all validators so traffic isn't genesis-only.
+  RINKU_NODE_URLS = "https://rinku-genesis.fly.dev,https://rinku-validator-1.fly.dev,https://rinku-validator-2.fly.dev"
   RINKU_NODE_URL = "https://rinku-validator-1.fly.dev"
   RINKU_FAUCET_URL = "https://rinku-validator-1.fly.dev"
+  BOT_MODE = "realistic"
+  ACCOUNT_COUNT = "10"
+  # 0 = run forever until Fly stops the machine (A6 continuous load)
+  DURATION_S = "0"
+  # After A3: nodes with MAINNET_MODE need FAUCET_ENABLED=true for the bot to fund accounts.
+  # Set that on the validator Fly apps if faucet is disabled.
 
 [[vm]]
   memory = "256mb"

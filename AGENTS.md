@@ -23,7 +23,7 @@ Rinku is a DAG-based distributed ledger with BLS validator consensus, libp2p gos
 | `quality.yml` | PR/push to main | `cargo fmt`, `clippy -D warnings`, `cargo audit`, `npm audit`, release build |
 | `integration.yml` | PR/push to main | 3-node local consensus + multi-node validation; protocol conformance |
 | `coverage.yml` | PR/push to main | Tarpaulin + Vitest → Codecov |
-| `network-health.yml` | Cron 15min + manual | Live testnet health + deep protocol validation |
+| `network-health.yml` | Cron 4h + manual | Live testnet health + deep protocol validation |
 
 ### Running validation locally
 
