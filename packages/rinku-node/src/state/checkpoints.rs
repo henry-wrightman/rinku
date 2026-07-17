@@ -726,6 +726,7 @@ impl NodeState {
                             penalty_decay_checkpoint: None,
                             partition_budget: None,
                             partition_budget_spent: 0,
+                            ecdsa_public_key: None,
                         },
                     );
                 }

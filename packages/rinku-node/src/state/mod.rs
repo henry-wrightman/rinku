@@ -607,6 +607,7 @@ impl NodeState {
                         penalty_decay_checkpoint: None,
                         partition_budget: None,
                         partition_budget_spent: 0,
+                        ecdsa_public_key: None,
                     },
                 );
                 info!("Faucet account initialized with {} micro-RKU ({} RKU)", faucet_balance, faucet_balance / 100_000_000);
@@ -833,6 +834,7 @@ impl NodeState {
                                             penalty_decay_checkpoint: None,
                                             partition_budget: None,
                                             partition_budget_spent: 0,
+                                            ecdsa_public_key: None,
                                         });
                                     }
                                 }

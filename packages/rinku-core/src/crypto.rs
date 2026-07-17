@@ -260,6 +260,36 @@ pub fn verify_signature_hex(
     verify_signature(public_key_hex, &message, signature_hex)
 }
 
+/// Address fingerprint: first 40 hex chars of SHA-256(uncompressed SEC1 pubkey).
+pub fn fingerprint_from_public_key_bytes(public_key: &[u8]) -> Result<String, CryptoError> {
+    // Accept uncompressed (65) or compressed (33) SEC1 encodings.
+    let verifying_key =
+        VerifyingKey::from_sec1_bytes(public_key).map_err(|_| CryptoError::InvalidPublicKey)?;
+    let uncompressed = verifying_key.to_encoded_point(false);
+    let hash = sha256(uncompressed.as_bytes());
+    Ok(hex::encode(hash)[..40].to_string())
+}
+
+pub fn fingerprint_from_public_key_hex(public_key_hex: &str) -> Result<String, CryptoError> {
+    let bytes = hex::decode(public_key_hex).map_err(|_| CryptoError::InvalidPublicKey)?;
+    fingerprint_from_public_key_bytes(&bytes)
+}
+
+/// Canonical user-tx auth: ECDSA-P256 over UTF-8 bytes of the tx hash hex string
+/// (matches @rinku/wallet and WebCrypto clients that `sign(txHash)`).
+pub fn verify_tx_signature(
+    public_key_hex: &str,
+    tx_hash: &str,
+    signature_hex: &str,
+) -> Result<(), CryptoError> {
+    let ok = verify_signature(public_key_hex, tx_hash.as_bytes(), signature_hex)?;
+    if ok {
+        Ok(())
+    } else {
+        Err(CryptoError::VerificationFailed)
+    }
+}
+
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -335,5 +365,23 @@ mod tests {
         let keypair2 = KeyPair::from_private_key_hex(&private_hex).unwrap();
         assert_eq!(keypair1.public_key_hex(), keypair2.public_key_hex());
         assert_eq!(keypair1.address(), keypair2.address());
+    }
+
+    #[test]
+    fn test_fingerprint_from_public_key_matches_address() {
+        let keypair = KeyPair::generate().unwrap();
+        let fp = fingerprint_from_public_key_hex(&keypair.public_key_hex()).unwrap();
+        assert_eq!(fp, keypair.address());
+    }
+
+    #[test]
+    fn test_verify_tx_signature_over_hash_string() {
+        let keypair = KeyPair::generate().unwrap();
+        let tx_hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        let signature = keypair.sign(tx_hash.as_bytes()).unwrap();
+        verify_tx_signature(&keypair.public_key_hex(), tx_hash, &signature).unwrap();
+
+        let other = KeyPair::generate().unwrap();
+        assert!(verify_tx_signature(&other.public_key_hex(), tx_hash, &signature).is_err());
     }
 }

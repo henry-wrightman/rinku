@@ -158,7 +158,8 @@ export async function createSignedTransaction(
   
   const txJson = JSON.stringify(txData);
   const hash = await hashTransaction(txJson);
-  const sig = await signMessage(keyPair.privateKey, txJson);
+  // Canonical auth: sign the hash hex string (matches @rinku/wallet / node verify_tx_signature).
+  const sig = await signMessage(keyPair.privateKey, hash);
   
   const tx: TransactionInner = {
     ...txData as Omit<TransactionInner, 'sig' | 'hash'>,

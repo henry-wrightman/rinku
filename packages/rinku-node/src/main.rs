@@ -40,6 +40,7 @@ mod state;
 mod sync_verification;
 mod tip_consolidator;
 mod trust;
+mod tx_auth;
 mod validator;
 mod validator_identity;
 mod versioning;

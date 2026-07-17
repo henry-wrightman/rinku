@@ -31,6 +31,7 @@ pub mod storage;
 pub mod sync_verification;
 pub mod tip_consolidator;
 pub mod trust;
+pub mod tx_auth;
 pub mod validator;
 pub mod validator_identity;
 pub mod versioning;

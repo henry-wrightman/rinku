@@ -304,6 +304,9 @@ pub enum GossipMessage {
         tx: SignedTransaction,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
+        /// Uncompressed SEC1 ECDSA public key hex for authenticity checks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        public_key: Option<String>,
     },
     TipAnnouncement {
         tips: Vec<String>,
@@ -4369,10 +4372,16 @@ impl GossipService {
         let mut tx_hashes: Vec<String> = Vec::with_capacity(batch_count);
 
         for tx in &batch_txs {
+            let public_key = self
+                .state
+                .get_account(&tx.tx.from)
+                .await
+                .and_then(|a| a.ecdsa_public_key);
             let message = GossipMessage::Transaction {
                 hash: tx.hash.clone(),
                 tx: tx.clone(),
                 sender_url: public_url.clone(),
+                public_key,
             };
 
             #[cfg(feature = "p2p")]
@@ -4789,7 +4798,7 @@ impl GossipService {
         }
 
         match message {
-            GossipMessage::Transaction { hash, tx, .. } => {
+            GossipMessage::Transaction { hash, tx, public_key, .. } => {
                 {
                     let inner = self.inner.read().await;
                     if let Some(&min_nonce) = inner.stale_nonce_cache.get(&tx.tx.from) {
@@ -4817,7 +4826,11 @@ impl GossipService {
                 };
 
                 if is_new {
-                    match self.state.add_transaction_from_gossip(tx.clone()).await {
+                    match self
+                        .state
+                        .add_transaction_from_gossip_authenticated(tx.clone(), public_key)
+                        .await
+                    {
                         Ok(TransactionResult::Accepted) => {}
                         Ok(TransactionResult::Buffered) => {
                             debug!(
@@ -6234,10 +6247,16 @@ impl GossipService {
         if is_new {
             let tx_hash = tx.hash.clone();
             let public_url = std::env::var("PUBLIC_URL").ok();
+            let public_key = self
+                .state
+                .get_account(&tx.tx.from)
+                .await
+                .and_then(|a| a.ecdsa_public_key);
             let message = GossipMessage::Transaction {
                 hash: tx_hash.clone(),
                 tx,
                 sender_url: public_url,
+                public_key,
             };
             #[cfg(feature = "p2p")]
             self.broadcast_via_p2p(&message).await;

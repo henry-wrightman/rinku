@@ -298,6 +298,7 @@ pub fn convert_snapshot_data_to_sync_snapshot(data: SnapshotData) -> SyncSnapsho
             penalty_decay_checkpoint: None,
             partition_budget: None,
             partition_budget_spent: 0,
+            ecdsa_public_key: None,
         })
     }).collect();
     

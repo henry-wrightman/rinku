@@ -155,6 +155,34 @@ struct TxInner {
 #[derive(Deserialize)]
 struct SubmitTxRequest {
     tx: TxInner,
+    #[serde(default, alias = "publicKey")]
+    public_key: Option<PublicKeyField>,
+}
+
+/// Accepts either a byte array (wallet) or hex string (explorer).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PublicKeyField {
+    Bytes(Vec<u8>),
+    Hex(String),
+}
+
+impl PublicKeyField {
+    fn to_hex(&self) -> Result<String, String> {
+        match self {
+            PublicKeyField::Bytes(b) => {
+                if b.is_empty() {
+                    return Err("empty publicKey".into());
+                }
+                Ok(hex::encode(b))
+            }
+            PublicKeyField::Hex(h) => {
+                let cleaned = h.trim().strip_prefix("0x").unwrap_or(h.trim());
+                hex::decode(cleaned).map_err(|_| "invalid publicKey hex".to_string())?;
+                Ok(cleaned.to_lowercase())
+            }
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -1695,6 +1723,24 @@ async fn submit_transaction(
     }
     
     let inner = req.tx;
+    let provided_pubkey = match req.public_key {
+        Some(pk) => match pk.to_hex() {
+            Ok(h) => Some(h),
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(SubmitTxResponse {
+                        success: false,
+                        hash: String::new(),
+                        error: Some(e),
+                        fast_path_eligible: None,
+                        fast_path_status: None,
+                    }),
+                );
+            }
+        },
+        None => None,
+    };
     let tx = rinku_core::types::SignedTransaction {
         tx: rinku_core::types::Transaction {
             from: inner.from,
@@ -1717,7 +1763,11 @@ async fn submit_transaction(
 
     let is_fast_path_eligible = tx.is_fast_path_eligible();
     
-    match api_state.node_state.add_transaction(tx.clone()).await {
+    match api_state
+        .node_state
+        .add_transaction_authenticated(tx.clone(), provided_pubkey)
+        .await
+    {
         Ok(TransactionResult::Accepted) => {
             api_state.event_bus.publish(crate::events::NodeEvent::NewTransaction {
                 hash: inner.hash.clone(),
@@ -1797,6 +1847,25 @@ async fn submit_fast_path_transaction(
     State(api_state): State<ApiState>,
     Json(req): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
+    let provided_pubkey = match req.public_key {
+        Some(pk) => match pk.to_hex() {
+            Ok(h) => Some(h),
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(FastPathTxResponse {
+                        success: false,
+                        hash: String::new(),
+                        fast_path_eligible: false,
+                        fast_path_status: None,
+                        estimated_finality_ms: None,
+                        error: Some(e),
+                    }),
+                );
+            }
+        },
+        None => None,
+    };
     let inner = req.tx;
     let tx = rinku_core::types::SignedTransaction {
         tx: rinku_core::types::Transaction {
@@ -1834,7 +1903,11 @@ async fn submit_fast_path_transaction(
         );
     }
 
-    match api_state.node_state.add_transaction(tx.clone()).await {
+    match api_state
+        .node_state
+        .add_transaction_authenticated(tx.clone(), provided_pubkey)
+        .await
+    {
         Ok(TransactionResult::Accepted) | Ok(TransactionResult::Buffered) => {
             if let Some(ref gossip) = api_state.gossip_service {
                 let (validator_addr, _) = api_state.node_state.get_validator_info().await;
@@ -1992,39 +2065,47 @@ async fn submit_batch_transaction(
     let total = req.transactions.len();
 
     // Pre-convert all transactions outside of any locks
-    let txs: Vec<rinku_core::types::SignedTransaction> = req.transactions
-        .into_iter()
-        .map(|item| {
-            let inner = item.tx;
-            rinku_core::types::SignedTransaction {
-                tx: rinku_core::types::Transaction {
-                    from: inner.from,
-                    to: inner.to,
-                    amount: to_micro_units(inner.amount),
-                    nonce: inner.nonce,
-                    timestamp: inner.ts,
-                    parents: inner.parents,
-                    kind: inner.kind,
-                    gas_limit: None,
-                    gas_price: Some(to_micro_units(inner.fee)),
-                    data: inner.data,
-                    signature: Some(inner.sig.clone()),
-                    memo: inner.memo,
-                    references: inner.references,
-                },
-                hash: inner.hash,
-                signature: inner.sig,
+    let mut successful = 0usize;
+    let mut failed = 0usize;
+    let mut txs_for_broadcast = Vec::new();
+
+    for item in req.transactions {
+        let pubkey = item.public_key.as_ref().map(|b| hex::encode(b));
+        let inner = item.tx;
+        let tx = rinku_core::types::SignedTransaction {
+            tx: rinku_core::types::Transaction {
+                from: inner.from,
+                to: inner.to,
+                amount: to_micro_units(inner.amount),
+                nonce: inner.nonce,
+                timestamp: inner.ts,
+                parents: inner.parents,
+                kind: inner.kind,
+                gas_limit: None,
+                gas_price: Some(to_micro_units(inner.fee)),
+                data: inner.data,
+                signature: Some(inner.sig.clone()),
+                memo: inner.memo,
+                references: inner.references,
+            },
+            hash: inner.hash,
+            signature: inner.sig,
+        };
+
+        match api_state
+            .node_state
+            .add_transaction_authenticated(tx.clone(), pubkey)
+            .await
+        {
+            Ok(_) => {
+                successful += 1;
+                txs_for_broadcast.push(tx);
             }
-        })
-        .collect();
-
-    // Clone txs for broadcasting after successful add
-    let txs_for_broadcast = txs.clone();
-
-    // Use optimized batch method - single lock acquisition
-    let results = api_state.node_state.add_transactions_batch(txs).await;
-    let successful = results.iter().filter(|r| r.is_ok()).count();
-    let failed = results.len() - successful;
+            Err(_) => {
+                failed += 1;
+            }
+        }
+    }
 
     if let Some(ref gossip) = api_state.gossip_service {
         let (validator_addr, _) = api_state.node_state.get_validator_info().await;
@@ -2034,19 +2115,17 @@ async fn submit_batch_transaction(
             0
         };
 
-        for (i, result) in results.iter().enumerate() {
-            if result.is_ok() {
-                if let Some(tx) = txs_for_broadcast.get(i) {
-                    if let Some(ref addr) = validator_addr {
-                        if validator_stake > 0 {
-                            gossip.broadcast_fast_path_transaction(tx.clone(), addr, validator_stake).await;
-                        } else {
-                            gossip.broadcast_transaction(tx.clone()).await;
-                        }
-                    } else {
-                        gossip.broadcast_transaction(tx.clone()).await;
-                    }
+        for tx in &txs_for_broadcast {
+            if let Some(ref addr) = validator_addr {
+                if validator_stake > 0 {
+                    gossip
+                        .broadcast_fast_path_transaction(tx.clone(), addr, validator_stake)
+                        .await;
+                } else {
+                    gossip.broadcast_transaction(tx.clone()).await;
                 }
+            } else {
+                gossip.broadcast_transaction(tx.clone()).await;
             }
         }
         if successful > 0 {

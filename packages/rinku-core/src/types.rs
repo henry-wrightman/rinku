@@ -442,6 +442,9 @@ pub struct Account {
     pub partition_budget: Option<u64>,
     #[serde(default, with = "micro_serde")]
     pub partition_budget_spent: u64,
+    /// Uncompressed SEC1 ECDSA P-256 public key hex (optional until first authenticated tx).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ecdsa_public_key: Option<String>,
 }
 
 impl Account {
@@ -460,6 +463,7 @@ impl Account {
             penalty_decay_checkpoint: None,
             partition_budget: None,
             partition_budget_spent: 0,
+            ecdsa_public_key: None,
         }
     }
 }

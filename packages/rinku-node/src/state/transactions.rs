@@ -31,18 +31,39 @@ pub struct BatchCoreResult {
 
 impl NodeState {
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<TransactionResult> {
+        self.add_transaction_authenticated(tx, None).await
+    }
+
+    /// Admit a transaction with optional ECDSA public key (hex or provided by API/gossip).
+    pub async fn add_transaction_authenticated(
+        &self,
+        tx: SignedTransaction,
+        provided_pubkey_hex: Option<String>,
+    ) -> Result<TransactionResult> {
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
         let is_claim_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::ClaimRewards));
-        let is_consolidation_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation));
         let is_contract_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Contract));
         
-        let is_system_tx = is_consolidation_tx 
-            || tx.signature.starts_with("anchor-")
-            || tx.tx.from == "faucet"
-            || tx.tx.from == "genesis";
-        
+        let is_system_tx = crate::tx_auth::is_system_transaction(&tx);
+
+        // Bind pubkey after auth so we can persist it under the write lock below.
+        let mut bound_pubkey: Option<String> = None;
+
         if !is_system_tx {
+            let known_pubkey = {
+                let state = self.inner.read().await;
+                state
+                    .accounts
+                    .get(&tx.tx.from)
+                    .and_then(|a| a.ecdsa_public_key.clone())
+            };
+            bound_pubkey = Some(crate::tx_auth::verify_user_tx_authenticity(
+                &tx,
+                provided_pubkey_hex.as_deref(),
+                known_pubkey.as_deref(),
+            )?);
+
             let state = self.inner.read().await;
             let current_gas_price = state.current_gas_price;
             
@@ -393,6 +414,20 @@ impl NodeState {
         }
 
         state.dag.add_node(node)?;
+
+        if let Some(pk) = bound_pubkey {
+            if let Some(account) = state.accounts.get_mut(&tx.tx.from) {
+                match &account.ecdsa_public_key {
+                    None => account.ecdsa_public_key = Some(pk),
+                    Some(existing) if existing.eq_ignore_ascii_case(&pk) => {}
+                    Some(_) => {
+                        return Err(anyhow::anyhow!(
+                            "publicKey does not match key already bound to this account"
+                        ));
+                    }
+                }
+            }
+        }
 
         drop(state);
 
@@ -1906,16 +1941,50 @@ impl NodeState {
     }
     
     pub async fn add_transaction_from_sync(&self, tx: SignedTransaction) -> Result<()> {
+        // Historical / checkpoint sync: verify when we already know the account key.
+        // Missing keys are tolerated here so catch-up from pre-auth eras still works;
+        // HTTP and gossip admission always require authenticity.
+        if !crate::tx_auth::is_system_transaction(&tx) {
+            let known_pubkey = {
+                let state = self.inner.read().await;
+                state
+                    .accounts
+                    .get(&tx.tx.from)
+                    .and_then(|a| a.ecdsa_public_key.clone())
+            };
+            if let Some(pk) = known_pubkey {
+                crate::tx_auth::verify_user_tx_authenticity(&tx, None, Some(&pk))?;
+            }
+        }
         self.add_transaction_dag_only(tx).await
     }
 
     pub async fn add_transaction_from_gossip(&self, tx: SignedTransaction) -> Result<TransactionResult> {
-        let is_system_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation))
-            || tx.signature.starts_with("anchor-")
-            || tx.tx.from == "faucet"
-            || tx.tx.from == "genesis";
+        self.add_transaction_from_gossip_authenticated(tx, None).await
+    }
 
+    pub async fn add_transaction_from_gossip_authenticated(
+        &self,
+        tx: SignedTransaction,
+        provided_pubkey_hex: Option<String>,
+    ) -> Result<TransactionResult> {
+        let is_system_tx = crate::tx_auth::is_system_transaction(&tx);
+
+        let mut bound_pubkey: Option<String> = None;
         if !is_system_tx {
+            let known_pubkey = {
+                let state = self.inner.read().await;
+                state
+                    .accounts
+                    .get(&tx.tx.from)
+                    .and_then(|a| a.ecdsa_public_key.clone())
+            };
+            bound_pubkey = Some(crate::tx_auth::verify_user_tx_authenticity(
+                &tx,
+                provided_pubkey_hex.as_deref(),
+                known_pubkey.as_deref(),
+            )?);
+
             let state = self.inner.read().await;
             let confirmed_nonce = state.accounts.get(&tx.tx.from).map(|a| a.nonce).unwrap_or(0);
 
@@ -1936,7 +2005,17 @@ impl NodeState {
             }
         }
 
-        self.add_transaction_dag_only(tx).await?;
+        self.add_transaction_dag_only(tx.clone()).await?;
+
+        if let Some(pk) = bound_pubkey {
+            let mut state = self.inner.write().await;
+            if let Some(account) = state.accounts.get_mut(&tx.tx.from) {
+                if account.ecdsa_public_key.is_none() {
+                    account.ecdsa_public_key = Some(pk);
+                }
+            }
+        }
+
         Ok(TransactionResult::Accepted)
     }
     
