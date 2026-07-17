@@ -42,7 +42,7 @@ jobs:
       - run: npm ci
 
       - name: Restore prior checkpoint heights
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .network-health-heights.json
           key: network-health-heights-${{ github.run_id }}
@@ -70,7 +70,7 @@ jobs:
 
       - name: Persist checkpoint heights for next interval
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .network-health-heights.json
           key: network-health-heights-${{ github.run_id }}
