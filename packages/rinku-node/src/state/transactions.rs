@@ -31,14 +31,48 @@ pub struct BatchCoreResult {
 
 impl NodeState {
     pub async fn add_transaction(&self, tx: SignedTransaction) -> Result<TransactionResult> {
-        self.add_transaction_authenticated(tx, None).await
+        if crate::tx_auth::is_system_transaction(&tx) {
+            self.add_local_system_transaction(tx).await
+        } else {
+            self.add_transaction_authenticated(tx, None).await
+        }
+    }
+
+    /// Privileged local admit for faucet / tip-consolidator / genesis bootstrap.
+    ///
+    /// External HTTP and unprivileged callers must not use this — they go through
+    /// [`Self::add_transaction_authenticated`], which rejects system txs.
+    pub async fn add_local_system_transaction(
+        &self,
+        tx: SignedTransaction,
+    ) -> Result<TransactionResult> {
+        if !crate::tx_auth::is_system_transaction(&tx) {
+            return Err(anyhow::anyhow!(
+                "add_local_system_transaction requires a system transaction"
+            ));
+        }
+        self.admit_transaction_inner(tx, None, true).await
     }
 
     /// Admit a transaction with optional ECDSA public key (hex or provided by API/gossip).
+    ///
+    /// System transactions (faucet / genesis / Consolidation) are rejected here —
+    /// use [`Self::add_local_system_transaction`] for privileged local producers.
     pub async fn add_transaction_authenticated(
         &self,
         tx: SignedTransaction,
         provided_pubkey_hex: Option<String>,
+    ) -> Result<TransactionResult> {
+        crate::tx_auth::reject_external_system_transaction(&tx)?;
+        self.admit_transaction_inner(tx, provided_pubkey_hex, false)
+            .await
+    }
+
+    async fn admit_transaction_inner(
+        &self,
+        tx: SignedTransaction,
+        provided_pubkey_hex: Option<String>,
+        allow_system: bool,
     ) -> Result<TransactionResult> {
         let is_stake_tx = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
         let is_unstake_tx = matches!(
@@ -55,6 +89,9 @@ impl NodeState {
         );
 
         let is_system_tx = crate::tx_auth::is_system_transaction(&tx);
+        if is_system_tx && !allow_system {
+            crate::tx_auth::reject_external_system_transaction(&tx)?;
+        }
 
         // Bind pubkey after auth so we can persist it under the write lock below.
         let mut bound_pubkey: Option<String> = None;
@@ -2263,6 +2300,11 @@ impl NodeState {
         provided_pubkey_hex: Option<String>,
     ) -> Result<TransactionResult> {
         let is_system_tx = crate::tx_auth::is_system_transaction(&tx);
+        if is_system_tx {
+            let from = tx.tx.from.clone();
+            let is_validator = self.is_validator(&from).await;
+            crate::tx_auth::validate_gossip_system_transaction(&tx, |_| is_validator)?;
+        }
 
         let mut bound_pubkey: Option<String> = None;
         if !is_system_tx {

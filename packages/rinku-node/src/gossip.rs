@@ -5190,6 +5190,23 @@ impl GossipService {
                 };
 
                 if is_new {
+                    if crate::tx_auth::is_system_transaction(&tx) {
+                        let from = tx.tx.from.clone();
+                        let is_validator = self.state.is_validator(&from).await;
+                        if let Err(e) =
+                            crate::tx_auth::validate_gossip_system_transaction(&tx, |_| {
+                                is_validator
+                            })
+                        {
+                            debug!(
+                                "Rejecting gossiped system tx {}: {}",
+                                &hash[..16.min(hash.len())],
+                                e
+                            );
+                            return Ok(None);
+                        }
+                    }
+
                     match self
                         .state
                         .add_transaction_from_gossip_authenticated(tx.clone(), public_key)
@@ -5468,11 +5485,10 @@ impl GossipService {
                     if !inner.known_txs.contains(&hash) {
                         inner.known_txs.insert(hash.clone());
                         drop(inner);
-                        match self.state.add_transaction_from_gossip(tx).await {
-                            Ok(TransactionResult::Accepted) => {}
-                            Ok(TransactionResult::Buffered) => {
-                                debug!("Synced tx {} buffered (future nonce)", hash);
-                            }
+                        // Catch-up uses sync admit (tolerates historical system txs),
+                        // not gossip admit which rejects forged genesis/anchors.
+                        match self.state.add_transaction_from_sync(tx).await {
+                            Ok(()) => {}
                             Err(e) => {
                                 debug!("Failed to add synced tx {}: {}", hash, e);
                             }

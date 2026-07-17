@@ -71,6 +71,7 @@ Explicit §12.5 / slash-hygiene items **not** required for testnet check-in:
 - Fast-path **BroadcastVote** as implicit ACK without BLS (unsigned soft path); only `TxConfirmAck` / `AckVote` require BLS
 - Fast-path nothing-at-stake / incentive analysis
 - Chaos partition simulation in scheduled CI
+- Gossip-relayed faucet txs still lack an operator MAC (HTTP `/api/tx` system admit is closed; faucet mint requires `/api/faucet/request` + `FAUCET_ENABLED`)
 
 ## Testnet endpoints
 

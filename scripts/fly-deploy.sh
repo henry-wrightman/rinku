@@ -272,6 +272,13 @@ apply_genesis_validators_secrets() {
         fly secrets deploy -a "$app"
     done
     log_success "Applied GENESIS_VALIDATORS to all nodes"
+
+    # Drop bootstrap-only trust escape once validators are pinned.
+    log_info "Clearing ALLOW_UNTRUSTED_GENESIS (validators now pinned)..."
+    for app in "${ALL_APPS[@]}"; do
+        fly secrets unset -a "$app" ALLOW_UNTRUSTED_GENESIS 2>/dev/null || true
+    done
+    log_success "ALLOW_UNTRUSTED_GENESIS cleared"
 }
 
 configure_genesis() {
@@ -282,6 +289,9 @@ configure_genesis() {
     
     # MAINNET_MODE defaults FAUCET_ENABLED=false; enable faucet + write CORS for the
     # public testnet frontends (validators stay faucet-off via their own configure path).
+    #
+    # ALLOW_UNTRUSTED_GENESIS is bootstrap-only: first genesis boot has no
+    # GENESIS_VALIDATORS yet. Cleared after apply_genesis_validators_secrets.
     fly secrets set -a "$genesis_app" \
         IS_GENESIS_NODE="true" \
         MAINNET_MODE="true" \

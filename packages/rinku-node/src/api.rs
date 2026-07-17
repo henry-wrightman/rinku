@@ -1415,7 +1415,7 @@ async fn handle_faucet_request(
         ..tx
     };
 
-    match state.add_transaction(tx.clone()).await {
+    match state.add_local_system_transaction(tx.clone()).await {
         Ok(TransactionResult::Accepted) => {
             api_state
                 .event_bus
@@ -1916,7 +1916,7 @@ async fn submit_transaction(
     let tip_count = api_state.node_state.get_tip_count().await;
     let inner = &req.tx;
 
-    // Check if this is a system/validator transaction that bypasses degraded mode
+    // External clients must not submit system txs via /api/tx (faucet/genesis/anchor).
     let is_system_tx = inner.sig.starts_with("anchor-")
         || inner.from == "faucet"
         || inner.from == "genesis"
@@ -1924,6 +1924,22 @@ async fn submit_transaction(
             inner.kind,
             Some(rinku_core::types::TransactionKind::Consolidation)
         );
+    if is_system_tx {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(SubmitTxResponse {
+                success: false,
+                hash: String::new(),
+                error: Some(
+                    "System transactions cannot be submitted via /api/tx \
+                     (use /api/faucet/request for faucet)"
+                        .to_string(),
+                ),
+                fast_path_eligible: None,
+                fast_path_status: None,
+            }),
+        );
+    }
 
     // Check if sender is a validator (validators can submit during degraded mode)
     let is_validator_tx = api_state.node_state.is_validator(&inner.from).await;
@@ -1949,8 +1965,8 @@ async fn submit_transaction(
         );
     }
 
-    // Graceful degradation: when tips > threshold, only allow validator/system transactions
-    if tip_count > DEGRADED_MODE_THRESHOLD && !is_system_tx && !is_validator_tx {
+    // Graceful degradation: when tips > threshold, only allow validator transactions
+    if tip_count > DEGRADED_MODE_THRESHOLD && !is_validator_tx {
         warn!(
             "Transaction rejected: degraded mode active ({} tips), only validator txs allowed",
             tip_count

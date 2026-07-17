@@ -216,7 +216,7 @@ impl TipConsolidator {
         );
 
         // Submit to local DAG
-        match self.state.add_transaction(tx.clone()).await {
+        match self.state.add_local_system_transaction(tx.clone()).await {
             Ok(_) => {
                 self.consolidations_total += 1;
                 self.tips_consolidated_total += tips_to_consolidate.len() as u64;
