@@ -1850,19 +1850,17 @@ impl GossipService {
                     })
                     .collect();
 
-                // Get merkle root from latest checkpoint
-                let merkle_root = snapshot
-                    .checkpoints
-                    .last()
-                    .map(|c| c.tx_merkle_root.clone())
-                    .unwrap_or_default();
+                // Account-state merkle root (sorted) — used by SyncVerifier on the receiver.
+                let merkle_root =
+                    crate::sync_verification::build_account_merkle_root_sorted(&account_data);
 
                 info!(
-                    "Sending snapshot: {} accounts, {} validators, {} checkpoints, {} txs",
+                    "Sending snapshot: {} accounts, {} validators, {} checkpoints, {} txs (accounts_root={})",
                     account_data.len(),
                     validator_data.len(),
                     checkpoint_data.len(),
-                    tx_data.len()
+                    tx_data.len(),
+                    &merkle_root[..16.min(merkle_root.len())]
                 );
 
                 SyncResponse::Snapshot(SnapshotData {
@@ -3088,22 +3086,42 @@ impl GossipService {
             drop(vi_guard);
 
             if !bls_keys_and_stakes.is_empty() {
-                match crate::state::NodeState::verify_checkpoint_bls_signature_only(
+                let bls_result = crate::state::NodeState::verify_checkpoint_bls_signature_only(
                     &checkpoint,
                     &bls_keys_and_stakes,
-                ) {
-                    crate::state::checkpoints::BlsVerifyResult::ValidWithQuorum => {}
-                    crate::state::checkpoints::BlsVerifyResult::ValidNoQuorum { .. } => {}
-                    crate::state::checkpoints::BlsVerifyResult::NoSignature => {}
-                    crate::state::checkpoints::BlsVerifyResult::Invalid(reason) => {
-                        warn!(
-                            "BLS signature INVALID for checkpoint {} at height {} — rejecting: {}",
-                            &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                            checkpoint.height,
-                            reason
-                        );
-                        return false;
+                );
+                if !bls_result.is_gossip_acceptable() {
+                    match &bls_result {
+                        crate::state::checkpoints::BlsVerifyResult::ValidNoQuorum {
+                            signer_stake,
+                            total_stake,
+                        } => {
+                            warn!(
+                                "BLS quorum NOT met for checkpoint {} at height {} (signer_stake={} / total_stake={}) — rejecting",
+                                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                checkpoint.height,
+                                signer_stake,
+                                total_stake
+                            );
+                        }
+                        crate::state::checkpoints::BlsVerifyResult::NoSignature => {
+                            warn!(
+                                "Checkpoint {} at height {} has no BLS signature — rejecting",
+                                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                checkpoint.height
+                            );
+                        }
+                        crate::state::checkpoints::BlsVerifyResult::Invalid(reason) => {
+                            warn!(
+                                "BLS signature INVALID for checkpoint {} at height {} — rejecting: {}",
+                                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                checkpoint.height,
+                                reason
+                            );
+                        }
+                        crate::state::checkpoints::BlsVerifyResult::ValidWithQuorum => {}
                     }
+                    return false;
                 }
             }
         }
@@ -4455,6 +4473,30 @@ impl GossipService {
                     delta.to_checkpoint
                 );
 
+                let mut verifier =
+                    crate::sync_verification::SyncVerifier::new(self.sync_verify_strict);
+                if !verifier.verify_delta(&delta) {
+                    let detail = verifier.summary();
+                    let failures: Vec<String> = verifier
+                        .failures()
+                        .iter()
+                        .map(|(k, r)| format!("{k}: {r:?}"))
+                        .collect();
+                    warn!(
+                        "P2P delta rejected by SyncVerifier (strict={}): {} — {:?}",
+                        self.sync_verify_strict, detail, failures
+                    );
+                    return Err(anyhow::anyhow!(
+                        "P2P delta merkle verification failed: {}",
+                        detail
+                    ));
+                }
+                info!(
+                    "P2P delta SyncVerifier OK (strict={}): {}",
+                    self.sync_verify_strict,
+                    verifier.summary()
+                );
+
                 // ORDERING: First, apply all transactions before any checkpoints
                 // This ensures checkpoints have their referenced transactions
                 let mut tx_hashes_added = std::collections::HashSet::new();
@@ -4684,7 +4726,30 @@ impl GossipService {
                     snapshot.recent_txs.len()
                 );
 
-                // Apply snapshot to state
+                let mut verifier =
+                    crate::sync_verification::SyncVerifier::new(self.sync_verify_strict);
+                if !verifier.verify_snapshot(&snapshot) {
+                    let detail = verifier.summary();
+                    let failures: Vec<String> = verifier
+                        .failures()
+                        .iter()
+                        .map(|(k, r)| format!("{k}: {r:?}"))
+                        .collect();
+                    warn!(
+                        "P2P snapshot rejected by SyncVerifier (strict={}): {} — {:?}",
+                        self.sync_verify_strict, detail, failures
+                    );
+                    return Err(anyhow::anyhow!(
+                        "P2P snapshot merkle verification failed: {}",
+                        detail
+                    ));
+                }
+                info!(
+                    "P2P snapshot SyncVerifier OK (strict={}): {}",
+                    self.sync_verify_strict,
+                    verifier.summary()
+                );
+
                 self.state.apply_p2p_snapshot(snapshot).await?;
 
                 info!("P2P snapshot sync complete");

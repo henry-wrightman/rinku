@@ -3239,6 +3239,17 @@ impl CheckpointService {
                 let result = network_handle.request_snapshot(&peer_id).await;
                 match result {
                     Ok(SyncResponse::Snapshot(snapshot_data)) => {
+                        let strict = self.state.sync_verify_strict();
+                        let mut verifier =
+                            crate::sync_verification::SyncVerifier::new(strict);
+                        if !verifier.verify_snapshot(&snapshot_data) {
+                            warn!(
+                                "[ForkRecovery] Peer snapshot failed SyncVerifier: {}",
+                                verifier.summary()
+                            );
+                            continue;
+                        }
+
                         use crate::state::presync::convert_snapshot_data_to_sync_snapshot;
                         let sync_snapshot = convert_snapshot_data_to_sync_snapshot(snapshot_data);
 

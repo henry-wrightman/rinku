@@ -227,6 +227,19 @@ async fn try_presync_attempt(bootstrap_peers: &[String]) -> Option<SyncSnapshot>
                                         snapshot_data.checkpoints.len(),
                                         snapshot_data.recent_txs.len()
                                     );
+
+                                    let strict = std::env::var("ALLOW_UNVERIFIED_SYNC")
+                                        .map(|v| v != "true" && v != "1")
+                                        .unwrap_or(true);
+                                    let mut verifier =
+                                        crate::sync_verification::SyncVerifier::new(strict);
+                                    if !verifier.verify_snapshot(&snapshot_data) {
+                                        warn!(
+                                            "PRE-SYNC: Snapshot rejected by SyncVerifier: {}",
+                                            verifier.summary()
+                                        );
+                                        break;
+                                    }
                                     
                                     // Convert SnapshotData to SyncSnapshot
                                     let sync_snapshot = convert_snapshot_data_to_sync_snapshot(snapshot_data);

@@ -301,9 +301,9 @@ impl SyncVerifier {
         }
     }
     
-    /// Verify a snapshot and record result
+    /// Verify a snapshot and record result (uses sorted account order for determinism).
     pub fn verify_snapshot(&mut self, snapshot: &SnapshotData) -> bool {
-        let result = verify_snapshot(snapshot);
+        let result = verify_snapshot_sorted(snapshot);
         let is_valid = matches!(result, VerificationResult::Valid);
         self.results.push(("snapshot".to_string(), result));
         is_valid || !self.strict_mode
@@ -509,23 +509,45 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_verifier() {
-        let accounts = vec![make_account("a", 100)];
-        let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
-        let merkle_root = build_merkle_root(&hashes);
-        
+    fn test_sync_verifier_rejects_tampered_balance() {
+        let accounts = vec![
+            make_account("alice", 100),
+            make_account("bob", 200),
+        ];
+        let merkle_root = build_account_merkle_root_sorted(&accounts);
+
+        let mut tampered = accounts.clone();
+        tampered[0].balance = 999_999;
+
         let snapshot = SnapshotData {
-            accounts,
+            accounts: tampered,
             validators: vec![],
             checkpoints: vec![],
             recent_txs: vec![],
             merkle_root,
         };
-        
+
+        let mut strict = SyncVerifier::new(true);
+        assert!(!strict.verify_snapshot(&snapshot));
+        assert!(!strict.failures().is_empty());
+    }
+
+    #[test]
+    fn test_sync_verifier_sorted_independent_of_input_order() {
+        let a = make_account("alice", 100);
+        let b = make_account("bob", 200);
+        let root = build_account_merkle_root_sorted(&[a.clone(), b.clone()]);
+
+        let snapshot = SnapshotData {
+            accounts: vec![b, a], // reverse order
+            validators: vec![],
+            checkpoints: vec![],
+            recent_txs: vec![],
+            merkle_root: root,
+        };
+
         let mut verifier = SyncVerifier::new(true);
         assert!(verifier.verify_snapshot(&snapshot));
-        assert!(verifier.all_valid());
-        assert_eq!(verifier.failures().len(), 0);
     }
 
     #[test]

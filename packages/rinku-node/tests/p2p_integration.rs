@@ -16,9 +16,10 @@ mod p2p_tests {
     use rinku_node::gossip::BloomFilter;
     use rinku_node::sync_verification::{
         SyncVerifier, VerificationResult,
-        build_merkle_root, hash_account_leaf, verify_snapshot,
+        build_merkle_root, build_account_merkle_root_sorted, hash_account_leaf, verify_snapshot,
         generate_account_proofs, verify_account_proof,
     };
+    use rinku_node::state::checkpoints::BlsVerifyResult;
 
     // ============================================
     // DoS Protection Tests
@@ -425,6 +426,41 @@ mod p2p_tests {
         assert!(summary.contains("0 invalid"));
         assert!(verifier.all_valid());
         assert!(verifier.failures().is_empty());
+    }
+
+    #[test]
+    fn test_gossip_checkpoint_bls_only_accepts_quorum() {
+        assert!(BlsVerifyResult::ValidWithQuorum.is_gossip_acceptable());
+        assert!(!BlsVerifyResult::NoSignature.is_gossip_acceptable());
+        assert!(!BlsVerifyResult::ValidNoQuorum {
+            signer_stake: 1,
+            total_stake: 100
+        }
+        .is_gossip_acceptable());
+        assert!(!BlsVerifyResult::Invalid("bad".into()).is_gossip_acceptable());
+    }
+
+    #[test]
+    fn test_bootstrap_would_reject_tampered_snapshot_strict() {
+        let accounts = vec![
+            make_test_account("alice", 1000, 5),
+            make_test_account("bob", 500, 3),
+        ];
+        let merkle_root = build_account_merkle_root_sorted(&accounts);
+        let mut bad = accounts;
+        bad[1].balance = 0;
+        let snapshot = SnapshotData {
+            accounts: bad,
+            validators: vec![],
+            checkpoints: vec![],
+            recent_txs: vec![],
+            merkle_root,
+        };
+        let mut verifier = SyncVerifier::new(true);
+        assert!(
+            !verifier.verify_snapshot(&snapshot),
+            "tampered snapshot must fail strict SyncVerifier"
+        );
     }
 }
 

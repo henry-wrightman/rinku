@@ -9,6 +9,13 @@ pub enum BlsVerifyResult {
     Invalid(String),
 }
 
+impl BlsVerifyResult {
+    /// Gossip/apply path: only a stake-weighted quorum BLS aggregate is acceptable.
+    pub fn is_gossip_acceptable(&self) -> bool {
+        matches!(self, Self::ValidWithQuorum)
+    }
+}
+
 impl NodeState {
     /// Verify BLS aggregate signature on a checkpoint against the known validator set.
     /// Returns Ok(()) if valid, or Err with reason if invalid.

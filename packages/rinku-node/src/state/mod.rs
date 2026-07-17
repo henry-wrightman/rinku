@@ -26,7 +26,7 @@ pub(crate) mod presync;
 mod accounts;
 mod metadata;
 mod dag;
-pub(crate) mod checkpoints;
+pub mod checkpoints;
 mod stats;
 mod proofs;
 mod transactions;
@@ -259,6 +259,10 @@ pub struct StateRootWithProofs {
 impl NodeState {
     pub fn storage(&self) -> &Arc<RedbStorage> {
         &self.storage
+    }
+
+    pub fn sync_verify_strict(&self) -> bool {
+        self.config.sync_verify_strict
     }
 
     pub async fn get_chain_info(&self) -> (String, String) {
