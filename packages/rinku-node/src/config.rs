@@ -150,6 +150,10 @@ pub struct NodeConfig {
     pub rate_limit_tx_max: u32,
     pub rate_limit_contract_max: u32,
     pub rate_limit_general_max: u32,
+    /// When false, faucet mint endpoints return 403. Defaults to off in MAINNET_MODE.
+    pub faucet_enabled: bool,
+    /// Comma-separated origins allowed for write-route CORS. Use `*` to allow any.
+    pub cors_allow_origins: Vec<String>,
     pub static_dir: Option<String>,
     pub trust: TrustConfig,
     pub public_url: Option<String>,
@@ -238,6 +242,24 @@ impl NodeConfig {
                 .ok()
                 .and_then(|n| n.parse().ok())
                 .unwrap_or(100),
+            faucet_enabled: env::var("FAUCET_ENABLED")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(!mainnet_mode),
+            cors_allow_origins: env::var("CORS_ALLOW_ORIGINS")
+                .map(|v| {
+                    v.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_else(|_| {
+                    vec![
+                        "http://localhost:5000".to_string(),
+                        "http://127.0.0.1:5000".to_string(),
+                        "http://localhost:3001".to_string(),
+                        "http://127.0.0.1:3001".to_string(),
+                    ]
+                }),
             static_dir: env::var("STATIC_DIR").ok(),
             trust: TrustConfig::from_env(),
             public_url: env::var("PUBLIC_URL").ok(),

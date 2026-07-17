@@ -16,6 +16,7 @@ pub mod fast_path;
 pub mod fork_remediation;
 pub mod gas;
 pub mod gossip;
+pub mod http_rate_limit;
 pub mod leader_election;
 pub mod mempool_cleanup;
 pub mod merge;

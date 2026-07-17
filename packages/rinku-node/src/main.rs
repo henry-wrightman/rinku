@@ -25,6 +25,7 @@ mod fast_path;
 mod fork_remediation;
 mod gas;
 mod gossip;
+mod http_rate_limit;
 mod leader_election;
 mod mempool_cleanup;
 mod merge;

@@ -178,7 +178,11 @@ curl http://localhost:3001/api/dag/summary
 | `MAINNET_MODE` | Enforce mainnet-grade security | `false` |
 | `PUBLIC_URL` | Node's public URL for leader election | `""` |
 | `GENESIS_VALIDATORS` | Genesis validator set (addr:bls;...) | `""` |
-| `VALIDATOR_KEY_PASSWORD` | Validator key passphrase | `""` |
+| `RATE_LIMIT_TX_MAX` | Max tx submits per IP per minute | `30` |
+| `RATE_LIMIT_CONTRACT_MAX` | Max contract deploy/call per IP per minute | `20` |
+| `RATE_LIMIT_GENERAL_MAX` | Max general write ops (e.g. faucet) per IP per minute | `100` |
+| `FAUCET_ENABLED` | Enable faucet mint endpoints | `true` unless `MAINNET_MODE` |
+| `CORS_ALLOW_ORIGINS` | Comma-separated origins for write-route CORS (`*` = any) | localhost explorer ports |
 
 ---
 

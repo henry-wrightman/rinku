@@ -265,6 +265,22 @@ impl NodeState {
         self.config.sync_verify_strict
     }
 
+    pub fn faucet_enabled(&self) -> bool {
+        self.config.faucet_enabled
+    }
+
+    pub fn rate_limit_config(&self) -> (u32, u32, u32) {
+        (
+            self.config.rate_limit_tx_max,
+            self.config.rate_limit_contract_max,
+            self.config.rate_limit_general_max,
+        )
+    }
+
+    pub fn cors_allow_origins(&self) -> &[String] {
+        &self.config.cors_allow_origins
+    }
+
     pub async fn get_chain_info(&self) -> (String, String) {
         let state = self.inner.read().await;
         (state.config.chain_id.clone(), state.config.network_id.clone())

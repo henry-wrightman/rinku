@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{ConnectInfo, Path, Query, State},
+    http::{HeaderValue, Method, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -11,11 +11,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 
 use crate::gossip::GossipService;
+use crate::http_rate_limit::HttpRateLimiters;
 use crate::network::CheckpointData;
 use crate::state::TransactionResult;
 use crate::sync_verification::build_account_merkle_root_sorted;
@@ -47,6 +48,62 @@ pub struct ApiState {
     pub node_state: NodeState,
     pub gossip_service: Option<Arc<GossipService>>,
     pub event_bus: Arc<crate::events::EventBus>,
+    pub rate_limits: Arc<HttpRateLimiters>,
+    pub faucet_enabled: bool,
+}
+
+fn client_key(addr: Option<ConnectInfo<SocketAddr>>) -> String {
+    addr.map(|ConnectInfo(a)| a.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn rate_limited_response(kind: &str, max: usize, window_secs: u64) -> axum::response::Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(serde_json::json!({
+            "error": format!(
+                "Rate limited ({kind}): max {max} requests per {window_secs}s"
+            ),
+            "success": false,
+        })),
+    )
+        .into_response()
+}
+
+fn build_read_cors() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::HEAD, Method::OPTIONS])
+        .allow_headers(Any)
+}
+
+fn build_write_cors(origins: &[String]) -> CorsLayer {
+    let allow_any = origins.iter().any(|o| o.trim() == "*");
+    let mut layer = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(Any);
+
+    if allow_any {
+        layer = layer.allow_origin(Any);
+    } else {
+        let parsed: Vec<HeaderValue> = origins
+            .iter()
+            .filter_map(|o| HeaderValue::from_str(o.trim()).ok())
+            .collect();
+        if parsed.is_empty() {
+            // No origins configured — deny browser cross-origin writes (non-browser clients unaffected).
+            layer = layer.allow_origin(AllowOrigin::list(Vec::<HeaderValue>::new()));
+        } else {
+            layer = layer.allow_origin(AllowOrigin::list(parsed));
+        }
+    }
+    layer
 }
 
 #[derive(Serialize)]
@@ -1188,8 +1245,28 @@ async fn post_sync_delta(
 
 async fn handle_faucet_request(
     State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<FaucetRequest>,
 ) -> impl IntoResponse {
+    if !api_state.faucet_enabled {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Faucet is disabled on this node (set FAUCET_ENABLED=true to enable)"
+            })),
+        )
+            .into_response();
+    }
+
+    let key = client_key(addr);
+    if !api_state.rate_limits.general.check_and_record(&format!("faucet:{key}")) {
+        return rate_limited_response(
+            "faucet",
+            api_state.rate_limits.general.max(),
+            api_state.rate_limits.general.window_secs(),
+        );
+    }
+
     let address = req.address.trim().to_string();
     
     if address.is_empty() {
@@ -1320,6 +1397,7 @@ struct FaucetStatsResponse {
     current_balance: f64,
     total_distributed: f64,
     drop_amount: f64,
+    enabled: bool,
 }
 
 async fn get_faucet_stats(State(state): State<NodeState>) -> Json<FaucetStatsResponse> {
@@ -1341,6 +1419,7 @@ async fn get_faucet_stats(State(state): State<NodeState>) -> Json<FaucetStatsRes
         current_balance,
         total_distributed,
         drop_amount: from_micro_units(FAUCET_AMOUNT),
+        enabled: state.faucet_enabled(),
     })
 }
 
@@ -1678,8 +1757,27 @@ async fn get_transaction_receipt(
 
 async fn submit_transaction(
     State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
+    let key = client_key(addr);
+    if !api_state.rate_limits.tx.check_and_record(&key) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(SubmitTxResponse {
+                success: false,
+                hash: String::new(),
+                error: Some(format!(
+                    "Rate limited (tx): max {} requests per {}s",
+                    api_state.rate_limits.tx.max(),
+                    api_state.rate_limits.tx.window_secs()
+                )),
+                fast_path_eligible: None,
+                fast_path_status: None,
+            }),
+        );
+    }
+
     let tip_count = api_state.node_state.get_tip_count().await;
     let inner = &req.tx;
     
@@ -1845,8 +1943,28 @@ struct FastPathTxResponse {
 
 async fn submit_fast_path_transaction(
     State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
+    let key = client_key(addr);
+    if !api_state.rate_limits.tx.check_and_record(&key) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(FastPathTxResponse {
+                success: false,
+                hash: String::new(),
+                fast_path_eligible: false,
+                fast_path_status: None,
+                estimated_finality_ms: None,
+                error: Some(format!(
+                    "Rate limited (tx): max {} requests per {}s",
+                    api_state.rate_limits.tx.max(),
+                    api_state.rate_limits.tx.window_secs()
+                )),
+            }),
+        );
+    }
+
     let provided_pubkey = match req.public_key {
         Some(pk) => match pk.to_hex() {
             Ok(h) => Some(h),
@@ -2040,8 +2158,21 @@ async fn get_fast_path_status(
 
 async fn submit_batch_transaction(
     State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<BatchSubmitTxRequest>,
 ) -> Result<Json<BatchSubmitTxResponse>, (StatusCode, String)> {
+    let key = client_key(addr);
+    if !api_state.rate_limits.tx.check_and_record(&key) {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            format!(
+                "Rate limited (tx): max {} requests per {}s",
+                api_state.rate_limits.tx.max(),
+                api_state.rate_limits.tx.window_secs()
+            ),
+        ));
+    }
+
     let tip_count = api_state.node_state.get_tip_count().await;
     
     // Hard backpressure: reject ALL batch transactions when tips exceed hard limit
@@ -3993,9 +4124,28 @@ struct DeployContractResponse {
 }
 
 async fn deploy_contract(
-    State(_state): State<NodeState>,
+    State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<DeployContractRequest>,
 ) -> impl IntoResponse {
+    let key = client_key(addr);
+    if !api_state.rate_limits.contract.check_and_record(&key) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(DeployContractResponse {
+                success: false,
+                contract_id: String::new(),
+                deploy_url: String::new(),
+                error: Some(format!(
+                    "Rate limited (contract): max {} requests per {}s",
+                    api_state.rate_limits.contract.max(),
+                    api_state.rate_limits.contract.window_secs()
+                )),
+            }),
+        )
+            .into_response();
+    }
+
     const MAX_WASM_SIZE: usize = 2 * 1024 * 1024;
 
     if req.creator.is_empty() {
@@ -4007,7 +4157,8 @@ async fn deploy_contract(
                 deploy_url: String::new(),
                 error: Some("Creator address is required".to_string()),
             }),
-        );
+        )
+            .into_response();
     }
 
     let wasm_bytes_len = req.wasm_base64.len() * 3 / 4;
@@ -4020,7 +4171,8 @@ async fn deploy_contract(
                 deploy_url: String::new(),
                 error: Some(format!("WASM binary too large: {} bytes (max {})", wasm_bytes_len, MAX_WASM_SIZE)),
             }),
-        );
+        )
+            .into_response();
     }
 
     use base64::Engine as _;
@@ -4038,7 +4190,8 @@ async fn deploy_contract(
                 deploy_url: String::new(),
                 error: Some("Invalid WASM binary (bad magic bytes or base64 encoding)".to_string()),
             }),
-        );
+        )
+            .into_response();
     }
 
     let nonce = req.nonce.unwrap_or_else(|| {
@@ -4060,6 +4213,7 @@ async fn deploy_contract(
             error: None,
         }),
     )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -4096,10 +4250,37 @@ struct CallContractResponse {
 }
 
 async fn call_contract(
-    State(state): State<NodeState>,
+    State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Path(contract_id): Path<String>,
     Json(req): Json<CallContractRequest>,
 ) -> impl IntoResponse {
+    let key = client_key(addr);
+    if !api_state.rate_limits.contract.check_and_record(&key) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(CallContractResponse {
+                success: false,
+                gas_used: 0,
+                estimated_fee: None,
+                error: Some(format!(
+                    "Rate limited (contract): max {} requests per {}s",
+                    api_state.rate_limits.contract.max(),
+                    api_state.rate_limits.contract.window_secs()
+                )),
+                error_message: None,
+                logs: vec![],
+                events: vec![],
+                state_diff: None,
+                return_data: None,
+                new_state: None,
+                new_state_hash: None,
+                new_height: None,
+            }),
+        );
+    }
+
+    let state = &api_state.node_state;
     let contract = match state.get_contract(&contract_id).await {
         Some(c) => c,
         None => {
@@ -4553,15 +4734,25 @@ pub async fn start_api_server(
     static_dir: Option<PathBuf>,
     event_bus: Arc<crate::events::EventBus>,
 ) -> anyhow::Result<JoinHandle<()>> {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let (tx_max, contract_max, general_max) = state.rate_limit_config();
+    let rate_limits = Arc::new(HttpRateLimiters::from_config(tx_max, contract_max, general_max));
+    let faucet_enabled = state.faucet_enabled();
+    let cors_origins = state.cors_allow_origins().to_vec();
+
+    let read_cors = build_read_cors();
+    let write_cors = build_write_cors(&cors_origins);
+
+    info!(
+        "HTTP abuse controls: tx={}/min contract={}/min general={}/min faucet_enabled={} write_cors={:?}",
+        tx_max, contract_max, general_max, faucet_enabled, cors_origins
+    );
 
     let api_state = ApiState {
         node_state: state.clone(),
         gossip_service,
         event_bus: event_bus.clone(),
+        rate_limits,
+        faucet_enabled,
     };
 
     let ws_state = crate::websocket::WsState { event_bus: event_bus.clone() };
@@ -4569,26 +4760,33 @@ pub async fn start_api_server(
         .route("/api/ws", get(crate::websocket::ws_handler))
         .with_state(ws_state);
 
-    // Routes that need ApiState (gossip + transaction submission + faucet for broadcasting)
-    let gossip_routes = Router::new()
-        .route("/api/gossip/stats", get(get_gossip_stats))
-        .route("/api/peers", get(get_peers))
+    // Write routes: tightened CORS + rate-limited handlers
+    let write_routes = Router::new()
         .route("/api/slashing/evidence", post(post_slashing_evidence))
         .route("/api/tx", post(submit_transaction))
         .route("/api/tx/fast", post(submit_fast_path_transaction))
-        .route("/api/tx/fast/:hash", get(get_fast_path_status))
         .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/sync/delta", post(post_sync_delta))
+        .route("/api/tx/:hash/vote", post(post_weight_vote))
+        .route("/api/partition/merge", post(post_partition_merge))
+        .route("/api/contracts/deploy", post(deploy_contract))
+        .route("/api/contracts/:contract_id/call", post(call_contract))
+        .layer(write_cors)
+        .with_state(api_state.clone());
+
+    // Read-ish gossip/API routes that still need ApiState (open CORS)
+    let gossip_read_routes = Router::new()
+        .route("/api/gossip/stats", get(get_gossip_stats))
+        .route("/api/peers", get(get_peers))
+        .route("/api/tx/fast/:hash", get(get_fast_path_status))
         .route("/api/dag", get(get_dag))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/tx/:hash/replies", get(get_transaction_replies))
         .route("/api/account/:address/transactions", get(get_account_transactions_with_fast_path))
         .route("/api/finality/metrics", get(get_finality_metrics))
-        .route("/api/tx/:hash/vote", post(post_weight_vote))
-        .route("/api/partition/merge", post(post_partition_merge))
-        .layer(cors.clone())
+        .layer(read_cors.clone())
         .with_state(api_state);
 
     // Routes that use NodeState
@@ -4621,9 +4819,7 @@ pub async fn start_api_server(
         .route("/api/staking", get(get_staking))
         .route("/api/staking/:address", get(get_staking_address))
         .route("/api/contracts", get(get_contracts))
-        .route("/api/contracts/deploy", post(deploy_contract))
         .route("/api/contracts/:contract_id", get(get_contract))
-        .route("/api/contracts/:contract_id/call", post(call_contract))
         .route("/api/tokenomics/supply", get(get_tokenomics_supply))
         .route("/api/tokenomics/emission", get(get_tokenomics_emission))
         .route("/api/tokenomics/slashing", get(get_tokenomics_slashing))
@@ -4647,11 +4843,14 @@ pub async fn start_api_server(
         .route("/api/chain/tip", get(get_chain_tip))
         .route("/api/tip-consolidator/stats", get(get_tip_consolidator_stats))
         .route("/metrics", get(get_metrics))
-        .layer(cors.clone())
+        .layer(read_cors)
         .with_state(state);
 
     // Merge all routers
-    let api_routes = ws_routes.merge(gossip_routes).merge(node_routes);
+    let api_routes = ws_routes
+        .merge(write_routes)
+        .merge(gossip_read_routes)
+        .merge(node_routes);
 
     // Root health check handler for API-only mode
     async fn root_health() -> impl IntoResponse {
@@ -4680,7 +4879,12 @@ pub async fn start_api_server(
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service()).await.unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
 
     Ok(handle)
