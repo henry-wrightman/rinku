@@ -525,17 +525,36 @@ mod tests {
     #[tokio::test]
     async fn test_ack_bls_verify_accepts_valid_and_rejects_invalid() {
         let kp = crate::bls::generate_bls_keypair();
-        // Use a realistic 32-byte hex hash
         let tx_hash = hex::encode([0xabu8; 32]);
         let sig = sign_fast_path_ack(&tx_hash, &kp.private_key).expect("sign");
-        let pk_b64 = URL_SAFE_NO_PAD.encode(&kp.public_key);
 
-        assert!(verify_fast_path_ack(&tx_hash, &sig, &kp.public_key));
+        // Production path first: NodeState stores Validator.bls_public_key as hex
+        // (see state/validators.rs replace_validators_with_genesis).
+        let pk_hex = hex::encode(&kp.public_key);
+        assert!(
+            require_valid_ack_bls(&tx_hash, &Some(sig.clone()), &Some(pk_hex.clone())).is_ok(),
+            "ACK verify must accept hex-encoded validator pubkeys from state"
+        );
+        assert_eq!(
+            decode_bls_public_key(&pk_hex).as_deref(),
+            Some(kp.public_key.as_slice()),
+            "hex pubkey must decode to raw compressed bytes, not a base64 mis-parse"
+        );
+
+        // Gossip/proof paths may still use URL-safe base64
+        let pk_b64 = URL_SAFE_NO_PAD.encode(&kp.public_key);
         assert!(require_valid_ack_bls(&tx_hash, &Some(sig.clone()), &Some(pk_b64.clone())).is_ok());
+        assert!(verify_fast_path_ack(&tx_hash, &sig, &kp.public_key));
 
         // Wrong key
         let kp2 = crate::bls::generate_bls_keypair();
         assert!(!verify_fast_path_ack(&tx_hash, &sig, &kp2.public_key));
+        assert!(require_valid_ack_bls(
+            &tx_hash,
+            &Some(sig.clone()),
+            &Some(hex::encode(&kp2.public_key))
+        )
+        .is_err());
         assert!(require_valid_ack_bls(
             &tx_hash,
             &Some(sig),
@@ -544,20 +563,7 @@ mod tests {
         .is_err());
 
         // Missing sig
-        assert!(require_valid_ack_bls(&tx_hash, &None, &Some(pk_b64)).is_err());
-
-        // State stores validator BLS pubkeys as hex — must verify against hex encoding
-        let pk_hex = hex::encode(&kp.public_key);
-        let sig2 = sign_fast_path_ack(&tx_hash, &kp.private_key).expect("sign");
-        assert!(
-            require_valid_ack_bls(&tx_hash, &Some(sig2.clone()), &Some(pk_hex.clone())).is_ok(),
-            "ACK verify must accept hex-encoded validator pubkeys from state"
-        );
-        // Hex must not be misread as base64
-        assert_eq!(
-            decode_bls_public_key(&pk_hex).as_deref(),
-            Some(kp.public_key.as_slice())
-        );
+        assert!(require_valid_ack_bls(&tx_hash, &None, &Some(pk_hex.clone())).is_err());
 
         let service = FastPathService::new(FastPathConfig::default());
         service.update_total_stake(100_000_000_000).await;
@@ -599,5 +605,63 @@ mod tests {
             timestamp_ms: 2,
         };
         assert!(service.add_ack_checked(bad, Some(&pk_hex)).await.is_none());
+    }
+
+    /// Regression: hex-encoded BLS pubkeys are also valid base64 alphabet. Decoding them
+    /// as base64 yields the wrong key length/bytes and would reject valid ACKs — the bug
+    /// that shipped when unit tests only exercised URL_SAFE_NO_PAD pubkeys.
+    #[test]
+    fn test_ack_bls_hex_pubkey_must_not_be_decoded_as_base64() {
+        let kp = crate::bls::generate_bls_keypair();
+        let pk_hex = hex::encode(&kp.public_key);
+        assert!(
+            pk_hex.len() >= 2
+                && pk_hex.len() % 2 == 0
+                && pk_hex.bytes().all(|b| b.is_ascii_hexdigit()),
+            "fixture must look like hex so the ambiguous-decode path is exercised"
+        );
+
+        let naive_b64 = URL_SAFE_NO_PAD
+            .decode(&pk_hex)
+            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(&pk_hex));
+        if let Ok(wrong) = naive_b64 {
+            assert_ne!(
+                wrong.as_slice(),
+                kp.public_key.as_slice(),
+                "precondition: naive base64 of hex must not equal the real pubkey"
+            );
+        }
+
+        let decoded = decode_bls_public_key(&pk_hex).expect("hex decode");
+        assert_eq!(decoded, kp.public_key);
+
+        let tx_hash = hex::encode([0x11u8; 32]);
+        let sig = sign_fast_path_ack(&tx_hash, &kp.private_key).expect("sign");
+        // Same shape gossip uses: Option from Validator.bls_public_key
+        let from_state: Option<String> = Some(pk_hex);
+        assert!(require_valid_ack_bls(&tx_hash, &Some(sig), &from_state).is_ok());
+    }
+
+    /// End-to-end of the gossip verify inputs: sign with checkpoint-vote private key,
+    /// verify with the hex string as stored on Validator in NodeState.
+    #[test]
+    fn test_ack_bls_gossip_verify_uses_validator_map_encoding() {
+        let kp = crate::bls::generate_bls_keypair();
+        let tx_hash = hex::encode([0x5eu8; 32]);
+        let sig = sign_fast_path_ack(&tx_hash, &kp.private_key).expect("sign");
+
+        // Mirrors state/validators.rs: bls_public_key: Some(hex::encode(bls_public_key))
+        let validator = rinku_core::types::Validator {
+            address: "validator1".into(),
+            stake: 50_000_000_000_000,
+            first_stake_time: 0,
+            bls_public_key: Some(hex::encode(&kp.public_key)),
+            missed_checkpoints: 0,
+        };
+
+        assert!(
+            require_valid_ack_bls(&tx_hash, &Some(sig), &validator.bls_public_key).is_ok(),
+            "gossip AckVote verify must succeed against Validator.bls_public_key as stored in state"
+        );
     }
 }
