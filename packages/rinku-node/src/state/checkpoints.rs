@@ -1,6 +1,6 @@
 use super::*;
-use base64::Engine;
 use crate::bls::verify_aggregated_checkpoint_signature;
+use base64::Engine;
 
 pub enum BlsVerifyResult {
     NoSignature,
@@ -66,8 +66,12 @@ impl NodeState {
             sorted_validator_bls_keys_and_stakes.len(),
         );
 
-        let total_stake: u64 = sorted_validator_bls_keys_and_stakes.iter().map(|(_, s)| *s).sum();
-        let signer_stake: u64 = signer_indices.iter()
+        let total_stake: u64 = sorted_validator_bls_keys_and_stakes
+            .iter()
+            .map(|(_, s)| *s)
+            .sum();
+        let signer_stake: u64 = signer_indices
+            .iter()
             .filter_map(|&i| sorted_validator_bls_keys_and_stakes.get(i).map(|(_, s)| *s))
             .sum();
 
@@ -119,7 +123,9 @@ impl NodeState {
 
         tracing::debug!(
             "BLS signature verified for checkpoint {} ({}/{} signers, {:.1}% stake)",
-            checkpoint.height, signer_indices.len(), sorted_validator_bls_keys_and_stakes.len(),
+            checkpoint.height,
+            signer_indices.len(),
+            sorted_validator_bls_keys_and_stakes.len(),
             signer_stake as f64 / total_stake as f64 * 100.0,
         );
         Ok(())
@@ -203,8 +209,12 @@ impl NodeState {
             ));
         }
 
-        let total_stake: u64 = sorted_validator_bls_keys_and_stakes.iter().map(|(_, s)| *s).sum();
-        let signer_stake: u64 = signer_indices.iter()
+        let total_stake: u64 = sorted_validator_bls_keys_and_stakes
+            .iter()
+            .map(|(_, s)| *s)
+            .sum();
+        let signer_stake: u64 = signer_indices
+            .iter()
             .filter_map(|&i| sorted_validator_bls_keys_and_stakes.get(i).map(|(_, s)| *s))
             .sum();
 
@@ -222,9 +232,10 @@ impl NodeState {
     }
 
     pub fn get_checkpoint_height(&self) -> u64 {
-        self.checkpoint_height_cache.load(std::sync::atomic::Ordering::Relaxed)
+        self.checkpoint_height_cache
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
-    
+
     /// Get the checkpoint height at which a transaction was finalized
     pub async fn get_tx_checkpoint_height(&self, tx_hash: &str) -> Option<u64> {
         let state = self.inner.read().await;
@@ -234,54 +245,74 @@ impl NodeState {
         }
         None
     }
-    
+
     /// Get a checkpoint by height
-    pub async fn get_checkpoint_by_height(&self, height: u64) -> Option<rinku_core::types::Checkpoint> {
+    pub async fn get_checkpoint_by_height(
+        &self,
+        height: u64,
+    ) -> Option<rinku_core::types::Checkpoint> {
         let state = self.inner.read().await;
-        state.checkpoints.iter().find(|cp| cp.height == height).cloned()
+        state
+            .checkpoints
+            .iter()
+            .find(|cp| cp.height == height)
+            .cloned()
     }
-    
+
     /// Get the latest checkpoint
     pub async fn get_latest_checkpoint(&self) -> Option<rinku_core::types::Checkpoint> {
         let state = self.inner.read().await;
         state.checkpoints.last().cloned()
     }
-    
+
     /// Get the node's unique identifier
     pub async fn get_node_id(&self) -> String {
         // Use a hash of the genesis hash as a simple node identifier
         let state = self.inner.read().await;
-        state.genesis_hash.clone().unwrap_or_else(|| "unknown".to_string())
+        state
+            .genesis_hash
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string())
     }
-    
+
     /// Get accounts by a list of addresses (for P2P sync)
-    pub async fn get_accounts_by_addresses(&self, addresses: &[String]) -> Vec<crate::network::AccountData> {
+    pub async fn get_accounts_by_addresses(
+        &self,
+        addresses: &[String],
+    ) -> Vec<crate::network::AccountData> {
         let state = self.inner.read().await;
-        addresses.iter()
+        addresses
+            .iter()
             .filter_map(|addr| {
-                state.accounts.get(addr).map(|a| crate::network::AccountData {
-                    address: a.address.clone(),
-                    balance: a.balance,
-                    nonce: a.nonce,
-                    stake: a.staked,
-                })
+                state
+                    .accounts
+                    .get(addr)
+                    .map(|a| crate::network::AccountData {
+                        address: a.address.clone(),
+                        balance: a.balance,
+                        nonce: a.nonce,
+                        stake: a.staked,
+                    })
             })
             .collect()
     }
-    
+
     /// Apply a checkpoint received from the network (via CheckpointAnnouncement)
-    /// 
+    ///
     /// SAFETY: We finalize transactions ONLY if our unfinalized set's merkle root
     /// matches the checkpoint's tx_merkle_root. This ensures we have the same
     /// transaction set as the leader before finalizing.
-    /// 
+    ///
     /// BLS signature verification: Callers MUST call `verify_checkpoint_bls()` before
     /// invoking this method when validator BLS keys are available. This method validates
     /// prev_hash chain linkage and merkle root consistency but does not verify BLS
     /// signatures itself (it lacks access to the validator identity service).
     /// Apply a checkpoint (legacy merkle-match path).
     /// LOCK-CONSOLIDATED: Same single-lock pattern as apply_checkpoint_with_finalized_hashes.
-    pub async fn apply_checkpoint(&self, checkpoint: rinku_core::types::Checkpoint) -> anyhow::Result<()> {
+    pub async fn apply_checkpoint(
+        &self,
+        checkpoint: rinku_core::types::Checkpoint,
+    ) -> anyhow::Result<()> {
         use rinku_core::merkle::MerkleTree;
 
         let batch_start = std::time::Instant::now();
@@ -337,13 +368,28 @@ impl NodeState {
             "0".repeat(64)
         } else {
             let hashes_clone = unfinalized_hashes.clone();
-            match tokio::task::spawn_blocking(move || MerkleTree::from_hex_leaves(&hashes_clone).map(|t| t.root())).await {
+            match tokio::task::spawn_blocking(move || {
+                MerkleTree::from_hex_leaves(&hashes_clone).map(|t| t.root())
+            })
+            .await
+            {
                 Ok(Ok(root)) => root,
                 _ => "0".repeat(64),
             }
         };
 
-        let (batch_result, all_txs, finalized_count, fast_path_skipped, from_deferred, retry_counts, height, fast_path_already_finalized, prev_deferred, fp_special_txs) = {
+        let (
+            batch_result,
+            all_txs,
+            finalized_count,
+            fast_path_skipped,
+            from_deferred,
+            retry_counts,
+            height,
+            fast_path_already_finalized,
+            prev_deferred,
+            fp_special_txs,
+        ) = {
             let mut state = self.inner.write().await;
 
             let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -400,7 +446,8 @@ impl NodeState {
                 .unwrap_or(0);
 
             let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
-            let mut fast_path_already_finalized: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut fast_path_already_finalized: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
 
             if our_merkle_root == checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
                 for hash in &unfinalized_hashes {
@@ -423,7 +470,8 @@ impl NodeState {
                     height,
                     finalized_count
                 );
-            } else if our_merkle_root != checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty() {
+            } else if our_merkle_root != checkpoint.tx_merkle_root && !unfinalized_hashes.is_empty()
+            {
                 finalized_count = 0;
                 tracing::info!(
                     "Applied checkpoint {} at height {} (merkle mismatch: ours={} theirs={}, {} unfinalized)",
@@ -442,12 +490,14 @@ impl NodeState {
                 );
             }
 
-            let finalized_hashes_for_cleanup: Vec<String> = txs_to_execute.iter().map(|tx| tx.hash.clone()).collect();
+            let finalized_hashes_for_cleanup: Vec<String> =
+                txs_to_execute.iter().map(|tx| tx.hash.clone()).collect();
 
             state.checkpoints.push(checkpoint.clone());
             state.last_checkpoint_time_ms = now_ms;
 
-            self.checkpoint_height_cache.store(height, std::sync::atomic::Ordering::Relaxed);
+            self.checkpoint_height_cache
+                .store(height, std::sync::atomic::Ordering::Relaxed);
 
             prev_deferred.retain(|dtx| !fast_path_already_finalized.contains(&dtx.hash));
 
@@ -480,16 +530,26 @@ impl NodeState {
             }
 
             contract_lane_txs.sort_by(|a, b| {
-                a.tx.from.cmp(&b.tx.from)
+                a.tx.from
+                    .cmp(&b.tx.from)
                     .then(a.tx.nonce.cmp(&b.tx.nonce))
                     .then(a.hash.cmp(&b.hash))
             });
 
-            let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
-                let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = std::collections::HashMap::new();
+            let available_nonces: std::collections::HashMap<
+                String,
+                std::collections::BTreeSet<u64>,
+            > = {
+                let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> =
+                    std::collections::HashMap::new();
                 for tx in &contract_lane_txs {
-                    if !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-                        map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
+                    if !matches!(
+                        tx.tx.kind,
+                        Some(rinku_core::types::TransactionKind::Consolidation)
+                    ) {
+                        map.entry(tx.tx.from.clone())
+                            .or_default()
+                            .insert(tx.tx.nonce);
                     }
                 }
                 map
@@ -499,21 +559,26 @@ impl NodeState {
             let batch_result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
 
             {
-                let finalized_fp_hashes: std::collections::HashSet<String> = fast_path_already_finalized.iter().cloned().collect();
+                let finalized_fp_hashes: std::collections::HashSet<String> =
+                    fast_path_already_finalized.iter().cloned().collect();
                 let cleared = state.clear_checkpoint_finalized_txs(&finalized_fp_hashes);
                 if cleared > 0 {
                     tracing::info!(
                         "Checkpoint h={}: cleared {} fast-path finalized entries",
-                        height, cleared
+                        height,
+                        cleared
                     );
                 }
             }
 
             if !finalized_hashes_for_cleanup.is_empty() {
-                state.dag.cleanup_sender_unfinalized_batch(&finalized_hashes_for_cleanup);
+                state
+                    .dag
+                    .cleanup_sender_unfinalized_batch(&finalized_hashes_for_cleanup);
             }
 
-            let has_special_txs = !batch_result.special_txs.is_empty() || !fp_special_txs.is_empty();
+            let has_special_txs =
+                !batch_result.special_txs.is_empty() || !fp_special_txs.is_empty();
 
             if finalized_count > 0 && !has_special_txs {
                 let snapshot: std::collections::HashMap<String, (u64, u64, u64)> = state
@@ -526,7 +591,18 @@ impl NodeState {
                 state.checkpoint_accounts_snapshot = None;
             }
 
-            (batch_result, all_txs, finalized_count, fast_path_skipped, from_deferred, retry_counts, height, fast_path_already_finalized, prev_deferred, fp_special_txs)
+            (
+                batch_result,
+                all_txs,
+                finalized_count,
+                fast_path_skipped,
+                from_deferred,
+                retry_counts,
+                height,
+                fast_path_already_finalized,
+                prev_deferred,
+                fp_special_txs,
+            )
         };
 
         if finalized_count > 0 {
@@ -535,19 +611,24 @@ impl NodeState {
 
         {
             let mut combined_deferred = batch_result.new_deferred;
-            let finalized_hash_set: std::collections::HashSet<&str> = all_txs.iter().map(|t| t.hash.as_str()).collect();
+            let finalized_hash_set: std::collections::HashSet<&str> =
+                all_txs.iter().map(|t| t.hash.as_str()).collect();
             for dtx in prev_deferred {
-                if !finalized_hash_set.contains(dtx.hash.as_str()) && !fast_path_already_finalized.contains(&dtx.hash) {
+                if !finalized_hash_set.contains(dtx.hash.as_str())
+                    && !fast_path_already_finalized.contains(&dtx.hash)
+                {
                     combined_deferred.push(dtx);
                 }
             }
-            self.store_batch_deferred(combined_deferred, retry_counts).await;
+            self.store_batch_deferred(combined_deferred, retry_counts)
+                .await;
         }
 
         let mut all_special_txs = batch_result.special_txs;
         all_special_txs.extend(fp_special_txs);
         let has_special = !all_special_txs.is_empty();
-        self.process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized).await;
+        self.process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized)
+            .await;
 
         {
             let state = self.inner.read().await;
@@ -569,7 +650,8 @@ impl NodeState {
             state.checkpoint_accounts_snapshot = Some((height, snapshot));
         }
 
-        self.process_batch_reward_infos(&all_txs, &batch_result.executed_hashes).await;
+        self.process_batch_reward_infos(&all_txs, &batch_result.executed_hashes)
+            .await;
 
         tracing::info!(
             "Checkpoint h={} batch executed {}/{} txs in {:?} ({} fast-path-pre-finalized, {} from deferred, {} gap-skipped senders)",
@@ -595,7 +677,8 @@ impl NodeState {
         checkpoint: Checkpoint,
         finalized_tx_hashes: Vec<String>,
     ) -> Result<usize> {
-        self.apply_checkpoint_with_finalized_hashes_inner(checkpoint, finalized_tx_hashes, false).await
+        self.apply_checkpoint_with_finalized_hashes_inner(checkpoint, finalized_tx_hashes, false)
+            .await
     }
 
     pub async fn apply_checkpoint_catching_up(
@@ -603,7 +686,8 @@ impl NodeState {
         checkpoint: Checkpoint,
         finalized_tx_hashes: Vec<String>,
     ) -> Result<usize> {
-        self.apply_checkpoint_with_finalized_hashes_inner(checkpoint, finalized_tx_hashes, true).await
+        self.apply_checkpoint_with_finalized_hashes_inner(checkpoint, finalized_tx_hashes, true)
+            .await
     }
 
     pub async fn apply_checkpoint_proof_verified(
@@ -630,7 +714,8 @@ impl NodeState {
                     );
                     return Err(anyhow::anyhow!(
                         "Proof state_root mismatch for {} at height {}",
-                        proof.address, height
+                        proof.address,
+                        height
                     ));
                 }
                 let detail = crate::proofs::verify_account_state_proof_detailed(proof);
@@ -644,7 +729,8 @@ impl NodeState {
                     );
                     return Err(anyhow::anyhow!(
                         "Invalid SMT proof for {} at height {}",
-                        proof.address, height
+                        proof.address,
+                        height
                     ));
                 }
                 verified.push((
@@ -686,7 +772,8 @@ impl NodeState {
             if lock_ms > 5 {
                 tracing::info!(
                     "RCC-LOCK: proof-verified apply write lock acquired in {}ms (h={})",
-                    lock_ms, height
+                    lock_ms,
+                    height
                 );
             }
 
@@ -694,7 +781,8 @@ impl NodeState {
             if height <= local_height {
                 return Err(anyhow::anyhow!(
                     "Checkpoint height {} not greater than local height {}",
-                    height, local_height
+                    height,
+                    local_height
                 ));
             }
 
@@ -708,7 +796,8 @@ impl NodeState {
             let accounts_backup: std::collections::HashMap<String, rinku_core::types::Account> =
                 state.accounts.clone();
 
-            let mut proof_addrs: std::collections::HashSet<String> = std::collections::HashSet::with_capacity(verified_accounts.len());
+            let mut proof_addrs: std::collections::HashSet<String> =
+                std::collections::HashSet::with_capacity(verified_accounts.len());
 
             for (addr, balance, nonce, staked) in &verified_accounts {
                 proof_addrs.insert(addr.clone());
@@ -743,7 +832,9 @@ impl NodeState {
             let pre_prune_count = state.accounts.len();
             {
                 let proof_ref = &proof_addrs;
-                pruned_addrs = state.accounts.keys()
+                pruned_addrs = state
+                    .accounts
+                    .keys()
                     .filter(|addr| !proof_ref.contains(*addr))
                     .cloned()
                     .collect();
@@ -769,7 +860,9 @@ impl NodeState {
             let mut changed_addrs: Vec<String> = Vec::new();
             for (addr, balance, nonce, staked) in &verified_accounts {
                 let changed = match accounts_backup.get(addr) {
-                    Some(old) => old.balance != *balance || old.nonce != *nonce || old.staked != *staked,
+                    Some(old) => {
+                        old.balance != *balance || old.nonce != *nonce || old.staked != *staked
+                    }
                     None => true,
                 };
                 if changed {
@@ -809,7 +902,8 @@ impl NodeState {
                     state.pre_checkpoint_accounts_snapshot = None;
                     return Err(anyhow::anyhow!(
                         "Proof-verified root mismatch at h={}: local {} != expected {}",
-                        height, &rebuild_root[..16.min(rebuild_root.len())],
+                        height,
+                        &rebuild_root[..16.min(rebuild_root.len())],
                         &expected_state_root[..16.min(expected_state_root.len())]
                     ));
                 }
@@ -830,25 +924,32 @@ impl NodeState {
                 }
             }
             if !finalized_tx_hashes.is_empty() {
-                state.dag.cleanup_sender_unfinalized_batch(&finalized_tx_hashes);
+                state
+                    .dag
+                    .cleanup_sender_unfinalized_batch(&finalized_tx_hashes);
             }
 
             let total_finalized_in_checkpoint = finalized_tx_hashes.len() as u64;
-            let already_counted_by_fast_path = finalized_tx_hashes.iter()
+            let already_counted_by_fast_path = finalized_tx_hashes
+                .iter()
                 .filter(|h| state.fast_path_finalized_txs.contains_key(h.as_str()))
                 .count() as u64;
-            let new_tx_count = total_finalized_in_checkpoint.saturating_sub(already_counted_by_fast_path);
+            let new_tx_count =
+                total_finalized_in_checkpoint.saturating_sub(already_counted_by_fast_path);
             if new_tx_count > 0 {
                 state.total_transactions += new_tx_count;
             }
 
             let mut checkpoint_with_hashes = checkpoint.clone();
-            if checkpoint_with_hashes.finalized_tx_hashes.is_empty() && !finalized_tx_hashes.is_empty() {
+            if checkpoint_with_hashes.finalized_tx_hashes.is_empty()
+                && !finalized_tx_hashes.is_empty()
+            {
                 checkpoint_with_hashes.finalized_tx_hashes = finalized_tx_hashes;
             }
             state.checkpoints.push(checkpoint_with_hashes);
             state.last_checkpoint_time_ms = now_ms;
-            self.checkpoint_height_cache.store(height, std::sync::atomic::Ordering::Relaxed);
+            self.checkpoint_height_cache
+                .store(height, std::sync::atomic::Ordering::Relaxed);
 
             state.fast_path_finalized_txs.clear();
             state.fast_path_finalized_order.clear();
@@ -867,7 +968,8 @@ impl NodeState {
                 if evicted > 0 {
                     tracing::info!(
                         "Proof-verified DAG eviction: removed {} nodes older than h={}",
-                        evicted, eviction_boundary
+                        evicted,
+                        eviction_boundary
                     );
                 }
             }
@@ -939,7 +1041,9 @@ impl NodeState {
             if expired_count > 0 {
                 tracing::warn!(
                     "Batch expired {} permanently-stuck deferred txs (>{} retries, {} remaining)",
-                    expired_count, MAX_DEFERRED_RETRIES, prev_deferred.len()
+                    expired_count,
+                    MAX_DEFERRED_RETRIES,
+                    prev_deferred.len()
                 );
             }
         }
@@ -980,7 +1084,11 @@ impl NodeState {
                 "0".repeat(64)
             } else {
                 let hashes_clone = unfinalized_hashes.clone();
-                match tokio::task::spawn_blocking(move || rinku_core::merkle::MerkleTree::from_hex_leaves(&hashes_clone).map(|t| t.root())).await {
+                match tokio::task::spawn_blocking(move || {
+                    rinku_core::merkle::MerkleTree::from_hex_leaves(&hashes_clone).map(|t| t.root())
+                })
+                .await
+                {
                     Ok(Ok(root)) => root,
                     _ => "0".repeat(64),
                 }
@@ -992,12 +1100,24 @@ impl NodeState {
         };
 
         let t_phase1 = std::time::Instant::now();
-        let (txs_to_execute, mut fast_path_already_finalized, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, checkpoint_now_ms) = {
+        let (
+            txs_to_execute,
+            mut fast_path_already_finalized,
+            finalized_count,
+            missing_tx_count,
+            height,
+            finalized_hashes_for_cleanup,
+            checkpoint_now_ms,
+        ) = {
             let lock_start = std::time::Instant::now();
             let mut state = self.inner.write().await;
             let lock_ms = lock_start.elapsed().as_millis();
             if lock_ms > 5 {
-                tracing::info!("RCC-LOCK: checkpoint apply write lock acquired in {}ms (h={})", lock_ms, checkpoint.height);
+                tracing::info!(
+                    "RCC-LOCK: checkpoint apply write lock acquired in {}ms (h={})",
+                    lock_ms,
+                    checkpoint.height
+                );
             }
 
             let local_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -1023,7 +1143,8 @@ impl NodeState {
                 .unwrap_or(0);
 
             let mut txs_to_execute: Vec<SignedTransaction> = Vec::new();
-            let mut fast_path_already_finalized: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut fast_path_already_finalized: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             let mut missing_tx_count = 0usize;
 
             let finalized_count = if !finalized_tx_hashes.is_empty() {
@@ -1051,7 +1172,8 @@ impl NodeState {
                     tracing::debug!(
                         "Checkpoint {} finalized {} txs, {} missing locally (will sync)",
                         &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                        count, missing
+                        count,
+                        missing
                     );
                 }
 
@@ -1100,9 +1222,18 @@ impl NodeState {
                 0
             };
 
-            let finalized_hashes_for_cleanup: Vec<String> = txs_to_execute.iter().map(|tx| tx.hash.clone()).collect();
+            let finalized_hashes_for_cleanup: Vec<String> =
+                txs_to_execute.iter().map(|tx| tx.hash.clone()).collect();
 
-            (txs_to_execute, fast_path_already_finalized, finalized_count, missing_tx_count, height, finalized_hashes_for_cleanup, now_ms)
+            (
+                txs_to_execute,
+                fast_path_already_finalized,
+                finalized_count,
+                missing_tx_count,
+                height,
+                finalized_hashes_for_cleanup,
+                now_ms,
+            )
         };
         let phase1_ms = t_phase1.elapsed().as_millis();
 
@@ -1137,16 +1268,23 @@ impl NodeState {
         }
 
         contract_lane_txs.sort_by(|a, b| {
-            a.tx.from.cmp(&b.tx.from)
+            a.tx.from
+                .cmp(&b.tx.from)
                 .then(a.tx.nonce.cmp(&b.tx.nonce))
                 .then(a.hash.cmp(&b.hash))
         });
 
         let available_nonces: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = {
-            let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> = std::collections::HashMap::new();
+            let mut map: std::collections::HashMap<String, std::collections::BTreeSet<u64>> =
+                std::collections::HashMap::new();
             for tx in &contract_lane_txs {
-                if !matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Consolidation)) {
-                    map.entry(tx.tx.from.clone()).or_default().insert(tx.tx.nonce);
+                if !matches!(
+                    tx.tx.kind,
+                    Some(rinku_core::types::TransactionKind::Consolidation)
+                ) {
+                    map.entry(tx.tx.from.clone())
+                        .or_default()
+                        .insert(tx.tx.nonce);
                 }
             }
             map
@@ -1160,7 +1298,11 @@ impl NodeState {
             let mut state = self.inner.write().await;
             let lock_ms2 = lock_start2.elapsed().as_millis();
             if lock_ms2 > 5 {
-                tracing::info!("RCC-LOCK: checkpoint phase2 write lock acquired in {}ms (h={})", lock_ms2, checkpoint.height);
+                tracing::info!(
+                    "RCC-LOCK: checkpoint phase2 write lock acquired in {}ms (h={})",
+                    lock_ms2,
+                    checkpoint.height
+                );
             }
 
             let current_height_phase2 = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
@@ -1171,33 +1313,41 @@ impl NodeState {
                 );
                 return Err(anyhow::anyhow!(
                     "Checkpoint height {} already applied during phase gap (current={})",
-                    checkpoint.height, current_height_phase2
+                    checkpoint.height,
+                    current_height_phase2
                 ));
             }
 
             let mut checkpoint_with_hashes = checkpoint.clone();
-            if checkpoint_with_hashes.finalized_tx_hashes.is_empty() && !finalized_tx_hashes.is_empty() {
+            if checkpoint_with_hashes.finalized_tx_hashes.is_empty()
+                && !finalized_tx_hashes.is_empty()
+            {
                 checkpoint_with_hashes.finalized_tx_hashes = finalized_tx_hashes;
             }
             state.checkpoints.push(checkpoint_with_hashes);
             state.last_checkpoint_time_ms = checkpoint_now_ms;
-            self.checkpoint_height_cache.store(checkpoint.height, std::sync::atomic::Ordering::Relaxed);
+            self.checkpoint_height_cache
+                .store(checkpoint.height, std::sync::atomic::Ordering::Relaxed);
 
             let result = Self::execute_batch_inline(&mut state, &all_txs, &available_nonces);
 
             {
-                let finalized_fp_hashes: std::collections::HashSet<String> = fast_path_already_finalized.iter().cloned().collect();
+                let finalized_fp_hashes: std::collections::HashSet<String> =
+                    fast_path_already_finalized.iter().cloned().collect();
                 let cleared = state.clear_checkpoint_finalized_txs(&finalized_fp_hashes);
                 if cleared > 0 {
                     tracing::info!(
                         "Checkpoint h={}: cleared {} fast-path finalized entries",
-                        height, cleared
+                        height,
+                        cleared
                     );
                 }
             }
 
             if !finalized_hashes_for_cleanup.is_empty() {
-                state.dag.cleanup_sender_unfinalized_batch(&finalized_hashes_for_cleanup);
+                state
+                    .dag
+                    .cleanup_sender_unfinalized_batch(&finalized_hashes_for_cleanup);
             }
 
             let has_special_txs = !result.special_txs.is_empty() || !fp_special_txs.is_empty();
@@ -1236,19 +1386,24 @@ impl NodeState {
 
         {
             let mut combined_deferred = batch_result.new_deferred;
-            let finalized_hash_set: std::collections::HashSet<&str> = all_txs.iter().map(|t| t.hash.as_str()).collect();
+            let finalized_hash_set: std::collections::HashSet<&str> =
+                all_txs.iter().map(|t| t.hash.as_str()).collect();
             for dtx in prev_deferred {
-                if !finalized_hash_set.contains(dtx.hash.as_str()) && !fast_path_already_finalized.contains(&dtx.hash) {
+                if !finalized_hash_set.contains(dtx.hash.as_str())
+                    && !fast_path_already_finalized.contains(&dtx.hash)
+                {
                     combined_deferred.push(dtx);
                 }
             }
-            self.store_batch_deferred(combined_deferred, retry_counts).await;
+            self.store_batch_deferred(combined_deferred, retry_counts)
+                .await;
         }
 
         let mut all_special_txs = batch_result.special_txs;
         all_special_txs.extend(fp_special_txs);
         let has_special = !all_special_txs.is_empty();
-        self.process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized).await;
+        self.process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized)
+            .await;
 
         {
             let state = self.inner.read().await;
@@ -1270,14 +1425,17 @@ impl NodeState {
             state.checkpoint_accounts_snapshot = Some((height, snapshot));
         }
 
-        self.process_batch_reward_infos(&all_txs, &batch_result.executed_hashes).await;
+        self.process_batch_reward_infos(&all_txs, &batch_result.executed_hashes)
+            .await;
 
         let total_finalized = all_txs.len();
         let newly_failed = all_txs.len().saturating_sub(batch_result.executed_count);
         if newly_failed > 0 && fast_path_skipped == 0 {
             tracing::warn!(
                 "Batch UNDERCOUNT: {} of {} finalized txs actually executed (skipped {})",
-                batch_result.executed_count, all_txs.len(), newly_failed
+                batch_result.executed_count,
+                all_txs.len(),
+                newly_failed
             );
         }
         tracing::info!(
@@ -1292,10 +1450,14 @@ impl NodeState {
         Ok(missing_tx_count)
     }
 
-    pub async fn rollback_last_checkpoint(&self) -> Result<(Checkpoint, Vec<String>), anyhow::Error> {
+    pub async fn rollback_last_checkpoint(
+        &self,
+    ) -> Result<(Checkpoint, Vec<String>), anyhow::Error> {
         let mut state = self.inner.write().await;
 
-        let checkpoint = state.checkpoints.last()
+        let checkpoint = state
+            .checkpoints
+            .last()
             .ok_or_else(|| anyhow::anyhow!("No checkpoint to rollback"))?;
         let height = checkpoint.height;
         let rolled_back_hash = checkpoint.hash.clone();
@@ -1306,11 +1468,13 @@ impl NodeState {
             Some((snap_height, _)) => {
                 tracing::error!(
                     "FORK ROLLBACK: pre_checkpoint snapshot height mismatch (expected {}, got {})",
-                    height, snap_height
+                    height,
+                    snap_height
                 );
                 return Err(anyhow::anyhow!(
                     "Pre-checkpoint snapshot height mismatch: expected {}, got {}",
-                    height, snap_height
+                    height,
+                    snap_height
                 ));
             }
             None => {
@@ -1358,13 +1522,17 @@ impl NodeState {
         let new_height = state.checkpoints.last().map(|c| c.height).unwrap_or(0);
         drop(state);
 
-        self.checkpoint_height_cache.store(new_height, std::sync::atomic::Ordering::SeqCst);
+        self.checkpoint_height_cache
+            .store(new_height, std::sync::atomic::Ordering::SeqCst);
 
         Ok((checkpoint, finalized_hashes))
     }
 
     pub async fn get_latest_checkpoint_id(&self) -> Option<String> {
         let state = self.inner.read().await;
-        state.checkpoints.last().map(|c| c.hash.chars().take(16).collect())
+        state
+            .checkpoints
+            .last()
+            .map(|c| c.hash.chars().take(16).collect())
     }
 }

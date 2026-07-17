@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use std::path::PathBuf;
 use anyhow::Result;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -13,14 +13,10 @@ mod config;
 mod consensus;
 mod contract_storage;
 mod contracts;
-mod sparse_merkle_trie;
 mod dag_pruning;
-#[cfg(feature = "wasm")]
-mod wasm_runtime;
 mod emission;
 mod erasure;
 mod events;
-mod websocket;
 mod fast_path;
 mod fork_remediation;
 mod gas;
@@ -30,28 +26,33 @@ mod leader_election;
 mod mempool_cleanup;
 mod merge;
 mod partition_detector;
+mod sparse_merkle_trie;
+#[cfg(feature = "wasm")]
+mod wasm_runtime;
+mod websocket;
 
 #[cfg(feature = "p2p")]
 mod network;
 mod proofs;
-mod storage;
 mod rewards;
 mod slashing;
 mod state;
+mod storage;
 mod sync_verification;
 mod tip_consolidator;
 mod trust;
+#[cfg(feature = "tui")]
+pub mod tui;
 mod tx_auth;
 mod validator;
 mod validator_identity;
 mod versioning;
 #[cfg(feature = "zk")]
 mod zk;
-#[cfg(feature = "tui")]
-pub mod tui;
 
 use checkpoint::CheckpointService;
 use config::NodeConfig;
+use consensus::ConsensusService;
 use emission::EmissionService;
 use fork_remediation::ForkRemediationService;
 use gas::GasConfig;
@@ -59,7 +60,6 @@ use gossip::{CheckpointVoteSigner, GossipService};
 #[cfg(feature = "p2p")]
 use network::{HandshakeConfig, NetworkConfig, NetworkService};
 use rewards::{RewardConfig, RewardsService};
-use consensus::ConsensusService;
 use slashing::SlashingService;
 use tip_consolidator::TipConsolidator;
 use tokio::sync::RwLock;
@@ -71,7 +71,9 @@ async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let export_key = args.iter().any(|a| a == "--export-key");
     let import_key_flag = args.iter().any(|a| a == "--import-key");
-    let import_key_value = args.iter().position(|a| a == "--import-key")
+    let import_key_value = args
+        .iter()
+        .position(|a| a == "--import-key")
         .and_then(|i| args.get(i + 1).cloned());
     let show_address = args.iter().any(|a| a == "--show-address");
 
@@ -84,10 +86,12 @@ async fn main() -> Result<()> {
 
     if export_key || import_key_value.is_some() || show_address {
         let config = NodeConfig::from_env();
-        let key_password = std::env::var("VALIDATOR_KEY_PASSWORD")
-            .unwrap_or_else(|_| "dev-password".to_string());
+        let key_password =
+            std::env::var("VALIDATOR_KEY_PASSWORD").unwrap_or_else(|_| "dev-password".to_string());
         if config.mainnet_mode && (key_password.is_empty() || key_password == "dev-password") {
-            eprintln!("Error: MAINNET_MODE requires VALIDATOR_KEY_PASSWORD to be set (non-default).");
+            eprintln!(
+                "Error: MAINNET_MODE requires VALIDATOR_KEY_PASSWORD to be set (non-default)."
+            );
             std::process::exit(1);
         }
         let mut manager = ValidatorKeyManager::new(&config.data_dir);
@@ -99,12 +103,15 @@ async fn main() -> Result<()> {
                 eprintln!();
                 eprintln!("To create one, either:");
                 eprintln!("  1. Start the node normally (a key will be generated automatically)");
-                eprintln!("  2. Import an existing key: cargo run -p rinku-node -- --import-key <JSON>");
+                eprintln!(
+                    "  2. Import an existing key: cargo run -p rinku-node -- --import-key <JSON>"
+                );
                 std::process::exit(1);
             }
             match manager.load_key(&key_password) {
                 Ok(_address) => {
-                    let wallet_json = manager.wallet_json()
+                    let wallet_json = manager
+                        .wallet_json()
                         .expect("Key loaded but wallet JSON unavailable");
                     eprintln!("Wallet JSON (KEEP SECRET):");
                     println!("{}", wallet_json);
@@ -129,7 +136,10 @@ async fn main() -> Result<()> {
                     }
                     eprintln!("Successfully imported wallet key.");
                     eprintln!("Validator wallet address: {}", address);
-                    eprintln!("Key saved to: {}/validator.key (encrypted)", config.data_dir);
+                    eprintln!(
+                        "Key saved to: {}/validator.key (encrypted)",
+                        config.data_dir
+                    );
                     eprintln!();
                     eprintln!("Start the node normally to use this wallet.");
                 }
@@ -149,7 +159,9 @@ async fn main() -> Result<()> {
                 eprintln!();
                 eprintln!("To create one, either:");
                 eprintln!("  1. Start the node normally (a key will be generated automatically)");
-                eprintln!("  2. Import an existing key: cargo run -p rinku-node -- --import-key <HEX>");
+                eprintln!(
+                    "  2. Import an existing key: cargo run -p rinku-node -- --import-key <HEX>"
+                );
                 std::process::exit(1);
             }
             match manager.load_key(&key_password) {
@@ -177,9 +189,11 @@ async fn main() -> Result<()> {
                 .with(tracing_subscriber::EnvFilter::new(
                     std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
                 ))
-                .with(tracing_subscriber::fmt::layer()
-                    .with_writer(file_appender)
-                    .with_ansi(false))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_writer(file_appender)
+                        .with_ansi(false),
+                )
                 .init();
         }
         #[cfg(not(feature = "tui"))]
@@ -198,8 +212,14 @@ async fn main() -> Result<()> {
 
     info!("╔══════════════════════════════════════════════╗");
     info!("║           Rinku Node Starting                ║");
-    info!("║  Node version:     {}                    ║", versioning::NODE_VERSION);
-    info!("║  Protocol version: {}                    ║", versioning::PROTOCOL_VERSION);
+    info!(
+        "║  Node version:     {}                    ║",
+        versioning::NODE_VERSION
+    );
+    info!(
+        "║  Protocol version: {}                    ║",
+        versioning::PROTOCOL_VERSION
+    );
     info!("╚══════════════════════════════════════════════╝");
     info!("Process PID: {}", std::process::id());
 
@@ -252,10 +272,12 @@ async fn main() -> Result<()> {
     if config.is_genesis_node {
         info!("Node role: GENESIS NODE (can create new chain)");
     } else {
-        info!("Node role: VALIDATOR (must sync from network, {} bootstrap peers)", 
-              config.p2p.bootstrap_peers.len());
+        info!(
+            "Node role: VALIDATOR (must sync from network, {} bootstrap peers)",
+            config.p2p.bootstrap_peers.len()
+        );
     }
-    
+
     // Log trust configuration
     if !config.trust.genesis_validators.is_empty() {
         info!(
@@ -283,11 +305,14 @@ async fn main() -> Result<()> {
     let fresh_start = std::env::var("FRESH_START")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
-    
+
     // Check if data directory exists and log contents
     let data_path = std::path::Path::new(&config.data_dir);
     if fresh_start && data_path.exists() {
-        warn!("FRESH_START=true: Wiping data directory {}", config.data_dir);
+        warn!(
+            "FRESH_START=true: Wiping data directory {}",
+            config.data_dir
+        );
         let redb_path = data_path.join("redb.db");
         if redb_path.exists() {
             if let Err(e) = std::fs::remove_file(&redb_path) {
@@ -334,7 +359,8 @@ async fn main() -> Result<()> {
     info!("Initializing node state...");
     let mut state = state::NodeState::new(config.clone()).await?;
 
-    let key_password = std::env::var("VALIDATOR_KEY_PASSWORD").unwrap_or_else(|_| "dev-password".to_string());
+    let key_password =
+        std::env::var("VALIDATOR_KEY_PASSWORD").unwrap_or_else(|_| "dev-password".to_string());
     let key_path = std::env::var("VALIDATOR_KEY_PATH").ok();
     let key_hex = std::env::var("VALIDATOR_KEY_HEX").ok();
 
@@ -359,14 +385,18 @@ async fn main() -> Result<()> {
 
     if config.mainnet_mode && key_hex.is_none() {
         if let Err(e) = validator_manager.validate_key_permissions() {
-            return Err(anyhow::anyhow!("Validator key file permissions invalid: {}", e));
+            return Err(anyhow::anyhow!(
+                "Validator key file permissions invalid: {}",
+                e
+            ));
         }
     }
     if let Some(ref addr) = validator_address {
         info!("Validator key loaded: {}...", &addr[..16.min(addr.len())]);
     }
 
-    info!("EIP-1559 gas pricing active (target={} txs/period, adjustment={}, min={}, max={})",
+    info!(
+        "EIP-1559 gas pricing active (target={} txs/period, adjustment={}, min={}, max={})",
         GasConfig::default().target_txs_per_period,
         GasConfig::default().adjustment_factor,
         GasConfig::default().min_gas_price,
@@ -385,7 +415,10 @@ async fn main() -> Result<()> {
     let validator_identity_path = format!("{}/validator-identity", config.data_dir);
     let validator_identity = match ValidatorIdentityService::new(&validator_identity_path) {
         Ok(service) => {
-            info!("Validator identity service initialized (epoch: {})", service.current_epoch());
+            info!(
+                "Validator identity service initialized (epoch: {})",
+                service.current_epoch()
+            );
             Some(Arc::new(RwLock::new(service)))
         }
         Err(e) => {
@@ -405,24 +438,31 @@ async fn main() -> Result<()> {
             .iter()
             .map(|v| (v.address.clone(), v.bls_public_key.clone()))
             .collect();
-        
+
         // Replace state.validators (used for checkpoint signature verification)
         // Only genesis node creates accounts; validators just set the registry
-        state.replace_validators_with_genesis(&genesis_seed, config.is_genesis_node).await;
-        
+        state
+            .replace_validators_with_genesis(&genesis_seed, config.is_genesis_node)
+            .await;
+
         // Replace ValidatorIdentityService.active_validators (used for leader election)
         if let Some(ref vi) = validator_identity {
             let mut vi_guard = vi.write().await;
             vi_guard.seed_genesis_validators(&genesis_seed);
         }
-        
-        let genesis_addresses: std::collections::HashSet<String> = genesis_seed.iter().map(|(a, _)| a.clone()).collect();
-        
+
+        let genesis_addresses: std::collections::HashSet<String> =
+            genesis_seed.iter().map(|(a, _)| a.clone()).collect();
+
         {
             use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
             let mut rewards = state.rewards.write().await;
             if config.is_genesis_node {
-                let existing_stakes: Vec<String> = rewards.get_all_stakes().iter().map(|s| s.staker.clone()).collect();
+                let existing_stakes: Vec<String> = rewards
+                    .get_all_stakes()
+                    .iter()
+                    .map(|s| s.staker.clone())
+                    .collect();
                 let mut removed = 0;
                 for staker in &existing_stakes {
                     if !genesis_addresses.contains(staker) {
@@ -431,7 +471,10 @@ async fn main() -> Result<()> {
                     }
                 }
                 if removed > 0 {
-                    info!("Removed {} stale stake(s) from rewards service (not in genesis set)", removed);
+                    info!(
+                        "Removed {} stale stake(s) from rewards service (not in genesis set)",
+                        removed
+                    );
                 }
             }
             let mut registered = 0;
@@ -445,16 +488,18 @@ async fn main() -> Result<()> {
             if registered > 0 {
                 info!(
                     "Registered {} genesis validator stake(s) in rewards service ({} RKU each)",
-                    registered, GENESIS_VALIDATOR_STAKE / 100_000_000
+                    registered,
+                    GENESIS_VALIDATOR_STAKE / 100_000_000
                 );
             }
         }
-        
+
         info!(
             "Seeded {} genesis validator(s) into validator registry (is_genesis={})",
-            genesis_seed.len(), config.is_genesis_node
+            genesis_seed.len(),
+            config.is_genesis_node
         );
-        
+
         // Startup guard for validator nodes: verify all genesis validator accounts
         // exist in the loaded state. Behavior depends on how state was obtained:
         // - Loaded from persisted storage: ABORT (data is corrupt/incomplete, needs resync)
@@ -463,7 +508,8 @@ async fn main() -> Result<()> {
         if !config.is_genesis_node {
             let missing: Vec<String> = {
                 let st = state.inner.read().await;
-                genesis_seed.iter()
+                genesis_seed
+                    .iter()
                     .filter(|(addr, _)| !st.accounts.contains_key(addr))
                     .map(|(addr, _)| addr[..16.min(addr.len())].to_string())
                     .collect()
@@ -488,14 +534,17 @@ async fn main() -> Result<()> {
                             return Err(anyhow::anyhow!(
                                 "STARTUP GUARD: Failed to remove stale database at {}: {}. \
                                  Cannot auto-heal. Manually delete the data directory and restart.",
-                                db_path, e
+                                db_path,
+                                e
                             ));
                         }
                     }
                     drop(state);
                     let fresh_state = state::NodeState::new(config.clone()).await?;
                     state = fresh_state;
-                    state.replace_validators_with_genesis(&genesis_seed, config.is_genesis_node).await;
+                    state
+                        .replace_validators_with_genesis(&genesis_seed, config.is_genesis_node)
+                        .await;
                     if let Some(ref vi) = validator_identity {
                         let mut vi_guard = vi.write().await;
                         vi_guard.seed_genesis_validators(&genesis_seed);
@@ -529,7 +578,7 @@ async fn main() -> Result<()> {
         let empty_set = std::collections::HashSet::new();
         state.cleanup_stale_accounts(&empty_set).await;
     }
-    
+
     // Sync stakes to accounts AFTER genesis validator replacement
     // Only on genesis node - validators inherit synced state via PRE-SYNC
     if config.is_genesis_node {
@@ -537,8 +586,7 @@ async fn main() -> Result<()> {
     }
 
     let consensus_service = Arc::new(RwLock::new(
-        ConsensusService::new(state.clone())
-            .with_slashing_service(slashing_service.clone())
+        ConsensusService::new(state.clone()).with_slashing_service(slashing_service.clone()),
     ));
     info!("Consensus service initialized with slashing integration");
 
@@ -551,7 +599,7 @@ async fn main() -> Result<()> {
         config.mainnet_mode,
     )
     .with_local_url(config.public_url.clone());
-    
+
     if let Some(ref vi) = validator_identity {
         let vi_guard = vi.read().await;
         if let (Some(private_key), Some(public_key)) = (
@@ -568,26 +616,25 @@ async fn main() -> Result<()> {
         bls_private_key: checkpoint_service.bls_private_key_bytes(),
         bls_public_key: checkpoint_service.bls_public_key_bytes(),
     };
-    
+
     if config.public_url.is_some() {
         info!("Leader election enabled for checkpoint creation");
     } else {
         info!("Leader election disabled (no PUBLIC_URL set) - this node will create checkpoints independently");
     }
     let bls_public_key = checkpoint_service.bls_public_key_base64();
-    info!(
-        "BLS public key: {}...",
-        &bls_public_key[..32]
-    );
+    info!("BLS public key: {}...", &bls_public_key[..32]);
     // When GENESIS_VALIDATORS is set, it's authoritative - don't allow auto-registration
     // of validators that aren't in the genesis set. Otherwise, allow auto-registration
     // for non-production or single-node setups.
     let has_genesis_validators = !config.trust.genesis_validators.is_empty();
-    state.set_validator_info(
-        validator_address.clone(), 
-        Some(bls_public_key), 
-        !has_genesis_validators  // allow_auto_register = false when GENESIS_VALIDATORS is set
-    ).await;
+    state
+        .set_validator_info(
+            validator_address.clone(),
+            Some(bls_public_key),
+            !has_genesis_validators, // allow_auto_register = false when GENESIS_VALIDATORS is set
+        )
+        .await;
 
     let fork_service = ForkRemediationService::new(state.clone());
     let fork_handle = tokio::spawn(async move {
@@ -599,7 +646,15 @@ async fn main() -> Result<()> {
 
     // Start libp2p NetworkService for production P2P (before GossipService so we can pass the handle)
     #[cfg(feature = "p2p")]
-    let (network_handle, p2p_message_rx, p2p_priority_rx, p2p_checkpoint_rx, p2p_sync_rx, p2p_vote_rx, p2p_response_tx) = if config.p2p.enabled {
+    let (
+        network_handle,
+        p2p_message_rx,
+        p2p_priority_rx,
+        p2p_checkpoint_rx,
+        p2p_sync_rx,
+        p2p_vote_rx,
+        p2p_response_tx,
+    ) = if config.p2p.enabled {
         let network_config = NetworkConfig {
             listen_addr: config.p2p.listen_addr.clone(),
             bootstrap_peers: config.p2p.bootstrap_peers.clone(),
@@ -607,7 +662,7 @@ async fn main() -> Result<()> {
             data_dir: Some(config.data_dir.clone()),
             external_addr: config.p2p.external_addr.clone(),
         };
-        
+
         match NetworkService::new(network_config) {
             Ok((mut network_service, mut handle)) => {
                 let p2p_message_rx = handle.take_message_rx();
@@ -630,23 +685,33 @@ async fn main() -> Result<()> {
                 let peer_id = network_service.local_peer_id();
                 info!("P2P network started with peer ID: {}", peer_id);
                 info!("P2P listening on: {}", config.p2p.listen_addr);
-                
-                state.set_peer_info(peer_id.to_string(), config.p2p.listen_addr.clone()).await;
-                
+
+                state
+                    .set_peer_info(peer_id.to_string(), config.p2p.listen_addr.clone())
+                    .await;
+
                 if !config.p2p.bootstrap_peers.is_empty() {
                     info!("P2P bootstrap peers: {:?}", config.p2p.bootstrap_peers);
                 }
                 if config.p2p.enable_mdns {
                     info!("P2P mDNS discovery enabled (LAN peers)");
                 }
-                
+
                 tokio::spawn(async move {
                     if let Err(e) = network_service.start().await {
                         tracing::error!("P2P network service error: {}", e);
                     }
                 });
-                
-                (Some(shared_handle), p2p_message_rx, p2p_priority_rx, p2p_checkpoint_rx, p2p_sync_rx, p2p_vote_rx, p2p_response_tx)
+
+                (
+                    Some(shared_handle),
+                    p2p_message_rx,
+                    p2p_priority_rx,
+                    p2p_checkpoint_rx,
+                    p2p_sync_rx,
+                    p2p_vote_rx,
+                    p2p_response_tx,
+                )
             }
             Err(e) => {
                 warn!("Failed to start P2P network: {}", e);
@@ -673,25 +738,31 @@ async fn main() -> Result<()> {
             config.sync_verify_strict,
         );
         service.set_checkpoint_vote_signer(checkpoint_vote_signer.clone());
-        
+
         // Wire up validator identity service for syncing validator registry
         if let Some(ref vi) = validator_identity {
             service.set_validator_identity(vi.clone());
         }
-        
+
         #[cfg(feature = "p2p")]
         if let Some(ref handle) = network_handle {
             service.set_network_handle(handle.clone());
-            service.set_p2p_channels(p2p_message_rx, p2p_priority_rx, p2p_checkpoint_rx, p2p_sync_rx, p2p_response_tx);
+            service.set_p2p_channels(
+                p2p_message_rx,
+                p2p_priority_rx,
+                p2p_checkpoint_rx,
+                p2p_sync_rx,
+                p2p_response_tx,
+            );
             service.set_p2p_vote_channel(p2p_vote_rx);
             info!("GossipService connected to libp2p network (lock-free channels)");
         }
-        
+
         Some(service)
     } else {
         None
     };
-    
+
     let mut gossip_service = gossip_service;
     let event_bus = Arc::new(events::EventBus::new(1024));
     info!("Event bus initialized (capacity: 1024)");
@@ -705,8 +776,7 @@ async fn main() -> Result<()> {
     if let Some(ref gs) = gossip_service {
         checkpoint_service = checkpoint_service.with_gossip_service(gs.clone());
     }
-    checkpoint_service = checkpoint_service
-        .with_event_bus(event_bus.clone());
+    checkpoint_service = checkpoint_service.with_event_bus(event_bus.clone());
 
     let checkpoint_handle = tokio::spawn(async move {
         if let Err(e) = checkpoint_service.start().await {
@@ -717,7 +787,7 @@ async fn main() -> Result<()> {
         "Checkpoint service started ({}ms interval)",
         config.checkpoint_interval_ms
     );
-    
+
     // Start GossipService background task
     if let Some(ref gs) = gossip_service {
         let service_for_task = gs.clone();
@@ -784,7 +854,14 @@ async fn main() -> Result<()> {
 
     let static_dir = config.static_dir.as_ref().map(std::path::PathBuf::from);
     info!("STATIC_DIR config: {:?}", config.static_dir);
-    let api_handle = api::start_api_server(state.clone(), gossip_service.clone(), config.api_port, static_dir, event_bus.clone()).await?;
+    let api_handle = api::start_api_server(
+        state.clone(),
+        gossip_service.clone(),
+        config.api_port,
+        static_dir,
+        event_bus.clone(),
+    )
+    .await?;
 
     info!("Rinku Node running on port {}", config.api_port);
     info!("API available at http://0.0.0.0:{}/api", config.api_port);

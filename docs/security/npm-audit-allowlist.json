@@ -1,0 +1,10 @@
+{
+  "advisories": {
+    "GHSA-848j-6mx2-7j84": {
+      "package": "elliptic",
+      "reason": "Pulled by circomlibjs → ethers@5. No patched elliptic release; downgrading circomlibjs to 0.0.8 is a breaking change for the ZK workspace. Protocol signing uses @noble/* — elliptic is not on the consensus path.",
+      "tracked": "Replace circomlibjs/ethers@5 or move ZK tooling off ethers v5",
+      "added": "2026-07-17"
+    }
+  }
+}

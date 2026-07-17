@@ -1,7 +1,7 @@
+use crate::gossip::GossipService;
+use crate::state::NodeState;
 use std::sync::Arc;
 use sysinfo::System;
-use crate::state::NodeState;
-use crate::gossip::GossipService;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -14,7 +14,13 @@ pub enum Tab {
 
 impl Tab {
     pub fn all() -> &'static [Tab] {
-        &[Tab::Dashboard, Tab::Network, Tab::Validator, Tab::DAG, Tab::Logs]
+        &[
+            Tab::Dashboard,
+            Tab::Network,
+            Tab::Validator,
+            Tab::DAG,
+            Tab::Logs,
+        ]
     }
 
     pub fn title(&self) -> &'static str {
@@ -123,7 +129,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(state: Arc<NodeState>, gossip_service: Option<Arc<GossipService>>, node_id: String) -> Self {
+    pub fn new(
+        state: Arc<NodeState>,
+        gossip_service: Option<Arc<GossipService>>,
+        node_id: String,
+    ) -> Self {
         Self {
             running: true,
             current_tab: Tab::Dashboard,
@@ -271,7 +281,7 @@ impl App {
 
         // Get this node's validator info from state
         let (validator_address, _bls_key) = self.state.get_validator_info().await;
-        let (stake_amount, pending_rewards, unbonding_amount, is_validator) = 
+        let (stake_amount, pending_rewards, unbonding_amount, is_validator) =
             if let Some(ref addr) = validator_address {
                 self.state.get_validator_staking_info(addr).await
             } else {
@@ -297,14 +307,22 @@ impl App {
 
         self.dag_stats = DagStats {
             tip_count: tips.len(),
-            tips: tips.iter().take(10).map(|t| t.chars().take(16).collect()).collect(),
+            tips: tips
+                .iter()
+                .take(10)
+                .map(|t| t.chars().take(16).collect())
+                .collect(),
             dag_size,
             recent_txs,
         };
     }
 
     pub fn add_log(&mut self, msg: String) {
-        self.logs.push(format!("[{}] {}", chrono::Utc::now().format("%H:%M:%S"), msg));
+        self.logs.push(format!(
+            "[{}] {}",
+            chrono::Utc::now().format("%H:%M:%S"),
+            msg
+        ));
         if self.logs.len() > 1000 {
             self.logs.remove(0);
         }

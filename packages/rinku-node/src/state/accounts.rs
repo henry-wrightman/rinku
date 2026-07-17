@@ -5,10 +5,14 @@ impl NodeState {
     /// First zeroes out stale stakes on accounts that are NOT in the current
     /// genesis validator set (they retain staked amounts from a previous deployment).
     /// Then removes any non-allowed accounts with 0 balance + 0 staked.
-    pub async fn cleanup_stale_accounts(&self, allowed_addresses: &std::collections::HashSet<String>) {
+    pub async fn cleanup_stale_accounts(
+        &self,
+        allowed_addresses: &std::collections::HashSet<String>,
+    ) {
         let mut state = self.inner.write().await;
-        
-        let stale_stakers: Vec<String> = state.accounts
+
+        let stale_stakers: Vec<String> = state
+            .accounts
             .iter()
             .filter(|(addr, account)| {
                 *addr != "faucet"
@@ -18,21 +22,26 @@ impl NodeState {
             })
             .map(|(addr, _)| addr.clone())
             .collect();
-        
+
         for addr in &stale_stakers {
             if let Some(account) = state.accounts.get_mut(addr) {
                 info!(
                     "Zeroing stale stake on non-validator account {}: {:.4} RKU",
-                    &addr[..16.min(addr.len())], account.staked
+                    &addr[..16.min(addr.len())],
+                    account.staked
                 );
                 account.staked = 0;
             }
         }
         if !stale_stakers.is_empty() {
-            info!("Zeroed stale stakes on {} ghost validator account(s)", stale_stakers.len());
+            info!(
+                "Zeroed stale stakes on {} ghost validator account(s)",
+                stale_stakers.len()
+            );
         }
-        
-        let stale: Vec<String> = state.accounts
+
+        let stale: Vec<String> = state
+            .accounts
             .iter()
             .filter(|(addr, account)| {
                 *addr != "faucet"
@@ -43,29 +52,33 @@ impl NodeState {
             })
             .map(|(addr, _)| addr.clone())
             .collect();
-        
+
         if !stale.is_empty() {
             for addr in &stale {
                 state.accounts.remove(addr);
             }
-            info!("Cleaned up {} ghost account(s) from old snapshot", stale.len());
+            info!(
+                "Cleaned up {} ghost account(s) from old snapshot",
+                stale.len()
+            );
         }
     }
-    
+
     /// Sync all stakes from RewardsService to account.staked fields
     /// Must be called AFTER replace_validators_with_genesis to avoid ghost accounts
     pub async fn sync_stakes_to_accounts(&self) {
         let rewards = self.rewards.read().await;
-        let stakes: Vec<(String, u64, u64)> = rewards.get_all_stakes()
+        let stakes: Vec<(String, u64, u64)> = rewards
+            .get_all_stakes()
             .iter()
             .map(|s| (s.staker.clone(), s.amount, s.staked_at / 1000))
             .collect();
         drop(rewards);
-        
+
         if stakes.is_empty() {
             return;
         }
-        
+
         let mut state = self.inner.write().await;
         let mut synced = 0;
         for (address, amount, staked_at) in stakes {
@@ -80,7 +93,7 @@ impl NodeState {
         }
         info!("Synced {} stakes to account state", synced);
     }
-    
+
     /// Recalculate DAG node weights based on current account state
     /// This is needed on startup to fix weights for transactions that were added
     /// before their sender's stake was synced to account.staked
@@ -89,15 +102,16 @@ impl NodeState {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        
+
         let mut state = self.inner.write().await;
-        
+
         // Get all account weights first
-        let account_weights: std::collections::HashMap<String, f64> = state.accounts
+        let account_weights: std::collections::HashMap<String, f64> = state
+            .accounts
             .iter()
             .map(|(addr, acc)| (addr.clone(), calculate_account_weight(acc, now_secs)))
             .collect();
-        
+
         // Update DAG node weights
         let mut updated = 0;
         for node in state.dag.nodes_mut() {
@@ -109,17 +123,20 @@ impl NodeState {
                 }
             }
         }
-        
+
         if updated > 0 {
-            info!("Recalculated {} DAG node weights based on current account state", updated);
+            info!(
+                "Recalculated {} DAG node weights based on current account state",
+                updated
+            );
         }
     }
 
     pub async fn save_snapshot(&self) -> Result<()> {
         self.cleanup_old_data().await;
-        
+
         let state = self.inner.read().await;
-        
+
         info!(
             "Memory metrics: DAG nodes={}, accounts={}, validators={}, checkpoints={}, contracts={}",
             state.dag.node_count(),
@@ -137,7 +154,9 @@ impl NodeState {
         let genesis_time = state.genesis_time;
         let dag_node_count = state.dag.node_count() as u64;
         let total_transactions = std::cmp::max(state.total_transactions, dag_node_count);
-        let dag_entries: Vec<crate::storage::DagSnapshotEntry> = state.dag.nodes()
+        let dag_entries: Vec<crate::storage::DagSnapshotEntry> = state
+            .dag
+            .nodes()
             .map(|node| crate::storage::DagSnapshotEntry {
                 tx: node.tx.clone(),
                 parents: node.parents.clone(),
@@ -146,7 +165,10 @@ impl NodeState {
                 fast_path_cert: node.fast_path_cert.clone(),
             })
             .collect();
-        let weights = state.weight_trie.as_ref().map(|wt| wt.all_weights().clone());
+        let weights = state
+            .weight_trie
+            .as_ref()
+            .map(|wt| wt.all_weights().clone());
         drop(state);
 
         let rewards = self.rewards.read().await;
@@ -181,52 +203,62 @@ impl NodeState {
             storage.save_emission(&emission_snapshot)?;
 
             Ok(())
-        }).await?;
+        })
+        .await?;
 
         Ok(())
     }
-    
+
     /// Periodic cleanup to prevent memory leaks
     async fn cleanup_old_data(&self) {
-        const MAX_CHECKPOINTS: usize = 500;  // Keep last ~2 hours of checkpoints
-        const MAX_ACCOUNTS: usize = 50000;   // Cap on accounts
-        
+        const MAX_CHECKPOINTS: usize = 500; // Keep last ~2 hours of checkpoints
+        const MAX_ACCOUNTS: usize = 50000; // Cap on accounts
+
         let mut state = self.inner.write().await;
-        
+
         // Prune old checkpoints (keep most recent MAX_CHECKPOINTS)
         if state.checkpoints.len() > MAX_CHECKPOINTS {
             let to_remove = state.checkpoints.len() - MAX_CHECKPOINTS;
             state.checkpoints.drain(0..to_remove);
-            info!("Pruned {} old checkpoints, {} remaining", to_remove, state.checkpoints.len());
+            info!(
+                "Pruned {} old checkpoints, {} remaining",
+                to_remove,
+                state.checkpoints.len()
+            );
         }
-        
+
         // Prune zero-balance accounts with no stake (keep accounts under limit)
         if state.accounts.len() > MAX_ACCOUNTS {
-            let mut removable: Vec<String> = state.accounts
+            let mut removable: Vec<String> = state
+                .accounts
                 .iter()
                 .filter(|(_, a)| a.balance == 0 && a.staked == 0)
                 .map(|(k, _)| k.clone())
                 .collect();
-            
+
             // Remove oldest first (by first_seen)
             removable.sort_by(|a, b| {
                 let a_time = state.accounts.get(a).map(|acc| acc.first_seen).unwrap_or(0);
                 let b_time = state.accounts.get(b).map(|acc| acc.first_seen).unwrap_or(0);
                 a_time.cmp(&b_time)
             });
-            
+
             let to_remove = (state.accounts.len() - MAX_ACCOUNTS).min(removable.len());
             for key in removable.into_iter().take(to_remove) {
                 state.accounts.remove(&key);
             }
-            
+
             if to_remove > 0 {
-                info!("Pruned {} inactive accounts, {} remaining", to_remove, state.accounts.len());
+                info!(
+                    "Pruned {} inactive accounts, {} remaining",
+                    to_remove,
+                    state.accounts.len()
+                );
             }
         }
-        
+
         drop(state);
-        
+
         // Prune rewards data
         let mut rewards = self.rewards.write().await;
         let pruned = rewards.prune_old_data();
@@ -236,7 +268,12 @@ impl NodeState {
     }
 
     /// Update account's staked amount (syncs with RewardsService)
-    pub async fn update_account_staked(&self, address: &str, staked_amount: u64, staked_at: Option<u64>) {
+    pub async fn update_account_staked(
+        &self,
+        address: &str,
+        staked_amount: u64,
+        staked_at: Option<u64>,
+    ) {
         let mut state = self.inner.write().await;
         if let Some(account) = state.accounts.get_mut(address) {
             account.staked = staked_amount;
@@ -257,7 +294,10 @@ impl NodeState {
         state.update_state_trie_accounts(&[address.to_string()]);
     }
 
-    pub async fn apply_contract_transfer_effects(&self, effects: &[crate::contracts::TransferEffect]) -> anyhow::Result<()> {
+    pub async fn apply_contract_transfer_effects(
+        &self,
+        effects: &[crate::contracts::TransferEffect],
+    ) -> anyhow::Result<()> {
         if effects.is_empty() {
             return Ok(());
         }
@@ -287,7 +327,9 @@ impl NodeState {
                 );
                 return Err(anyhow::anyhow!(
                     "Contract transfer insufficient balance: {} has {} but needs {}",
-                    effect.from, from_balance, amount_micro
+                    effect.from,
+                    from_balance,
+                    amount_micro
                 ));
             }
 
@@ -295,16 +337,13 @@ impl NodeState {
                 from_acct.balance -= amount_micro;
             }
 
-            let to_acct = state
-                .accounts
-                .entry(effect.to.clone())
-                .or_insert_with(|| {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
-                    Account::new(effect.to.clone(), now)
-                });
+            let to_acct = state.accounts.entry(effect.to.clone()).or_insert_with(|| {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                Account::new(effect.to.clone(), now)
+            });
             to_acct.balance += amount_micro;
             tracing::debug!(
                 "Contract transfer applied: {} -> {} ({} micro-RKU)",
@@ -313,7 +352,8 @@ impl NodeState {
                 amount_micro
             );
         }
-        let changed: Vec<String> = effects.iter()
+        let changed: Vec<String> = effects
+            .iter()
             .flat_map(|e| vec![e.from.clone(), e.to.clone()])
             .collect();
         state.update_state_trie_accounts(&changed);
@@ -363,7 +403,9 @@ impl NodeState {
             if peer_nonce > account.nonce {
                 tracing::debug!(
                     "Syncing nonce for {}: {} -> {}",
-                    address, account.nonce, peer_nonce
+                    address,
+                    account.nonce,
+                    peer_nonce
                 );
                 account.nonce = peer_nonce;
             }
@@ -385,20 +427,23 @@ impl NodeState {
     /// This fixes balance divergence where nonces match but balances differ
     /// Rejects stale accounts (zero balance, zero nonce) to prevent ghost contamination
     /// Returns (accounts_added, accounts_updated, accounts_balance_fixed)
-    pub async fn merge_accounts_from_peer(&self, accounts: HashMap<String, Account>) -> (usize, usize, usize) {
+    pub async fn merge_accounts_from_peer(
+        &self,
+        accounts: HashMap<String, Account>,
+    ) -> (usize, usize, usize) {
         let mut state = self.inner.write().await;
         let mut added = 0;
         let mut updated = 0;
         let mut balance_fixed = 0;
         let mut rejected_stale = 0;
-        
+
         for (fingerprint, peer_account) in accounts {
             if fingerprint == "faucet" {
                 continue;
             }
             let is_stale = peer_account.nonce == 0 && peer_account.balance == 0;
-            let is_ghost_validator = peer_account.staked > 0 
-                && peer_account.nonce == 0 
+            let is_ghost_validator = peer_account.staked > 0
+                && peer_account.nonce == 0
                 && !state.validators.contains_key(&fingerprint);
             if (is_stale || is_ghost_validator) && !state.accounts.contains_key(&fingerprint) {
                 if is_ghost_validator {
@@ -425,7 +470,9 @@ impl NodeState {
                         // Peer is authoritative since they initiated the sync
                         info!(
                             "Balance fix (merge) for {}: local={:.6} peer={:.6}",
-                            &fingerprint[..12.min(fingerprint.len())], local_account.balance, peer_account.balance
+                            &fingerprint[..12.min(fingerprint.len())],
+                            local_account.balance,
+                            peer_account.balance
                         );
                         *local_account = peer_account;
                         balance_fixed += 1;
@@ -438,14 +485,14 @@ impl NodeState {
                 added += 1;
             }
         }
-        
+
         if added > 0 || updated > 0 || balance_fixed > 0 || rejected_stale > 0 {
             info!(
                 "Merged accounts from peer: {} added, {} updated, {} balance-fixed, {} rejected-stale, {} total",
                 added, updated, balance_fixed, rejected_stale, state.accounts.len()
             );
         }
-        
+
         (added, updated, balance_fixed)
     }
 
@@ -468,10 +515,14 @@ impl NodeState {
 
     pub async fn get_all_accounts_with_effective(&self) -> Vec<(Account, u64, u64)> {
         let state = self.inner.read().await;
-        state.accounts.values().map(|a| {
-            let eff_nonce = Self::get_effective_nonce(&state, &a.address);
-            let eff_balance = Self::get_effective_balance(&state, &a.address);
-            (a.clone(), eff_nonce, eff_balance)
-        }).collect()
+        state
+            .accounts
+            .values()
+            .map(|a| {
+                let eff_nonce = Self::get_effective_nonce(&state, &a.address);
+                let eff_balance = Self::get_effective_balance(&state, &a.address);
+                (a.clone(), eff_nonce, eff_balance)
+            })
+            .collect()
     }
 }

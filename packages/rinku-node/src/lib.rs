@@ -32,14 +32,14 @@ pub mod storage;
 pub mod sync_verification;
 pub mod tip_consolidator;
 pub mod trust;
+#[cfg(feature = "tui")]
+pub mod tui;
 pub mod tx_auth;
 pub mod validator;
 pub mod validator_identity;
 pub mod versioning;
-pub mod websocket;
 #[cfg(feature = "wasm")]
 pub mod wasm_runtime;
+pub mod websocket;
 #[cfg(feature = "zk")]
 pub mod zk;
-#[cfg(feature = "tui")]
-pub mod tui;

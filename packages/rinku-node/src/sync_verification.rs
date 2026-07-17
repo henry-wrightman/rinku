@@ -3,10 +3,10 @@
 //! This module provides cryptographic verification for sync operations,
 //! ensuring data integrity when receiving state from peers.
 
-use sha2::{Digest, Sha256};
-use serde::{Deserialize, Serialize};
-use crate::network::{AccountData, SnapshotData, DeltaData, CheckpointData, TransactionData};
+use crate::network::{AccountData, CheckpointData, DeltaData, SnapshotData, TransactionData};
 use rinku_core::merkle::MerkleTree;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// Result of verification
 #[derive(Debug, Clone, PartialEq)]
@@ -46,20 +46,14 @@ fn sha256_hex(data: &str) -> String {
 pub fn hash_account_leaf(account: &AccountData) -> String {
     let data = format!(
         "account:{}:{}:{}:{}",
-        account.address,
-        account.balance,
-        account.nonce,
-        account.stake
+        account.address, account.balance, account.nonce, account.stake
     );
     sha256_hex(&data)
 }
 
 /// Hash a transaction leaf
 pub fn hash_transaction_leaf(tx: &TransactionData) -> String {
-    let data = format!(
-        "tx:{}:{}:{}:{}",
-        tx.hash, tx.from, tx.nonce, tx.timestamp
-    );
+    let data = format!("tx:{}:{}:{}:{}", tx.hash, tx.from, tx.nonce, tx.timestamp);
     sha256_hex(&data)
 }
 
@@ -83,16 +77,16 @@ pub fn build_merkle_root(leaf_hashes: &[String]) -> String {
     if leaf_hashes.is_empty() {
         return sha256_hex("empty");
     }
-    
+
     if leaf_hashes.len() == 1 {
         return leaf_hashes[0].clone();
     }
-    
+
     let mut current_layer = leaf_hashes.to_vec();
-    
+
     while current_layer.len() > 1 {
         let mut next_layer = Vec::new();
-        
+
         for i in (0..current_layer.len()).step_by(2) {
             let left = &current_layer[i];
             let right = if i + 1 < current_layer.len() {
@@ -102,10 +96,10 @@ pub fn build_merkle_root(leaf_hashes: &[String]) -> String {
             };
             next_layer.push(hash_internal(left, right));
         }
-        
+
         current_layer = next_layer;
     }
-    
+
     current_layer[0].clone()
 }
 
@@ -125,10 +119,10 @@ pub fn verify_account_proof(proof: &AccountProof, root: &str) -> VerificationRes
         nonce: proof.nonce,
         stake: proof.stake,
     };
-    
+
     let leaf_hash = hash_account_leaf(&account);
     let mut current = leaf_hash;
-    
+
     for sibling in &proof.siblings {
         current = if sibling.is_left {
             hash_internal(&sibling.hash, &current)
@@ -136,7 +130,7 @@ pub fn verify_account_proof(proof: &AccountProof, root: &str) -> VerificationRes
             hash_internal(&current, &sibling.hash)
         };
     }
-    
+
     if current == root {
         VerificationResult::Valid
     } else {
@@ -150,13 +144,10 @@ pub fn verify_account_proof(proof: &AccountProof, root: &str) -> VerificationRes
 /// Verify snapshot data integrity
 pub fn verify_snapshot(snapshot: &SnapshotData) -> VerificationResult {
     // Compute expected merkle root from accounts
-    let account_hashes: Vec<String> = snapshot.accounts
-        .iter()
-        .map(hash_account_leaf)
-        .collect();
-    
+    let account_hashes: Vec<String> = snapshot.accounts.iter().map(hash_account_leaf).collect();
+
     let computed_root = build_merkle_root(&account_hashes);
-    
+
     if computed_root == snapshot.merkle_root {
         VerificationResult::Valid
     } else {
@@ -181,7 +172,7 @@ pub fn verify_snapshot_sorted(snapshot: &SnapshotData) -> VerificationResult {
 }
 
 /// Verify delta sync data integrity with strict merkle root validation
-/// 
+///
 /// SECURITY: This function enforces that all transactions in the delta
 /// match the advertised merkle roots in checkpoints. Any mismatch indicates
 /// potential data tampering and will be rejected.
@@ -189,7 +180,7 @@ pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
     if delta.new_checkpoints.is_empty() {
         return VerificationResult::Valid; // No checkpoints to verify
     }
-    
+
     let use_checkpoint_heights = !delta.tx_checkpoint_heights.is_empty();
     if use_checkpoint_heights {
         for tx in &delta.transactions {
@@ -201,14 +192,14 @@ pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
             }
         }
     }
-    
+
     // Sort checkpoints by height for sequential verification
     let mut sorted_checkpoints: Vec<_> = delta.new_checkpoints.iter().collect();
     sorted_checkpoints.sort_by_key(|cp| cp.height);
-    
+
     // Track which transactions we've already processed
     let mut last_checkpoint_end: u64 = delta.from_checkpoint;
-    
+
     for checkpoint in sorted_checkpoints {
         if checkpoint.merkle_root.is_empty() {
             return VerificationResult::Invalid(format!(
@@ -216,21 +207,24 @@ pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
                 checkpoint.height
             ));
         }
-        
+
         // Get transactions for this checkpoint window
         // Using height-based windowing for proper checkpoint association
         let checkpoint_txs: Vec<&TransactionData> = if use_checkpoint_heights {
-            delta.transactions
+            delta
+                .transactions
                 .iter()
                 .filter(|tx| {
-                    delta.tx_checkpoint_heights
+                    delta
+                        .tx_checkpoint_heights
                         .get(&tx.hash)
                         .map(|h| *h == checkpoint.height)
                         .unwrap_or(false)
                 })
                 .collect()
         } else {
-            delta.transactions
+            delta
+                .transactions
                 .iter()
                 .filter(|tx| {
                     // Transaction belongs to this checkpoint if its timestamp
@@ -239,7 +233,7 @@ pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
                 })
                 .collect()
         };
-        
+
         if checkpoint_txs.is_empty() {
             // Empty checkpoint - verify root matches expected empty merkle
             let empty_root = "0".repeat(64);
@@ -251,12 +245,10 @@ pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
             }
         } else {
             // Build merkle root from transaction hashes (sorted for determinism)
-            let mut tx_hashes: Vec<String> = checkpoint_txs
-                .iter()
-                .map(|tx| tx.hash.clone())
-                .collect();
+            let mut tx_hashes: Vec<String> =
+                checkpoint_txs.iter().map(|tx| tx.hash.clone()).collect();
             tx_hashes.sort(); // Canonical ordering
-            
+
             let computed_root = match MerkleTree::from_hex_leaves(&tx_hashes) {
                 Ok(tree) => tree.root(),
                 Err(e) => {
@@ -266,22 +258,24 @@ pub fn verify_delta(delta: &DeltaData) -> VerificationResult {
                     ));
                 }
             };
-            
+
             // SECURITY: Strict verification - reject any mismatch
             // This is the critical security check that prevents forged state
             if computed_root != checkpoint.merkle_root {
                 return VerificationResult::Invalid(format!(
                     "Checkpoint {} merkle root mismatch: computed {} != received {} - REJECTED",
-                    checkpoint.height, &computed_root[..16], &checkpoint.merkle_root[..16.min(checkpoint.merkle_root.len())]
+                    checkpoint.height,
+                    &computed_root[..16],
+                    &checkpoint.merkle_root[..16.min(checkpoint.merkle_root.len())]
                 ));
             }
         }
-        
+
         if !use_checkpoint_heights {
             last_checkpoint_end = checkpoint.timestamp;
         }
     }
-    
+
     VerificationResult::Valid
 }
 
@@ -300,7 +294,7 @@ impl SyncVerifier {
             results: Vec::new(),
         }
     }
-    
+
     /// Verify a snapshot and record result (uses sorted account order for determinism).
     pub fn verify_snapshot(&mut self, snapshot: &SnapshotData) -> bool {
         let result = verify_snapshot_sorted(snapshot);
@@ -308,7 +302,7 @@ impl SyncVerifier {
         self.results.push(("snapshot".to_string(), result));
         is_valid || !self.strict_mode
     }
-    
+
     /// Verify delta sync and record result
     pub fn verify_delta(&mut self, delta: &DeltaData) -> bool {
         let result = verify_delta(delta);
@@ -316,41 +310,54 @@ impl SyncVerifier {
         self.results.push(("delta".to_string(), result));
         is_valid || !self.strict_mode
     }
-    
+
     /// Verify account proof and record result
     pub fn verify_account(&mut self, proof: &AccountProof, root: &str) -> bool {
         let result = verify_account_proof(proof, root);
         let is_valid = matches!(result, VerificationResult::Valid);
-        self.results.push((format!("account:{}", proof.address), result));
+        self.results
+            .push((format!("account:{}", proof.address), result));
         is_valid || !self.strict_mode
     }
-    
+
     /// Get summary of all verification results
     pub fn summary(&self) -> String {
-        let valid_count = self.results.iter()
+        let valid_count = self
+            .results
+            .iter()
             .filter(|(_, r)| matches!(r, VerificationResult::Valid))
             .count();
-        let invalid_count = self.results.iter()
+        let invalid_count = self
+            .results
+            .iter()
             .filter(|(_, r)| matches!(r, VerificationResult::Invalid(_)))
             .count();
-        let skipped_count = self.results.iter()
+        let skipped_count = self
+            .results
+            .iter()
             .filter(|(_, r)| matches!(r, VerificationResult::Skipped(_)))
             .count();
-        
+
         format!(
             "Verification: {} valid, {} invalid, {} skipped",
             valid_count, invalid_count, skipped_count
         )
     }
-    
+
     /// Check if all verifications passed
     pub fn all_valid(&self) -> bool {
-        self.results.iter().all(|(_, r)| matches!(r, VerificationResult::Valid | VerificationResult::Skipped(_)))
+        self.results.iter().all(|(_, r)| {
+            matches!(
+                r,
+                VerificationResult::Valid | VerificationResult::Skipped(_)
+            )
+        })
     }
-    
+
     /// Get failed verifications
     pub fn failures(&self) -> Vec<&(String, VerificationResult)> {
-        self.results.iter()
+        self.results
+            .iter()
             .filter(|(_, r)| matches!(r, VerificationResult::Invalid(_)))
             .collect()
     }
@@ -361,11 +368,11 @@ pub fn generate_account_proofs(accounts: &[AccountData]) -> Vec<AccountProof> {
     if accounts.is_empty() {
         return Vec::new();
     }
-    
+
     // Build full tree layers
     let leaf_hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
     let mut layers: Vec<Vec<String>> = vec![leaf_hashes.clone()];
-    
+
     let mut current = leaf_hashes;
     while current.len() > 1 {
         let mut next = Vec::new();
@@ -381,38 +388,42 @@ pub fn generate_account_proofs(accounts: &[AccountData]) -> Vec<AccountProof> {
         layers.push(next.clone());
         current = next;
     }
-    
+
     // Generate proof for each account
-    accounts.iter().enumerate().map(|(idx, account)| {
-        let mut siblings = Vec::new();
-        let mut current_idx = idx;
-        
-        for layer in &layers[..layers.len().saturating_sub(1)] {
-            let sibling_idx = if current_idx % 2 == 0 {
-                current_idx + 1
-            } else {
-                current_idx - 1
-            };
-            
-            if sibling_idx < layer.len() {
-                siblings.push(ProofSibling {
-                    hash: layer[sibling_idx].clone(),
-                    is_left: current_idx % 2 == 1,
-                });
+    accounts
+        .iter()
+        .enumerate()
+        .map(|(idx, account)| {
+            let mut siblings = Vec::new();
+            let mut current_idx = idx;
+
+            for layer in &layers[..layers.len().saturating_sub(1)] {
+                let sibling_idx = if current_idx % 2 == 0 {
+                    current_idx + 1
+                } else {
+                    current_idx - 1
+                };
+
+                if sibling_idx < layer.len() {
+                    siblings.push(ProofSibling {
+                        hash: layer[sibling_idx].clone(),
+                        is_left: current_idx % 2 == 1,
+                    });
+                }
+
+                current_idx /= 2;
             }
-            
-            current_idx /= 2;
-        }
-        
-        AccountProof {
-            address: account.address.clone(),
-            balance: account.balance,
-            nonce: account.nonce,
-            stake: account.stake,
-            siblings,
-            leaf_index: idx,
-        }
-    }).collect()
+
+            AccountProof {
+                address: account.address.clone(),
+                balance: account.balance,
+                nonce: account.nonce,
+                stake: account.stake,
+                siblings,
+                leaf_index: idx,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -452,13 +463,10 @@ mod tests {
 
     #[test]
     fn test_verify_snapshot_valid() {
-        let accounts = vec![
-            make_account("a", 100),
-            make_account("b", 200),
-        ];
+        let accounts = vec![make_account("a", 100), make_account("b", 200)];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let merkle_root = build_merkle_root(&hashes);
-        
+
         let snapshot = SnapshotData {
             accounts,
             validators: vec![],
@@ -466,7 +474,7 @@ mod tests {
             recent_txs: vec![],
             merkle_root,
         };
-        
+
         let result = verify_snapshot(&snapshot);
         assert_eq!(result, VerificationResult::Valid);
     }
@@ -474,7 +482,7 @@ mod tests {
     #[test]
     fn test_verify_snapshot_invalid() {
         let accounts = vec![make_account("a", 100)];
-        
+
         let snapshot = SnapshotData {
             accounts,
             validators: vec![],
@@ -482,7 +490,7 @@ mod tests {
             recent_txs: vec![],
             merkle_root: "invalid_root".to_string(),
         };
-        
+
         let result = verify_snapshot(&snapshot);
         assert!(matches!(result, VerificationResult::Invalid(_)));
     }
@@ -497,23 +505,24 @@ mod tests {
         ];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let root = build_merkle_root(&hashes);
-        
+
         let proofs = generate_account_proofs(&accounts);
         assert_eq!(proofs.len(), 4);
-        
+
         for proof in &proofs {
             let result = verify_account_proof(proof, &root);
-            assert_eq!(result, VerificationResult::Valid, 
-                "Proof for {} should be valid", proof.address);
+            assert_eq!(
+                result,
+                VerificationResult::Valid,
+                "Proof for {} should be valid",
+                proof.address
+            );
         }
     }
 
     #[test]
     fn test_sync_verifier_rejects_tampered_balance() {
-        let accounts = vec![
-            make_account("alice", 100),
-            make_account("bob", 200),
-        ];
+        let accounts = vec![make_account("alice", 100), make_account("bob", 200)];
         let merkle_root = build_account_merkle_root_sorted(&accounts);
 
         let mut tampered = accounts.clone();
@@ -552,12 +561,9 @@ mod tests {
 
     #[test]
     fn test_verify_snapshot_sorted_order() {
-        let accounts = vec![
-            make_account("b", 200),
-            make_account("a", 100),
-        ];
+        let accounts = vec![make_account("b", 200), make_account("a", 100)];
         let merkle_root = build_account_merkle_root_sorted(&accounts);
-        
+
         let snapshot = SnapshotData {
             accounts,
             validators: vec![],
@@ -565,7 +571,7 @@ mod tests {
             recent_txs: vec![],
             merkle_root,
         };
-        
+
         let result = verify_snapshot_sorted(&snapshot);
         assert_eq!(result, VerificationResult::Valid);
     }

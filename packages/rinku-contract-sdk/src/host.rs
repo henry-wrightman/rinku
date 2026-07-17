@@ -73,11 +73,7 @@ extern "C" {
     fn _get_nonce(addr_ptr: i32, addr_len: i32) -> i64;
 
     #[link_name = "transfer"]
-    fn _transfer(
-        from_ptr: i32, from_len: i32,
-        to_ptr: i32, to_len: i32,
-        amount_micro: i64,
-    ) -> i32;
+    fn _transfer(from_ptr: i32, from_len: i32, to_ptr: i32, to_len: i32, amount_micro: i64) -> i32;
 
     #[link_name = "emit_view_key"]
     fn _emit_view_key(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32) -> i32;
@@ -97,8 +93,10 @@ pub fn raw_storage_read_len(key: &[u8]) -> i32 {
 pub fn raw_storage_write(key: &[u8], value: &[u8]) -> i32 {
     unsafe {
         _storage_write(
-            key.as_ptr() as i32, key.len() as i32,
-            value.as_ptr() as i32, value.len() as i32,
+            key.as_ptr() as i32,
+            key.len() as i32,
+            value.as_ptr() as i32,
+            value.len() as i32,
         )
     }
 }
@@ -118,8 +116,10 @@ pub fn log(msg: &str) {
 pub fn emit_event_raw(name: &str, data: &[u8]) -> i32 {
     unsafe {
         _emit_event(
-            name.as_ptr() as i32, name.len() as i32,
-            data.as_ptr() as i32, data.len() as i32,
+            name.as_ptr() as i32,
+            name.len() as i32,
+            data.as_ptr() as i32,
+            data.len() as i32,
         )
     }
 }
@@ -191,8 +191,10 @@ pub fn get_nonce(address: &str) -> u64 {
 pub fn raw_transfer(from: &str, to: &str, amount_micro: i64) -> i32 {
     unsafe {
         _transfer(
-            from.as_ptr() as i32, from.len() as i32,
-            to.as_ptr() as i32, to.len() as i32,
+            from.as_ptr() as i32,
+            from.len() as i32,
+            to.as_ptr() as i32,
+            to.len() as i32,
             amount_micro,
         )
     }
@@ -201,8 +203,10 @@ pub fn raw_transfer(from: &str, to: &str, amount_micro: i64) -> i32 {
 pub fn raw_emit_view_key(key: &str, value: &[u8]) -> i32 {
     unsafe {
         _emit_view_key(
-            key.as_ptr() as i32, key.len() as i32,
-            value.as_ptr() as i32, value.len() as i32,
+            key.as_ptr() as i32,
+            key.len() as i32,
+            value.as_ptr() as i32,
+            value.len() as i32,
         )
     }
 }
@@ -218,7 +222,9 @@ unsafe fn read_guest_bytes(ptr: i32, len: i32) -> Vec<u8> {
 
 pub fn get_caller() -> String {
     let (ptr, len) = get_caller_raw();
-    if ptr < 0 { return String::new(); }
+    if ptr < 0 {
+        return String::new();
+    }
     unsafe {
         let bytes = read_guest_bytes(ptr, len);
         String::from_utf8_lossy(&bytes).to_string()
@@ -227,7 +233,9 @@ pub fn get_caller() -> String {
 
 pub fn get_contract_id() -> String {
     let (ptr, len) = get_contract_id_raw();
-    if ptr < 0 { return String::new(); }
+    if ptr < 0 {
+        return String::new();
+    }
     unsafe {
         let bytes = read_guest_bytes(ptr, len);
         String::from_utf8_lossy(&bytes).to_string()

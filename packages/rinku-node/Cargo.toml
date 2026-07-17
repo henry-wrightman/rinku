@@ -50,7 +50,6 @@ bincode = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
-prometheus = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }

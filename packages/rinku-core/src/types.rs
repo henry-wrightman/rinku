@@ -114,31 +114,21 @@ impl std::fmt::Display for PartitionSafety {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransactionLane {
+    #[default]
     FastPath,
     Checkpoint,
 }
 
-impl Default for TransactionLane {
-    fn default() -> Self {
-        TransactionLane::FastPath
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FastPathStatus {
+    #[default]
     Pending,
     Confirmed,
     Finalized,
-}
-
-impl Default for FastPathStatus {
-    fn default() -> Self {
-        FastPathStatus::Pending
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -641,7 +631,7 @@ pub type TransactionMap = HashMap<String, SignedTransaction>;
 // ============================================================================
 
 /// Vote direction for transaction weight attestations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WeightVote {
     /// Boost transaction visibility/trust (+1)
@@ -649,6 +639,7 @@ pub enum WeightVote {
     /// Suppress transaction visibility/trust (-1)
     Suppress,
     /// Neutral / abstain (0)
+    #[default]
     Neutral,
 }
 
@@ -659,12 +650,6 @@ impl WeightVote {
             WeightVote::Suppress => -1,
             WeightVote::Neutral => 0,
         }
-    }
-}
-
-impl Default for WeightVote {
-    fn default() -> Self {
-        WeightVote::Neutral
     }
 }
 

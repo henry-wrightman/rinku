@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use rinku_core::types::{from_micro_units, micro_serde};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::{info, warn};
-use rinku_core::types::{micro_serde, from_micro_units};
 
 pub const UNBONDING_PERIOD_MS: u64 = 14 * 24 * 60 * 60 * 1000;
 pub const SLASH_DOUBLE_SIGN_PERCENT: f64 = 0.15;
@@ -292,9 +292,8 @@ impl SlashingService {
             }
         }
 
-        self.double_sign_evidence.retain(|e| {
-            !e.processed || (now - e.timestamp < DOUBLE_SIGN_EVIDENCE_EXPIRY_MS)
-        });
+        self.double_sign_evidence
+            .retain(|e| !e.processed || (now - e.timestamp < DOUBLE_SIGN_EVIDENCE_EXPIRY_MS));
 
         events
     }
@@ -361,7 +360,7 @@ impl SlashingService {
     pub fn get_slash_events(&self, limit: usize) -> Vec<&SlashEvent> {
         self.slash_events.iter().rev().take(limit).collect()
     }
-    
+
     pub fn get_events(&self) -> &[SlashEvent] {
         &self.slash_events
     }
@@ -385,16 +384,30 @@ impl SlashingService {
             liveness_failures: self
                 .liveness_failures
                 .iter()
-                .map(|(k, v)| (k.clone(), LivenessInfo { count: v.count, last_failure: v.last_failure }))
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        LivenessInfo {
+                            count: v.count,
+                            last_failure: v.last_failure,
+                        },
+                    )
+                })
                 .collect(),
         }
     }
 
     pub fn from_json(snapshot: SlashingSnapshot) -> Self {
-        let next_slash_id = snapshot.slash_events.iter()
-            .filter_map(|e| e.id.strip_prefix("slash_").and_then(|s| s.parse::<u64>().ok()))
+        let next_slash_id = snapshot
+            .slash_events
+            .iter()
+            .filter_map(|e| {
+                e.id.strip_prefix("slash_")
+                    .and_then(|s| s.parse::<u64>().ok())
+            })
             .max()
-            .unwrap_or(0) + 1;
+            .unwrap_or(0)
+            + 1;
 
         Self {
             slash_events: snapshot.slash_events,
@@ -404,7 +417,13 @@ impl SlashingService {
                 .liveness_failures
                 .into_iter()
                 .map(|(k, v)| {
-                    (k, LivenessRecord { count: v.count, last_failure: v.last_failure })
+                    (
+                        k,
+                        LivenessRecord {
+                            count: v.count,
+                            last_failure: v.last_failure,
+                        },
+                    )
                 })
                 .collect(),
             double_sign_evidence: Vec::new(),
@@ -416,20 +435,25 @@ impl SlashingService {
         let mut events_added = 0;
         let mut unbonding_added = 0;
         let mut liveness_updated = 0;
-        
-        let existing_ids: std::collections::HashSet<_> = 
+
+        let existing_ids: std::collections::HashSet<_> =
             self.slash_events.iter().map(|e| e.id.clone()).collect();
         for event in snapshot.slash_events {
             if !existing_ids.contains(&event.id) {
-                if let Some(id_num) = event.id.strip_prefix("slash_").and_then(|s| s.parse::<u64>().ok()) {
+                if let Some(id_num) = event
+                    .id
+                    .strip_prefix("slash_")
+                    .and_then(|s| s.parse::<u64>().ok())
+                {
                     self.next_slash_id = self.next_slash_id.max(id_num + 1);
                 }
                 self.slash_events.push(event);
                 events_added += 1;
             }
         }
-        
-        let existing_unbonding: std::collections::HashSet<_> = self.unbonding_queue
+
+        let existing_unbonding: std::collections::HashSet<_> = self
+            .unbonding_queue
             .iter()
             .map(|e| (e.validator.clone(), e.started_at))
             .collect();
@@ -439,8 +463,8 @@ impl SlashingService {
                 unbonding_added += 1;
             }
         }
-        
-        let peer_failures: std::collections::HashMap<String, LivenessInfo> = 
+
+        let peer_failures: std::collections::HashMap<String, LivenessInfo> =
             snapshot.liveness_failures.into_iter().collect();
         for (validator, peer_info) in peer_failures {
             match self.liveness_failures.get_mut(&validator) {
@@ -452,19 +476,22 @@ impl SlashingService {
                     }
                 }
                 None => {
-                    self.liveness_failures.insert(validator, LivenessRecord {
-                        count: peer_info.count,
-                        last_failure: peer_info.last_failure,
-                    });
+                    self.liveness_failures.insert(
+                        validator,
+                        LivenessRecord {
+                            count: peer_info.count,
+                            last_failure: peer_info.last_failure,
+                        },
+                    );
                     liveness_updated += 1;
                 }
             }
         }
-        
+
         let old_total = self.total_slashed;
         self.total_slashed = self.total_slashed.max(snapshot.total_slashed);
         let total_slashed_delta = self.total_slashed - old_total;
-        
+
         SlashingMergeResult {
             events_added,
             unbonding_added,
@@ -513,8 +540,14 @@ mod tests {
     #[test]
     fn test_slash_event() {
         let mut service = SlashingService::new();
-        let event = service.slash("validator1", to_micro_units(1000.0), SlashReason::DoubleSign, 100, None);
-        
+        let event = service.slash(
+            "validator1",
+            to_micro_units(1000.0),
+            SlashReason::DoubleSign,
+            100,
+            None,
+        );
+
         assert!(event.is_some());
         let event = event.unwrap();
         assert_eq!(event.validator, "validator1");
@@ -525,13 +558,13 @@ mod tests {
     #[test]
     fn test_liveness_tracking() {
         let mut service = SlashingService::new();
-        
+
         let result1 = service.record_liveness_failure("v1", 1, to_micro_units(1000.0));
         assert!(result1.is_none());
-        
+
         let result2 = service.record_liveness_failure("v1", 2, to_micro_units(1000.0));
         assert!(result2.is_none());
-        
+
         let result3 = service.record_liveness_failure("v1", 3, to_micro_units(1000.0));
         assert!(result3.is_some());
     }
@@ -551,7 +584,7 @@ mod tests {
     fn test_unbonding_queue() {
         let mut service = SlashingService::new();
         service.start_unbonding("v1", to_micro_units(500.0));
-        
+
         assert_eq!(service.get_unbonding_queue().len(), 1);
         assert_eq!(service.get_unbonding_for_validator("v1").len(), 1);
         assert_eq!(service.get_unbonding_for_validator("v2").len(), 0);
@@ -560,7 +593,7 @@ mod tests {
     #[test]
     fn test_double_sign_evidence_submission() {
         let mut service = SlashingService::new();
-        
+
         let submitted = service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -569,7 +602,7 @@ mod tests {
             "sig1".to_string(),
             Some("sig2".to_string()),
         );
-        
+
         assert!(submitted.is_some());
         assert_eq!(service.get_pending_evidence().len(), 1);
     }
@@ -577,7 +610,7 @@ mod tests {
     #[test]
     fn test_double_sign_same_hash_rejected() {
         let mut service = SlashingService::new();
-        
+
         let submitted = service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -586,7 +619,7 @@ mod tests {
             "sig1".to_string(),
             None,
         );
-        
+
         assert!(submitted.is_none(), "Same hash should be rejected");
         assert_eq!(service.get_pending_evidence().len(), 0);
     }
@@ -594,7 +627,7 @@ mod tests {
     #[test]
     fn test_double_sign_duplicate_rejected() {
         let mut service = SlashingService::new();
-        
+
         service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -603,7 +636,7 @@ mod tests {
             "sig1".to_string(),
             None,
         );
-        
+
         let duplicate = service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -612,7 +645,7 @@ mod tests {
             "sig1".to_string(),
             None,
         );
-        
+
         assert!(duplicate.is_none(), "Duplicate evidence should be rejected");
         assert_eq!(service.get_pending_evidence().len(), 1);
     }
@@ -620,7 +653,7 @@ mod tests {
     #[test]
     fn test_process_double_sign_evidence() {
         let mut service = SlashingService::new();
-        
+
         service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -629,9 +662,9 @@ mod tests {
             "sig1".to_string(),
             None,
         );
-        
+
         let events = service.process_double_sign_evidence(to_micro_units(1000.0));
-        
+
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].validator, "validator1");
         assert_eq!(events[0].reason, SlashReason::DoubleSign);

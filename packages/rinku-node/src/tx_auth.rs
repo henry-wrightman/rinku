@@ -4,9 +4,7 @@
 //! and an ECDSA signature over the UTF-8 bytes of `tx.hash` (wallet-compatible).
 
 use anyhow::{anyhow, Result};
-use rinku_core::{
-    fingerprint_from_public_key_hex, types::SignedTransaction, verify_tx_signature,
-};
+use rinku_core::{fingerprint_from_public_key_hex, types::SignedTransaction, verify_tx_signature};
 
 pub fn is_system_transaction(tx: &SignedTransaction) -> bool {
     matches!(
@@ -69,9 +67,7 @@ pub fn verify_user_tx_authenticity(
         (Some(p), None) => p.to_string(),
         (None, Some(k)) => k.to_string(),
         (None, None) => {
-            return Err(anyhow!(
-                "publicKey required for authenticated transactions"
-            ));
+            return Err(anyhow!("publicKey required for authenticated transactions"));
         }
     };
 
@@ -114,7 +110,11 @@ mod tests {
         let hash = rinku_core::hash_transaction(&serde_json::to_string(&tx).unwrap());
         let signature = kp.sign(hash.as_bytes()).unwrap();
         tx.signature = Some(signature.clone());
-        SignedTransaction { tx, hash, signature }
+        SignedTransaction {
+            tx,
+            hash,
+            signature,
+        }
     }
 
     #[test]
@@ -131,7 +131,8 @@ mod tests {
         let kp = KeyPair::generate().unwrap();
         let other = KeyPair::generate().unwrap();
         let tx = signed_transfer(&kp, "deadbeef", 1_000_000, 0);
-        let err = verify_user_tx_authenticity(&tx, Some(&other.public_key_hex()), None).unwrap_err();
+        let err =
+            verify_user_tx_authenticity(&tx, Some(&other.public_key_hex()), None).unwrap_err();
         assert!(
             err.to_string().contains("fingerprint") || err.to_string().contains("signature"),
             "unexpected error: {err}"
@@ -151,8 +152,7 @@ mod tests {
         let kp = KeyPair::generate().unwrap();
         let mut tx = signed_transfer(&kp, "deadbeef", 1_000_000, 0);
         tx.tx.from = "0000000000000000000000000000000000000000".to_string();
-        let err =
-            verify_user_tx_authenticity(&tx, Some(&kp.public_key_hex()), None).unwrap_err();
+        let err = verify_user_tx_authenticity(&tx, Some(&kp.public_key_hex()), None).unwrap_err();
         assert!(err.to_string().contains("fingerprint"));
     }
 

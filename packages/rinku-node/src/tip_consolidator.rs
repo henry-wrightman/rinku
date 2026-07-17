@@ -187,7 +187,7 @@ impl TipConsolidator {
             parents: tip_urls,
             kind: Some(TransactionKind::Consolidation),
             gas_limit: None,
-            gas_price: Some(0),                // System transaction, no gas
+            gas_price: Some(0),               // System transaction, no gas
             data: Some("anchor".to_string()), // Mark as anchor
             signature: None,
             memo: None,

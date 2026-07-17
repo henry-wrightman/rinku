@@ -121,7 +121,8 @@ impl NodeState {
             state.partition_state.suspected_since = None;
             info!(
                 "Partition status: {} -> NORMAL (visible stake: {:.1}%)",
-                prev, state.partition_state.visible_stake_pct * 100.0
+                prev,
+                state.partition_state.visible_stake_pct * 100.0
             );
         }
     }
@@ -153,7 +154,10 @@ impl NodeState {
 
     pub async fn get_merge_report_by_epoch(&self, epoch: u64) -> Option<MergeReport> {
         let state = self.inner.read().await;
-        state.partition_state.merge_history.iter()
+        state
+            .partition_state
+            .merge_history
+            .iter()
             .find(|r| r.merge_epoch == epoch)
             .cloned()
     }
@@ -173,20 +177,25 @@ impl NodeState {
 
     pub async fn get_merge_history(&self) -> Vec<serde_json::Value> {
         let state = self.inner.read().await;
-        state.partition_state.merge_history.iter()
-            .map(|r| serde_json::json!({
-                "merge_epoch": r.merge_epoch,
-                "fork_point_checkpoint_height": r.fork_point_checkpoint_height,
-                "phase": format!("{:?}", r.phase),
-                "direct_conflicts": r.direct_conflicts.len(),
-                "economic_conflicts": r.economic_conflicts.len(),
-                "transactions_kept": r.transactions_kept.len(),
-                "transactions_rejected": r.transactions_rejected.len(),
-                "penalties": r.penalties.len(),
-                "started_at_ms": r.started_at_ms,
-                "completed_at_ms": r.completed_at_ms,
-                "duration_ms": r.completed_at_ms.unwrap_or(0).saturating_sub(r.started_at_ms),
-            }))
+        state
+            .partition_state
+            .merge_history
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "merge_epoch": r.merge_epoch,
+                    "fork_point_checkpoint_height": r.fork_point_checkpoint_height,
+                    "phase": format!("{:?}", r.phase),
+                    "direct_conflicts": r.direct_conflicts.len(),
+                    "economic_conflicts": r.economic_conflicts.len(),
+                    "transactions_kept": r.transactions_kept.len(),
+                    "transactions_rejected": r.transactions_rejected.len(),
+                    "penalties": r.penalties.len(),
+                    "started_at_ms": r.started_at_ms,
+                    "completed_at_ms": r.completed_at_ms,
+                    "duration_ms": r.completed_at_ms.unwrap_or(0).saturating_sub(r.started_at_ms),
+                })
+            })
             .collect()
     }
 }

@@ -1,22 +1,42 @@
-use std::collections::{HashMap, HashSet};
 use anyhow::Result;
-use sha2::{Digest, Sha256};
-use tracing::info;
 use rinku_core::types::{Account, Checkpoint, DagNode, SignedTransaction};
+use rinku_core::weight::calculate_account_weight;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use tracing::info;
 
+use super::{
+    cascade, conflict_detection, resolution, MergePhase, MergeReport, MergeRequest,
+    PartitionTxSummary, PenaltyAssessment, ViolationType,
+};
 use crate::events::EventBus;
 use crate::state::NodeState;
-use super::{
-    MergeReport, MergeRequest, MergePhase, PartitionTxSummary,
-    ViolationType, PenaltyAssessment,
-    conflict_detection, resolution, cascade,
-};
 
 const NONCE_REUSE_BALANCE_PENALTY_PCT: f64 = 0.10;
 const NONCE_REUSE_STAKE_SLASH_PCT: f64 = 1.0;
 const NONCE_REUSE_REPUTATION_PENALTY: f64 = 0.50;
 const OVERDRAFT_REPUTATION_PENALTY: f64 = 0.10;
 const OVERDRAFT_DECAY_CHECKPOINTS: u64 = 100;
+
+/// Resolve remote tx weight: prefer peer-reported DAG weight, else account weight at tx time.
+pub(crate) fn resolve_remote_tx_weight(remote: &MergeRequest, tx: &SignedTransaction) -> f64 {
+    if let Some(&w) = remote.tx_weights.get(&tx.hash) {
+        return w;
+    }
+    remote
+        .accounts
+        .get(&tx.tx.from)
+        .map(|a| {
+            // timestamps are usually ms; age weight expects seconds
+            let ts_secs = if tx.tx.timestamp > 4_000_000_000 {
+                tx.tx.timestamp / 1000
+            } else {
+                tx.tx.timestamp
+            };
+            calculate_account_weight(a, ts_secs)
+        })
+        .unwrap_or(1.0)
+}
 
 pub struct MergeOrchestrator {
     state: NodeState,
@@ -25,7 +45,10 @@ pub struct MergeOrchestrator {
 
 impl MergeOrchestrator {
     pub fn new(state: NodeState) -> Self {
-        Self { state, event_bus: None }
+        Self {
+            state,
+            event_bus: None,
+        }
     }
 
     pub fn with_event_bus(mut self, event_bus: std::sync::Arc<EventBus>) -> Self {
@@ -39,25 +62,34 @@ impl MergeOrchestrator {
         }
     }
 
-    pub async fn prepare_merge_payload(&self, fork_point_checkpoint_height: u64) -> Result<MergeRequest> {
+    pub async fn prepare_merge_payload(
+        &self,
+        fork_point_checkpoint_height: u64,
+    ) -> Result<MergeRequest> {
         let state = self.state.inner.read().await;
 
         let partition_epoch = state.partition_state.current_epoch.unwrap_or(0);
 
-        let transactions: Vec<SignedTransaction> = state.dag.get_all_nodes()
+        let mut tx_weights = HashMap::new();
+        let transactions: Vec<SignedTransaction> = state
+            .dag
+            .get_all_nodes()
             .into_iter()
-            .filter(|node| {
-                match node.checkpoint_height {
-                    Some(h) => h > fork_point_checkpoint_height,
-                    None => true,
-                }
+            .filter(|node| match node.checkpoint_height {
+                Some(h) => h > fork_point_checkpoint_height,
+                None => true,
             })
-            .map(|node| node.tx.clone())
+            .map(|node| {
+                tx_weights.insert(node.hash.clone(), node.weight);
+                node.tx.clone()
+            })
             .collect();
 
         let accounts = state.accounts.clone();
 
-        let checkpoints: Vec<_> = state.checkpoints.iter()
+        let checkpoints: Vec<_> = state
+            .checkpoints
+            .iter()
             .filter(|cp| cp.height > fork_point_checkpoint_height)
             .cloned()
             .collect();
@@ -68,6 +100,7 @@ impl MergeOrchestrator {
             partition_epoch,
             fork_point_checkpoint_height,
             transactions,
+            tx_weights,
             accounts,
             checkpoints,
             visible_stake_pct,
@@ -82,24 +115,29 @@ impl MergeOrchestrator {
 
         info!(
             "Starting merge: epoch={}, fork_point_checkpoint={}, remote_txs={}",
-            merge_epoch, fork_point, remote.transactions.len()
+            merge_epoch,
+            fork_point,
+            remote.transactions.len()
         );
 
         report.phase = MergePhase::DagExchange;
         self.emit(crate::events::NodeEvent::MergeProgress {
             phase: "DagExchange".into(),
-            detail: format!("Exchanging DAG with {} remote txs", remote.transactions.len()),
+            detail: format!(
+                "Exchanging DAG with {} remote txs",
+                remote.transactions.len()
+            ),
         });
 
         let local_txs = {
             let state = self.state.inner.read().await;
-            let nodes: Vec<_> = state.dag.get_all_nodes()
+            let nodes: Vec<_> = state
+                .dag
+                .get_all_nodes()
                 .into_iter()
-                .filter(|node| {
-                    match node.checkpoint_height {
-                        Some(h) => h > fork_point,
-                        None => true,
-                    }
+                .filter(|node| match node.checkpoint_height {
+                    Some(h) => h > fork_point,
+                    None => true,
                 })
                 .cloned()
                 .collect();
@@ -111,7 +149,8 @@ impl MergeOrchestrator {
             state.partition_state.visible_stake_pct
         };
 
-        let local_summaries: Vec<PartitionTxSummary> = local_txs.iter()
+        let local_summaries: Vec<PartitionTxSummary> = local_txs
+            .iter()
             .map(|node| {
                 let mut summary = PartitionTxSummary::from_signed_tx(&node.tx, node.weight);
                 summary.partition_epoch = node.partition_epoch;
@@ -120,9 +159,11 @@ impl MergeOrchestrator {
             })
             .collect();
 
-        let remote_summaries: Vec<PartitionTxSummary> = remote.transactions.iter()
+        let remote_summaries: Vec<PartitionTxSummary> = remote
+            .transactions
+            .iter()
             .map(|tx| {
-                let weight = 1.0;
+                let weight = resolve_remote_tx_weight(&remote, tx);
                 let mut summary = PartitionTxSummary::from_signed_tx(tx, weight);
                 summary.partition_epoch = Some(remote.partition_epoch);
                 summary.visible_stake_pct = remote.visible_stake_pct;
@@ -135,13 +176,18 @@ impl MergeOrchestrator {
 
         info!(
             "Merge DAG exchange: {} local txs, {} remote txs",
-            local_summaries.len(), remote_summaries.len()
+            local_summaries.len(),
+            remote_summaries.len()
         );
 
         report.phase = MergePhase::ConflictDetection;
         self.emit(crate::events::NodeEvent::MergeProgress {
             phase: "ConflictDetection".into(),
-            detail: format!("{} local txs, {} remote txs", local_summaries.len(), remote_summaries.len()),
+            detail: format!(
+                "{} local txs, {} remote txs",
+                local_summaries.len(),
+                remote_summaries.len()
+            ),
         });
 
         let fork_point_accounts = self.get_fork_point_accounts(fork_point).await;
@@ -154,7 +200,8 @@ impl MergeOrchestrator {
 
         info!(
             "Merge conflict detection: {} direct conflicts, {} economic conflicts",
-            direct_conflicts.len(), economic_conflicts.len()
+            direct_conflicts.len(),
+            economic_conflicts.len()
         );
 
         report.direct_conflicts = direct_conflicts.clone();
@@ -163,7 +210,11 @@ impl MergeOrchestrator {
         report.phase = MergePhase::WeightResolution;
         self.emit(crate::events::NodeEvent::MergeProgress {
             phase: "WeightResolution".into(),
-            detail: format!("{} direct, {} economic conflicts", direct_conflicts.len(), economic_conflicts.len()),
+            detail: format!(
+                "{} direct, {} economic conflicts",
+                direct_conflicts.len(),
+                economic_conflicts.len()
+            ),
         });
 
         let resolutions = resolution::resolve_all_conflicts(
@@ -174,12 +225,10 @@ impl MergeOrchestrator {
             &fork_point_accounts,
         );
 
-        info!(
-            "Merge weight resolution: {} resolutions",
-            resolutions.len()
-        );
+        info!("Merge weight resolution: {} resolutions", resolutions.len());
 
-        let mut conflict_losers: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut conflict_losers: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         for res in &resolutions {
             conflict_losers.extend(res.loser_tx_hashes.clone());
         }
@@ -192,7 +241,8 @@ impl MergeOrchestrator {
             detail: format!("{} conflict losers to cascade", conflict_losers.len()),
         });
 
-        let all_txs: Vec<PartitionTxSummary> = local_summaries.iter()
+        let all_txs: Vec<PartitionTxSummary> = local_summaries
+            .iter()
             .chain(remote_summaries.iter())
             .cloned()
             .collect();
@@ -249,16 +299,17 @@ impl MergeOrchestrator {
         }
         report.penalties = penalties;
 
-        info!(
-            "Merge penalties: {} assessed",
-            report.penalties.len()
-        );
+        info!("Merge penalties: {} assessed", report.penalties.len());
 
         report.phase = MergePhase::StateReconciliation;
         self.emit(crate::events::NodeEvent::MergeProgress {
             phase: "StateReconciliation".into(),
-            detail: format!("{} kept, {} rejected, {} penalties",
-                report.transactions_kept.len(), report.transactions_rejected.len(), report.penalties.len()),
+            detail: format!(
+                "{} kept, {} rejected, {} penalties",
+                report.transactions_kept.len(),
+                report.transactions_rejected.len(),
+                report.penalties.len()
+            ),
         });
 
         self.apply_merge_state(
@@ -267,7 +318,8 @@ impl MergeOrchestrator {
             &rollback_report.final_balances_micro,
             &report.transactions_kept.clone(),
             fork_point,
-        ).await;
+        )
+        .await;
 
         report.complete();
 
@@ -290,23 +342,26 @@ impl MergeOrchestrator {
         surviving_tx_hashes: &[String],
         fork_point_checkpoint_height: u64,
     ) {
-        let direct_losers: HashSet<&str> = report.resolutions.iter()
+        let direct_losers: HashSet<&str> = report
+            .resolutions
+            .iter()
             .flat_map(|res| res.loser_tx_hashes.iter())
             .map(|s| s.as_str())
             .collect();
 
-        let cascade_hashes: HashSet<&str> = report.cascade_rollbacks.iter()
+        let cascade_hashes: HashSet<&str> = report
+            .cascade_rollbacks
+            .iter()
             .map(|cr| cr.tx_hash.as_str())
             .collect();
 
-        let rejected_set: HashSet<&str> = report.transactions_rejected
+        let rejected_set: HashSet<&str> = report
+            .transactions_rejected
             .iter()
             .map(|s| s.as_str())
             .collect();
 
-        let surviving_set: HashSet<&str> = surviving_tx_hashes.iter()
-            .map(|s| s.as_str())
-            .collect();
+        let surviving_set: HashSet<&str> = surviving_tx_hashes.iter().map(|s| s.as_str()).collect();
 
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -320,22 +375,25 @@ impl MergeOrchestrator {
             if let Some(account) = state.accounts.get_mut(addr) {
                 account.balance = balance_micro;
             } else if balance_micro > 0 {
-                state.accounts.insert(addr.clone(), Account {
-                    address: addr.clone(),
-                    balance: balance_micro,
-                    nonce: 0,
-                    first_seen: now_secs,
-                    staked: 0,
-                    unbonding: 0,
-                    unbonding_release: None,
-                    latest_balance_proof: None,
-                    partition_violations: 0,
-                    reputation_penalty: 0.0,
-                    penalty_decay_checkpoint: None,
-                    partition_budget: None,
-                    partition_budget_spent: 0,
-                    ecdsa_public_key: None,
-                });
+                state.accounts.insert(
+                    addr.clone(),
+                    Account {
+                        address: addr.clone(),
+                        balance: balance_micro,
+                        nonce: 0,
+                        first_seen: now_secs,
+                        staked: 0,
+                        unbonding: 0,
+                        unbonding_release: None,
+                        latest_balance_proof: None,
+                        partition_violations: 0,
+                        reputation_penalty: 0.0,
+                        penalty_decay_checkpoint: None,
+                        partition_budget: None,
+                        partition_budget_spent: 0,
+                        ecdsa_public_key: None,
+                    },
+                );
             }
         }
 
@@ -343,18 +401,23 @@ impl MergeOrchestrator {
         for hash in surviving_tx_hashes {
             if let Some(node) = state.dag.get_node(hash) {
                 *nonce_counts.entry(node.tx.tx.from.clone()).or_insert(0) += 1;
-            } else if let Some(remote_tx) = remote_request.transactions.iter().find(|t| t.hash == *hash) {
+            } else if let Some(remote_tx) =
+                remote_request.transactions.iter().find(|t| t.hash == *hash)
+            {
                 *nonce_counts.entry(remote_tx.tx.from.clone()).or_insert(0) += 1;
             }
         }
 
         for remote_tx in &remote_request.transactions {
-            if surviving_set.contains(remote_tx.hash.as_str()) && !state.dag.contains(&remote_tx.hash) {
+            if surviving_set.contains(remote_tx.hash.as_str())
+                && !state.dag.contains(&remote_tx.hash)
+            {
+                let weight = resolve_remote_tx_weight(remote_request, remote_tx);
                 let node = DagNode {
                     hash: remote_tx.hash.clone(),
                     parents: remote_tx.tx.parents.clone(),
                     children: vec![],
-                    weight: 1.0,
+                    weight,
                     finalized: true,
                     checkpoint_height: Some(fork_point_checkpoint_height + 1),
                     tx: remote_tx.clone(),
@@ -370,7 +433,9 @@ impl MergeOrchestrator {
         let mut removed_count = 0u64;
         let mut marked_count = 0u64;
 
-        let all_hashes: Vec<String> = state.dag.get_all_nodes()
+        let all_hashes: Vec<String> = state
+            .dag
+            .get_all_nodes()
             .iter()
             .map(|n| n.hash.clone())
             .collect();
@@ -395,7 +460,9 @@ impl MergeOrchestrator {
         }
 
         for hash in surviving_tx_hashes {
-            let _ = state.dag.mark_finalized(hash, fork_point_checkpoint_height + 1);
+            let _ = state
+                .dag
+                .mark_finalized(hash, fork_point_checkpoint_height + 1);
             if let Some(node) = state.dag.get_node_mut(hash) {
                 node.rolled_back = false;
             }
@@ -405,7 +472,9 @@ impl MergeOrchestrator {
         for penalty in &report.penalties {
             let slash_amount = if let Some(account) = state.accounts.get_mut(&penalty.account) {
                 if penalty.balance_penalty_micro > 0 {
-                    account.balance = account.balance.saturating_sub(penalty.balance_penalty_micro);
+                    account.balance = account
+                        .balance
+                        .saturating_sub(penalty.balance_penalty_micro);
                 }
                 let slash = if penalty.stake_slash_pct > 0.0 {
                     let s = (account.staked as f64 * penalty.stake_slash_pct).round() as u64;
@@ -414,7 +483,8 @@ impl MergeOrchestrator {
                 } else {
                     0
                 };
-                account.reputation_penalty = (account.reputation_penalty + penalty.reputation_penalty).min(1.0);
+                account.reputation_penalty =
+                    (account.reputation_penalty + penalty.reputation_penalty).min(1.0);
                 account.partition_violations += 1;
                 if let Some(decay) = penalty.decay_checkpoints {
                     account.penalty_decay_checkpoint = Some(merge_height + decay);
@@ -430,10 +500,14 @@ impl MergeOrchestrator {
             }
         }
 
-        let provisional_count = state.checkpoints.iter()
+        let provisional_count = state
+            .checkpoints
+            .iter()
             .filter(|cp| cp.height > fork_point_checkpoint_height && cp.provisional)
             .count();
-        state.checkpoints.retain(|cp| cp.height <= fork_point_checkpoint_height || !cp.provisional);
+        state
+            .checkpoints
+            .retain(|cp| cp.height <= fork_point_checkpoint_height || !cp.provisional);
 
         let merge_report_hash = {
             let report_json = serde_json::to_string(report).unwrap_or_default();
@@ -442,7 +516,9 @@ impl MergeOrchestrator {
             hex::encode(hasher.finalize())
         };
 
-        let fork_point_hash = state.checkpoints.iter()
+        let fork_point_hash = state
+            .checkpoints
+            .iter()
             .find(|cp| cp.height == fork_point_checkpoint_height)
             .map(|cp| cp.hash.clone());
 
@@ -456,7 +532,9 @@ impl MergeOrchestrator {
         };
 
         let state_root = {
-            let mut account_data: Vec<String> = state.accounts.iter()
+            let mut account_data: Vec<String> = state
+                .accounts
+                .iter()
                 .map(|(addr, acct)| format!("{}:{:.8}:{}", addr, acct.balance, acct.nonce))
                 .collect();
             account_data.sort();
@@ -502,14 +580,18 @@ impl MergeOrchestrator {
 
         state.checkpoints.push(merge_checkpoint);
         let merge_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
-        self.state.checkpoint_height_cache.store(merge_height, std::sync::atomic::Ordering::Relaxed);
+        self.state
+            .checkpoint_height_cache
+            .store(merge_height, std::sync::atomic::Ordering::Relaxed);
 
         info!(
             "State reconciliation complete: {} balances updated, {} remote txs ingested, \
              {} direct-conflict txs removed, {} cascade txs marked rolled_back, \
              {} provisional checkpoints retired, merge checkpoint at height {}",
             final_balances_micro.len(),
-            remote_request.transactions.iter()
+            remote_request
+                .transactions
+                .iter()
                 .filter(|t| surviving_set.contains(t.hash.as_str()))
                 .count(),
             removed_count,
@@ -519,7 +601,10 @@ impl MergeOrchestrator {
         );
     }
 
-    async fn get_fork_point_accounts(&self, fork_point_checkpoint_height: u64) -> HashMap<String, Account> {
+    async fn get_fork_point_accounts(
+        &self,
+        fork_point_checkpoint_height: u64,
+    ) -> HashMap<String, Account> {
         let state = self.state.inner.read().await;
 
         if fork_point_checkpoint_height == 0 {
@@ -575,7 +660,9 @@ impl MergeOrchestrator {
                 stake_slash_pct: 0.0,
                 reputation_penalty: OVERDRAFT_REPUTATION_PENALTY,
                 decay_checkpoints: Some(OVERDRAFT_DECAY_CHECKPOINTS),
-                conflicting_tx_hashes: conflict.local_tx_hashes.iter()
+                conflicting_tx_hashes: conflict
+                    .local_tx_hashes
+                    .iter()
                     .chain(conflict.remote_tx_hashes.iter())
                     .cloned()
                     .collect(),
@@ -583,5 +670,92 @@ impl MergeOrchestrator {
         }
 
         penalties
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rinku_core::types::{to_micro_units, Account, SignedTransaction, Transaction};
+
+    fn make_account(addr: &str, balance: f64, staked: f64) -> Account {
+        Account {
+            address: addr.to_string(),
+            balance: to_micro_units(balance),
+            nonce: 0,
+            first_seen: 1_700_000_000,
+            staked: to_micro_units(staked),
+            unbonding: 0,
+            unbonding_release: None,
+            latest_balance_proof: None,
+            partition_violations: 0,
+            reputation_penalty: 0.0,
+            penalty_decay_checkpoint: None,
+            partition_budget: None,
+            partition_budget_spent: 0,
+            ecdsa_public_key: None,
+        }
+    }
+
+    fn make_signed(hash: &str, from: &str) -> SignedTransaction {
+        SignedTransaction {
+            tx: Transaction {
+                from: from.to_string(),
+                to: "bob".to_string(),
+                amount: to_micro_units(1.0),
+                nonce: 0,
+                timestamp: 1_700_000_000_000,
+                parents: vec![],
+                kind: None,
+                gas_limit: None,
+                gas_price: None,
+                data: None,
+                signature: None,
+                memo: None,
+                references: None,
+            },
+            hash: hash.to_string(),
+            signature: "sig".to_string(),
+        }
+    }
+
+    fn empty_request(accounts: HashMap<String, Account>) -> MergeRequest {
+        MergeRequest {
+            partition_epoch: 1,
+            fork_point_checkpoint_height: 0,
+            transactions: vec![],
+            tx_weights: HashMap::new(),
+            accounts,
+            checkpoints: vec![],
+            visible_stake_pct: 0.5,
+        }
+    }
+
+    #[test]
+    fn resolve_remote_prefers_tx_weights_map() {
+        let mut accounts = HashMap::new();
+        accounts.insert("alice".to_string(), make_account("alice", 100.0, 0.0));
+        let mut remote = empty_request(accounts);
+        let tx = make_signed("h1", "alice");
+        remote.tx_weights.insert("h1".to_string(), 42.5);
+        assert!((resolve_remote_tx_weight(&remote, &tx) - 42.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn resolve_remote_falls_back_to_account_weight() {
+        let mut accounts = HashMap::new();
+        // Staked account yields weight > 1.0 via stake term
+        accounts.insert("alice".to_string(), make_account("alice", 100.0, 1_000.0));
+        let remote = empty_request(accounts);
+        let tx = make_signed("h2", "alice");
+        let w = resolve_remote_tx_weight(&remote, &tx);
+        assert!(w > 1.0, "expected account-derived weight > 1.0, got {w}");
+    }
+
+    #[test]
+    fn resolve_remote_defaults_to_one_without_account() {
+        let remote = empty_request(HashMap::new());
+        let tx = make_signed("h3", "unknown");
+        assert!((resolve_remote_tx_weight(&remote, &tx) - 1.0).abs() < f64::EPSILON);
     }
 }

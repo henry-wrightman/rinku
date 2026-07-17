@@ -223,7 +223,12 @@ impl ProofFreshness {
         }
     }
 
-    pub fn new(checkpoint_height: u64, timestamp: u64, chain_tip: u64, max_age: Option<u64>) -> Self {
+    pub fn new(
+        checkpoint_height: u64,
+        timestamp: u64,
+        chain_tip: u64,
+        max_age: Option<u64>,
+    ) -> Self {
         Self {
             generated_at_checkpoint: checkpoint_height,
             generated_at_timestamp: timestamp,
@@ -285,12 +290,22 @@ impl VerifiableObject {
     pub fn checkpoint_height(&self) -> u64 {
         match self {
             VerifiableObject::ContractOutput { receipt, .. } => receipt.finality.checkpoint_height,
-            VerifiableObject::AccountProof { checkpoint_height, .. } => *checkpoint_height,
-            VerifiableObject::TxFinality { checkpoint_height, .. } => *checkpoint_height,
-            VerifiableObject::WeightProof { checkpoint_height, .. } => *checkpoint_height,
-            VerifiableObject::Custom { checkpoint_height, .. } => *checkpoint_height,
+            VerifiableObject::AccountProof {
+                checkpoint_height, ..
+            } => *checkpoint_height,
+            VerifiableObject::TxFinality {
+                checkpoint_height, ..
+            } => *checkpoint_height,
+            VerifiableObject::WeightProof {
+                checkpoint_height, ..
+            } => *checkpoint_height,
+            VerifiableObject::Custom {
+                checkpoint_height, ..
+            } => *checkpoint_height,
             VerifiableObject::BatchProof { finality, .. } => finality.checkpoint_height,
-            VerifiableObject::StateWitness { checkpoint_height, .. } => *checkpoint_height,
+            VerifiableObject::StateWitness {
+                checkpoint_height, ..
+            } => *checkpoint_height,
         }
     }
 
@@ -406,18 +421,19 @@ impl ProofInput {
 
         if let Some(ref required_keys) = exp.required_view_keys {
             if let VerifiableObject::ContractOutput { ref receipt, .. } = self.proof {
-                let available: Vec<&str> = receipt.view_keys.iter().map(|vk| vk.key.as_str()).collect();
+                let available: Vec<&str> =
+                    receipt.view_keys.iter().map(|vk| vk.key.as_str()).collect();
                 for rk in required_keys {
                     if !available.contains(&rk.as_str()) {
-                        return Err(ProofValidationError::MissingViewKey {
-                            key: rk.clone(),
-                        });
+                        return Err(ProofValidationError::MissingViewKey { key: rk.clone() });
                     }
                 }
             }
         }
 
-        if let (Some(max_age), Some(current_height)) = (exp.max_age_checkpoints, exp.current_checkpoint_height) {
+        if let (Some(max_age), Some(current_height)) =
+            (exp.max_age_checkpoints, exp.current_checkpoint_height)
+        {
             if let Some(freshness) = self.proof.freshness() {
                 let actual_age = freshness.age(current_height);
                 if actual_age > max_age {
@@ -468,13 +484,13 @@ impl ProofInput {
                         });
                     }
                 }
-                VerifiableObject::StateWitness { state_root, .. } => {
-                    if state_root != expected_root {
-                        return Err(ProofValidationError::StateRootMismatch {
-                            expected: expected_root.clone(),
-                            got: state_root.clone(),
-                        });
-                    }
+                VerifiableObject::StateWitness { state_root, .. }
+                    if state_root != expected_root =>
+                {
+                    return Err(ProofValidationError::StateRootMismatch {
+                        expected: expected_root.clone(),
+                        got: state_root.clone(),
+                    });
                 }
                 _ => {}
             }
@@ -487,41 +503,80 @@ impl ProofInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProofValidationError {
-    TypeMismatch { expected: String, got: String },
-    ChainMismatch { expected: String, got: String },
-    StaleProof { min_required: u64, got: u64 },
-    ProofTooOld { max_age: u64, actual_age: u64, proof_checkpoint: u64, current_checkpoint: u64 },
-    ContractMismatch { expected: String, got: String },
-    MissingViewKey { key: String },
-    StateRootMismatch { expected: String, got: String },
+    TypeMismatch {
+        expected: String,
+        got: String,
+    },
+    ChainMismatch {
+        expected: String,
+        got: String,
+    },
+    StaleProof {
+        min_required: u64,
+        got: u64,
+    },
+    ProofTooOld {
+        max_age: u64,
+        actual_age: u64,
+        proof_checkpoint: u64,
+        current_checkpoint: u64,
+    },
+    ContractMismatch {
+        expected: String,
+        got: String,
+    },
+    MissingViewKey {
+        key: String,
+    },
+    StateRootMismatch {
+        expected: String,
+        got: String,
+    },
     InvalidMerkleProof,
     InvalidSignature,
-    MalformedProof { reason: String },
+    MalformedProof {
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for ProofValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProofValidationError::TypeMismatch { expected, got } =>
-                write!(f, "proof type mismatch: expected {}, got {}", expected, got),
-            ProofValidationError::ChainMismatch { expected, got } =>
-                write!(f, "chain mismatch: expected {}, got {}", expected, got),
-            ProofValidationError::StaleProof { min_required, got } =>
-                write!(f, "stale proof: min checkpoint {} required, got {}", min_required, got),
-            ProofValidationError::ProofTooOld { max_age, actual_age, proof_checkpoint, current_checkpoint } =>
-                write!(f, "proof too old: max age {} checkpoints, actual age {} (proof at {}, chain at {})", max_age, actual_age, proof_checkpoint, current_checkpoint),
-            ProofValidationError::ContractMismatch { expected, got } =>
-                write!(f, "contract mismatch: expected {}, got {}", expected, got),
-            ProofValidationError::MissingViewKey { key } =>
-                write!(f, "missing required view key: {}", key),
-            ProofValidationError::StateRootMismatch { expected, got } =>
-                write!(f, "state root mismatch: expected {}, got {}", expected, got),
-            ProofValidationError::InvalidMerkleProof =>
-                write!(f, "invalid merkle proof"),
-            ProofValidationError::InvalidSignature =>
-                write!(f, "invalid BLS signature"),
-            ProofValidationError::MalformedProof { reason } =>
-                write!(f, "malformed proof: {}", reason),
+            ProofValidationError::TypeMismatch { expected, got } => {
+                write!(f, "proof type mismatch: expected {}, got {}", expected, got)
+            }
+            ProofValidationError::ChainMismatch { expected, got } => {
+                write!(f, "chain mismatch: expected {}, got {}", expected, got)
+            }
+            ProofValidationError::StaleProof { min_required, got } => write!(
+                f,
+                "stale proof: min checkpoint {} required, got {}",
+                min_required, got
+            ),
+            ProofValidationError::ProofTooOld {
+                max_age,
+                actual_age,
+                proof_checkpoint,
+                current_checkpoint,
+            } => write!(
+                f,
+                "proof too old: max age {} checkpoints, actual age {} (proof at {}, chain at {})",
+                max_age, actual_age, proof_checkpoint, current_checkpoint
+            ),
+            ProofValidationError::ContractMismatch { expected, got } => {
+                write!(f, "contract mismatch: expected {}, got {}", expected, got)
+            }
+            ProofValidationError::MissingViewKey { key } => {
+                write!(f, "missing required view key: {}", key)
+            }
+            ProofValidationError::StateRootMismatch { expected, got } => {
+                write!(f, "state root mismatch: expected {}, got {}", expected, got)
+            }
+            ProofValidationError::InvalidMerkleProof => write!(f, "invalid merkle proof"),
+            ProofValidationError::InvalidSignature => write!(f, "invalid BLS signature"),
+            ProofValidationError::MalformedProof { reason } => {
+                write!(f, "malformed proof: {}", reason)
+            }
         }
     }
 }
@@ -580,41 +635,101 @@ impl ValidatedProofContext {
                         vk.value.clone(),
                     );
                 }
-                extracted.insert("_contract_id".to_string(), Value::String(receipt.contract_id.clone()));
-                extracted.insert("_entrypoint".to_string(), Value::String(receipt.entrypoint.clone()));
-                extracted.insert("_status".to_string(), serde_json::to_value(&receipt.status).unwrap_or(Value::Null));
+                extracted.insert(
+                    "_contract_id".to_string(),
+                    Value::String(receipt.contract_id.clone()),
+                );
+                extracted.insert(
+                    "_entrypoint".to_string(),
+                    Value::String(receipt.entrypoint.clone()),
+                );
+                extracted.insert(
+                    "_status".to_string(),
+                    serde_json::to_value(receipt.status).unwrap_or(Value::Null),
+                );
             }
-            VerifiableObject::AccountProof { address, balance_micro, nonce, staked_micro, .. } => {
+            VerifiableObject::AccountProof {
+                address,
+                balance_micro,
+                nonce,
+                staked_micro,
+                ..
+            } => {
                 extracted.insert("address".to_string(), Value::String(address.clone()));
-                extracted.insert("balance_micro".to_string(), Value::Number(serde_json::Number::from(*balance_micro)));
-                extracted.insert("nonce".to_string(), Value::Number(serde_json::Number::from(*nonce)));
-                extracted.insert("staked_micro".to_string(), Value::Number(serde_json::Number::from(*staked_micro)));
+                extracted.insert(
+                    "balance_micro".to_string(),
+                    Value::Number(serde_json::Number::from(*balance_micro)),
+                );
+                extracted.insert(
+                    "nonce".to_string(),
+                    Value::Number(serde_json::Number::from(*nonce)),
+                );
+                extracted.insert(
+                    "staked_micro".to_string(),
+                    Value::Number(serde_json::Number::from(*staked_micro)),
+                );
             }
-            VerifiableObject::TxFinality { tx_hash, tx_signature, .. } => {
+            VerifiableObject::TxFinality {
+                tx_hash,
+                tx_signature,
+                ..
+            } => {
                 extracted.insert("tx_hash".to_string(), Value::String(tx_hash.clone()));
-                extracted.insert("tx_signature".to_string(), Value::String(tx_signature.clone()));
+                extracted.insert(
+                    "tx_signature".to_string(),
+                    Value::String(tx_signature.clone()),
+                );
             }
-            VerifiableObject::WeightProof { tx_hash, aggregated_weight, .. } => {
+            VerifiableObject::WeightProof {
+                tx_hash,
+                aggregated_weight,
+                ..
+            } => {
                 extracted.insert("tx_hash".to_string(), Value::String(tx_hash.clone()));
-                extracted.insert("trust_score".to_string(), Value::Number(serde_json::Number::from(aggregated_weight.trust_score())));
-                extracted.insert("net_weight".to_string(), Value::Number(serde_json::Number::from(aggregated_weight.net_weight)));
+                extracted.insert(
+                    "trust_score".to_string(),
+                    Value::Number(serde_json::Number::from(aggregated_weight.trust_score())),
+                );
+                extracted.insert(
+                    "net_weight".to_string(),
+                    Value::Number(serde_json::Number::from(aggregated_weight.net_weight)),
+                );
             }
             VerifiableObject::Custom { schema_id, .. } => {
                 extracted.insert("_schema_id".to_string(), Value::String(schema_id.clone()));
             }
-            VerifiableObject::BatchProof { tx_hashes, finality, .. } => {
-                extracted.insert("tx_hashes".to_string(), Value::Array(
-                    tx_hashes.iter().map(|h| Value::String(h.clone())).collect()
-                ));
-                extracted.insert("tx_count".to_string(), Value::Number(serde_json::Number::from(tx_hashes.len())));
-                extracted.insert("checkpoint_hash".to_string(), Value::String(finality.checkpoint_hash.clone()));
+            VerifiableObject::BatchProof {
+                tx_hashes,
+                finality,
+                ..
+            } => {
+                extracted.insert(
+                    "tx_hashes".to_string(),
+                    Value::Array(tx_hashes.iter().map(|h| Value::String(h.clone())).collect()),
+                );
+                extracted.insert(
+                    "tx_count".to_string(),
+                    Value::Number(serde_json::Number::from(tx_hashes.len())),
+                );
+                extracted.insert(
+                    "checkpoint_hash".to_string(),
+                    Value::String(finality.checkpoint_hash.clone()),
+                );
             }
-            VerifiableObject::StateWitness { contract_id, entries, state_root, .. } => {
+            VerifiableObject::StateWitness {
+                contract_id,
+                entries,
+                state_root,
+                ..
+            } => {
                 if let Some(cid) = contract_id {
                     extracted.insert("_contract_id".to_string(), Value::String(cid.clone()));
                 }
                 extracted.insert("state_root".to_string(), Value::String(state_root.clone()));
-                extracted.insert("entry_count".to_string(), Value::Number(serde_json::Number::from(entries.len())));
+                extracted.insert(
+                    "entry_count".to_string(),
+                    Value::Number(serde_json::Number::from(entries.len())),
+                );
                 for entry in entries {
                     let prefix = contract_id.as_deref().unwrap_or("account");
                     extracted.insert(
@@ -642,22 +757,25 @@ pub fn compute_view_key_leaf_hash(contract_id: &str, key: &str, value: &Value) -
 pub fn compute_contract_state_root(contract_id: &str, view_keys: &[ViewKeyValue]) -> String {
     if view_keys.is_empty() {
         return hex::encode(crate::crypto::sha256(
-            format!("contract_state:{}", contract_id).as_bytes()
+            format!("contract_state:{}", contract_id).as_bytes(),
         ));
     }
 
-    let leaf_hashes: Vec<[u8; 32]> = view_keys.iter().map(|vk| {
-        let bytes = hex::decode(&vk.leaf_hash).unwrap_or_else(|_| vec![0u8; 32]);
-        let mut arr = [0u8; 32];
-        let len = bytes.len().min(32);
-        arr[..len].copy_from_slice(&bytes[..len]);
-        arr
-    }).collect();
+    let leaf_hashes: Vec<[u8; 32]> = view_keys
+        .iter()
+        .map(|vk| {
+            let bytes = hex::decode(&vk.leaf_hash).unwrap_or_else(|_| vec![0u8; 32]);
+            let mut arr = [0u8; 32];
+            let len = bytes.len().min(32);
+            arr[..len].copy_from_slice(&bytes[..len]);
+            arr
+        })
+        .collect();
 
     match crate::merkle::MerkleTree::new(leaf_hashes) {
         Ok(tree) => tree.root(),
         Err(_) => hex::encode(crate::crypto::sha256(
-            format!("contract_state:{}", contract_id).as_bytes()
+            format!("contract_state:{}", contract_id).as_bytes(),
         )),
     }
 }
@@ -668,7 +786,11 @@ mod tests {
 
     #[test]
     fn test_view_key_leaf_hash() {
-        let hash = compute_view_key_leaf_hash("sc_test", "balance", &Value::Number(serde_json::Number::from(100)));
+        let hash = compute_view_key_leaf_hash(
+            "sc_test",
+            "balance",
+            &Value::Number(serde_json::Number::from(100)),
+        );
         assert!(!hash.is_empty());
         assert_eq!(hash.len(), 64);
     }
@@ -826,7 +948,12 @@ mod tests {
         assert_eq!(ctx.label, "oracle_price");
         assert_eq!(ctx.object_type, "account_proof");
         assert_eq!(ctx.checkpoint_height, 200);
-        assert_eq!(ctx.extracted_values.get("balance_micro").and_then(|v| v.as_u64()), Some(5_000_000_000));
+        assert_eq!(
+            ctx.extracted_values
+                .get("balance_micro")
+                .and_then(|v| v.as_u64()),
+            Some(5_000_000_000)
+        );
     }
 
     #[test]
@@ -900,14 +1027,12 @@ mod tests {
     fn test_state_witness_object_type_and_checkpoint() {
         let vo = VerifiableObject::StateWitness {
             contract_id: Some("sc_chat".to_string()),
-            entries: vec![
-                StateWitnessEntry {
-                    key: "count".to_string(),
-                    value: Some(Value::Number(serde_json::Number::from(5))),
-                    proof_key: "abcd".to_string(),
-                    proof_siblings: vec!["s1".to_string()],
-                },
-            ],
+            entries: vec![StateWitnessEntry {
+                key: "count".to_string(),
+                value: Some(Value::Number(serde_json::Number::from(5))),
+                proof_key: "abcd".to_string(),
+                proof_siblings: vec!["s1".to_string()],
+            }],
             state_root: "root123".to_string(),
             checkpoint_height: 99,
             checkpoint_hash: "cp99".to_string(),
@@ -1100,7 +1225,12 @@ mod tests {
         let ctx = ValidatedProofContext::from_proof_input(&input);
         assert_eq!(ctx.object_type, "batch_proof");
         assert_eq!(ctx.checkpoint_height, 20);
-        assert_eq!(ctx.extracted_values.get("tx_count").and_then(|v| v.as_u64()), Some(2));
+        assert_eq!(
+            ctx.extracted_values
+                .get("tx_count")
+                .and_then(|v| v.as_u64()),
+            Some(2)
+        );
     }
 
     #[test]
@@ -1109,14 +1239,12 @@ mod tests {
             label: "sw_ctx".to_string(),
             proof: VerifiableObject::StateWitness {
                 contract_id: Some("sc_x".to_string()),
-                entries: vec![
-                    StateWitnessEntry {
-                        key: "val".to_string(),
-                        value: Some(Value::Number(serde_json::Number::from(42))),
-                        proof_key: "pk".to_string(),
-                        proof_siblings: vec![],
-                    },
-                ],
+                entries: vec![StateWitnessEntry {
+                    key: "val".to_string(),
+                    value: Some(Value::Number(serde_json::Number::from(42))),
+                    proof_key: "pk".to_string(),
+                    proof_siblings: vec![],
+                }],
                 state_root: "root".to_string(),
                 checkpoint_height: 50,
                 checkpoint_hash: "cp50".to_string(),
@@ -1140,8 +1268,18 @@ mod tests {
         let ctx = ValidatedProofContext::from_proof_input(&input);
         assert_eq!(ctx.object_type, "state_witness");
         assert_eq!(ctx.checkpoint_height, 50);
-        assert_eq!(ctx.extracted_values.get("sc_x.val").and_then(|v| v.as_u64()), Some(42));
-        assert_eq!(ctx.extracted_values.get("entry_count").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(
+            ctx.extracted_values
+                .get("sc_x.val")
+                .and_then(|v| v.as_u64()),
+            Some(42)
+        );
+        assert_eq!(
+            ctx.extracted_values
+                .get("entry_count")
+                .and_then(|v| v.as_u64()),
+            Some(1)
+        );
     }
 
     #[test]

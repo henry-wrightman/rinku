@@ -71,18 +71,22 @@ impl FastPathService {
         }
 
         let mut inner = self.inner.write().await;
-        
+
         if inner.pending_txs.contains_key(&tx.hash) || inner.confirmed_txs.contains_key(&tx.hash) {
-            return inner.pending_txs.get(&tx.hash).cloned()
+            return inner
+                .pending_txs
+                .get(&tx.hash)
+                .cloned()
                 .or_else(|| inner.confirmed_txs.get(&tx.hash).cloned());
         }
 
-        let quorum_required = (inner.total_validator_stake as f64 * inner.config.quorum_threshold) as u64;
+        let quorum_required =
+            (inner.total_validator_stake as f64 * inner.config.quorum_threshold) as u64;
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        
+
         let finality = FastPathFinality {
             tx_hash: tx.hash.clone(),
             status: FastPathStatus::Pending,
@@ -96,7 +100,7 @@ impl FastPathService {
         };
 
         inner.pending_txs.insert(tx.hash.clone(), finality.clone());
-        
+
         info!(
             "Registered fast-path tx {} (quorum required: {})",
             &tx.hash[..16.min(tx.hash.len())],
@@ -108,26 +112,33 @@ impl FastPathService {
 
     pub async fn add_ack(&self, ack: FastPathAck) -> Option<FastPathFinality> {
         let mut inner = self.inner.write().await;
-        
+
         if let Some(finality) = inner.pending_txs.get_mut(&ack.tx_hash) {
-            if finality.acks.iter().any(|a| a.validator_address == ack.validator_address) {
-                debug!("Duplicate ACK from {} for {}", 
+            if finality
+                .acks
+                .iter()
+                .any(|a| a.validator_address == ack.validator_address)
+            {
+                debug!(
+                    "Duplicate ACK from {} for {}",
                     &ack.validator_address[..16.min(ack.validator_address.len())],
-                    &ack.tx_hash[..16.min(ack.tx_hash.len())]);
+                    &ack.tx_hash[..16.min(ack.tx_hash.len())]
+                );
                 return Some(finality.clone());
             }
 
             finality.total_stake_acked += ack.validator_stake;
             finality.acks.push(ack.clone());
 
-            if finality.total_stake_acked >= finality.quorum_stake_required 
-                && finality.status == FastPathStatus::Pending {
+            if finality.total_stake_acked >= finality.quorum_stake_required
+                && finality.status == FastPathStatus::Pending
+            {
                 finality.status = FastPathStatus::Confirmed;
                 finality.confirmed_at_ms = Some(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
-                        .as_millis() as u64
+                        .as_millis() as u64,
                 );
 
                 info!(
@@ -140,13 +151,13 @@ impl FastPathService {
 
                 let finality_clone = finality.clone();
                 let tx_hash = ack.tx_hash.clone();
-                
+
                 drop(inner);
                 let mut inner = self.inner.write().await;
                 if let Some(f) = inner.pending_txs.remove(&tx_hash) {
                     inner.confirmed_txs.insert(tx_hash, f);
                 }
-                
+
                 return Some(finality_clone);
             }
 
@@ -162,11 +173,11 @@ impl FastPathService {
 
     pub async fn mark_finalized(&self, tx_hash: &str, checkpoint_height: u64) {
         let mut inner = self.inner.write().await;
-        
+
         if let Some(finality) = inner.confirmed_txs.get_mut(tx_hash) {
             finality.status = FastPathStatus::Finalized;
             finality.checkpoint_height = Some(checkpoint_height);
-            
+
             debug!(
                 "Fast-path tx {} finalized at checkpoint {}",
                 &tx_hash[..16.min(tx_hash.len())],
@@ -179,7 +190,10 @@ impl FastPathService {
 
     pub async fn get_status(&self, tx_hash: &str) -> Option<FastPathFinality> {
         let inner = self.inner.read().await;
-        inner.pending_txs.get(tx_hash).cloned()
+        inner
+            .pending_txs
+            .get(tx_hash)
+            .cloned()
             .or_else(|| inner.confirmed_txs.get(tx_hash).cloned())
     }
 
@@ -195,8 +209,9 @@ impl FastPathService {
             .as_millis() as u64;
 
         let mut inner = self.inner.write().await;
-        
-        let to_remove: Vec<String> = inner.confirmed_txs
+
+        let to_remove: Vec<String> = inner
+            .confirmed_txs
             .iter()
             .filter(|(_, f)| {
                 if let Some(confirmed_at) = f.confirmed_at_ms {
@@ -221,8 +236,9 @@ impl FastPathService {
 
         let mut inner = self.inner.write().await;
         let timeout_ms = inner.config.timeout_ms;
-        
-        let to_remove: Vec<String> = inner.pending_txs
+
+        let to_remove: Vec<String> = inner
+            .pending_txs
             .iter()
             .filter(|(_, f)| {
                 if let Some(first_ack) = f.acks.first() {
@@ -258,7 +274,7 @@ impl FastPathService {
 
     pub async fn get_stats(&self) -> FastPathStats {
         let inner = self.inner.read().await;
-        
+
         // Calculate average confirmation time from confirmed transactions
         let mut total_ms: u64 = 0;
         let mut count: usize = 0;
@@ -273,7 +289,7 @@ impl FastPathService {
         } else {
             None
         };
-        
+
         FastPathStats {
             enabled: inner.config.enabled,
             pending_count: inner.pending_txs.len(),
@@ -341,7 +357,11 @@ mod tests {
                 nonce: 1,
                 timestamp: 1000,
                 parents: vec![],
-                kind: if amount == 0 { Some(TransactionKind::DataOnly) } else { Some(TransactionKind::Transfer) },
+                kind: if amount == 0 {
+                    Some(TransactionKind::DataOnly)
+                } else {
+                    Some(TransactionKind::Transfer)
+                },
                 gas_limit: Some(21000),
                 gas_price: Some(100_000),
                 data: None,
@@ -370,7 +390,7 @@ mod tests {
 
         let tx = create_test_tx(0, Some("Test message".to_string()));
         let finality = service.register_fast_path_tx(&tx).await.unwrap();
-        
+
         assert_eq!(finality.status, FastPathStatus::Pending);
         assert!(finality.quorum_stake_required > 0);
 

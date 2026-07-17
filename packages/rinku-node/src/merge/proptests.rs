@@ -1,10 +1,10 @@
-use proptest::prelude::*;
-use std::collections::{HashMap, HashSet};
-use rinku_core::types::Account;
 use super::{
-    MergeReport, MergePhase, PartitionTxSummary, RollbackReport,
-    conflict_detection, resolution, cascade,
+    cascade, conflict_detection, resolution, MergePhase, MergeReport, PartitionTxSummary,
+    RollbackReport,
 };
+use proptest::prelude::*;
+use rinku_core::types::Account;
+use std::collections::{HashMap, HashSet};
 
 fn make_account(address: &str, balance_micro: u64, nonce: u64) -> Account {
     Account {
@@ -57,7 +57,8 @@ fn run_full_merge_pipeline(
     report.resolutions = resolutions;
 
     report.phase = MergePhase::CascadeRollback;
-    let all_txs: Vec<PartitionTxSummary> = local_summaries.iter()
+    let all_txs: Vec<PartitionTxSummary> = local_summaries
+        .iter()
         .chain(remote_summaries.iter())
         .cloned()
         .collect();
@@ -91,7 +92,9 @@ fn run_full_merge_pipeline(
     (report, rollback_report)
 }
 
-const ADDR_POOL: &[&str] = &["alice", "bob", "carol", "dave", "eve", "frank", "grace", "heidi"];
+const ADDR_POOL: &[&str] = &[
+    "alice", "bob", "carol", "dave", "eve", "frank", "grace", "heidi",
+];
 const WEIGHT_PROXIMITY_THRESHOLD: f64 = 1.5;
 
 fn build_nonce_chain_txs(
@@ -115,6 +118,8 @@ fn build_nonce_chain_txs(
                 gas_micro: gas_per_tx,
                 nonce: n,
                 weight,
+                dag_depth: 0,
+                parents: vec![],
                 partition_epoch: Some(1),
                 visible_stake_pct: 0.5,
             }
@@ -137,61 +142,90 @@ fn arb_valid_nonce_chain(
         if c == 0 {
             return Just(vec![]).boxed();
         }
-        let max_per_tx = if c > 0 { max_balance / (c as u64) } else { max_balance };
-        let amt_range = if max_per_tx > 1 { 1u64..=max_per_tx } else { 1u64..=1u64 };
-        prop::collection::vec(amt_range, c).prop_map(move |amounts| {
-            amounts.iter().enumerate().map(|(i, &amt)| {
-                let n = start_nonce + i as u64;
-                PartitionTxSummary {
-                    tx_hash: format!("{}_{}_n{}_{}", side, ADDR_POOL[from_idx], n, amt),
-                    from: ADDR_POOL[from_idx].to_string(),
-                    to: ADDR_POOL[to_idx].to_string(),
-                    amount_micro: amt,
-                    gas_micro: g,
-                    nonce: n,
-                    weight: w as f64,
-                    partition_epoch: Some(1),
-                    visible_stake_pct: 0.5,
-                }
-            }).collect::<Vec<_>>()
-        }).boxed()
+        let max_per_tx = if c > 0 {
+            max_balance / (c as u64)
+        } else {
+            max_balance
+        };
+        let amt_range = if max_per_tx > 1 {
+            1u64..=max_per_tx
+        } else {
+            1u64..=1u64
+        };
+        prop::collection::vec(amt_range, c)
+            .prop_map(move |amounts| {
+                amounts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &amt)| {
+                        let n = start_nonce + i as u64;
+                        PartitionTxSummary {
+                            tx_hash: format!("{}_{}_n{}_{}", side, ADDR_POOL[from_idx], n, amt),
+                            from: ADDR_POOL[from_idx].to_string(),
+                            to: ADDR_POOL[to_idx].to_string(),
+                            amount_micro: amt,
+                            gas_micro: g,
+                            nonce: n,
+                            weight: w as f64,
+                            dag_depth: 0,
+                            parents: vec![],
+                            partition_epoch: Some(1),
+                            visible_stake_pct: 0.5,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .boxed()
     })
 }
 
-fn arb_scenario_with_nonce_chains()
-    -> impl Strategy<Value = (HashMap<String, Account>, Vec<PartitionTxSummary>, Vec<PartitionTxSummary>)>
-{
+fn arb_scenario_with_nonce_chains() -> impl Strategy<
+    Value = (
+        HashMap<String, Account>,
+        Vec<PartitionTxSummary>,
+        Vec<PartitionTxSummary>,
+    ),
+> {
     let balances = prop::collection::vec(500_000u64..=5_000_000u64, 5usize);
 
-    balances.prop_flat_map(|bals| {
-        let b0 = bals[0]; let b1 = bals[1];
+    balances
+        .prop_flat_map(|bals| {
+            let b0 = bals[0];
+            let b1 = bals[1];
 
-        let local_a = arb_valid_nonce_chain("L", 0, 2, 0, b0 / 2);
-        let local_b = arb_valid_nonce_chain("L", 1, 3, 0, b1 / 2);
-        let remote_a = arb_valid_nonce_chain("R", 0, 3, 0, b0 / 2);
-        let remote_b = arb_valid_nonce_chain("R", 1, 4, 0, b1 / 2);
+            let local_a = arb_valid_nonce_chain("L", 0, 2, 0, b0 / 2);
+            let local_b = arb_valid_nonce_chain("L", 1, 3, 0, b1 / 2);
+            let remote_a = arb_valid_nonce_chain("R", 0, 3, 0, b0 / 2);
+            let remote_b = arb_valid_nonce_chain("R", 1, 4, 0, b1 / 2);
 
-        (Just(bals), local_a, local_b, remote_a, remote_b)
-    }).prop_map(|(bals, la, lb, ra, rb)| {
-        let mut accounts = HashMap::new();
-        for (i, &b) in bals.iter().enumerate() {
-            let addr = ADDR_POOL[i].to_string();
-            accounts.insert(addr.clone(), make_account(&addr, b, 0));
-        }
-        let mut local = la; local.extend(lb);
-        let mut remote = ra; remote.extend(rb);
+            (Just(bals), local_a, local_b, remote_a, remote_b)
+        })
+        .prop_map(|(bals, la, lb, ra, rb)| {
+            let mut accounts = HashMap::new();
+            for (i, &b) in bals.iter().enumerate() {
+                let addr = ADDR_POOL[i].to_string();
+                accounts.insert(addr.clone(), make_account(&addr, b, 0));
+            }
+            let mut local = la;
+            local.extend(lb);
+            let mut remote = ra;
+            remote.extend(rb);
 
-        let mut seen = HashSet::new();
-        local.retain(|tx| seen.insert(tx.tx_hash.clone()));
-        remote.retain(|tx| seen.insert(tx.tx_hash.clone()));
+            let mut seen = HashSet::new();
+            local.retain(|tx| seen.insert(tx.tx_hash.clone()));
+            remote.retain(|tx| seen.insert(tx.tx_hash.clone()));
 
-        (accounts, local, remote)
-    })
+            (accounts, local, remote)
+        })
 }
 
-fn arb_direct_conflict_scenario()
-    -> impl Strategy<Value = (HashMap<String, Account>, Vec<PartitionTxSummary>, Vec<PartitionTxSummary>)>
-{
+fn arb_direct_conflict_scenario() -> impl Strategy<
+    Value = (
+        HashMap<String, Account>,
+        Vec<PartitionTxSummary>,
+        Vec<PartitionTxSummary>,
+    ),
+> {
     let balance = 1_000_000u64..=5_000_000u64;
     let amount = 1_000u64..=100_000u64;
     let local_weight = 1u32..=100u32;
@@ -214,6 +248,8 @@ fn arb_direct_conflict_scenario()
                 gas_micro: 0,
                 nonce: i,
                 weight: lw as f64,
+                dag_depth: 0,
+                parents: vec![],
                 partition_epoch: Some(1),
                 visible_stake_pct: 0.5,
             });
@@ -229,6 +265,8 @@ fn arb_direct_conflict_scenario()
                 gas_micro: 0,
                 nonce: i,
                 weight: rw as f64,
+                dag_depth: 0,
+                parents: vec![],
                 partition_epoch: Some(1),
                 visible_stake_pct: 0.5,
             });
@@ -238,9 +276,13 @@ fn arb_direct_conflict_scenario()
     })
 }
 
-fn arb_economic_overdraft_scenario()
-    -> impl Strategy<Value = (HashMap<String, Account>, Vec<PartitionTxSummary>, Vec<PartitionTxSummary>)>
-{
+fn arb_economic_overdraft_scenario() -> impl Strategy<
+    Value = (
+        HashMap<String, Account>,
+        Vec<PartitionTxSummary>,
+        Vec<PartitionTxSummary>,
+    ),
+> {
     let balance = 100_000u64..=1_000_000u64;
     let local_spend_pct = 60u64..=90u64;
     let remote_spend_pct = 60u64..=90u64;
@@ -263,6 +305,8 @@ fn arb_economic_overdraft_scenario()
             gas_micro: 0,
             nonce: 0,
             weight: w as f64,
+            dag_depth: 0,
+            parents: vec![],
             partition_epoch: Some(1),
             visible_stake_pct: 0.5,
         }];
@@ -274,6 +318,8 @@ fn arb_economic_overdraft_scenario()
             gas_micro: 0,
             nonce: 1,
             weight: w as f64,
+            dag_depth: 0,
+            parents: vec![],
             partition_epoch: Some(1),
             visible_stake_pct: 0.5,
         }];
@@ -600,6 +646,8 @@ proptest! {
             gas_micro: 0,
             nonce: 0,
             weight: winner_weight,
+            dag_depth: 0,
+            parents: vec![],
             partition_epoch: Some(1),
             visible_stake_pct: 0.5,
         }];
@@ -611,6 +659,8 @@ proptest! {
             gas_micro: 0,
             nonce: 0,
             weight: loser_weight,
+            dag_depth: 0,
+            parents: vec![],
             partition_epoch: Some(1),
             visible_stake_pct: 0.5,
         }];
@@ -646,6 +696,8 @@ proptest! {
             gas_micro: 0,
             nonce: 0,
             weight,
+            dag_depth: 0,
+            parents: vec![],
             partition_epoch: Some(1),
             visible_stake_pct: 0.5,
         }];
@@ -657,6 +709,8 @@ proptest! {
             gas_micro: 0,
             nonce: 0,
             weight,
+            dag_depth: 0,
+            parents: vec![],
             partition_epoch: Some(1),
             visible_stake_pct: 0.5,
         }];

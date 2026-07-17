@@ -1,15 +1,13 @@
 #[cfg(feature = "wasm")]
 use crate::wasm_runtime;
 use anyhow::{anyhow, Result};
-use rinku_core::encoding::{encode_to_url, create_receipt_url, create_verifiable_object_url};
-use rinku_core::stateful_receipt::{
-    CheckpointFinality, ContractEventCompact, ContractSchema, MultiProof,
-    ProofInput, ReceiptStatus, StatefulContractCall,
-    StatefulContractDeploy, StatefulReceipt, ValidatedProofContext, VerifiableObject,
-    ViewKeyProof, ViewKeyValue,
-    compute_view_key_leaf_hash,
-};
+use rinku_core::encoding::{create_receipt_url, create_verifiable_object_url, encode_to_url};
 use rinku_core::merkle::MerkleTree;
+use rinku_core::stateful_receipt::{
+    compute_view_key_leaf_hash, CheckpointFinality, ContractEventCompact, ContractSchema,
+    MultiProof, ProofInput, ReceiptStatus, StatefulContractCall, StatefulContractDeploy,
+    StatefulReceipt, ValidatedProofContext, VerifiableObject, ViewKeyProof, ViewKeyValue,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -245,7 +243,7 @@ pub fn compute_state_hash(state: &HashMap<String, Value>) -> String {
 }
 
 pub fn create_contract_id(creator: &str, nonce: u64) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let data = format!("rinku:contract:{}:{}", creator, nonce);
     let hash = Sha256::digest(data.as_bytes());
     let hex_str: String = hash[..20].iter().map(|b| format!("{:02x}", b)).collect();
@@ -318,7 +316,10 @@ impl ContractRuntime {
         {
             if let Some(wasm_bytes) = self.try_decode_wasm(wasm_base64) {
                 if wasm_runtime::is_valid_wasm(&wasm_bytes) {
-                    info!("Executing contract {} via WASM runtime (entrypoint: {})", contract_id, entrypoint);
+                    info!(
+                        "Executing contract {} via WASM runtime (entrypoint: {})",
+                        contract_id, entrypoint
+                    );
                     let output = self.wasm_engine.execute(
                         contract_id,
                         &wasm_bytes,
@@ -364,7 +365,10 @@ impl ContractRuntime {
         {
             if let Some(wasm_bytes) = self.try_decode_wasm(wasm_base64) {
                 if wasm_runtime::is_valid_wasm(&wasm_bytes) {
-                    info!("Executing contract {} via WASM runtime (entrypoint: {}, caller: {})", contract_id, entrypoint, caller);
+                    info!(
+                        "Executing contract {} via WASM runtime (entrypoint: {}, caller: {})",
+                        contract_id, entrypoint, caller
+                    );
                     let output = self.wasm_engine.execute(
                         contract_id,
                         &wasm_bytes,
@@ -432,7 +436,10 @@ impl ContractRuntime {
         height: u64,
         gas_limit: Option<u64>,
     ) -> ExecutionResult {
-        let mut meter = GasMeter::new(gas_limit.unwrap_or(self.default_gas_limit), self.schedule.clone());
+        let mut meter = GasMeter::new(
+            gas_limit.unwrap_or(self.default_gas_limit),
+            self.schedule.clone(),
+        );
         let mut logs = Vec::new();
         let mut events = Vec::new();
         let mut new_state = state.clone();
@@ -457,7 +464,10 @@ impl ContractRuntime {
                 events.push(ContractEvent {
                     contract_id: contract_id.to_string(),
                     event_name: "Initialized".to_string(),
-                    data: HashMap::from([("contractId".to_string(), Value::String(contract_id.to_string()))]),
+                    data: HashMap::from([(
+                        "contractId".to_string(),
+                        Value::String(contract_id.to_string()),
+                    )]),
                     index: 0,
                 });
                 meter.charge("emit", 1);
@@ -473,7 +483,10 @@ impl ContractRuntime {
             }
 
             "transfer" => {
-                let from = input.get("from").and_then(|v| v.as_str()).unwrap_or_default();
+                let from = input
+                    .get("from")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 let to = input.get("to").and_then(|v| v.as_str()).unwrap_or_default();
                 let amount = input.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
@@ -497,8 +510,14 @@ impl ContractRuntime {
                         data: HashMap::from([
                             ("from".to_string(), Value::String(from.to_string())),
                             ("to".to_string(), Value::String(to.to_string())),
-                            ("amount".to_string(), Value::Number(serde_json::Number::from_f64(amount).unwrap())),
-                            ("reason".to_string(), Value::String("Insufficient balance".to_string())),
+                            (
+                                "amount".to_string(),
+                                Value::Number(serde_json::Number::from_f64(amount).unwrap()),
+                            ),
+                            (
+                                "reason".to_string(),
+                                Value::String("Insufficient balance".to_string()),
+                            ),
                         ]),
                         index: events.len(),
                     });
@@ -528,9 +547,15 @@ impl ContractRuntime {
                     };
                 }
 
-                balances_map.insert(from.to_string(), Value::Number(serde_json::Number::from_f64(from_balance - amount).unwrap()));
+                balances_map.insert(
+                    from.to_string(),
+                    Value::Number(serde_json::Number::from_f64(from_balance - amount).unwrap()),
+                );
                 let to_balance = balances_map.get(to).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                balances_map.insert(to.to_string(), Value::Number(serde_json::Number::from_f64(to_balance + amount).unwrap()));
+                balances_map.insert(
+                    to.to_string(),
+                    Value::Number(serde_json::Number::from_f64(to_balance + amount).unwrap()),
+                );
 
                 meter.charge("log", 1);
                 logs.push(format!("Transferred {} from {} to {}", amount, from, to));
@@ -541,7 +566,10 @@ impl ContractRuntime {
                     data: HashMap::from([
                         ("from".to_string(), Value::String(from.to_string())),
                         ("to".to_string(), Value::String(to.to_string())),
-                        ("amount".to_string(), Value::Number(serde_json::Number::from_f64(amount).unwrap())),
+                        (
+                            "amount".to_string(),
+                            Value::Number(serde_json::Number::from_f64(amount).unwrap()),
+                        ),
                     ]),
                     index: events.len(),
                 });
@@ -584,7 +612,10 @@ impl ContractRuntime {
                     .unwrap_or_default();
 
                 let to_balance = balances_map.get(to).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                balances_map.insert(to.to_string(), Value::Number(serde_json::Number::from_f64(to_balance + amount).unwrap()));
+                balances_map.insert(
+                    to.to_string(),
+                    Value::Number(serde_json::Number::from_f64(to_balance + amount).unwrap()),
+                );
                 new_state.insert("balances".to_string(), Value::Object(balances_map));
 
                 meter.charge("log", 1);
@@ -595,7 +626,10 @@ impl ContractRuntime {
                     event_name: "Mint".to_string(),
                     data: HashMap::from([
                         ("to".to_string(), Value::String(to.to_string())),
-                        ("amount".to_string(), Value::Number(serde_json::Number::from_f64(amount).unwrap())),
+                        (
+                            "amount".to_string(),
+                            Value::Number(serde_json::Number::from_f64(amount).unwrap()),
+                        ),
                     ]),
                     index: events.len(),
                 });
@@ -612,7 +646,10 @@ impl ContractRuntime {
             }
 
             "burn" => {
-                let from = input.get("from").and_then(|v| v.as_str()).unwrap_or_default();
+                let from = input
+                    .get("from")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 let amount = input.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
                 meter.charge("balance_check", 1);
@@ -623,7 +660,10 @@ impl ContractRuntime {
                     .cloned()
                     .unwrap_or_default();
 
-                let from_balance = balances_map.get(from).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let from_balance = balances_map
+                    .get(from)
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
 
                 if from_balance < amount {
                     events.push(ContractEvent {
@@ -631,8 +671,14 @@ impl ContractRuntime {
                         event_name: "BurnFailed".to_string(),
                         data: HashMap::from([
                             ("from".to_string(), Value::String(from.to_string())),
-                            ("amount".to_string(), Value::Number(serde_json::Number::from_f64(amount).unwrap())),
-                            ("reason".to_string(), Value::String("Insufficient balance".to_string())),
+                            (
+                                "amount".to_string(),
+                                Value::Number(serde_json::Number::from_f64(amount).unwrap()),
+                            ),
+                            (
+                                "reason".to_string(),
+                                Value::String("Insufficient balance".to_string()),
+                            ),
                         ]),
                         index: events.len(),
                     });
@@ -662,7 +708,10 @@ impl ContractRuntime {
                     };
                 }
 
-                balances_map.insert(from.to_string(), Value::Number(serde_json::Number::from_f64(from_balance - amount).unwrap()));
+                balances_map.insert(
+                    from.to_string(),
+                    Value::Number(serde_json::Number::from_f64(from_balance - amount).unwrap()),
+                );
                 new_state.insert("balances".to_string(), Value::Object(balances_map));
 
                 meter.charge("log", 1);
@@ -673,7 +722,10 @@ impl ContractRuntime {
                     event_name: "Burn".to_string(),
                     data: HashMap::from([
                         ("from".to_string(), Value::String(from.to_string())),
-                        ("amount".to_string(), Value::Number(serde_json::Number::from_f64(amount).unwrap())),
+                        (
+                            "amount".to_string(),
+                            Value::Number(serde_json::Number::from_f64(amount).unwrap()),
+                        ),
                     ]),
                     index: events.len(),
                 });
@@ -690,7 +742,10 @@ impl ContractRuntime {
             }
 
             "get_balance" => {
-                let address = input.get("address").and_then(|v| v.as_str()).unwrap_or_default();
+                let address = input
+                    .get("address")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
 
                 meter.charge("storage_read", 1);
 
@@ -714,16 +769,14 @@ impl ContractRuntime {
                 }
             }
 
-            _ => {
-                ExecutionResult {
-                    success: false,
-                    state_diff: None,
-                    gas_used: meter.gas_used(),
-                    error: Some(format!("Unknown entrypoint: {}", entrypoint)),
-                    logs,
-                    events,
-                }
-            }
+            _ => ExecutionResult {
+                success: false,
+                state_diff: None,
+                gas_used: meter.gas_used(),
+                error: Some(format!("Unknown entrypoint: {}", entrypoint)),
+                logs,
+                events,
+            },
         }
     }
 }
@@ -844,11 +897,9 @@ impl ContractService {
                 contract.height += 1;
 
                 let mut history = self.execution_history.write().await;
-                let contract_history = history
-                    .entry(call.contract_id.clone())
-                    .or_default();
+                let contract_history = history.entry(call.contract_id.clone()).or_default();
                 contract_history.push(diff.clone());
-                
+
                 const MAX_HISTORY_PER_CONTRACT: usize = 1000;
                 if contract_history.len() > MAX_HISTORY_PER_CONTRACT {
                     contract_history.drain(0..contract_history.len() - MAX_HISTORY_PER_CONTRACT);
@@ -875,10 +926,11 @@ impl ContractService {
 
             let mut receipts = self.receipts.write().await;
             receipts.insert(tx_hash.to_string(), receipt.clone());
-            
+
             const MAX_RECEIPTS: usize = 10000;
             if receipts.len() > MAX_RECEIPTS {
-                let keys_to_remove: Vec<_> = receipts.keys().take(MAX_RECEIPTS / 2).cloned().collect();
+                let keys_to_remove: Vec<_> =
+                    receipts.keys().take(MAX_RECEIPTS / 2).cloned().collect();
                 for key in keys_to_remove {
                     receipts.remove(&key);
                 }
@@ -899,7 +951,12 @@ impl ContractService {
         gas_limit: Option<u64>,
         account_snapshots: HashMap<String, wasm_runtime::AccountSnapshot>,
         timestamp: u64,
-    ) -> Result<(ExecutionResult, Option<ContractReceipt>, Vec<TransferEffect>, Vec<ViewKeyEffect>)> {
+    ) -> Result<(
+        ExecutionResult,
+        Option<ContractReceipt>,
+        Vec<TransferEffect>,
+        Vec<ViewKeyEffect>,
+    )> {
         let mut contracts = self.contracts.write().await;
 
         let contract = contracts
@@ -932,20 +989,24 @@ impl ContractService {
             ctx,
         );
 
-        let transfer_effects: Vec<TransferEffect> = output.transfer_ops.iter().map(|op| {
-            TransferEffect {
+        let transfer_effects: Vec<TransferEffect> = output
+            .transfer_ops
+            .iter()
+            .map(|op| TransferEffect {
                 from: op.from.clone(),
                 to: op.to.clone(),
                 amount: op.amount,
-            }
-        }).collect();
+            })
+            .collect();
 
-        let view_key_effects: Vec<ViewKeyEffect> = output.view_key_emissions.iter().map(|vk| {
-            ViewKeyEffect {
+        let view_key_effects: Vec<ViewKeyEffect> = output
+            .view_key_emissions
+            .iter()
+            .map(|vk| ViewKeyEffect {
                 key: vk.key.clone(),
                 value: vk.value.clone(),
-            }
-        }).collect();
+            })
+            .collect();
 
         let result = output.result;
 
@@ -971,9 +1032,7 @@ impl ContractService {
                 contract.height += 1;
 
                 let mut history = self.execution_history.write().await;
-                let contract_history = history
-                    .entry(call.contract_id.clone())
-                    .or_default();
+                let contract_history = history.entry(call.contract_id.clone()).or_default();
                 contract_history.push(diff.clone());
 
                 const MAX_HISTORY_PER_CONTRACT: usize = 1000;
@@ -1005,7 +1064,8 @@ impl ContractService {
 
             const MAX_RECEIPTS: usize = 10000;
             if receipts.len() > MAX_RECEIPTS {
-                let keys_to_remove: Vec<_> = receipts.keys().take(MAX_RECEIPTS / 2).cloned().collect();
+                let keys_to_remove: Vec<_> =
+                    receipts.keys().take(MAX_RECEIPTS / 2).cloned().collect();
                 for key in keys_to_remove {
                     receipts.remove(&key);
                 }
@@ -1033,7 +1093,10 @@ impl ContractService {
         self.contracts.read().await.keys().cloned().collect()
     }
 
-    pub async fn deploy_stateful_contract(&self, deploy: StatefulContractDeploy) -> Result<(String, String)> {
+    pub async fn deploy_stateful_contract(
+        &self,
+        deploy: StatefulContractDeploy,
+    ) -> Result<(String, String)> {
         let mut contracts = self.contracts.write().await;
 
         if contracts.contains_key(&deploy.contract_id) {
@@ -1060,7 +1123,10 @@ impl ContractService {
         let mut history = self.execution_history.write().await;
         history.insert(deploy.contract_id.clone(), Vec::new());
 
-        info!("Stateful contract deployed: {} with view key schema", deploy.contract_id);
+        info!(
+            "Stateful contract deployed: {} with view key schema",
+            deploy.contract_id
+        );
 
         Ok((deploy.contract_id, deploy_url))
     }
@@ -1082,7 +1148,10 @@ impl ContractService {
                 merged_input.insert(format!("proof.{}.{}", ctx.label, k), v.clone());
             }
         }
-        merged_input.insert("_proof_context".to_string(), serde_json::to_value(&validated_proofs).unwrap_or(Value::Null));
+        merged_input.insert(
+            "_proof_context".to_string(),
+            serde_json::to_value(&validated_proofs).unwrap_or(Value::Null),
+        );
 
         let mut contracts = self.contracts.write().await;
 
@@ -1141,13 +1210,15 @@ impl ContractService {
                 contract.schema.as_ref(),
             );
 
-            let compact_events: Vec<ContractEventCompact> = result.events.iter().map(|e| {
-                ContractEventCompact {
+            let compact_events: Vec<ContractEventCompact> = result
+                .events
+                .iter()
+                .map(|e| ContractEventCompact {
                     name: e.event_name.clone(),
                     data: e.data.clone(),
                     index: e.index,
-                }
-            }).collect();
+                })
+                .collect();
 
             let mut stateful_receipt = StatefulReceipt {
                 version: 1,
@@ -1195,7 +1266,8 @@ impl ContractService {
 
             const MAX_RECEIPTS: usize = 10000;
             if receipts.len() > MAX_RECEIPTS {
-                let keys_to_remove: Vec<_> = receipts.keys().take(MAX_RECEIPTS / 2).cloned().collect();
+                let keys_to_remove: Vec<_> =
+                    receipts.keys().take(MAX_RECEIPTS / 2).cloned().collect();
                 for key in keys_to_remove {
                     receipts.remove(&key);
                 }
@@ -1207,11 +1279,16 @@ impl ContractService {
         }
     }
 
-    fn validate_proof_inputs(&self, proof_inputs: &[ProofInput]) -> Result<Vec<ValidatedProofContext>> {
+    fn validate_proof_inputs(
+        &self,
+        proof_inputs: &[ProofInput],
+    ) -> Result<Vec<ValidatedProofContext>> {
         let mut contexts = Vec::with_capacity(proof_inputs.len());
 
         for input in proof_inputs {
-            input.validate().map_err(|e| anyhow!("Proof validation failed for '{}': {}", input.label, e))?;
+            input
+                .validate()
+                .map_err(|e| anyhow!("Proof validation failed for '{}': {}", input.label, e))?;
             contexts.push(ValidatedProofContext::from_proof_input(input));
         }
 
@@ -1229,31 +1306,46 @@ impl ContractService {
             None => return (vec![], None),
         };
 
-        let raw_keys: Vec<(String, Value, String)> = specs.iter().filter_map(|spec| {
-            let value = resolve_path(state, &spec.path)?;
-            let leaf_hash = compute_view_key_leaf_hash(contract_id, &spec.key, &value);
-            Some((spec.key.clone(), value, leaf_hash))
-        }).collect();
+        let raw_keys: Vec<(String, Value, String)> = specs
+            .iter()
+            .filter_map(|spec| {
+                let value = resolve_path(state, &spec.path)?;
+                let leaf_hash = compute_view_key_leaf_hash(contract_id, &spec.key, &value);
+                Some((spec.key.clone(), value, leaf_hash))
+            })
+            .collect();
 
         if raw_keys.is_empty() {
             return (vec![], None);
         }
 
-        let leaf_hashes: Vec<[u8; 32]> = raw_keys.iter().filter_map(|(_, _, hash)| {
-            let bytes = hex::decode(hash).ok()?;
-            if bytes.len() != 32 { return None; }
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&bytes);
-            Some(arr)
-        }).collect();
+        let leaf_hashes: Vec<[u8; 32]> = raw_keys
+            .iter()
+            .filter_map(|(_, _, hash)| {
+                let bytes = hex::decode(hash).ok()?;
+                if bytes.len() != 32 {
+                    return None;
+                }
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                Some(arr)
+            })
+            .collect();
 
         if leaf_hashes.is_empty() {
-            let view_keys = raw_keys.into_iter().map(|(key, value, leaf_hash)| {
-                ViewKeyValue {
-                    key, value, leaf_hash,
-                    proof: ViewKeyProof { siblings: vec![], path_bits: vec![], root: String::new() },
-                }
-            }).collect();
+            let view_keys = raw_keys
+                .into_iter()
+                .map(|(key, value, leaf_hash)| ViewKeyValue {
+                    key,
+                    value,
+                    leaf_hash,
+                    proof: ViewKeyProof {
+                        siblings: vec![],
+                        path_bits: vec![],
+                        root: String::new(),
+                    },
+                })
+                .collect();
             return (view_keys, None);
         }
 
@@ -1263,24 +1355,36 @@ impl ContractService {
                 let mut all_siblings = Vec::new();
                 let mut path_bitmap = Vec::new();
 
-                let view_keys: Vec<ViewKeyValue> = raw_keys.into_iter().enumerate().map(|(i, (key, value, leaf_hash))| {
-                    let proof = tree.get_proof(i).ok();
-                    if let Some(ref p) = proof {
-                        all_siblings.extend(p.siblings.clone());
-                        for bit in &p.path_bits {
-                            path_bitmap.push(if *bit { 1u8 } else { 0u8 });
+                let view_keys: Vec<ViewKeyValue> = raw_keys
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (key, value, leaf_hash))| {
+                        let proof = tree.get_proof(i).ok();
+                        if let Some(ref p) = proof {
+                            all_siblings.extend(p.siblings.clone());
+                            for bit in &p.path_bits {
+                                path_bitmap.push(if *bit { 1u8 } else { 0u8 });
+                            }
                         }
-                    }
 
-                    ViewKeyValue {
-                        key, value, leaf_hash,
-                        proof: ViewKeyProof {
-                            siblings: proof.as_ref().map(|p| p.siblings.clone()).unwrap_or_default(),
-                            path_bits: proof.as_ref().map(|p| p.path_bits.clone()).unwrap_or_default(),
-                            root: root.clone(),
-                        },
-                    }
-                }).collect();
+                        ViewKeyValue {
+                            key,
+                            value,
+                            leaf_hash,
+                            proof: ViewKeyProof {
+                                siblings: proof
+                                    .as_ref()
+                                    .map(|p| p.siblings.clone())
+                                    .unwrap_or_default(),
+                                path_bits: proof
+                                    .as_ref()
+                                    .map(|p| p.path_bits.clone())
+                                    .unwrap_or_default(),
+                                root: root.clone(),
+                            },
+                        }
+                    })
+                    .collect();
 
                 let multi_proof = MultiProof {
                     keys: view_keys.iter().map(|vk| vk.key.clone()).collect(),
@@ -1293,12 +1397,19 @@ impl ContractService {
                 (view_keys, Some(multi_proof))
             }
             Err(_) => {
-                let view_keys = raw_keys.into_iter().map(|(key, value, leaf_hash)| {
-                    ViewKeyValue {
-                        key, value, leaf_hash,
-                        proof: ViewKeyProof { siblings: vec![], path_bits: vec![], root: String::new() },
-                    }
-                }).collect();
+                let view_keys = raw_keys
+                    .into_iter()
+                    .map(|(key, value, leaf_hash)| ViewKeyValue {
+                        key,
+                        value,
+                        leaf_hash,
+                        proof: ViewKeyProof {
+                            siblings: vec![],
+                            path_bits: vec![],
+                            root: String::new(),
+                        },
+                    })
+                    .collect();
                 (view_keys, None)
             }
         }
@@ -1393,7 +1504,10 @@ mod tests {
     fn test_compute_state_hash() {
         let mut state = HashMap::new();
         state.insert("key1".to_string(), Value::String("value1".to_string()));
-        state.insert("key2".to_string(), Value::Number(serde_json::Number::from(42)));
+        state.insert(
+            "key2".to_string(),
+            Value::Number(serde_json::Number::from(42)),
+        );
 
         let hash1 = compute_state_hash(&state);
         let hash2 = compute_state_hash(&state);
@@ -1436,7 +1550,10 @@ mod tests {
         let state = HashMap::new();
         let mut input = HashMap::new();
         input.insert("to".to_string(), Value::String("alice".to_string()));
-        input.insert("amount".to_string(), Value::Number(serde_json::Number::from_f64(100.0).unwrap()));
+        input.insert(
+            "amount".to_string(),
+            Value::Number(serde_json::Number::from_f64(100.0).unwrap()),
+        );
 
         let result = runtime.execute("test_contract", "", "mint", &input, &state, 1, None);
 
@@ -1450,7 +1567,10 @@ mod tests {
     fn test_contract_runtime_transfer() {
         let runtime = ContractRuntime::new();
         let mut balances = serde_json::Map::new();
-        balances.insert("alice".to_string(), Value::Number(serde_json::Number::from_f64(100.0).unwrap()));
+        balances.insert(
+            "alice".to_string(),
+            Value::Number(serde_json::Number::from_f64(100.0).unwrap()),
+        );
 
         let mut state = HashMap::new();
         state.insert("balances".to_string(), Value::Object(balances));
@@ -1458,7 +1578,10 @@ mod tests {
         let mut input = HashMap::new();
         input.insert("from".to_string(), Value::String("alice".to_string()));
         input.insert("to".to_string(), Value::String("bob".to_string()));
-        input.insert("amount".to_string(), Value::Number(serde_json::Number::from_f64(50.0).unwrap()));
+        input.insert(
+            "amount".to_string(),
+            Value::Number(serde_json::Number::from_f64(50.0).unwrap()),
+        );
 
         let result = runtime.execute("test_contract", "", "transfer", &input, &state, 1, None);
 
@@ -1474,12 +1597,19 @@ mod tests {
         let mut input = HashMap::new();
         input.insert("from".to_string(), Value::String("alice".to_string()));
         input.insert("to".to_string(), Value::String("bob".to_string()));
-        input.insert("amount".to_string(), Value::Number(serde_json::Number::from_f64(50.0).unwrap()));
+        input.insert(
+            "amount".to_string(),
+            Value::Number(serde_json::Number::from_f64(50.0).unwrap()),
+        );
 
         let result = runtime.execute("test_contract", "", "transfer", &input, &state, 1, None);
 
         assert!(!result.success);
-        assert!(result.error.as_ref().unwrap().contains("Insufficient balance"));
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("Insufficient balance"));
     }
 
     #[tokio::test]

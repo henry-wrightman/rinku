@@ -13,9 +13,7 @@ pub fn storage_get<T: DeserializeOwned>(key: &str) -> Result<Option<T>, Contract
         return Ok(None);
     }
 
-    let bytes = unsafe {
-        core::slice::from_raw_parts(ptr as *const u8, len as usize).to_vec()
-    };
+    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize).to_vec() };
 
     serde_json::from_slice(&bytes)
         .map(Some)
@@ -63,7 +61,8 @@ pub fn storage_get_bool(key: &str) -> bool {
 
 pub fn storage_increment(key: &str, delta: i64) -> Result<i64, ContractError> {
     let current = storage_get_i64(key);
-    let new_val = current.checked_add(delta)
+    let new_val = current
+        .checked_add(delta)
         .ok_or(ContractError::overflow())?;
     storage_set(key, &new_val)?;
     Ok(new_val)

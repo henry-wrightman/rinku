@@ -90,11 +90,11 @@ pub struct MerkleWitness {
 
 pub fn poseidon_hash(inputs: &[Fr]) -> Fr {
     use light_poseidon::parameters::bn254_x5;
-    
+
     if inputs.is_empty() {
         return Fr::from(0u64);
     }
-    
+
     if inputs.len() > 12 {
         let first = poseidon_hash(&inputs[0..12]);
         let rest = &inputs[12..];
@@ -102,10 +102,13 @@ pub fn poseidon_hash(inputs: &[Fr]) -> Fr {
         combined.extend_from_slice(rest);
         return poseidon_hash(&combined);
     }
-    
-    let mut poseidon = Poseidon::<Fr>::new_circom(inputs.len()).expect("Failed to create Poseidon hasher");
-    
-    poseidon.hash(inputs).expect("Failed to compute Poseidon hash")
+
+    let mut poseidon =
+        Poseidon::<Fr>::new_circom(inputs.len()).expect("Failed to create Poseidon hasher");
+
+    poseidon
+        .hash(inputs)
+        .expect("Failed to compute Poseidon hash")
 }
 
 pub fn compute_nullifier(priv_key: &Fr, checkpoint_height: u64, tx_hash: &Fr) -> Fr {
@@ -120,11 +123,7 @@ pub fn compute_chain_id_hash(chain_id: &Fr) -> Fr {
     poseidon_hash(&[*chain_id])
 }
 
-pub fn compute_merkle_root(
-    tx_hash: &Fr,
-    path_elements: &[Fr],
-    path_indices: &[u8],
-) -> Fr {
+pub fn compute_merkle_root(tx_hash: &Fr, path_elements: &[Fr], path_indices: &[u8]) -> Fr {
     let mut current = *tx_hash;
 
     for (i, (element, index)) in path_elements.iter().zip(path_indices.iter()).enumerate() {
@@ -144,7 +143,9 @@ pub fn string_to_fr(s: &str) -> Result<Fr> {
         let bytes = hex::decode(&s[2..])?;
         Ok(Fr::from_be_bytes_mod_order(&bytes))
     } else {
-        let n: u128 = s.parse().map_err(|e| anyhow!("Failed to parse number: {}", e))?;
+        let n: u128 = s
+            .parse()
+            .map_err(|e| anyhow!("Failed to parse number: {}", e))?;
         Ok(Fr::from(n))
     }
 }
@@ -226,12 +227,7 @@ fn parse_g1_affine(x_str: &str, y_str: &str) -> Result<G1Affine> {
     Ok(G1Affine::new_unchecked(x_fq, y_fq))
 }
 
-fn parse_g2_affine(
-    x0_str: &str,
-    x1_str: &str,
-    y0_str: &str,
-    y1_str: &str,
-) -> Result<G2Affine> {
+fn parse_g2_affine(x0_str: &str, x1_str: &str, y0_str: &str, y1_str: &str) -> Result<G2Affine> {
     let x0 = string_to_fr(x0_str)?;
     let x1 = string_to_fr(x1_str)?;
     let y0 = string_to_fr(y0_str)?;
@@ -392,7 +388,11 @@ impl ZkVerifier {
             };
         }
 
-        if self.nullifier_registry.has(&payload.public_inputs.nullifier).await {
+        if self
+            .nullifier_registry
+            .has(&payload.public_inputs.nullifier)
+            .await
+        {
             return ZkVerifyResult {
                 valid: false,
                 reason: Some("Nullifier already used (double-claim attempt)".to_string()),
@@ -439,14 +439,12 @@ impl ZkVerifier {
 
         let pvk = ark_groth16::prepare_verifying_key(vk);
         match Groth16::<Bn254>::verify_proof(&pvk, &proof, &public_inputs) {
-            Ok(true) => {
-                ZkVerifyResult {
-                    valid: true,
-                    reason: None,
-                    cp_height: Some(payload.cp_height),
-                    amount_commitment: Some(payload.public_inputs.amount_commitment.clone()),
-                }
-            }
+            Ok(true) => ZkVerifyResult {
+                valid: true,
+                reason: None,
+                cp_height: Some(payload.cp_height),
+                amount_commitment: Some(payload.public_inputs.amount_commitment.clone()),
+            },
             Ok(false) => ZkVerifyResult {
                 valid: false,
                 reason: Some("Groth16 proof verification failed".to_string()),
@@ -537,10 +535,18 @@ fn parse_g2_from_json(value: &serde_json::Value) -> Result<G2Affine> {
         return Err(anyhow!("G2 coordinate needs 2 elements"));
     }
 
-    let x0_str = x_arr[0].as_str().ok_or_else(|| anyhow!("Expected string"))?;
-    let x1_str = x_arr[1].as_str().ok_or_else(|| anyhow!("Expected string"))?;
-    let y0_str = y_arr[0].as_str().ok_or_else(|| anyhow!("Expected string"))?;
-    let y1_str = y_arr[1].as_str().ok_or_else(|| anyhow!("Expected string"))?;
+    let x0_str = x_arr[0]
+        .as_str()
+        .ok_or_else(|| anyhow!("Expected string"))?;
+    let x1_str = x_arr[1]
+        .as_str()
+        .ok_or_else(|| anyhow!("Expected string"))?;
+    let y0_str = y_arr[0]
+        .as_str()
+        .ok_or_else(|| anyhow!("Expected string"))?;
+    let y1_str = y_arr[1]
+        .as_str()
+        .ok_or_else(|| anyhow!("Expected string"))?;
 
     parse_g2_affine(x0_str, x1_str, y0_str, y1_str)
 }
@@ -614,7 +620,8 @@ impl ZkService {
         stats.proofs_verified += 1;
         if result.valid {
             stats.proofs_valid += 1;
-            stats.nullifiers_registered = self.verifier.read().await.nullifier_registry().size().await;
+            stats.nullifiers_registered =
+                self.verifier.read().await.nullifier_registry().size().await;
         } else {
             stats.proofs_invalid += 1;
         }

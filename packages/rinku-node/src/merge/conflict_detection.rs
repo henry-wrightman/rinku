@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use rinku_core::types::Account;
 use super::{DirectConflict, EconomicConflict, PartitionTxSummary};
+use rinku_core::types::Account;
+use std::collections::{HashMap, HashSet};
 
 pub fn detect_direct_conflicts(
     local_txs: &[PartitionTxSummary],
@@ -27,7 +27,8 @@ pub fn detect_direct_conflicts(
                     nonce: tx.nonce,
                     local_tx_hash: local_hash.clone(),
                     remote_tx_hash: tx.tx_hash.clone(),
-                    local_partition_epoch: local_txs.iter()
+                    local_partition_epoch: local_txs
+                        .iter()
                         .find(|lt| lt.tx_hash == *local_hash)
                         .and_then(|lt| lt.partition_epoch),
                     remote_partition_epoch: tx.partition_epoch,
@@ -36,10 +37,7 @@ pub fn detect_direct_conflicts(
         }
     }
 
-    conflicts.sort_by(|a, b| {
-        a.account.cmp(&b.account)
-            .then(a.nonce.cmp(&b.nonce))
-    });
+    conflicts.sort_by(|a, b| a.account.cmp(&b.account).then(a.nonce.cmp(&b.nonce)));
 
     conflicts
 }
@@ -63,7 +61,8 @@ pub fn detect_economic_conflicts(
         }
     }
 
-    let cross_partition_accounts: HashSet<&String> = local_accounts.intersection(&remote_accounts).collect();
+    let cross_partition_accounts: HashSet<&String> =
+        local_accounts.intersection(&remote_accounts).collect();
     if cross_partition_accounts.is_empty() {
         return Vec::new();
     }
@@ -107,17 +106,16 @@ pub fn detect_economic_conflicts(
     conflicts
 }
 
-fn compute_account_flows(
-    txs: &[PartitionTxSummary],
-    account: &str,
-) -> (u64, u64, Vec<String>) {
+fn compute_account_flows(txs: &[PartitionTxSummary], account: &str) -> (u64, u64, Vec<String>) {
     let mut total_sent: u64 = 0;
     let mut total_received: u64 = 0;
     let mut hashes = Vec::new();
 
     for tx in txs {
         if tx.from == account {
-            total_sent = total_sent.saturating_add(tx.amount_micro).saturating_add(tx.gas_micro);
+            total_sent = total_sent
+                .saturating_add(tx.amount_micro)
+                .saturating_add(tx.gas_micro);
             hashes.push(tx.tx_hash.clone());
         }
         if tx.to == account && tx.from != account {
@@ -144,7 +142,14 @@ mod tests {
     use crate::merge::PartitionTxSummary;
     use rinku_core::types::to_micro_units;
 
-    fn make_tx(hash: &str, from: &str, to: &str, amount: f64, nonce: u64, weight: f64) -> PartitionTxSummary {
+    fn make_tx(
+        hash: &str,
+        from: &str,
+        to: &str,
+        amount: f64,
+        nonce: u64,
+        weight: f64,
+    ) -> PartitionTxSummary {
         PartitionTxSummary {
             tx_hash: hash.to_string(),
             from: from.to_string(),
@@ -153,6 +158,8 @@ mod tests {
             gas_micro: to_micro_units(0.001),
             nonce,
             weight,
+            dag_depth: 0,
+            parents: vec![],
             partition_epoch: Some(1),
             visible_stake_pct: 0.5,
         }
@@ -243,9 +250,7 @@ mod tests {
             make_tx("tx_fund", "bob", "alice", 30.0, 1, 1.0),
             make_tx("tx_a", "alice", "carol", 60.0, 5, 1.0),
         ];
-        let remote = vec![
-            make_tx("tx_b", "alice", "dave", 60.0, 6, 1.0),
-        ];
+        let remote = vec![make_tx("tx_b", "alice", "dave", 60.0, 6, 1.0)];
 
         let conflicts = detect_economic_conflicts(&local, &remote, &accounts);
         assert_eq!(conflicts.len(), 1);

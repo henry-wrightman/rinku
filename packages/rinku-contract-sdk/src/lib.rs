@@ -1,27 +1,23 @@
 pub mod host;
-pub mod types;
-pub mod storage;
 pub mod ledger;
+pub mod storage;
+pub mod types;
 
 pub use types::*;
 
 pub use host::{
-    log, get_block_height, get_timestamp,
-    get_caller, get_contract_id, get_input_json,
-    set_return_data, set_error_msg, get_gas_remaining,
+    get_block_height, get_caller, get_contract_id, get_gas_remaining, get_input_json,
+    get_timestamp, log, set_error_msg, set_return_data,
 };
 
 pub use storage::{
-    storage_get, storage_get_or_default, storage_set,
-    storage_delete, storage_has, storage_get_u64,
-    storage_get_i64, storage_get_string, storage_get_bool,
-    storage_increment,
+    storage_delete, storage_get, storage_get_bool, storage_get_i64, storage_get_or_default,
+    storage_get_string, storage_get_u64, storage_has, storage_increment, storage_set,
 };
 
 pub use ledger::{
-    get_balance, get_balance_micro, get_staked,
-    transfer, transfer_from, emit_view_key, emit_event,
-    set_return_json, sha256, require, require_caller,
+    emit_event, emit_view_key, get_balance, get_balance_micro, get_staked, require, require_caller,
+    set_return_json, sha256, transfer, transfer_from,
 };
 
 pub use ledger::get_account_age;

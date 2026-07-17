@@ -853,10 +853,7 @@ impl CheckpointService {
                 let (_tps, tps_short, tps_long) = self.state.get_dynamic_tps().await;
                 let (fast_path_pool_size, accounts_count) = {
                     let state = self.state.inner.read().await;
-                    (
-                        state.fast_path_finalized_txs.len(),
-                        state.accounts.len(),
-                    )
+                    (state.fast_path_finalized_txs.len(), state.accounts.len())
                 };
                 let gossip_stats = if let Some(ref gossip) = self.gossip_service {
                     let stats = gossip.get_fast_path_stats().await;
@@ -1792,15 +1789,19 @@ impl CheckpointService {
 
         let _finalized = state.dag.mark_finalized_batch(&hashes, height);
 
-        let batch_result =
-            crate::state::NodeState::execute_batch_inline(&mut state, &contract_lane_txs, &available_nonces);
+        let batch_result = crate::state::NodeState::execute_batch_inline(
+            &mut state,
+            &contract_lane_txs,
+            &available_nonces,
+        );
 
         {
             let cleared = state.clear_checkpoint_finalized_txs(&fast_path_already_finalized);
             if cleared > 0 {
                 tracing::info!(
                     "Proposer checkpoint h={}: cleared {} fast-path finalized entries",
-                    height, cleared
+                    height,
+                    cleared
                 );
             }
         }
@@ -1829,7 +1830,8 @@ impl CheckpointService {
         {
             let compact_start = std::time::Instant::now();
             let old_dirty = state.state_trie.dirty_node_count();
-            state.state_trie = crate::state::StateInner::build_state_trie_from_accounts(&state.accounts);
+            state.state_trie =
+                crate::state::StateInner::build_state_trie_from_accounts(&state.accounts);
             let compact_ms = compact_start.elapsed().as_millis();
             if compact_ms > 2 || old_dirty > 5000 {
                 tracing::info!(
@@ -1922,10 +1924,7 @@ impl CheckpointService {
         let mut all_special_txs = batch_result.special_txs;
         all_special_txs.extend(fp_special_txs);
         self.state
-            .process_batch_special_txs_with_skip(
-                &all_special_txs,
-                &fast_path_already_finalized,
-            )
+            .process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized)
             .await;
 
         {
@@ -3240,8 +3239,7 @@ impl CheckpointService {
                 match result {
                     Ok(SyncResponse::Snapshot(snapshot_data)) => {
                         let strict = self.state.sync_verify_strict();
-                        let mut verifier =
-                            crate::sync_verification::SyncVerifier::new(strict);
+                        let mut verifier = crate::sync_verification::SyncVerifier::new(strict);
                         if !verifier.verify_snapshot(&snapshot_data) {
                             warn!(
                                 "[ForkRecovery] Peer snapshot failed SyncVerifier: {}",
@@ -4246,7 +4244,9 @@ impl CheckpointService {
                     break;
                 }
                 if let Some(account) = state_guard.accounts.get(&tx.tx.from) {
-                    let fp_effective_nonce = state_guard.fast_path_finalized_txs.values()
+                    let fp_effective_nonce = state_guard
+                        .fast_path_finalized_txs
+                        .values()
                         .filter(|e| e.from == tx.tx.from)
                         .map(|e| e.nonce + 1)
                         .max()
@@ -4321,7 +4321,8 @@ impl CheckpointService {
                 .keys()
                 .cloned()
                 .collect();
-            let cl_txs: Vec<rinku_core::SignedTransaction> = txs.iter()
+            let cl_txs: Vec<rinku_core::SignedTransaction> = txs
+                .iter()
                 .filter(|tx| !hash_set.contains(&tx.hash))
                 .cloned()
                 .collect();
@@ -4341,7 +4342,9 @@ impl CheckpointService {
         let finalized_proofs = proofs_result.proofs;
 
         let pre_filter_count = hashes.len();
-        hashes.retain(|h| proofs_result.executed_tx_hashes.contains(h) || fast_path_executed.contains(h));
+        hashes.retain(|h| {
+            proofs_result.executed_tx_hashes.contains(h) || fast_path_executed.contains(h)
+        });
         let filtered_count = pre_filter_count - hashes.len();
         if filtered_count > 0 {
             tracing::warn!(

@@ -50,7 +50,8 @@ impl WriteAheadLog {
 
     pub fn open(&mut self) -> Result<(), String> {
         if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("WAL: failed to create dir: {}", e))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("WAL: failed to create dir: {}", e))?;
         }
         let file = std::fs::OpenOptions::new()
             .create(true)
@@ -63,10 +64,15 @@ impl WriteAheadLog {
     }
 
     pub fn write_entry(&mut self, entry: &WalEntry) -> Result<(), String> {
-        let file = self.file.as_mut().ok_or_else(|| "WAL: not opened".to_string())?;
-        let json = serde_json::to_string(entry).map_err(|e| format!("WAL: serialize error: {}", e))?;
+        let file = self
+            .file
+            .as_mut()
+            .ok_or_else(|| "WAL: not opened".to_string())?;
+        let json =
+            serde_json::to_string(entry).map_err(|e| format!("WAL: serialize error: {}", e))?;
         writeln!(file, "{}", json).map_err(|e| format!("WAL: write error: {}", e))?;
-        file.flush().map_err(|e| format!("WAL: flush error: {}", e))?;
+        file.flush()
+            .map_err(|e| format!("WAL: flush error: {}", e))?;
         self.entry_count += 1;
 
         match entry {
@@ -97,7 +103,13 @@ impl WriteAheadLog {
         })
     }
 
-    pub fn log_account_update(&mut self, address: &str, balance: u64, nonce: u64, staked: u64) -> Result<(), String> {
+    pub fn log_account_update(
+        &mut self,
+        address: &str,
+        balance: u64,
+        nonce: u64,
+        staked: u64,
+    ) -> Result<(), String> {
         self.write_entry(&WalEntry::AccountUpdate {
             address: address.to_string(),
             balance,
@@ -116,12 +128,15 @@ impl WriteAheadLog {
 
     pub fn truncate(&mut self) -> Result<(), String> {
         if let Some(ref mut file) = self.file {
-            drop(std::mem::replace(file, std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&self.path)
-                .map_err(|e| format!("WAL: truncate reopen error: {}", e))?));
+            drop(std::mem::replace(
+                file,
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(&self.path)
+                    .map_err(|e| format!("WAL: truncate reopen error: {}", e))?,
+            ));
         }
         self.entry_count = 0;
         Ok(())
@@ -163,11 +178,20 @@ impl WriteAheadLog {
 
         for entry in &entries {
             match entry {
-                WalEntry::BeginCheckpoint { height, checkpoint_hash, .. } => {
+                WalEntry::BeginCheckpoint {
+                    height,
+                    checkpoint_hash,
+                    ..
+                } => {
                     uncommitted_begin = Some((*height, checkpoint_hash.clone()));
                     account_updates.clear();
                 }
-                WalEntry::AccountUpdate { address, balance, nonce, staked } => {
+                WalEntry::AccountUpdate {
+                    address,
+                    balance,
+                    nonce,
+                    staked,
+                } => {
                     account_updates.push((address.clone(), *balance, *nonce, *staked));
                 }
                 WalEntry::CommitCheckpoint { height, .. } => {
@@ -209,7 +233,10 @@ impl WriteAheadLog {
             }
         }
 
-        info!("WAL RECOVERY: all entries committed (last h={}), clean startup", last_committed_height);
+        info!(
+            "WAL RECOVERY: all entries committed (last h={}), clean startup",
+            last_committed_height
+        );
         Ok(None)
     }
 

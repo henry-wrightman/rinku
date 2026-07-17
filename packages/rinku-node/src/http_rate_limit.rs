@@ -46,7 +46,10 @@ impl SlidingWindowLimiter {
 
         // Opportunistic cleanup of idle keys
         if map.len() > 10_000 {
-            map.retain(|_, q| q.front().is_some_and(|t| now.duration_since(*t) <= self.window));
+            map.retain(|_, q| {
+                q.front()
+                    .is_some_and(|t| now.duration_since(*t) <= self.window)
+            });
         }
 
         true

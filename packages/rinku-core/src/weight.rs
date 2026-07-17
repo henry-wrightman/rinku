@@ -1,9 +1,7 @@
-use crate::types::{
-    Account, WeightVote, AggregatedWeight, 
-    PendingWeightVote, WeightTrieLeaf,
-    from_micro_units,
-};
 use crate::crypto::{sha256, sha256_hex};
+use crate::types::{
+    from_micro_units, Account, AggregatedWeight, PendingWeightVote, WeightTrieLeaf, WeightVote,
+};
 use std::collections::HashMap;
 
 /// Convert a public key (hex) to an address (first 40 chars of SHA256 hash of raw bytes)
@@ -243,178 +241,179 @@ impl WeightTrie {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Get the aggregated weight for a transaction hash
     pub fn get_weight(&self, tx_hash: &str) -> Option<&AggregatedWeight> {
         self.weights.get(tx_hash)
     }
-    
+
     /// Add a pending weight vote from a validator
     pub fn add_vote(&mut self, vote: PendingWeightVote) {
         self.pending_votes.push(vote);
         self.cached_root = None;
     }
-    
+
     /// Process all pending votes and aggregate into final weights
     /// Called during checkpoint finalization
-    /// 
+    ///
     /// Parameters:
     /// - validator_stakes: map of validator_pubkey -> stake_micro at this checkpoint
     /// - total_network_stake: sum of all validator stakes
     pub fn finalize_votes(
-        &mut self, 
+        &mut self,
         validator_stakes: &HashMap<String, u64>,
         total_network_stake: u64,
     ) -> Vec<(String, AggregatedWeight)> {
         // Group pending votes by tx_hash
         let mut tx_votes: HashMap<String, Vec<&PendingWeightVote>> = HashMap::new();
         for vote in &self.pending_votes {
-            tx_votes.entry(vote.tx_hash.clone())
-                .or_default()
-                .push(vote);
+            tx_votes.entry(vote.tx_hash.clone()).or_default().push(vote);
         }
-        
+
         let mut updated = Vec::new();
-        
+
         for (tx_hash, votes) in tx_votes {
             // Deduplicate by validator (last vote wins)
             let mut validator_votes: HashMap<String, &PendingWeightVote> = HashMap::new();
             for vote in votes {
                 validator_votes.insert(vote.validator_pubkey.clone(), vote);
             }
-            
+
             // Aggregate weights
             let mut boost_stake: u64 = 0;
             let mut suppress_stake: u64 = 0;
             let mut neutral_stake: u64 = 0;
             let mut attestation_count: u32 = 0;
-            
+
             for (validator, vote) in validator_votes {
                 // Look up stake: first try validator key as-is (might be address),
                 // then derive address from pubkey if it looks like a full public key
-                let (stake, derived_addr_for_log) = if let Some(&s) = validator_stakes.get(&validator) {
-                    (s, None)
-                } else if validator.len() >= 128 {
-                    // Derive address from pubkey (SHA256 of raw bytes, first 40 hex chars)
-                    let derived_addr = pubkey_to_address(&validator);
-                    // Try exact match first
-                    if let Some(&s) = validator_stakes.get(&derived_addr) {
-                        (s, Some(derived_addr))
+                let (stake, derived_addr_for_log) =
+                    if let Some(&s) = validator_stakes.get(&validator) {
+                        (s, None)
+                    } else if validator.len() >= 128 {
+                        // Derive address from pubkey (SHA256 of raw bytes, first 40 hex chars)
+                        let derived_addr = pubkey_to_address(&validator);
+                        // Try exact match first
+                        if let Some(&s) = validator_stakes.get(&derived_addr) {
+                            (s, Some(derived_addr))
+                        } else {
+                            // Try prefix matching in case addresses have different lengths
+                            let found = validator_stakes
+                                .iter()
+                                .find(|(k, _)| {
+                                    derived_addr.starts_with(*k) || k.starts_with(&derived_addr)
+                                })
+                                .map(|(_, v)| *v);
+                            (found.unwrap_or(0), Some(derived_addr))
+                        }
                     } else {
-                        // Try prefix matching in case addresses have different lengths
-                        let found = validator_stakes.iter()
-                            .find(|(k, _)| derived_addr.starts_with(*k) || k.starts_with(&derived_addr))
-                            .map(|(_, v)| *v);
-                        (found.unwrap_or(0), Some(derived_addr))
-                    }
-                } else {
-                    (0, None)
-                };
-                
+                        (0, None)
+                    };
+
                 // Store debug info for logging by caller
                 if let Some(addr) = derived_addr_for_log {
                     // We can't log from rinku-core easily, but the stake value will show in aggregation
                     let _ = addr; // Suppress unused warning
                 }
-                
+
                 attestation_count += 1;
-                
+
                 match vote.vote {
                     WeightVote::Boost => boost_stake += stake,
                     WeightVote::Suppress => suppress_stake += stake,
                     WeightVote::Neutral => neutral_stake += stake,
                 }
             }
-            
-            let net_weight = boost_stake as i64 - suppress_stake as i64;
-            
-            let aggregated = AggregatedWeight {
-                boost_stake_micro: boost_stake,
-                suppress_stake_micro: suppress_stake,
-                neutral_stake_micro: neutral_stake,
-                net_weight,
-                attestation_count,
-                total_network_stake_micro: total_network_stake,
-            };
-            
+
             // Merge with existing weights (cumulative)
             let existing = self.weights.entry(tx_hash.clone()).or_default();
             existing.boost_stake_micro = existing.boost_stake_micro.saturating_add(boost_stake);
-            existing.suppress_stake_micro = existing.suppress_stake_micro.saturating_add(suppress_stake);
-            existing.neutral_stake_micro = existing.neutral_stake_micro.saturating_add(neutral_stake);
-            existing.net_weight = existing.boost_stake_micro as i64 - existing.suppress_stake_micro as i64;
-            existing.attestation_count = existing.attestation_count.saturating_add(attestation_count);
+            existing.suppress_stake_micro =
+                existing.suppress_stake_micro.saturating_add(suppress_stake);
+            existing.neutral_stake_micro =
+                existing.neutral_stake_micro.saturating_add(neutral_stake);
+            existing.net_weight =
+                existing.boost_stake_micro as i64 - existing.suppress_stake_micro as i64;
+            existing.attestation_count =
+                existing.attestation_count.saturating_add(attestation_count);
             existing.total_network_stake_micro = total_network_stake;
-            
+
             updated.push((tx_hash, existing.clone()));
         }
-        
+
         // Clear pending votes
         self.pending_votes.clear();
         self.cached_root = None;
-        
+
         updated
     }
-    
+
     /// Get all weights (for serialization)
     pub fn all_weights(&self) -> &HashMap<String, AggregatedWeight> {
         &self.weights
     }
-    
+
     /// Load weights from storage
     pub fn load_weights(&mut self, weights: HashMap<String, AggregatedWeight>) {
         self.weights = weights;
         self.cached_root = None;
     }
-    
+
     /// Compute Merkle root of the weight trie
     pub fn compute_root(&mut self) -> String {
         if let Some(ref root) = self.cached_root {
             return root.clone();
         }
-        
+
         if self.weights.is_empty() {
             let empty_root = sha256_hex("weight_trie:empty");
             self.cached_root = Some(empty_root.clone());
             return empty_root;
         }
-        
+
         // Sort by tx_hash for deterministic ordering
         let mut sorted_keys: Vec<_> = self.weights.keys().cloned().collect();
         sorted_keys.sort();
-        
+
         // Build leaves with all fields for deterministic reconstruction
-        let leaves: Vec<String> = sorted_keys.iter().map(|tx_hash| {
-            let w = &self.weights[tx_hash];
-            let leaf = WeightTrieLeaf {
-                tx_hash: tx_hash.clone(),
-                boost_stake_micro: w.boost_stake_micro,
-                suppress_stake_micro: w.suppress_stake_micro,
-                neutral_stake_micro: w.neutral_stake_micro,
-                total_network_stake_micro: w.total_network_stake_micro,
-                attestation_count: w.attestation_count,
-            };
-            hash_weight_leaf(&leaf)
-        }).collect();
-        
+        let leaves: Vec<String> = sorted_keys
+            .iter()
+            .map(|tx_hash| {
+                let w = &self.weights[tx_hash];
+                let leaf = WeightTrieLeaf {
+                    tx_hash: tx_hash.clone(),
+                    boost_stake_micro: w.boost_stake_micro,
+                    suppress_stake_micro: w.suppress_stake_micro,
+                    neutral_stake_micro: w.neutral_stake_micro,
+                    total_network_stake_micro: w.total_network_stake_micro,
+                    attestation_count: w.attestation_count,
+                };
+                hash_weight_leaf(&leaf)
+            })
+            .collect();
+
         // Build Merkle tree
         let root = build_merkle_root(&leaves);
         self.cached_root = Some(root.clone());
         root
     }
-    
+
     /// Generate a Merkle proof for a specific transaction's weight
     /// Returns (proof, index, leaf) for offline verification
-    pub fn generate_proof(&mut self, tx_hash: &str) -> Option<(Vec<String>, usize, WeightTrieLeaf)> {
+    pub fn generate_proof(
+        &mut self,
+        tx_hash: &str,
+    ) -> Option<(Vec<String>, usize, WeightTrieLeaf)> {
         let weight = self.weights.get(tx_hash)?;
-        
+
         // Sort keys for deterministic ordering
         let mut sorted_keys: Vec<_> = self.weights.keys().cloned().collect();
         sorted_keys.sort();
-        
+
         // Find index
         let index = sorted_keys.iter().position(|k| k == tx_hash)?;
-        
+
         // Create the leaf for this tx
         let target_leaf = WeightTrieLeaf {
             tx_hash: tx_hash.to_string(),
@@ -424,36 +423,44 @@ impl WeightTrie {
             total_network_stake_micro: weight.total_network_stake_micro,
             attestation_count: weight.attestation_count,
         };
-        
+
         // Build all leaves
-        let leaves: Vec<String> = sorted_keys.iter().map(|key| {
-            let w = &self.weights[key];
-            let leaf = WeightTrieLeaf {
-                tx_hash: key.clone(),
-                boost_stake_micro: w.boost_stake_micro,
-                suppress_stake_micro: w.suppress_stake_micro,
-                neutral_stake_micro: w.neutral_stake_micro,
-                total_network_stake_micro: w.total_network_stake_micro,
-                attestation_count: w.attestation_count,
-            };
-            hash_weight_leaf(&leaf)
-        }).collect();
-        
+        let leaves: Vec<String> = sorted_keys
+            .iter()
+            .map(|key| {
+                let w = &self.weights[key];
+                let leaf = WeightTrieLeaf {
+                    tx_hash: key.clone(),
+                    boost_stake_micro: w.boost_stake_micro,
+                    suppress_stake_micro: w.suppress_stake_micro,
+                    neutral_stake_micro: w.neutral_stake_micro,
+                    total_network_stake_micro: w.total_network_stake_micro,
+                    attestation_count: w.attestation_count,
+                };
+                hash_weight_leaf(&leaf)
+            })
+            .collect();
+
         // Generate proof
         let proof = build_merkle_proof(&leaves, index);
         Some((proof, index, target_leaf))
     }
-    
+
     /// Prune weights for transactions older than a checkpoint height
-    pub fn prune_before_checkpoint(&mut self, min_checkpoint: u64, tx_checkpoints: &HashMap<String, u64>) {
+    pub fn prune_before_checkpoint(
+        &mut self,
+        min_checkpoint: u64,
+        tx_checkpoints: &HashMap<String, u64>,
+    ) {
         self.weights.retain(|tx_hash, _| {
-            tx_checkpoints.get(tx_hash)
+            tx_checkpoints
+                .get(tx_hash)
                 .map(|cp| *cp >= min_checkpoint)
                 .unwrap_or(false)
         });
         self.cached_root = None;
     }
-    
+
     /// Get pending vote count
     pub fn pending_vote_count(&self) -> usize {
         self.pending_votes.len()
@@ -468,12 +475,12 @@ fn build_merkle_root(leaves: &[String]) -> String {
     if leaves.len() == 1 {
         return leaves[0].clone();
     }
-    
+
     let mut current_level = leaves.to_vec();
-    
+
     while current_level.len() > 1 {
         let mut next_level = Vec::new();
-        
+
         for chunk in current_level.chunks(2) {
             let combined = if chunk.len() == 2 {
                 format!("{}{}", chunk[0], chunk[1])
@@ -482,10 +489,10 @@ fn build_merkle_root(leaves: &[String]) -> String {
             };
             next_level.push(sha256_hex(&combined));
         }
-        
+
         current_level = next_level;
     }
-    
+
     current_level[0].clone()
 }
 
@@ -494,26 +501,26 @@ fn build_merkle_proof(leaves: &[String], index: usize) -> Vec<String> {
     if leaves.len() <= 1 {
         return vec![];
     }
-    
+
     let mut proof = Vec::new();
     let mut current_level = leaves.to_vec();
     let mut current_index = index;
-    
+
     while current_level.len() > 1 {
-        let sibling_index = if current_index % 2 == 0 {
+        let sibling_index = if current_index.is_multiple_of(2) {
             current_index + 1
         } else {
             current_index - 1
         };
-        
+
         let sibling = if sibling_index < current_level.len() {
             current_level[sibling_index].clone()
         } else {
             current_level[current_index].clone() // Duplicate for odd count
         };
-        
+
         proof.push(sibling);
-        
+
         // Move to next level
         let mut next_level = Vec::new();
         for chunk in current_level.chunks(2) {
@@ -524,11 +531,11 @@ fn build_merkle_proof(leaves: &[String], index: usize) -> Vec<String> {
             };
             next_level.push(sha256_hex(&combined));
         }
-        
+
         current_level = next_level;
         current_index /= 2;
     }
-    
+
     proof
 }
 
@@ -541,27 +548,27 @@ pub fn verify_weight_proof(
 ) -> bool {
     let mut current_hash = hash_weight_leaf(leaf);
     let mut current_index = index;
-    
+
     for sibling in proof {
-        current_hash = if current_index % 2 == 0 {
+        current_hash = if current_index.is_multiple_of(2) {
             sha256_hex(&format!("{}{}", current_hash, sibling))
         } else {
             sha256_hex(&format!("{}{}", sibling, current_hash))
         };
         current_index /= 2;
     }
-    
+
     current_hash == expected_root
 }
 
 #[cfg(test)]
 mod weight_trie_tests {
     use super::*;
-    
+
     #[test]
     fn test_weight_trie_basic() {
         let mut trie = WeightTrie::new();
-        
+
         // Add some votes
         trie.add_vote(PendingWeightVote {
             tx_hash: "tx1".to_string(),
@@ -570,7 +577,7 @@ mod weight_trie_tests {
             timestamp_ms: 1000,
             bls_signature: None,
         });
-        
+
         trie.add_vote(PendingWeightVote {
             tx_hash: "tx1".to_string(),
             validator_pubkey: "val2".to_string(),
@@ -578,14 +585,14 @@ mod weight_trie_tests {
             timestamp_ms: 1001,
             bls_signature: None,
         });
-        
+
         // Finalize with validator stakes
         let mut stakes = HashMap::new();
         stakes.insert("val1".to_string(), 1000_u64);
         stakes.insert("val2".to_string(), 2000_u64);
-        
+
         let updated = trie.finalize_votes(&stakes, 3000);
-        
+
         assert_eq!(updated.len(), 1);
         let (tx_hash, weight) = &updated[0];
         assert_eq!(tx_hash, "tx1");
@@ -593,40 +600,46 @@ mod weight_trie_tests {
         assert_eq!(weight.suppress_stake_micro, 0);
         assert_eq!(weight.attestation_count, 2);
     }
-    
+
     #[test]
     fn test_weight_proof_verification() {
         let mut trie = WeightTrie::new();
-        
+
         // Manually add weights
         let mut weights = HashMap::new();
-        weights.insert("tx1".to_string(), AggregatedWeight {
-            boost_stake_micro: 1000,
-            suppress_stake_micro: 0,
-            neutral_stake_micro: 0,
-            net_weight: 1000,
-            attestation_count: 1,
-            total_network_stake_micro: 1000,
-        });
-        weights.insert("tx2".to_string(), AggregatedWeight {
-            boost_stake_micro: 500,
-            suppress_stake_micro: 500,
-            neutral_stake_micro: 0,
-            net_weight: 0,
-            attestation_count: 2,
-            total_network_stake_micro: 1000,
-        });
+        weights.insert(
+            "tx1".to_string(),
+            AggregatedWeight {
+                boost_stake_micro: 1000,
+                suppress_stake_micro: 0,
+                neutral_stake_micro: 0,
+                net_weight: 1000,
+                attestation_count: 1,
+                total_network_stake_micro: 1000,
+            },
+        );
+        weights.insert(
+            "tx2".to_string(),
+            AggregatedWeight {
+                boost_stake_micro: 500,
+                suppress_stake_micro: 500,
+                neutral_stake_micro: 0,
+                net_weight: 0,
+                attestation_count: 2,
+                total_network_stake_micro: 1000,
+            },
+        );
         trie.load_weights(weights);
-        
+
         // Compute root
         let root = trie.compute_root();
-        
+
         // Generate proof for tx1 - now returns leaf as well
         let (proof, index, leaf) = trie.generate_proof("tx1").unwrap();
-        
+
         // Verify - leaf returned by generate_proof has all fields
         assert!(verify_weight_proof(&leaf, &proof, index, &root));
-        
+
         // Verify leaf can reconstruct AggregatedWeight
         let reconstructed = leaf_to_aggregated_weight(&leaf);
         assert_eq!(reconstructed.trust_score(), 100); // All boost, no suppress

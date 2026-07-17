@@ -1,10 +1,10 @@
 use std::sync::Arc;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 use crate::events::{EventBus, NodeEvent};
 use crate::gossip::GossipService;
-use crate::state::NodeState;
 use crate::state::partition::PartitionStatus;
+use crate::state::NodeState;
 
 const DEFAULT_CONFIRMATION_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_RECOVERY_WINDOW_MS: u64 = 10_000;
@@ -80,10 +80,9 @@ impl PartitionDetector {
 
         let (visible_validators, visible_stake_pct) = self.compute_visibility().await;
 
-        self.state.update_partition_visibility(
-            visible_validators.clone(),
-            visible_stake_pct,
-        ).await;
+        self.state
+            .update_partition_visibility(visible_validators.clone(), visible_stake_pct)
+            .await;
 
         let current_status = {
             let ps = self.state.get_partition_state().await;
@@ -97,7 +96,8 @@ impl PartitionDetector {
                     self.recovery_started_at = None;
                     if let Some(ref bus) = self.event_bus {
                         let known_validators = self.get_known_validators().await;
-                        let missing: Vec<String> = known_validators.into_iter()
+                        let missing: Vec<String> = known_validators
+                            .into_iter()
                             .filter(|v| !visible_validators.contains(v))
                             .collect();
                         bus.publish(NodeEvent::PartitionSuspected {
@@ -131,7 +131,10 @@ impl PartitionDetector {
                     match self.recovery_started_at {
                         None => {
                             self.recovery_started_at = Some(now);
-                            debug!("Partition recovery candidate: visible stake at {:.1}%", visible_stake_pct * 100.0);
+                            debug!(
+                                "Partition recovery candidate: visible stake at {:.1}%",
+                                visible_stake_pct * 100.0
+                            );
                         }
                         Some(started) => {
                             if now - started >= self.config.recovery_window_ms {
@@ -217,9 +220,11 @@ impl PartitionDetector {
     async fn get_peer_validator_addresses(&self) -> Vec<String> {
         if let Some(ref gossip) = self.gossip_service {
             let p2p_peers = gossip.get_p2p_peers().await;
-            p2p_peers.iter()
+            p2p_peers
+                .iter()
                 .filter_map(|p| {
-                    p.handshake_info.as_ref()
+                    p.handshake_info
+                        .as_ref()
                         .and_then(|h| h.validator_address.clone())
                 })
                 .collect()
@@ -227,5 +232,4 @@ impl PartitionDetector {
             Vec::new()
         }
     }
-
 }

@@ -1,3 +1,7 @@
+use argon2::Argon2;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use p256::{
     ecdsa::{
         signature::{Signer, Verifier},
@@ -5,13 +9,9 @@ use p256::{
     },
     SecretKey,
 };
-use sha2::{Digest, Sha256};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use argon2::Argon2;
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
-use chacha20poly1305::aead::{Aead, KeyInit};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -107,7 +107,8 @@ impl KeyPair {
             "publicKey": self.public_key_hex(),
             "privateKey": self.private_key_pkcs8_der_hex(),
             "fingerprint": self.fingerprint()
-        }).to_string()
+        })
+        .to_string()
     }
 
     pub fn from_pkcs8_der_hex(hex_key: &str) -> Result<Self, CryptoError> {
@@ -119,14 +120,19 @@ impl KeyPair {
             return Err(CryptoError::InvalidPrivateKey);
         }
         let raw_key = &bytes[36..68];
-        let secret_key = SecretKey::from_slice(raw_key).map_err(|_| CryptoError::InvalidPrivateKey)?;
+        let secret_key =
+            SecretKey::from_slice(raw_key).map_err(|_| CryptoError::InvalidPrivateKey)?;
         let signing_key = SigningKey::from(secret_key);
         let verifying_key = *signing_key.verifying_key();
-        Ok(Self { signing_key, verifying_key })
+        Ok(Self {
+            signing_key,
+            verifying_key,
+        })
     }
 
     pub fn from_wallet_json(json: &str) -> Result<Self, CryptoError> {
-        let parsed: serde_json::Value = serde_json::from_str(json).map_err(|_| CryptoError::InvalidPrivateKey)?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(json).map_err(|_| CryptoError::InvalidPrivateKey)?;
         if let Some(pk) = parsed.get("privateKey").and_then(|v| v.as_str()) {
             return Self::from_pkcs8_der_hex(pk);
         }
@@ -175,7 +181,10 @@ fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], CryptoError> {
     Ok(key)
 }
 
-pub fn encrypt_private_key_hex(private_key_hex: &str, password: &str) -> Result<String, CryptoError> {
+pub fn encrypt_private_key_hex(
+    private_key_hex: &str,
+    password: &str,
+) -> Result<String, CryptoError> {
     if password.is_empty() {
         return Err(CryptoError::EncryptionFailed("Empty password".to_string()));
     }
@@ -199,8 +208,7 @@ pub fn encrypt_private_key_hex(private_key_hex: &str, password: &str) -> Result<
         ciphertext: URL_SAFE_NO_PAD.encode(ciphertext),
     };
 
-    serde_json::to_string(&payload)
-        .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
+    serde_json::to_string(&payload).map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
 }
 
 pub fn decrypt_private_key_hex(encrypted: &str, password: &str) -> Result<String, CryptoError> {
@@ -226,14 +234,12 @@ pub fn decrypt_private_key_hex(encrypted: &str, password: &str) -> Result<String
         .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
         .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
 
-    String::from_utf8(plaintext)
-        .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+    String::from_utf8(plaintext).map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
 }
 
 pub fn parse_encrypted_private_key(data: &str) -> Option<EncryptedPrivateKey> {
     serde_json::from_str(data).ok()
 }
-
 
 pub fn verify_signature(
     public_key_hex: &str,
@@ -241,12 +247,11 @@ pub fn verify_signature(
     signature_hex: &str,
 ) -> Result<bool, CryptoError> {
     let pubkey_bytes = hex::decode(public_key_hex).map_err(|_| CryptoError::InvalidPublicKey)?;
-    let verifying_key = VerifyingKey::from_sec1_bytes(&pubkey_bytes)
-        .map_err(|_| CryptoError::InvalidPublicKey)?;
+    let verifying_key =
+        VerifyingKey::from_sec1_bytes(&pubkey_bytes).map_err(|_| CryptoError::InvalidPublicKey)?;
 
     let sig_bytes = hex::decode(signature_hex).map_err(|_| CryptoError::InvalidSignature)?;
-    let signature =
-        Signature::from_slice(&sig_bytes).map_err(|_| CryptoError::InvalidSignature)?;
+    let signature = Signature::from_slice(&sig_bytes).map_err(|_| CryptoError::InvalidSignature)?;
 
     Ok(verifying_key.verify(message, &signature).is_ok())
 }
@@ -314,7 +319,7 @@ pub fn recover_address_from_signature(
 ) -> Result<String, CryptoError> {
     let _msg_bytes = hex::decode(message_hash_hex).map_err(|_| CryptoError::InvalidSignature)?;
     let _sig_bytes = hex::decode(signature_hex).map_err(|_| CryptoError::InvalidSignature)?;
-    
+
     Err(CryptoError::KeyGenerationFailed(
         "ECDSA recovery not implemented - use public key verification".to_string(),
     ))
