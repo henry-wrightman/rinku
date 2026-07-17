@@ -44,7 +44,7 @@ impl LeaderElection {
         }
 
         let randomness = self.compute_randomness(checkpoint_height, previous_checkpoint_hash);
-        
+
         let total_stake: u64 = validators.iter().map(|v| v.stake.max(1)).sum();
         if total_stake == 0 {
             warn!("Total stake is zero, cannot elect leader");
@@ -61,9 +61,9 @@ impl LeaderElection {
         for validator in &sorted_validators {
             cumulative += validator.stake.max(1);
             if cumulative as f64 >= target {
-                let is_local = validator.address == self.local_address 
+                let is_local = validator.address == self.local_address
                     || validator.public_url.as_ref() == self.local_url.as_ref();
-                
+
                 return Some(LeaderElectionResult {
                     leader_address: validator.address.clone(),
                     leader_url: validator.public_url.clone(),
@@ -92,16 +92,16 @@ impl LeaderElection {
         local_url: Option<&str>,
     ) -> LeaderElectionResult {
         let randomness = self.compute_randomness(checkpoint_height, previous_checkpoint_hash);
-        
+
         let mut all_urls: Vec<String> = peer_urls.to_vec();
         if let Some(url) = local_url {
             if !all_urls.contains(&url.to_string()) {
                 all_urls.push(url.to_string());
             }
         }
-        
+
         all_urls.sort();
-        
+
         if all_urls.is_empty() {
             return LeaderElectionResult {
                 leader_address: self.local_address.clone(),
@@ -114,9 +114,9 @@ impl LeaderElection {
 
         let random_index = self.randomness_to_index(&randomness, all_urls.len());
         let leader_url = &all_urls[random_index];
-        
+
         let is_local = local_url.map(|u| u == leader_url).unwrap_or(false);
-        
+
         LeaderElectionResult {
             leader_address: leader_url.clone(),
             leader_url: Some(leader_url.clone()),
@@ -129,10 +129,10 @@ impl LeaderElection {
     /// Elect leader using validator addresses and stakes from the synced validator registry.
     /// This ensures ALL nodes with the same validator set will elect the same leader,
     /// regardless of their peer discovery state.
-    /// 
+    ///
     /// Uses stake-weighted selection: each validator's probability of being elected is
     /// proportional to their stake (P(i) = stake_i / Σ stake_j).
-    /// 
+    ///
     /// CRITICAL: Use this method instead of elect_leader_from_peers for consensus-critical
     /// leader election to prevent divergent checkpoint creation.
     pub fn elect_leader_from_validator_addresses(
@@ -143,14 +143,14 @@ impl LeaderElection {
         local_address: &str,
     ) -> LeaderElectionResult {
         let randomness = self.compute_randomness(checkpoint_height, previous_checkpoint_hash);
-        
+
         let mut all_validators: Vec<(String, u64)> = validator_addresses_with_stakes.to_vec();
         if !all_validators.iter().any(|(addr, _)| addr == local_address) {
             all_validators.push((local_address.to_string(), 1));
         }
-        
+
         all_validators.sort_by(|a, b| a.0.cmp(&b.0));
-        
+
         if all_validators.is_empty() {
             return LeaderElectionResult {
                 leader_address: self.local_address.clone(),
@@ -162,7 +162,7 @@ impl LeaderElection {
         }
 
         let total_stake: u64 = all_validators.iter().map(|(_, s)| (*s).max(1)).sum();
-        
+
         if total_stake == 0 {
             let leader_address = &all_validators[0].0;
             return LeaderElectionResult {
@@ -176,13 +176,13 @@ impl LeaderElection {
 
         let random_value = self.randomness_to_f64(&randomness);
         let target = random_value * total_stake as f64;
-        
+
         let mut cumulative = 0u64;
         for (addr, stake) in &all_validators {
             cumulative += (*stake).max(1);
             if cumulative as f64 >= target {
                 let is_local = addr == local_address;
-                
+
                 debug!(
                     "Leader election for checkpoint {}: {} validators, total_stake={}, target={:.0}, leader={}, is_local={}",
                     checkpoint_height,
@@ -192,7 +192,7 @@ impl LeaderElection {
                     &addr[..16.min(addr.len())],
                     is_local
                 );
-                
+
                 return LeaderElectionResult {
                     leader_address: addr.clone(),
                     leader_url: None,
@@ -205,7 +205,7 @@ impl LeaderElection {
 
         let leader_address = &all_validators[0].0;
         let is_local = leader_address == local_address;
-        
+
         LeaderElectionResult {
             leader_address: leader_address.clone(),
             leader_url: None,
@@ -246,7 +246,9 @@ impl LeaderElection {
         hasher.update(&randomness);
         let order_seed = hasher.finalize();
 
-        let mut indexed: Vec<(usize, u64)> = all_validators.iter().enumerate()
+        let mut indexed: Vec<(usize, u64)> = all_validators
+            .iter()
+            .enumerate()
             .filter(|(_, (addr, _))| addr != &result.leader_address)
             .map(|(i, _)| {
                 let mut h = Sha256::new();
@@ -254,8 +256,7 @@ impl LeaderElection {
                 h.update(i.to_le_bytes());
                 let hash = h.finalize();
                 let sort_key = u64::from_le_bytes([
-                    hash[0], hash[1], hash[2], hash[3],
-                    hash[4], hash[5], hash[6], hash[7],
+                    hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
                 ]);
                 (i, sort_key)
             })
@@ -276,7 +277,7 @@ impl LeaderElection {
         hasher.update(b"RINKU_LEADER_ELECTION_V1");
         hasher.update(checkpoint_height.to_le_bytes());
         hasher.update(previous_hash.as_bytes());
-        
+
         let result = hasher.finalize();
         let mut randomness = [0u8; 32];
         randomness.copy_from_slice(&result);
@@ -285,8 +286,14 @@ impl LeaderElection {
 
     fn randomness_to_f64(&self, randomness: &[u8; 32]) -> f64 {
         let value = u64::from_le_bytes([
-            randomness[0], randomness[1], randomness[2], randomness[3],
-            randomness[4], randomness[5], randomness[6], randomness[7],
+            randomness[0],
+            randomness[1],
+            randomness[2],
+            randomness[3],
+            randomness[4],
+            randomness[5],
+            randomness[6],
+            randomness[7],
         ]);
         (value as f64) / (u64::MAX as f64)
     }
@@ -296,8 +303,14 @@ impl LeaderElection {
             return 0;
         }
         let value = u64::from_le_bytes([
-            randomness[0], randomness[1], randomness[2], randomness[3],
-            randomness[4], randomness[5], randomness[6], randomness[7],
+            randomness[0],
+            randomness[1],
+            randomness[2],
+            randomness[3],
+            randomness[4],
+            randomness[5],
+            randomness[6],
+            randomness[7],
         ]);
         (value as usize) % count
     }
@@ -328,7 +341,11 @@ pub struct LeaderElectionService {
 }
 
 impl LeaderElectionService {
-    pub fn new(local_address: String, local_url: Option<String>, config: LeaderElectionConfig) -> Self {
+    pub fn new(
+        local_address: String,
+        local_url: Option<String>,
+        config: LeaderElectionConfig,
+    ) -> Self {
         Self {
             election: LeaderElection::new(local_address, local_url),
             config,
@@ -351,21 +368,22 @@ impl LeaderElectionService {
             local_url,
         );
 
-        let should_create = if result.is_local {
-            info!(
-                "LEADER ELECTION: This node elected as leader for checkpoint {} (peers: {})",
-                checkpoint_height,
-                peer_urls.len() + 1
-            );
-            true
-        } else {
-            debug!(
+        let should_create =
+            if result.is_local {
+                info!(
+                    "LEADER ELECTION: This node elected as leader for checkpoint {} (peers: {})",
+                    checkpoint_height,
+                    peer_urls.len() + 1
+                );
+                true
+            } else {
+                debug!(
                 "LEADER ELECTION: Node {} elected as leader for checkpoint {} (we are not leader)",
                 result.leader_url.as_deref().unwrap_or(&result.leader_address),
                 checkpoint_height
             );
-            false
-        };
+                false
+            };
 
         (should_create, result)
     }
@@ -373,7 +391,7 @@ impl LeaderElectionService {
     /// Determine if this node should create a checkpoint using validator addresses and stakes.
     /// This method uses the synced validator registry to ensure ALL nodes elect the same leader
     /// with stake-weighted probability.
-    /// 
+    ///
     /// CRITICAL: Use this method instead of should_create_checkpoint for consensus-critical
     /// checkpoint creation to prevent divergent checkpoint creation.
     pub fn should_create_checkpoint_from_validators(
@@ -470,7 +488,8 @@ impl LeaderElectionService {
                 now - leader_last_seen_ms,
                 checkpoint_height
             );
-            self.missed_slots.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.missed_slots
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return true;
         }
 
@@ -482,13 +501,16 @@ impl LeaderElectionService {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        self.last_checkpoint_time.store(now, std::sync::atomic::Ordering::Relaxed);
+        self.last_checkpoint_time
+            .store(now, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn get_stats(&self) -> LeaderElectionStats {
         LeaderElectionStats {
             missed_slots: self.missed_slots.load(std::sync::atomic::Ordering::Relaxed),
-            last_checkpoint_time: self.last_checkpoint_time.load(std::sync::atomic::Ordering::Relaxed),
+            last_checkpoint_time: self
+                .last_checkpoint_time
+                .load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
@@ -506,7 +528,7 @@ mod tests {
     #[test]
     fn test_deterministic_leader_election() {
         let election = LeaderElection::new("node1".to_string(), Some("http://node1".to_string()));
-        
+
         let peers = vec![
             "http://node1".to_string(),
             "http://node2".to_string(),
@@ -515,7 +537,7 @@ mod tests {
 
         let result1 = election.elect_leader_from_peers(100, "abc123", &peers, Some("http://node1"));
         let result2 = election.elect_leader_from_peers(100, "abc123", &peers, Some("http://node1"));
-        
+
         assert_eq!(result1.leader_url, result2.leader_url);
         assert_eq!(result1.is_local, result2.is_local);
     }
@@ -523,7 +545,7 @@ mod tests {
     #[test]
     fn test_different_heights_different_leaders() {
         let election = LeaderElection::new("node1".to_string(), Some("http://node1".to_string()));
-        
+
         let peers = vec![
             "http://node1".to_string(),
             "http://node2".to_string(),
@@ -532,17 +554,21 @@ mod tests {
 
         let mut leaders = std::collections::HashSet::new();
         for height in 0..100 {
-            let result = election.elect_leader_from_peers(height, "abc123", &peers, Some("http://node1"));
+            let result =
+                election.elect_leader_from_peers(height, "abc123", &peers, Some("http://node1"));
             leaders.insert(result.leader_url.unwrap());
         }
-        
-        assert!(leaders.len() > 1, "Different heights should elect different leaders");
+
+        assert!(
+            leaders.len() > 1,
+            "Different heights should elect different leaders"
+        );
     }
 
     #[test]
     fn test_stake_weighted_election() {
         let election = LeaderElection::new("high_stake".to_string(), None);
-        
+
         let validators = vec![
             ValidatorInfo {
                 address: "high_stake".to_string(),
@@ -567,14 +593,17 @@ mod tests {
                 }
             }
         }
-        
-        assert!(high_stake_wins > 900, "High stake validator should win most elections");
+
+        assert!(
+            high_stake_wins > 900,
+            "High stake validator should win most elections"
+        );
     }
 
     #[test]
     fn test_stake_weighted_validator_address_election() {
         let election = LeaderElection::new("high_stake".to_string(), None);
-        
+
         let validators_with_stakes = vec![
             ("high_stake".to_string(), 100_000_000_000u64),
             ("low_stake".to_string(), 100_000_000u64),
@@ -583,13 +612,20 @@ mod tests {
         let mut high_stake_wins = 0;
         for height in 0..1000 {
             let result = election.elect_leader_from_validator_addresses(
-                height, "test", &validators_with_stakes, "high_stake",
+                height,
+                "test",
+                &validators_with_stakes,
+                "high_stake",
             );
             if result.leader_address == "high_stake" {
                 high_stake_wins += 1;
             }
         }
-        
-        assert!(high_stake_wins > 900, "High stake validator should win most elections via address election (got {})", high_stake_wins);
+
+        assert!(
+            high_stake_wins > 900,
+            "High stake validator should win most elections via address election (got {})",
+            high_stake_wins
+        );
     }
 }

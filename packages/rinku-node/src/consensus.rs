@@ -67,7 +67,12 @@ pub struct VoteAccumulator {
 }
 
 impl VoteAccumulator {
-    pub fn new(height: u64, hash: String, total_power: u64, validators: Vec<ValidatorSnapshot>) -> Self {
+    pub fn new(
+        height: u64,
+        hash: String,
+        total_power: u64,
+        validators: Vec<ValidatorSnapshot>,
+    ) -> Self {
         Self {
             checkpoint_height: height,
             checkpoint_hash: hash,
@@ -81,7 +86,9 @@ impl VoteAccumulator {
     }
 
     pub fn get_validator_index(&self, address: &str) -> Option<usize> {
-        self.frozen_validators.iter().position(|v| v.address == address)
+        self.frozen_validators
+            .iter()
+            .position(|v| v.address == address)
     }
 
     pub fn get_validator(&self, address: &str) -> Option<&ValidatorSnapshot> {
@@ -89,7 +96,11 @@ impl VoteAccumulator {
     }
 
     pub fn reduce_validator_power(&mut self, address: &str, reduction_ratio: f64) -> Option<u64> {
-        if let Some(validator) = self.frozen_validators.iter_mut().find(|v| v.address == address) {
+        if let Some(validator) = self
+            .frozen_validators
+            .iter_mut()
+            .find(|v| v.address == address)
+        {
             let reduction = (validator.voting_power as f64 * reduction_ratio) as u64;
             validator.voting_power = validator.voting_power.saturating_sub(reduction);
             self.total_voting_power = self.total_voting_power.saturating_sub(reduction);
@@ -208,8 +219,11 @@ impl ConsensusService {
             liveness_tracking: HashMap::new(),
         }
     }
-    
-    pub fn with_slashing_service(mut self, slashing: Arc<RwLock<crate::slashing::SlashingService>>) -> Self {
+
+    pub fn with_slashing_service(
+        mut self,
+        slashing: Arc<RwLock<crate::slashing::SlashingService>>,
+    ) -> Self {
         self.slashing_service = slashing;
         self
     }
@@ -225,7 +239,8 @@ impl ConsensusService {
     pub async fn start_voting_round(&mut self, checkpoint: &Checkpoint) -> Result<()> {
         let (total_stake, frozen_validators) = if let Some(ref vs) = self.validator_service {
             let vs_guard = vs.read().await;
-            let mut validators: Vec<ValidatorSnapshot> = vs_guard.active_validators()
+            let mut validators: Vec<ValidatorSnapshot> = vs_guard
+                .active_validators()
                 .iter()
                 .map(|(addr, v)| ValidatorSnapshot {
                     address: addr.clone(),
@@ -238,12 +253,15 @@ impl ConsensusService {
             (total, validators)
         } else {
             let state = self.state.inner.read().await;
-            let mut validators: Vec<ValidatorSnapshot> = state.validators
+            let mut validators: Vec<ValidatorSnapshot> = state
+                .validators
                 .iter()
                 .map(|(addr, v)| ValidatorSnapshot {
                     address: addr.clone(),
                     voting_power: v.stake,
-                    bls_public_key: v.bls_public_key.as_ref()
+                    bls_public_key: v
+                        .bls_public_key
+                        .as_ref()
                         .and_then(|k| hex::decode(k).ok())
                         .unwrap_or_default(),
                 })
@@ -264,37 +282,61 @@ impl ConsensusService {
             frozen_validators,
         );
         self.pending_votes.insert(checkpoint.height, accumulator);
-        debug!("Started voting round for checkpoint {} with {} total stake", 
-               checkpoint.height, total_stake);
+        debug!(
+            "Started voting round for checkpoint {} with {} total stake",
+            checkpoint.height, total_stake
+        );
         Ok(())
     }
 
     pub async fn process_vote(&mut self, vote: Vote) -> Result<VoteResult> {
-        let accumulator = self.pending_votes.get(&vote.checkpoint_height)
+        let accumulator = self
+            .pending_votes
+            .get(&vote.checkpoint_height)
             .ok_or_else(|| anyhow!("No voting round for height {}", vote.checkpoint_height))?;
 
-        let (voting_power, bls_pubkey, signer_index) = if !accumulator.frozen_validators.is_empty() {
-            let validator = accumulator.get_validator(&vote.validator)
-                .ok_or_else(|| anyhow!("Unknown validator {} (not in frozen set)", vote.validator))?;
-            let idx = accumulator.get_validator_index(&vote.validator)
+        let (voting_power, bls_pubkey, signer_index) = if !accumulator.frozen_validators.is_empty()
+        {
+            let validator = accumulator.get_validator(&vote.validator).ok_or_else(|| {
+                anyhow!("Unknown validator {} (not in frozen set)", vote.validator)
+            })?;
+            let idx = accumulator
+                .get_validator_index(&vote.validator)
                 .ok_or_else(|| anyhow!("Validator {} index not found", vote.validator))?;
-            (validator.voting_power, validator.bls_public_key.clone(), idx)
+            (
+                validator.voting_power,
+                validator.bls_public_key.clone(),
+                idx,
+            )
         } else if let Some(ref vs) = self.validator_service {
             let validator_state = vs.read().await;
-            let validator = validator_state.get_validator(&vote.validator)
+            let validator = validator_state
+                .get_validator(&vote.validator)
                 .ok_or_else(|| anyhow!("Unknown validator: {}", vote.validator))?;
             if !validator.is_active() {
                 return Err(anyhow!("Validator {} is not active", vote.validator));
             }
-            let mut addrs: Vec<_> = validator_state.active_validators().keys().cloned().collect();
+            let mut addrs: Vec<_> = validator_state
+                .active_validators()
+                .keys()
+                .cloned()
+                .collect();
             addrs.sort();
             let idx = self.get_validator_index_deterministic(&vote.validator, &addrs);
-            (validator.effective_stake, validator.bls_public_key.clone(), idx)
+            (
+                validator.effective_stake,
+                validator.bls_public_key.clone(),
+                idx,
+            )
         } else {
             let state = self.state.inner.read().await;
-            let validator = state.validators.get(&vote.validator)
+            let validator = state
+                .validators
+                .get(&vote.validator)
                 .ok_or_else(|| anyhow!("Unknown validator: {}", vote.validator))?;
-            let pubkey = validator.bls_public_key.as_ref()
+            let pubkey = validator
+                .bls_public_key
+                .as_ref()
                 .and_then(|k| hex::decode(k).ok())
                 .unwrap_or_default();
             let mut addrs: Vec<_> = state.validators.keys().cloned().collect();
@@ -304,24 +346,33 @@ impl ConsensusService {
         };
 
         if bls_pubkey.is_empty() {
-            return Err(anyhow!("Validator {} has no BLS public key - cannot verify vote", vote.validator));
+            return Err(anyhow!(
+                "Validator {} has no BLS public key - cannot verify vote",
+                vote.validator
+            ));
         }
 
         let expected_msg = vote.message();
         if !bls_verify(&expected_msg, &vote.signature, &bls_pubkey) {
-            return Err(anyhow!("Invalid BLS signature from validator {}", vote.validator));
+            return Err(anyhow!(
+                "Invalid BLS signature from validator {}",
+                vote.validator
+            ));
         }
 
         let expected_hash = {
-            let accumulator = self.pending_votes.get(&vote.checkpoint_height)
+            let accumulator = self
+                .pending_votes
+                .get(&vote.checkpoint_height)
                 .ok_or_else(|| anyhow!("No voting round for height {}", vote.checkpoint_height))?;
             accumulator.checkpoint_hash.clone()
         };
 
         let vote_key = (vote.validator.clone(), vote.checkpoint_height);
         let double_sign_evidence = if let Some(existing_vote) = self.vote_history.get(&vote_key) {
-            if existing_vote.checkpoint_hash != vote.checkpoint_hash 
-                && !self.slashed_validators.contains(&vote.validator) {
+            if existing_vote.checkpoint_hash != vote.checkpoint_hash
+                && !self.slashed_validators.contains(&vote.validator)
+            {
                 Some(DoubleSignEvidence {
                     validator: vote.validator.clone(),
                     height: vote.checkpoint_height,
@@ -344,7 +395,10 @@ impl ConsensusService {
             );
             if let Some(slashed_amount) = self.handle_double_sign_detection(&evidence).await {
                 self.slashed_validators.insert(vote.validator.clone());
-                info!("Slashed {} RKU from validator {}", slashed_amount, vote.validator);
+                info!(
+                    "Slashed {} RKU from validator {}",
+                    slashed_amount, vote.validator
+                );
             }
         }
 
@@ -353,11 +407,14 @@ impl ConsensusService {
         if vote.checkpoint_hash != expected_hash {
             return Err(anyhow!(
                 "Vote for wrong checkpoint hash: expected {}, got {}",
-                expected_hash, vote.checkpoint_hash
+                expected_hash,
+                vote.checkpoint_hash
             ));
         }
 
-        let accumulator = self.pending_votes.get_mut(&vote.checkpoint_height)
+        let accumulator = self
+            .pending_votes
+            .get_mut(&vote.checkpoint_height)
             .ok_or_else(|| anyhow!("No voting round for height {}", vote.checkpoint_height))?;
 
         let is_new = accumulator.add_vote(vote.clone(), voting_power, signer_index);
@@ -365,7 +422,11 @@ impl ConsensusService {
             return Ok(VoteResult::Duplicate);
         }
 
-        if accumulator.quorum_reached() && !self.finalized_heights.contains(&accumulator.checkpoint_height) {
+        if accumulator.quorum_reached()
+            && !self
+                .finalized_heights
+                .contains(&accumulator.checkpoint_height)
+        {
             self.finalized_heights.insert(accumulator.checkpoint_height);
             self.last_finalized_height = accumulator.checkpoint_height;
             info!(
@@ -386,7 +447,13 @@ impl ConsensusService {
 
     pub async fn get_sorted_validators(&self) -> Vec<String> {
         if let Some(ref vs) = self.validator_service {
-            let mut addrs: Vec<_> = vs.read().await.active_validators().keys().cloned().collect();
+            let mut addrs: Vec<_> = vs
+                .read()
+                .await
+                .active_validators()
+                .keys()
+                .cloned()
+                .collect();
             addrs.sort();
             addrs
         } else {
@@ -397,7 +464,10 @@ impl ConsensusService {
         }
     }
 
-    pub async fn handle_double_sign_detection(&mut self, evidence: &DoubleSignEvidence) -> Option<u64> {
+    pub async fn handle_double_sign_detection(
+        &mut self,
+        evidence: &DoubleSignEvidence,
+    ) -> Option<u64> {
         let slashed_amount = if let Some(ref vs) = self.validator_service {
             let mut vs_guard = vs.write().await;
             if vs_guard.get_validator(&evidence.validator).is_some() {
@@ -435,12 +505,17 @@ impl ConsensusService {
                     original_stake,
                     crate::slashing::SlashReason::DoubleSign,
                     evidence.height,
-                    Some(format!("Double-sign: {} vs {}", &evidence.hash1[..8.min(evidence.hash1.len())], &evidence.hash2[..8.min(evidence.hash2.len())])),
+                    Some(format!(
+                        "Double-sign: {} vs {}",
+                        &evidence.hash1[..8.min(evidence.hash1.len())],
+                        &evidence.hash2[..8.min(evidence.hash2.len())]
+                    )),
                 );
             }
 
             for (_, accumulator) in self.pending_votes.iter_mut() {
-                if let Some(reduced) = accumulator.reduce_validator_power(&evidence.validator, 0.15) {
+                if let Some(reduced) = accumulator.reduce_validator_power(&evidence.validator, 0.15)
+                {
                     debug!(
                         "Reduced voting power for {} in height {} by {} RKU",
                         evidence.validator, accumulator.checkpoint_height, reduced
@@ -451,31 +526,50 @@ impl ConsensusService {
         }
         None
     }
-    
-    pub async fn track_liveness(&mut self, checkpoint_height: u64, participating_validators: &[String]) {
+
+    pub async fn track_liveness(
+        &mut self,
+        checkpoint_height: u64,
+        participating_validators: &[String],
+    ) {
         let all_validators: Vec<String> = if let Some(ref vs) = self.validator_service {
-            vs.read().await.active_validators().keys().cloned().collect()
+            vs.read()
+                .await
+                .active_validators()
+                .keys()
+                .cloned()
+                .collect()
         } else {
             let state = self.state.inner.read().await;
             state.validators.keys().cloned().collect()
         };
-        
+
         for validator in &all_validators {
             if !participating_validators.contains(validator) {
                 let count = self.liveness_tracking.entry(validator.clone()).or_insert(0);
                 *count += 1;
-                
+
                 if *count >= crate::slashing::LIVENESS_MISS_THRESHOLD {
-                    warn!("Validator {} missed {} consecutive checkpoints", validator, count);
-                    
+                    warn!(
+                        "Validator {} missed {} consecutive checkpoints",
+                        validator, count
+                    );
+
                     let stake: u64 = if let Some(ref vs) = self.validator_service {
                         let vs_guard = vs.read().await;
-                        vs_guard.get_validator(validator).map(|v| v.effective_stake as u64).unwrap_or(0)
+                        vs_guard
+                            .get_validator(validator)
+                            .map(|v| v.effective_stake as u64)
+                            .unwrap_or(0)
                     } else {
                         let state = self.state.inner.read().await;
-                        state.validators.get(validator).map(|v| v.stake).unwrap_or(0)
+                        state
+                            .validators
+                            .get(validator)
+                            .map(|v| v.stake)
+                            .unwrap_or(0)
                     };
-                    
+
                     if stake > 0 {
                         let mut slashing = self.slashing_service.write().await;
                         slashing.record_liveness_failure(validator, checkpoint_height, stake);
@@ -488,13 +582,14 @@ impl ConsensusService {
             }
         }
     }
-    
+
     pub async fn get_slash_events(&self) -> Vec<crate::slashing::SlashEvent> {
         self.slashing_service.read().await.get_events().to_vec()
     }
 
     pub fn cleanup_old_vote_history(&mut self, keep_after_height: u64) {
-        self.vote_history.retain(|(_, height), _| *height >= keep_after_height);
+        self.vote_history
+            .retain(|(_, height), _| *height >= keep_after_height);
     }
 
     pub fn is_validator_slashed(&self, validator: &str) -> bool {
@@ -506,7 +601,9 @@ impl ConsensusService {
     }
 
     pub async fn create_finality_proof(&self, height: u64) -> Result<FinalityProof> {
-        let accumulator = self.pending_votes.get(&height)
+        let accumulator = self
+            .pending_votes
+            .get(&height)
             .ok_or_else(|| anyhow!("No votes for height {}", height))?;
 
         if !accumulator.quorum_reached() {
@@ -544,8 +641,14 @@ impl ConsensusService {
         })
     }
 
-    pub async fn apply_votes_to_checkpoint(&self, checkpoint: &mut Checkpoint, height: u64) -> Result<()> {
-        let accumulator = self.pending_votes.get(&height)
+    pub async fn apply_votes_to_checkpoint(
+        &self,
+        checkpoint: &mut Checkpoint,
+        height: u64,
+    ) -> Result<()> {
+        let accumulator = self
+            .pending_votes
+            .get(&height)
             .ok_or_else(|| anyhow!("No votes for height {}", height))?;
 
         if !accumulator.quorum_reached() {
@@ -587,16 +690,23 @@ impl ConsensusService {
         let aggregated = aggregate_signatures(&accumulator.signatures)
             .map_err(|e| anyhow!("Failed to aggregate signatures: {}", e))?;
         checkpoint.aggregated_signature = Some(URL_SAFE_NO_PAD.encode(&aggregated));
-        checkpoint.signer_bitmap = Some(create_signer_bitmap(&accumulator.signer_indices, validator_count));
+        checkpoint.signer_bitmap = Some(create_signer_bitmap(
+            &accumulator.signer_indices,
+            validator_count,
+        ));
 
         Ok(())
     }
 
-    pub async fn verify_checkpoint_quorum(&self, checkpoint: &Checkpoint) -> Result<QuorumVerificationResult> {
+    pub async fn verify_checkpoint_quorum(
+        &self,
+        checkpoint: &Checkpoint,
+    ) -> Result<QuorumVerificationResult> {
         let (total_stake, validators_map) = if let Some(ref vs) = self.validator_service {
             let vs_guard = vs.read().await;
             let total = vs_guard.total_active_stake();
-            let map: HashMap<String, (u64, Vec<u8>)> = vs_guard.active_validators()
+            let map: HashMap<String, (u64, Vec<u8>)> = vs_guard
+                .active_validators()
                 .iter()
                 .map(|(k, v)| (k.clone(), (v.effective_stake, v.bls_public_key.clone())))
                 .collect();
@@ -604,9 +714,13 @@ impl ConsensusService {
         } else {
             let state = self.state.inner.read().await;
             let total: u64 = state.validators.values().map(|v| v.stake).sum();
-            let map: HashMap<String, (u64, Vec<u8>)> = state.validators.iter()
+            let map: HashMap<String, (u64, Vec<u8>)> = state
+                .validators
+                .iter()
                 .map(|(k, v)| {
-                    let pk = v.bls_public_key.as_ref()
+                    let pk = v
+                        .bls_public_key
+                        .as_ref()
                         .and_then(|s| hex::decode(s).ok())
                         .unwrap_or_default();
                     (k.clone(), (v.stake, pk))
@@ -637,10 +751,17 @@ impl ConsensusService {
                 let hash_clone = checkpoint_hash.clone();
                 let sig_clone = signature.clone();
                 let pk_clone = bls_pk.clone();
-                let valid = match tokio::task::spawn_blocking(move || bls_verify(&hash_clone, &sig_clone, &pk_clone)).await {
+                let valid = match tokio::task::spawn_blocking(move || {
+                    bls_verify(&hash_clone, &sig_clone, &pk_clone)
+                })
+                .await
+                {
                     Ok(v) => v,
                     Err(e) => {
-                        warn!("BLS verify spawn_blocking failed during quorum check: {}", e);
+                        warn!(
+                            "BLS verify spawn_blocking failed during quorum check: {}",
+                            e
+                        );
                         false
                     }
                 };
@@ -670,7 +791,13 @@ impl ConsensusService {
         })
     }
 
-    pub fn check_double_signing(&self, validator: &str, height: u64, hash: &str, signature: &[u8]) -> Option<DoubleSignEvidence> {
+    pub fn check_double_signing(
+        &self,
+        validator: &str,
+        height: u64,
+        hash: &str,
+        signature: &[u8],
+    ) -> Option<DoubleSignEvidence> {
         if let Some(accumulator) = self.pending_votes.get(&height) {
             if let Some(existing_vote) = accumulator.votes.get(validator) {
                 if existing_vote.checkpoint_hash != hash {
@@ -727,7 +854,10 @@ impl ConsensusService {
         }
 
         // Amount must be positive (except for unstake which can be 0)
-        let is_unstake = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Unstake));
+        let is_unstake = matches!(
+            tx.tx.kind,
+            Some(rinku_core::types::TransactionKind::Unstake)
+        );
         if tx.tx.amount == 0 && !is_unstake {
             warn!("Invalid transaction amount");
             return Ok(false);
@@ -735,12 +865,13 @@ impl ConsensusService {
 
         let sender = self.state.get_account(&tx.tx.from).await;
         let gas_fee = tx.tx.gas_price.unwrap_or(100_000);
-        
+
         match &sender {
             Some(account) => {
                 // Calculate required balance based on transaction type
-                let is_stake = matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
-                
+                let is_stake =
+                    matches!(tx.tx.kind, Some(rinku_core::types::TransactionKind::Stake));
+
                 let required_balance = if is_stake {
                     // Stake: need amount + gas (amount is locked, not transferred)
                     tx.tx.amount + gas_fee
@@ -751,7 +882,7 @@ impl ConsensusService {
                     // Transfer: need amount + gas
                     tx.tx.amount + gas_fee
                 };
-                
+
                 if account.balance < required_balance {
                     warn!(
                         "Insufficient balance: have {}, need {} (amount: {}, gas: {})",
@@ -761,14 +892,20 @@ impl ConsensusService {
                 }
 
                 if tx.tx.nonce != account.nonce {
-                    warn!("Invalid nonce: expected {}, got {}", account.nonce, tx.tx.nonce);
+                    warn!(
+                        "Invalid nonce: expected {}, got {}",
+                        account.nonce, tx.tx.nonce
+                    );
                     return Ok(false);
                 }
             }
             None => {
                 // Account doesn't exist - reject unless it's a genesis transaction
                 if tx.tx.from != "genesis" {
-                    warn!("Account {} does not exist - cannot process transaction", &tx.tx.from[..16.min(tx.tx.from.len())]);
+                    warn!(
+                        "Account {} does not exist - cannot process transaction",
+                        &tx.tx.from[..16.min(tx.tx.from.len())]
+                    );
                     return Ok(false);
                 }
             }
@@ -929,15 +1066,20 @@ mod tests {
     #[test]
     fn test_quorum_threshold_boundary() {
         let mut acc = VoteAccumulator::new(1, "hash".to_string(), 10000, vec![]);
-        
+
         acc.add_vote(create_test_vote("v1", 1, "hash"), 6665, 0);
         assert!(!acc.quorum_reached(), "66.65% should not reach quorum");
-        
+
         acc.add_vote(create_test_vote("v2", 1, "hash"), 1, 1);
         assert!(acc.quorum_reached(), "66.66% should reach quorum");
     }
 
-    fn create_test_tx(from: &str, amount: u64, gas_price: Option<u64>, kind: Option<TransactionKind>) -> SignedTransaction {
+    fn create_test_tx(
+        from: &str,
+        amount: u64,
+        gas_price: Option<u64>,
+        kind: Option<TransactionKind>,
+    ) -> SignedTransaction {
         let tx = Transaction {
             from: from.to_string(),
             to: from.to_string(),
@@ -964,24 +1106,42 @@ mod tests {
 
     #[test]
     fn test_stake_requires_balance_plus_gas() {
-        let tx = create_test_tx("test_user", 10_000_000_000, Some(1_000_000), Some(TransactionKind::Stake));
-        
+        let tx = create_test_tx(
+            "test_user",
+            10_000_000_000,
+            Some(1_000_000),
+            Some(TransactionKind::Stake),
+        );
+
         let gas_fee = tx.tx.gas_price.unwrap_or(100_000);
         let is_stake = matches!(tx.tx.kind, Some(TransactionKind::Stake));
-        let required = if is_stake { tx.tx.amount + gas_fee } else { tx.tx.amount + gas_fee };
-        
+        let required = if is_stake {
+            tx.tx.amount + gas_fee
+        } else {
+            tx.tx.amount + gas_fee
+        };
+
         assert_eq!(required, 10_001_000_000);
         assert!(is_stake);
     }
 
     #[test]
     fn test_unstake_only_needs_gas() {
-        let tx = create_test_tx("test_user", 0, Some(1_000_000), Some(TransactionKind::Unstake));
-        
+        let tx = create_test_tx(
+            "test_user",
+            0,
+            Some(1_000_000),
+            Some(TransactionKind::Unstake),
+        );
+
         let gas_fee = tx.tx.gas_price.unwrap_or(100_000);
         let is_unstake = matches!(tx.tx.kind, Some(TransactionKind::Unstake));
-        let required = if is_unstake { gas_fee } else { tx.tx.amount + gas_fee };
-        
+        let required = if is_unstake {
+            gas_fee
+        } else {
+            tx.tx.amount + gas_fee
+        };
+
         assert_eq!(required, 1_000_000);
         assert!(is_unstake);
     }
@@ -989,12 +1149,16 @@ mod tests {
     #[test]
     fn test_transfer_requires_amount_plus_gas() {
         let tx = create_test_tx("test_user", 5_000_000_000, Some(500_000), None);
-        
+
         let gas_fee = tx.tx.gas_price.unwrap_or(100_000);
         let is_stake = matches!(tx.tx.kind, Some(TransactionKind::Stake));
         let is_unstake = matches!(tx.tx.kind, Some(TransactionKind::Unstake));
-        let required: u64 = if is_stake || is_unstake { 0 } else { tx.tx.amount + gas_fee };
-        
+        let required: u64 = if is_stake || is_unstake {
+            0
+        } else {
+            tx.tx.amount + gas_fee
+        };
+
         assert_eq!(required, 5_000_500_000);
         assert!(!is_stake);
         assert!(!is_unstake);
@@ -1005,10 +1169,10 @@ mod tests {
         let account_balance: u64 = 0;
         let stake_amount: u64 = 10_000_000_000;
         let gas_fee: u64 = 100_000;
-        
+
         let required_balance = stake_amount + gas_fee;
         let has_sufficient = account_balance >= required_balance;
-        
+
         assert!(!has_sufficient, "Zero balance should NOT be able to stake");
     }
 
@@ -1017,11 +1181,14 @@ mod tests {
         let account_balance: u64 = 10_000_000_000;
         let stake_amount: u64 = 10_000_000_000;
         let gas_fee: u64 = 100_000;
-        
+
         let required_balance = stake_amount + gas_fee;
         let has_sufficient = account_balance >= required_balance;
-        
-        assert!(!has_sufficient, "Balance equal to stake amount should fail (no gas)");
+
+        assert!(
+            !has_sufficient,
+            "Balance equal to stake amount should fail (no gas)"
+        );
     }
 
     #[test]
@@ -1029,61 +1196,69 @@ mod tests {
         let account_balance: u64 = 10_001_000_000;
         let stake_amount: u64 = 10_000_000_000;
         let gas_fee: u64 = 100_000;
-        
+
         let required_balance = stake_amount + gas_fee;
         let has_sufficient = account_balance >= required_balance;
-        
+
         assert!(has_sufficient, "Balance > stake + gas should succeed");
     }
 
     #[test]
     fn test_bls_sign_and_verify_real_keys() {
-        use crate::bls::{generate_bls_keypair, bls_sign, bls_verify};
+        use crate::bls::{bls_sign, bls_verify, generate_bls_keypair};
 
         let keypair = generate_bls_keypair();
         let message = b"checkpoint_hash_12345";
 
-        let signature = bls_sign(message, &keypair.private_key)
-            .expect("BLS signing should succeed");
+        let signature =
+            bls_sign(message, &keypair.private_key).expect("BLS signing should succeed");
 
         assert!(!signature.is_empty(), "Signature should not be empty");
-        assert!(bls_verify(message, &signature, &keypair.public_key),
-            "Signature verification should succeed with correct key");
+        assert!(
+            bls_verify(message, &signature, &keypair.public_key),
+            "Signature verification should succeed with correct key"
+        );
     }
 
     #[test]
     fn test_bls_verify_rejects_wrong_key() {
-        use crate::bls::{generate_bls_keypair, bls_sign, bls_verify};
+        use crate::bls::{bls_sign, bls_verify, generate_bls_keypair};
 
         let keypair1 = generate_bls_keypair();
         let keypair2 = generate_bls_keypair();
         let message = b"checkpoint_hash_12345";
 
-        let signature = bls_sign(message, &keypair1.private_key)
-            .expect("BLS signing should succeed");
+        let signature =
+            bls_sign(message, &keypair1.private_key).expect("BLS signing should succeed");
 
-        assert!(!bls_verify(message, &signature, &keypair2.public_key),
-            "Verification should fail with wrong public key");
+        assert!(
+            !bls_verify(message, &signature, &keypair2.public_key),
+            "Verification should fail with wrong public key"
+        );
     }
 
     #[test]
     fn test_bls_verify_rejects_tampered_message() {
-        use crate::bls::{generate_bls_keypair, bls_sign, bls_verify};
+        use crate::bls::{bls_sign, bls_verify, generate_bls_keypair};
 
         let keypair = generate_bls_keypair();
         let message = b"checkpoint_hash_12345";
         let tampered = b"checkpoint_hash_67890";
 
-        let signature = bls_sign(message, &keypair.private_key)
-            .expect("BLS signing should succeed");
+        let signature =
+            bls_sign(message, &keypair.private_key).expect("BLS signing should succeed");
 
-        assert!(!bls_verify(tampered, &signature, &keypair.public_key),
-            "Verification should fail with tampered message");
+        assert!(
+            !bls_verify(tampered, &signature, &keypair.public_key),
+            "Verification should fail with tampered message"
+        );
     }
 
     #[test]
     fn test_bls_aggregate_signatures() {
-        use crate::bls::{generate_bls_keypair, bls_sign, aggregate_signatures, verify_aggregated_signature};
+        use crate::bls::{
+            aggregate_signatures, bls_sign, generate_bls_keypair, verify_aggregated_signature,
+        };
 
         let keypair1 = generate_bls_keypair();
         let keypair2 = generate_bls_keypair();
@@ -1094,8 +1269,8 @@ mod tests {
         let sig2 = bls_sign(message, &keypair2.private_key).unwrap();
         let sig3 = bls_sign(message, &keypair3.private_key).unwrap();
 
-        let aggregated = aggregate_signatures(&[sig1, sig2, sig3])
-            .expect("Aggregation should succeed");
+        let aggregated =
+            aggregate_signatures(&[sig1, sig2, sig3]).expect("Aggregation should succeed");
 
         let public_keys = vec![
             keypair1.public_key,
@@ -1103,13 +1278,17 @@ mod tests {
             keypair3.public_key,
         ];
 
-        assert!(verify_aggregated_signature(message, &aggregated, &public_keys),
-            "Aggregated signature should verify with all public keys");
+        assert!(
+            verify_aggregated_signature(message, &aggregated, &public_keys),
+            "Aggregated signature should verify with all public keys"
+        );
     }
 
     #[test]
     fn test_bls_aggregate_rejects_missing_signer() {
-        use crate::bls::{generate_bls_keypair, bls_sign, aggregate_signatures, verify_aggregated_signature};
+        use crate::bls::{
+            aggregate_signatures, bls_sign, generate_bls_keypair, verify_aggregated_signature,
+        };
 
         let keypair1 = generate_bls_keypair();
         let keypair2 = generate_bls_keypair();
@@ -1119,8 +1298,7 @@ mod tests {
         let sig1 = bls_sign(message, &keypair1.private_key).unwrap();
         let sig2 = bls_sign(message, &keypair2.private_key).unwrap();
 
-        let aggregated = aggregate_signatures(&[sig1, sig2])
-            .expect("Aggregation should succeed");
+        let aggregated = aggregate_signatures(&[sig1, sig2]).expect("Aggregation should succeed");
 
         let public_keys = vec![
             keypair1.public_key,
@@ -1128,13 +1306,15 @@ mod tests {
             keypair3.public_key,
         ];
 
-        assert!(!verify_aggregated_signature(message, &aggregated, &public_keys),
-            "Aggregated signature should fail if signer is missing");
+        assert!(
+            !verify_aggregated_signature(message, &aggregated, &public_keys),
+            "Aggregated signature should fail if signer is missing"
+        );
     }
 
     #[test]
     fn test_vote_with_real_bls_signature() {
-        use crate::bls::{generate_bls_keypair, bls_sign, bls_verify};
+        use crate::bls::{bls_sign, bls_verify, generate_bls_keypair};
 
         let keypair = generate_bls_keypair();
         let vote = Vote {
@@ -1149,8 +1329,10 @@ mod tests {
         let message = vote.message();
         let signature = bls_sign(&message, &keypair.private_key).unwrap();
 
-        assert!(bls_verify(&message, &signature, &keypair.public_key),
-            "Vote signature should verify");
+        assert!(
+            bls_verify(&message, &signature, &keypair.public_key),
+            "Vote signature should verify"
+        );
     }
 
     #[test]
@@ -1250,18 +1432,9 @@ mod tests {
     fn test_vote_history_cleanup() {
         let mut vote_history: HashMap<(String, u64), Vote> = HashMap::new();
 
-        vote_history.insert(
-            ("v1".to_string(), 10), 
-            create_test_vote("v1", 10, "h10")
-        );
-        vote_history.insert(
-            ("v2".to_string(), 20), 
-            create_test_vote("v2", 20, "h20")
-        );
-        vote_history.insert(
-            ("v3".to_string(), 30), 
-            create_test_vote("v3", 30, "h30")
-        );
+        vote_history.insert(("v1".to_string(), 10), create_test_vote("v1", 10, "h10"));
+        vote_history.insert(("v2".to_string(), 20), create_test_vote("v2", 20, "h20"));
+        vote_history.insert(("v3".to_string(), 30), create_test_vote("v3", 30, "h30"));
 
         assert_eq!(vote_history.len(), 3);
 

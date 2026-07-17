@@ -71,7 +71,10 @@ impl Dag {
                 .or_default()
                 .insert(hash.clone());
         } else if let Some(h) = checkpoint_height {
-            self.finalized_by_height.entry(h).or_default().insert(hash.clone());
+            self.finalized_by_height
+                .entry(h)
+                .or_default()
+                .insert(hash.clone());
         }
 
         for parent_hash in &parents {
@@ -130,7 +133,10 @@ impl Dag {
                 .or_default()
                 .insert(hash.clone());
         } else if let Some(h) = checkpoint_height {
-            self.finalized_by_height.entry(h).or_default().insert(hash.clone());
+            self.finalized_by_height
+                .entry(h)
+                .or_default()
+                .insert(hash.clone());
         }
 
         let mut linked_parents = 0;
@@ -334,6 +340,7 @@ impl Dag {
     /// 2. Rebuilds graph edges based on parent references
     /// 3. Rebuilds the children vectors for each node
     /// 4. Rebuilds the tips set (nodes with no children)
+    ///
     /// Returns (nodes_processed, tips_count, dangling_parents) for logging.
     pub fn rebuild_tips(&mut self) -> (usize, usize, usize) {
         let all_hashes: Vec<String> = self.hash_to_index.keys().cloned().collect();
@@ -429,7 +436,11 @@ impl Dag {
     pub fn mark_finalized(&mut self, hash: &str, checkpoint_height: u64) -> Result<(), DagError> {
         if let Some(node) = self.get_node_mut(hash) {
             let sender = node.tx.tx.from.clone();
-            let old_cp_h = if node.finalized { node.checkpoint_height } else { None };
+            let old_cp_h = if node.finalized {
+                node.checkpoint_height
+            } else {
+                None
+            };
             node.finalized = true;
             node.checkpoint_height = Some(checkpoint_height);
             if let Some(old_h) = old_cp_h {
@@ -443,7 +454,10 @@ impl Dag {
                 }
             }
             self.unfinalized.remove(hash);
-            self.finalized_by_height.entry(checkpoint_height).or_default().insert(hash.to_string());
+            self.finalized_by_height
+                .entry(checkpoint_height)
+                .or_default()
+                .insert(hash.to_string());
             if let Some(set) = self.sender_unfinalized.get_mut(&sender) {
                 set.remove(hash);
                 if set.is_empty() {
@@ -456,9 +470,17 @@ impl Dag {
         }
     }
 
-    pub fn mark_finalized_deferred_cleanup(&mut self, hash: &str, checkpoint_height: u64) -> Result<(), DagError> {
+    pub fn mark_finalized_deferred_cleanup(
+        &mut self,
+        hash: &str,
+        checkpoint_height: u64,
+    ) -> Result<(), DagError> {
         if let Some(node) = self.get_node_mut(hash) {
-            let old_cp_h = if node.finalized { node.checkpoint_height } else { None };
+            let old_cp_h = if node.finalized {
+                node.checkpoint_height
+            } else {
+                None
+            };
             node.finalized = true;
             node.checkpoint_height = Some(checkpoint_height);
             if let Some(old_h) = old_cp_h {
@@ -472,7 +494,10 @@ impl Dag {
                 }
             }
             self.unfinalized.remove(hash);
-            self.finalized_by_height.entry(checkpoint_height).or_default().insert(hash.to_string());
+            self.finalized_by_height
+                .entry(checkpoint_height)
+                .or_default()
+                .insert(hash.to_string());
             Ok(())
         } else {
             Err(DagError::NodeNotFound(hash.to_string()))
@@ -557,7 +582,10 @@ impl Dag {
                 }
             }
         }
-        let height_set = self.finalized_by_height.entry(checkpoint_height).or_default();
+        let height_set = self
+            .finalized_by_height
+            .entry(checkpoint_height)
+            .or_default();
         for hash in hashes {
             self.unfinalized.remove(hash);
         }
@@ -613,7 +641,8 @@ impl Dag {
             ancestors
         };
 
-        let heights_to_prune: Vec<u64> = self.finalized_by_height
+        let heights_to_prune: Vec<u64> = self
+            .finalized_by_height
             .range(..min_checkpoint_height)
             .map(|(&h, _)| h)
             .collect();
@@ -644,7 +673,9 @@ impl Dag {
                     }
                 }
 
-                let parent_hashes: Vec<String> = self.graph.node_weight(idx)
+                let parent_hashes: Vec<String> = self
+                    .graph
+                    .node_weight(idx)
                     .map(|n| n.parents.clone())
                     .unwrap_or_default();
 
@@ -804,7 +835,10 @@ impl Dag {
                         .or_default()
                         .insert(node.hash.clone());
                 } else if let Some(h) = node.checkpoint_height {
-                    self.finalized_by_height.entry(h).or_default().insert(node.hash.clone());
+                    self.finalized_by_height
+                        .entry(h)
+                        .or_default()
+                        .insert(node.hash.clone());
                 }
             }
         }
@@ -815,14 +849,16 @@ impl Dag {
             return 0;
         }
 
-        let evict_set: std::collections::HashSet<&str> = hashes.iter().map(|s| s.as_str()).collect();
+        let evict_set: std::collections::HashSet<&str> =
+            hashes.iter().map(|s| s.as_str()).collect();
 
         let mut seen_indices = std::collections::HashSet::new();
-        let mut indices_to_remove: Vec<petgraph::graph::NodeIndex> = hashes.iter()
+        let mut indices_to_remove: Vec<petgraph::graph::NodeIndex> = hashes
+            .iter()
             .filter_map(|hash| self.hash_to_index.get(hash).copied())
             .filter(|idx| seen_indices.insert(*idx))
             .collect();
-        indices_to_remove.sort_by(|a, b| b.index().cmp(&a.index()));
+        indices_to_remove.sort_by_key(|b| std::cmp::Reverse(b.index()));
 
         let count = indices_to_remove.len();
         if count == 0 {
@@ -843,7 +879,10 @@ impl Dag {
             if let Some(node) = self.graph.node_weight_mut(idx) {
                 node.children.retain(|c| !evict_set.contains(c.as_str()));
                 node.parents.retain(|p| !evict_set.contains(p.as_str()));
-                node.tx.tx.parents.retain(|p| !evict_set.contains(p.as_str()));
+                node.tx
+                    .tx
+                    .parents
+                    .retain(|p| !evict_set.contains(p.as_str()));
             }
         }
 
@@ -857,7 +896,10 @@ impl Dag {
                         .or_default()
                         .insert(node.hash.clone());
                 } else if let Some(h) = node.checkpoint_height {
-                    self.finalized_by_height.entry(h).or_default().insert(node.hash.clone());
+                    self.finalized_by_height
+                        .entry(h)
+                        .or_default()
+                        .insert(node.hash.clone());
                 }
                 if node.children.is_empty() {
                     self.tips.insert(node.hash.clone());
@@ -869,14 +911,17 @@ impl Dag {
     }
 
     pub fn evict_finalized_before(&mut self, boundary_height: u64) -> usize {
-        let to_evict: Vec<String> = self.graph.node_weights()
+        let to_evict: Vec<String> = self
+            .graph
+            .node_weights()
             .filter(|node| {
                 node.finalized
-                    && node.checkpoint_height.map_or(false, |h| h < boundary_height)
+                    && node.checkpoint_height.is_some_and(|h| h < boundary_height)
                     && node.children.iter().all(|child_hash| {
-                        self.hash_to_index.get(child_hash)
+                        self.hash_to_index
+                            .get(child_hash)
                             .and_then(|&idx| self.graph.node_weight(idx))
-                            .map_or(true, |child| child.finalized)
+                            .is_none_or(|child| child.finalized)
                     })
             })
             .map(|node| node.hash.clone())
@@ -888,12 +933,14 @@ impl Dag {
 
         let count = to_evict.len();
 
-        let evict_set: std::collections::HashSet<&str> = to_evict.iter().map(|s| s.as_str()).collect();
+        let evict_set: std::collections::HashSet<&str> =
+            to_evict.iter().map(|s| s.as_str()).collect();
 
-        let mut indices_to_remove: Vec<petgraph::graph::NodeIndex> = to_evict.iter()
+        let mut indices_to_remove: Vec<petgraph::graph::NodeIndex> = to_evict
+            .iter()
             .filter_map(|hash| self.hash_to_index.get(hash).copied())
             .collect();
-        indices_to_remove.sort_by(|a, b| b.index().cmp(&a.index()));
+        indices_to_remove.sort_by_key(|b| std::cmp::Reverse(b.index()));
 
         for idx in indices_to_remove {
             self.graph.remove_node(idx);
@@ -922,7 +969,10 @@ impl Dag {
                         .or_default()
                         .insert(node.hash.clone());
                 } else if let Some(h) = node.checkpoint_height {
-                    self.finalized_by_height.entry(h).or_default().insert(node.hash.clone());
+                    self.finalized_by_height
+                        .entry(h)
+                        .or_default()
+                        .insert(node.hash.clone());
                 }
                 if node.children.is_empty() {
                     self.tips.insert(node.hash.clone());
@@ -1042,13 +1092,9 @@ impl Dag {
             self.get_ancestors(hash_a, usize::MAX).into_iter().collect();
         let ancestors_b = self.get_ancestors(hash_b, usize::MAX);
 
-        for ancestor in ancestors_b {
-            if ancestors_a.contains(&ancestor) {
-                return Some(ancestor);
-            }
-        }
-
-        None
+        ancestors_b
+            .into_iter()
+            .find(|ancestor| ancestors_a.contains(ancestor))
     }
 }
 

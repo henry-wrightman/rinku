@@ -1,12 +1,15 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use axum::{
-    extract::{State, ws::{Message, WebSocket, WebSocketUpgrade}},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use tokio::time::{interval, Duration};
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::events::{EventBus, NodeEvent};
 
@@ -25,7 +28,10 @@ pub async fn ws_handler(
 ) -> impl IntoResponse {
     let current = ACTIVE_CONNECTIONS.load(Ordering::Relaxed);
     if current >= MAX_CONNECTIONS {
-        warn!("WebSocket connection rejected: {} active (max {})", current, MAX_CONNECTIONS);
+        warn!(
+            "WebSocket connection rejected: {} active (max {})",
+            current, MAX_CONNECTIONS
+        );
         return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
 
@@ -110,18 +116,24 @@ async fn handle_socket(socket: WebSocket, ws_state: WsState) {
     info!("WebSocket disconnected (active: {})", remaining);
 }
 
-fn should_send(event: &NodeEvent, type_filter: &Option<Vec<String>>, account_filter: &Option<Vec<String>>) -> bool {
+fn should_send(
+    event: &NodeEvent,
+    type_filter: &Option<Vec<String>>,
+    account_filter: &Option<Vec<String>>,
+) -> bool {
     if let Some(ref accounts) = account_filter {
         let matches = match event {
             NodeEvent::AccountUpdated { address, .. } => accounts.iter().any(|a| a == address),
-            NodeEvent::NewTransaction { from, to, .. } |
-            NodeEvent::FastPathConfirmed { from, to, .. } |
-            NodeEvent::FastPathExecuted { from, to, .. } => {
+            NodeEvent::NewTransaction { from, to, .. }
+            | NodeEvent::FastPathConfirmed { from, to, .. }
+            | NodeEvent::FastPathExecuted { from, to, .. } => {
                 accounts.iter().any(|a| a == from || a == to)
             }
             _ => false,
         };
-        if matches { return true; }
+        if matches {
+            return true;
+        }
     }
 
     if let Some(ref types) = type_filter {

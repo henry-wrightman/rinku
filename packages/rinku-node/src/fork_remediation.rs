@@ -98,14 +98,19 @@ impl ForkRemediationService {
 
     pub async fn index_transaction(&self, from: &str, nonce: u64, hash: &str) {
         let key = (from.to_string(), nonce);
-        
+
         let should_detect = {
             let mut inner = self.inner.write().await;
-            inner.nonce_index
+            inner
+                .nonce_index
                 .entry(key.clone())
                 .or_default()
                 .push(hash.to_string());
-            inner.nonce_index.get(&key).map(|h| h.len() > 1).unwrap_or(false)
+            inner
+                .nonce_index
+                .get(&key)
+                .map(|h| h.len() > 1)
+                .unwrap_or(false)
         };
 
         if should_detect {
@@ -134,16 +139,18 @@ impl ForkRemediationService {
     async fn detect_double_spend(&self, account: &str, nonce: u64) {
         let mut inner = self.inner.write().await;
         let key = (account.to_string(), nonce);
-        
+
         let tx_hashes = inner.nonce_index.get(&key).cloned().unwrap_or_default();
-        
+
         if tx_hashes.len() < 2 {
             return;
         }
 
         warn!(
             "Double-spend detected: account {} nonce {} has {} transactions",
-            account, nonce, tx_hashes.len()
+            account,
+            nonce,
+            tx_hashes.len()
         );
 
         inner.stats.total_double_spends += 1;
@@ -189,7 +196,9 @@ impl ForkRemediationService {
                 inner.stats.total_txs_pruned += pruned as u64;
                 inner.stats.total_branches_pruned += 1;
 
-                if let Some(event) = inner.double_spend_events.iter_mut()
+                if let Some(event) = inner
+                    .double_spend_events
+                    .iter_mut()
                     .find(|e| e.account == account && e.nonce == nonce && !e.resolved)
                 {
                     event.winner = Some(winner.clone());
@@ -209,14 +218,17 @@ impl ForkRemediationService {
         //
         // Checkpointing will naturally merge tips into finalized state.
         // Aggressive tip pruning destroys legitimate transactions from other nodes.
-        
+
         let tips = self.state.get_tips().await;
-        
+
         // Just log tip count for monitoring, don't prune
         if tips.len() > 10 {
-            debug!("DAG has {} tips (concurrent transaction branches)", tips.len());
+            debug!(
+                "DAG has {} tips (concurrent transaction branches)",
+                tips.len()
+            );
         }
-        
+
         // Update stats for monitoring purposes only
         let mut inner = self.inner.write().await;
         inner.stats.active_forks = tips.len().saturating_sub(1); // tips - 1 = parallel branches
@@ -230,13 +242,13 @@ impl ForkRemediationService {
 
         let mut inner = self.inner.write().await;
 
-        inner.fork_events.retain(|e| {
-            now - e.detected_at < 300 || e.resolved_at.is_none()
-        });
+        inner
+            .fork_events
+            .retain(|e| now - e.detected_at < 300 || e.resolved_at.is_none());
 
-        inner.double_spend_events.retain(|e| {
-            now - e.detected_at < 300 || !e.resolved
-        });
+        inner
+            .double_spend_events
+            .retain(|e| now - e.detected_at < 300 || !e.resolved);
 
         if inner.fork_events.len() > 1000 {
             inner.fork_events.truncate(500);
@@ -249,14 +261,25 @@ impl ForkRemediationService {
         const MAX_NONCE_INDEX_SIZE: usize = 50000;
         if inner.nonce_index.len() > MAX_NONCE_INDEX_SIZE {
             let entries_to_remove = inner.nonce_index.len() - (MAX_NONCE_INDEX_SIZE / 2);
-            let keys_to_remove: Vec<_> = inner.nonce_index.keys().take(entries_to_remove).cloned().collect();
+            let keys_to_remove: Vec<_> = inner
+                .nonce_index
+                .keys()
+                .take(entries_to_remove)
+                .cloned()
+                .collect();
             for key in keys_to_remove {
                 inner.nonce_index.remove(&key);
             }
-            debug!("Pruned nonce_index: removed {} entries, {} remaining", entries_to_remove, inner.nonce_index.len());
+            debug!(
+                "Pruned nonce_index: removed {} entries, {} remaining",
+                entries_to_remove,
+                inner.nonce_index.len()
+            );
         }
 
-        inner.stats.active_forks = inner.fork_events.iter()
+        inner.stats.active_forks = inner
+            .fork_events
+            .iter()
             .filter(|e| e.resolved_at.is_none())
             .count();
     }
@@ -264,17 +287,18 @@ impl ForkRemediationService {
     async fn log_summary(&self) {
         let inner = self.inner.read().await;
         let tips = self.state.get_tips().await.len();
-        
+
         // Only log if there are double-spends (actual conflicts)
         if inner.stats.total_double_spends > 0 {
             info!(
                 "[ForkRemediation] Tips: {}, Double-spends resolved: {}, Pruned TXs: {}",
-                tips,
-                inner.stats.total_double_spends,
-                inner.stats.total_txs_pruned
+                tips, inner.stats.total_double_spends, inner.stats.total_txs_pruned
             );
         } else if tips > 5 {
-            debug!("[ForkRemediation] DAG tips: {} (healthy concurrent branches)", tips);
+            debug!(
+                "[ForkRemediation] DAG tips: {} (healthy concurrent branches)",
+                tips
+            );
         }
     }
 
@@ -283,7 +307,9 @@ impl ForkRemediationService {
     }
 
     pub async fn get_active_forks(&self) -> Vec<ForkEvent> {
-        self.inner.read().await
+        self.inner
+            .read()
+            .await
             .fork_events
             .iter()
             .filter(|e| e.resolved_at.is_none())
@@ -293,7 +319,13 @@ impl ForkRemediationService {
 
     pub async fn get_recent_events(&self, limit: usize) -> Vec<ForkEvent> {
         let inner = self.inner.read().await;
-        inner.fork_events.iter().rev().take(limit).cloned().collect()
+        inner
+            .fork_events
+            .iter()
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect()
     }
 }
 
@@ -359,7 +391,7 @@ mod tests {
     #[test]
     fn test_weight_threshold() {
         assert_eq!(WEIGHT_THRESHOLD, 1.5);
-        
+
         let weight_a = 16.0;
         let weight_b = 10.0;
         assert!(weight_a > weight_b * WEIGHT_THRESHOLD);

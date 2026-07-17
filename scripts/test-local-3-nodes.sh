@@ -95,12 +95,15 @@ start_node() {
     log_info "Starting $name on API port $api_port (mainnet=$mainnet_mode)..."
     mkdir -p "$data_dir"
 
+    # FAUCET_ENABLED must be explicit: MAINNET_MODE defaults faucet off (A3),
+    # but this harness drives checkpoint progress via faucet txs.
     RUST_LOG="rinku_node=info" \
     DATA_DIR="$data_dir" \
     API_PORT="$api_port" \
     P2P_PORT="$p2p_port" \
     IS_GENESIS_NODE="$is_genesis" \
     MAINNET_MODE="$mainnet_mode" \
+    FAUCET_ENABLED="true" \
     PUBLIC_URL="$public_url" \
     P2P_MDNS="false" \
     CHECKPOINT_INTERVAL_MS="5000" \
@@ -267,6 +270,15 @@ submit_test_transactions() {
         sleep 0.05
     done
     log_info "Submitted $submitted/$count faucet transactions"
+    if [ "$submitted" -eq 0 ]; then
+        log_error "Faucet submitted 0 txs — check FAUCET_ENABLED (MAINNET_MODE defaults it off)"
+        # Surface a sample error body for debugging
+        curl -s -X POST "http://localhost:$GENESIS_API_PORT/api/faucet/request" \
+            -H "Content-Type: application/json" \
+            -d "{\"address\":\"$(generate_test_address)\"}" || true
+        echo ""
+        return 1
+    fi
 }
 
 check_validator_convergence() {
@@ -296,7 +308,7 @@ check_validator_convergence() {
 wait_for_checkpoints() {
     log_info "Waiting for checkpoint creation (up to 3 minutes)..."
     log_info "Note: nodes skip empty checkpoints — submitting test transactions first"
-    submit_test_transactions 30
+    submit_test_transactions 30 || return 1
 
     for i in {1..36}; do
         local g_cp v1_cp v2_cp
@@ -312,7 +324,7 @@ wait_for_checkpoints() {
         fi
 
         if [ $((i % 6)) -eq 0 ]; then
-            submit_test_transactions 12
+            submit_test_transactions 12 || true
         fi
         sleep 5
     done

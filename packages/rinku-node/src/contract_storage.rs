@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info};
 
-use crate::sparse_merkle_trie::{hash_contract_key, SparseMerkleTrie, MerkleProof, SparseMultiProof};
+use crate::sparse_merkle_trie::{
+    hash_contract_key, MerkleProof, SparseMerkleTrie, SparseMultiProof,
+};
 use crate::storage::RedbStorage;
 
 pub struct ContractStorageManager {
@@ -199,7 +201,8 @@ mod tests {
         let mut mgr = ContractStorageManager::new();
         let empty_root = mgr.root();
 
-        mgr.write_key("contract_1", "balance", &Value::from(100), None).unwrap();
+        mgr.write_key("contract_1", "balance", &Value::from(100), None)
+            .unwrap();
         assert_ne!(mgr.root(), empty_root);
 
         let val = mgr.read_key("contract_1", "balance", None).unwrap();
@@ -210,8 +213,10 @@ mod tests {
     fn test_contract_isolation() {
         let mut mgr = ContractStorageManager::new();
 
-        mgr.write_key("contract_a", "key", &Value::from("a_value"), None).unwrap();
-        mgr.write_key("contract_b", "key", &Value::from("b_value"), None).unwrap();
+        mgr.write_key("contract_a", "key", &Value::from("a_value"), None)
+            .unwrap();
+        mgr.write_key("contract_b", "key", &Value::from("b_value"), None)
+            .unwrap();
 
         let a_val = mgr.read_key("contract_a", "key", None).unwrap();
         let b_val = mgr.read_key("contract_b", "key", None).unwrap();
@@ -224,7 +229,8 @@ mod tests {
     fn test_delete_key() {
         let mut mgr = ContractStorageManager::new();
 
-        mgr.write_key("contract_1", "temp", &Value::from(42), None).unwrap();
+        mgr.write_key("contract_1", "temp", &Value::from(42), None)
+            .unwrap();
         assert!(mgr.read_key("contract_1", "temp", None).unwrap().is_some());
 
         mgr.delete_key("contract_1", "temp", None).unwrap();
@@ -234,7 +240,8 @@ mod tests {
     #[test]
     fn test_prove_key() {
         let mut mgr = ContractStorageManager::new();
-        mgr.write_key("contract_1", "proven_key", &Value::from("data"), None).unwrap();
+        mgr.write_key("contract_1", "proven_key", &Value::from("data"), None)
+            .unwrap();
 
         let proof = mgr.prove_key("contract_1", "proven_key", None).unwrap();
         assert!(ContractStorageManager::verify_key_proof(&proof));
@@ -245,7 +252,8 @@ mod tests {
     fn test_apply_state_diff() {
         let mut mgr = ContractStorageManager::new();
 
-        mgr.write_key("contract_1", "existing", &Value::from("old"), None).unwrap();
+        mgr.write_key("contract_1", "existing", &Value::from("old"), None)
+            .unwrap();
 
         let changes = vec![
             ("existing".to_string(), Some(Value::from("new"))),
@@ -254,19 +262,33 @@ mod tests {
 
         mgr.apply_state_diff("contract_1", &changes, None).unwrap();
 
-        assert_eq!(mgr.read_key("contract_1", "existing", None).unwrap(), Some(Value::from("new")));
-        assert_eq!(mgr.read_key("contract_1", "added", None).unwrap(), Some(Value::from(42)));
+        assert_eq!(
+            mgr.read_key("contract_1", "existing", None).unwrap(),
+            Some(Value::from("new"))
+        );
+        assert_eq!(
+            mgr.read_key("contract_1", "added", None).unwrap(),
+            Some(Value::from(42))
+        );
     }
 
     #[test]
     fn test_load_contract_state() {
         let mut mgr = ContractStorageManager::new();
 
-        mgr.write_key("contract_1", "a", &Value::from(1), None).unwrap();
-        mgr.write_key("contract_1", "b", &Value::from(2), None).unwrap();
-        mgr.write_key("contract_1", "c", &Value::from(3), None).unwrap();
+        mgr.write_key("contract_1", "a", &Value::from(1), None)
+            .unwrap();
+        mgr.write_key("contract_1", "b", &Value::from(2), None)
+            .unwrap();
+        mgr.write_key("contract_1", "c", &Value::from(3), None)
+            .unwrap();
 
-        let keys = vec!["a".to_string(), "b".to_string(), "c".to_string(), "missing".to_string()];
+        let keys = vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "missing".to_string(),
+        ];
         let state = mgr.load_contract_state("contract_1", &keys, None).unwrap();
 
         assert_eq!(state.len(), 3);
@@ -277,9 +299,12 @@ mod tests {
     #[test]
     fn test_prove_keys_multi() {
         let mut mgr = ContractStorageManager::new();
-        mgr.write_key("contract_1", "alpha", &Value::from(1), None).unwrap();
-        mgr.write_key("contract_1", "beta", &Value::from(2), None).unwrap();
-        mgr.write_key("contract_1", "gamma", &Value::from(3), None).unwrap();
+        mgr.write_key("contract_1", "alpha", &Value::from(1), None)
+            .unwrap();
+        mgr.write_key("contract_1", "beta", &Value::from(2), None)
+            .unwrap();
+        mgr.write_key("contract_1", "gamma", &Value::from(3), None)
+            .unwrap();
 
         let keys = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
         let multiproof = mgr.prove_keys_multi("contract_1", &keys, None).unwrap();

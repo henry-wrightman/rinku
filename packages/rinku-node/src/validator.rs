@@ -1,7 +1,9 @@
 use anyhow::Result;
-use rinku_core::crypto::{KeyPair, encrypt_private_key_hex, decrypt_private_key_hex, parse_encrypted_private_key};
 #[allow(unused_imports)]
 use rinku_core::crypto::CryptoError;
+use rinku_core::crypto::{
+    decrypt_private_key_hex, encrypt_private_key_hex, parse_encrypted_private_key, KeyPair,
+};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::info;

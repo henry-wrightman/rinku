@@ -5,19 +5,27 @@ impl NodeState {
         self.start_time.elapsed().as_secs()
     }
 
-    pub async fn set_validator_info(&self, address: Option<String>, bls_public_key: Option<String>, allow_auto_register: bool) {
+    pub async fn set_validator_info(
+        &self,
+        address: Option<String>,
+        bls_public_key: Option<String>,
+        allow_auto_register: bool,
+    ) {
         use crate::validator_identity::MIN_VALIDATOR_STAKE;
-        
+
         let mut state = self.inner.write().await;
         state.node_validator_address = address.clone();
         state.node_bls_public_key = bls_public_key.clone();
-        
+
         // Register or update in state.validators so it gets synced to peers via snapshots
         if let Some(ref addr) = address {
             if let Some(existing) = state.validators.get_mut(addr) {
                 // Update existing entry if BLS key is missing or different
                 if existing.bls_public_key.is_none() || existing.bls_public_key != bls_public_key {
-                    info!("Updating BLS key for validator {} in state.validators", addr);
+                    info!(
+                        "Updating BLS key for validator {} in state.validators",
+                        addr
+                    );
                     existing.bls_public_key = bls_public_key.clone();
                 }
             } else if allow_auto_register {
@@ -35,7 +43,10 @@ impl NodeState {
                     bls_public_key: bls_public_key.clone(),
                     missed_checkpoints: 0,
                 };
-                info!("Registering local validator {} in state.validators for peer sync", addr);
+                info!(
+                    "Registering local validator {} in state.validators for peer sync",
+                    addr
+                );
                 state.validators.insert(addr.clone(), validator);
             } else {
                 warn!(
@@ -48,7 +59,10 @@ impl NodeState {
 
     pub async fn get_validator_info(&self) -> (Option<String>, Option<String>) {
         let state = self.inner.read().await;
-        (state.node_validator_address.clone(), state.node_bls_public_key.clone())
+        (
+            state.node_validator_address.clone(),
+            state.node_bls_public_key.clone(),
+        )
     }
 
     pub async fn set_peer_info(&self, peer_id: String, listen_addr: String) {
@@ -57,7 +71,14 @@ impl NodeState {
         state.node_listen_addr = Some(listen_addr);
     }
 
-    pub async fn get_bootstrap_info(&self) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+    pub async fn get_bootstrap_info(
+        &self,
+    ) -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
         let state = self.inner.read().await;
         (
             state.node_peer_id.clone(),
@@ -70,13 +91,21 @@ impl NodeState {
     pub async fn get_validator_bls_pubkey_bytes(&self, address: &str) -> Option<Vec<u8>> {
         let state = self.inner.read().await;
         let key = state.validators.get(address)?.bls_public_key.as_ref()?;
-        let decoded = URL_SAFE_NO_PAD.decode(key).ok()
+        let decoded = URL_SAFE_NO_PAD
+            .decode(key)
+            .ok()
             .or_else(|| hex::decode(key).ok());
         decoded
     }
 
-    pub async fn verify_slashing_evidence(&self, evidence: &crate::slashing::DoubleSignEvidence) -> bool {
-        let pubkey = match self.get_validator_bls_pubkey_bytes(&evidence.validator).await {
+    pub async fn verify_slashing_evidence(
+        &self,
+        evidence: &crate::slashing::DoubleSignEvidence,
+    ) -> bool {
+        let pubkey = match self
+            .get_validator_bls_pubkey_bytes(&evidence.validator)
+            .await
+        {
             Some(key) => key,
             None => return false,
         };
@@ -85,9 +114,13 @@ impl NodeState {
             None => return false,
         };
 
-        let sig1_bytes = URL_SAFE_NO_PAD.decode(&evidence.signature1).ok()
+        let sig1_bytes = URL_SAFE_NO_PAD
+            .decode(&evidence.signature1)
+            .ok()
             .or_else(|| hex::decode(&evidence.signature1).ok());
-        let sig2_bytes = URL_SAFE_NO_PAD.decode(sig2).ok()
+        let sig2_bytes = URL_SAFE_NO_PAD
+            .decode(sig2)
+            .ok()
             .or_else(|| hex::decode(sig2).ok());
         let (Some(sig1), Some(sig2)) = (sig1_bytes, sig2_bytes) else {
             return false;
@@ -133,7 +166,7 @@ impl NodeState {
         }
         false
     }
-    
+
     pub async fn get_genesis_hash(&self) -> Option<String> {
         let state = self.inner.read().await;
         if let Some(ref hash) = state.genesis_hash {
@@ -149,14 +182,16 @@ impl NodeState {
         }
         None
     }
-    
+
     pub async fn set_genesis_hash(&self, hash: String) {
         let mut state = self.inner.write().await;
         state.genesis_hash = Some(hash.clone());
         drop(state);
         let storage = self.storage.clone();
         let hash_clone = hash.clone();
-        if let Err(e) = crate::storage::blocking_io(move || storage.save_genesis_hash(&hash_clone)).await {
+        if let Err(e) =
+            crate::storage::blocking_io(move || storage.save_genesis_hash(&hash_clone)).await
+        {
             warn!("Failed to persist genesis hash: {}", e);
         }
     }

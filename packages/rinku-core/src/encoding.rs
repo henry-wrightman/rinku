@@ -68,8 +68,7 @@ pub fn create_verifiable_object_url(vo_payload: &str) -> String {
 }
 
 pub fn parse_rinku_url(url: &str) -> Result<(String, String), EncodingError> {
-    if url.starts_with("rinku://") {
-        let rest = &url[8..];
+    if let Some(rest) = url.strip_prefix("rinku://") {
         if let Some(slash_pos) = rest.find('/') {
             let url_type = &rest[..slash_pos];
             let payload = &rest[slash_pos + 1..];

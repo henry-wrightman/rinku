@@ -49,12 +49,12 @@ impl NodeState {
         let rewards = self.rewards.read().await;
         let stake_amount = rewards.get_stake(address).map(|p| p.amount).unwrap_or(0);
         let pending_rewards = rewards.get_pending_rewards(address);
-        
+
         let state = self.inner.read().await;
         let is_validator = state.validators.contains_key(address);
-        
+
         let unbonding = 0;
-        
+
         (stake_amount, pending_rewards, unbonding, is_validator)
     }
 
@@ -99,7 +99,7 @@ impl NodeState {
 
     async fn update_gas_price_at_checkpoint(&self, _finalized_tx_count: u64) {
         let mut state = self.inner.write().await;
-        
+
         let current_height = state.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
         let gas_period_ms = state.config.gas.period_duration_ms;
         let checkpoint_interval_ms = state.config.checkpoint_interval_ms;
@@ -108,18 +108,20 @@ impl NodeState {
         } else {
             3
         };
-        
+
         if current_height > 0 && current_height % checkpoints_per_gas_period == 0 {
-            let period_tx_count: u64 = state.checkpoints.iter()
+            let period_tx_count: u64 = state
+                .checkpoints
+                .iter()
                 .rev()
                 .take(checkpoints_per_gas_period as usize)
                 .map(|cp| cp.finalized_tx_hashes.len() as u64)
                 .sum();
-            
+
             let target_txs = state.config.gas.target_txs_per_period as f64;
             let max_change = state.config.gas.adjustment_factor;
             const ELASTICITY: f64 = 2.0;
-            
+
             let utilization = period_tx_count as f64 / target_txs;
             let change_ratio = ((utilization - 1.0) / (ELASTICITY - 1.0)).clamp(-1.0, 1.0);
             let change_factor = 1.0 + change_ratio * max_change;
@@ -174,7 +176,11 @@ impl NodeState {
         let short_tps = (short_txs as f64) / (TPS_SHORT_WINDOW_SECS as f64);
         let long_tps = (long_txs as f64) / (TPS_LONG_WINDOW_SECS as f64);
 
-        let peak = if short_tps > long_tps { short_tps } else { long_tps };
+        let peak = if short_tps > long_tps {
+            short_tps
+        } else {
+            long_tps
+        };
 
         (peak, short_tps, long_tps)
     }

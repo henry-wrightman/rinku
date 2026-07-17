@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-use rinku_core::types::Account;
 use super::{
-    ConflictResolution, ConflictType, DirectConflict, EconomicConflict,
-    PartitionTxSummary, ResolutionReason,
+    ConflictResolution, ConflictType, DirectConflict, EconomicConflict, PartitionTxSummary,
+    ResolutionReason,
 };
+use rinku_core::types::Account;
+use std::collections::HashMap;
 
 const WEIGHT_PROXIMITY_THRESHOLD: f64 = 1.5;
 
@@ -12,69 +12,123 @@ pub fn resolve_direct_conflicts(
     local_txs: &[PartitionTxSummary],
     remote_txs: &[PartitionTxSummary],
 ) -> Vec<ConflictResolution> {
-    let local_map: HashMap<&str, &PartitionTxSummary> = local_txs.iter()
+    let local_map: HashMap<&str, &PartitionTxSummary> = local_txs
+        .iter()
         .map(|tx| (tx.tx_hash.as_str(), tx))
         .collect();
-    let remote_map: HashMap<&str, &PartitionTxSummary> = remote_txs.iter()
+    let remote_map: HashMap<&str, &PartitionTxSummary> = remote_txs
+        .iter()
         .map(|tx| (tx.tx_hash.as_str(), tx))
         .collect();
 
-    conflicts.iter().map(|conflict| {
-        let local_tx = local_map.get(conflict.local_tx_hash.as_str());
-        let remote_tx = remote_map.get(conflict.remote_tx_hash.as_str());
+    conflicts
+        .iter()
+        .map(|conflict| {
+            let local_tx = local_map.get(conflict.local_tx_hash.as_str());
+            let remote_tx = remote_map.get(conflict.remote_tx_hash.as_str());
 
-        let local_weight = local_tx.map(|t| t.weight).unwrap_or(0.0);
-        let remote_weight = remote_tx.map(|t| t.weight).unwrap_or(0.0);
+            let local_weight = local_tx.map(|t| t.weight).unwrap_or(0.0);
+            let remote_weight = remote_tx.map(|t| t.weight).unwrap_or(0.0);
 
-        let (winner_hash, loser_hash, winner_w, loser_w, reason) = {
-            let weights_differ = (local_weight - remote_weight).abs() > f64::EPSILON;
+            let (winner_hash, loser_hash, winner_w, loser_w, reason) = {
+                let weights_differ = (local_weight - remote_weight).abs() > f64::EPSILON;
 
-            if weights_differ {
-                let (higher_w, lower_w) = if local_weight > remote_weight {
-                    (local_weight, remote_weight)
-                } else {
-                    (remote_weight, local_weight)
-                };
-
-                let within_threshold = lower_w > 0.0 && higher_w / lower_w <= WEIGHT_PROXIMITY_THRESHOLD;
-
-                if within_threshold {
-                    let local_stake = local_tx.map(|t| t.visible_stake_pct).unwrap_or(0.0);
-                    let remote_stake = remote_tx.map(|t| t.visible_stake_pct).unwrap_or(0.0);
-
-                    if (local_stake - remote_stake).abs() > f64::EPSILON {
-                        if local_stake > remote_stake {
-                            (&conflict.local_tx_hash, &conflict.remote_tx_hash, local_weight, remote_weight, ResolutionReason::HigherStake)
-                        } else {
-                            (&conflict.remote_tx_hash, &conflict.local_tx_hash, remote_weight, local_weight, ResolutionReason::HigherStake)
-                        }
-                    } else if conflict.local_tx_hash < conflict.remote_tx_hash {
-                        (&conflict.local_tx_hash, &conflict.remote_tx_hash, local_weight, remote_weight, ResolutionReason::LowerHashTiebreak)
+                if weights_differ {
+                    let (higher_w, lower_w) = if local_weight > remote_weight {
+                        (local_weight, remote_weight)
                     } else {
-                        (&conflict.remote_tx_hash, &conflict.local_tx_hash, remote_weight, local_weight, ResolutionReason::LowerHashTiebreak)
-                    }
-                } else if local_weight > remote_weight {
-                    (&conflict.local_tx_hash, &conflict.remote_tx_hash, local_weight, remote_weight, ResolutionReason::HigherWeight)
-                } else {
-                    (&conflict.remote_tx_hash, &conflict.local_tx_hash, remote_weight, local_weight, ResolutionReason::HigherWeight)
-                }
-            } else if conflict.local_tx_hash < conflict.remote_tx_hash {
-                (&conflict.local_tx_hash, &conflict.remote_tx_hash, local_weight, remote_weight, ResolutionReason::LowerHashTiebreak)
-            } else {
-                (&conflict.remote_tx_hash, &conflict.local_tx_hash, remote_weight, local_weight, ResolutionReason::LowerHashTiebreak)
-            }
-        };
+                        (remote_weight, local_weight)
+                    };
 
-        ConflictResolution {
-            conflict_type: ConflictType::DirectDoubleSpend,
-            account: conflict.account.clone(),
-            winner_tx_hashes: vec![winner_hash.clone()],
-            loser_tx_hashes: vec![loser_hash.clone()],
-            reason,
-            winner_weight: winner_w,
-            loser_weight: loser_w,
-        }
-    }).collect()
+                    let within_threshold =
+                        lower_w > 0.0 && higher_w / lower_w <= WEIGHT_PROXIMITY_THRESHOLD;
+
+                    if within_threshold {
+                        let local_stake = local_tx.map(|t| t.visible_stake_pct).unwrap_or(0.0);
+                        let remote_stake = remote_tx.map(|t| t.visible_stake_pct).unwrap_or(0.0);
+
+                        if (local_stake - remote_stake).abs() > f64::EPSILON {
+                            if local_stake > remote_stake {
+                                (
+                                    &conflict.local_tx_hash,
+                                    &conflict.remote_tx_hash,
+                                    local_weight,
+                                    remote_weight,
+                                    ResolutionReason::HigherStake,
+                                )
+                            } else {
+                                (
+                                    &conflict.remote_tx_hash,
+                                    &conflict.local_tx_hash,
+                                    remote_weight,
+                                    local_weight,
+                                    ResolutionReason::HigherStake,
+                                )
+                            }
+                        } else if conflict.local_tx_hash < conflict.remote_tx_hash {
+                            (
+                                &conflict.local_tx_hash,
+                                &conflict.remote_tx_hash,
+                                local_weight,
+                                remote_weight,
+                                ResolutionReason::LowerHashTiebreak,
+                            )
+                        } else {
+                            (
+                                &conflict.remote_tx_hash,
+                                &conflict.local_tx_hash,
+                                remote_weight,
+                                local_weight,
+                                ResolutionReason::LowerHashTiebreak,
+                            )
+                        }
+                    } else if local_weight > remote_weight {
+                        (
+                            &conflict.local_tx_hash,
+                            &conflict.remote_tx_hash,
+                            local_weight,
+                            remote_weight,
+                            ResolutionReason::HigherWeight,
+                        )
+                    } else {
+                        (
+                            &conflict.remote_tx_hash,
+                            &conflict.local_tx_hash,
+                            remote_weight,
+                            local_weight,
+                            ResolutionReason::HigherWeight,
+                        )
+                    }
+                } else if conflict.local_tx_hash < conflict.remote_tx_hash {
+                    (
+                        &conflict.local_tx_hash,
+                        &conflict.remote_tx_hash,
+                        local_weight,
+                        remote_weight,
+                        ResolutionReason::LowerHashTiebreak,
+                    )
+                } else {
+                    (
+                        &conflict.remote_tx_hash,
+                        &conflict.local_tx_hash,
+                        remote_weight,
+                        local_weight,
+                        ResolutionReason::LowerHashTiebreak,
+                    )
+                }
+            };
+
+            ConflictResolution {
+                conflict_type: ConflictType::DirectDoubleSpend,
+                account: conflict.account.clone(),
+                winner_tx_hashes: vec![winner_hash.clone()],
+                loser_tx_hashes: vec![loser_hash.clone()],
+                reason,
+                winner_weight: winner_w,
+                loser_weight: loser_w,
+            }
+        })
+        .collect()
 }
 
 pub fn resolve_economic_conflicts(
@@ -83,77 +137,88 @@ pub fn resolve_economic_conflicts(
     remote_txs: &[PartitionTxSummary],
     fork_point_accounts: &HashMap<String, Account>,
 ) -> Vec<ConflictResolution> {
-    conflicts.iter().map(|conflict| {
-        let pre_balance_micro = fork_point_accounts
-            .get(&conflict.account)
-            .map(|a| a.balance)
-            .unwrap_or(conflict.pre_partition_balance_micro);
+    conflicts
+        .iter()
+        .map(|conflict| {
+            let pre_balance_micro = fork_point_accounts
+                .get(&conflict.account)
+                .map(|a| a.balance)
+                .unwrap_or(conflict.pre_partition_balance_micro);
 
-        let mut account_txs: Vec<&PartitionTxSummary> = local_txs.iter()
-            .chain(remote_txs.iter())
-            .filter(|tx| tx.from == conflict.account)
-            .collect();
+            let mut account_txs: Vec<&PartitionTxSummary> = local_txs
+                .iter()
+                .chain(remote_txs.iter())
+                .filter(|tx| tx.from == conflict.account)
+                .collect();
 
-        account_txs.sort_by(|a, b| {
-            a.nonce.cmp(&b.nonce)
-                .then_with(|| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal))
-                .then_with(|| a.tx_hash.cmp(&b.tx_hash))
-        });
+            account_txs.sort_by(|a, b| {
+                a.nonce
+                    .cmp(&b.nonce)
+                    .then_with(|| {
+                        b.weight
+                            .partial_cmp(&a.weight)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .then_with(|| a.tx_hash.cmp(&b.tx_hash))
+            });
 
-        let mut balance = pre_balance_micro;
-        let mut received: u64 = 0;
-        for tx in local_txs.iter().chain(remote_txs.iter()) {
-            if tx.to == conflict.account && tx.from != conflict.account {
-                received = received.saturating_add(tx.amount_micro);
+            let mut balance = pre_balance_micro;
+            let mut received: u64 = 0;
+            for tx in local_txs.iter().chain(remote_txs.iter()) {
+                if tx.to == conflict.account && tx.from != conflict.account {
+                    received = received.saturating_add(tx.amount_micro);
+                }
             }
-        }
-        balance = balance.saturating_add(received);
+            balance = balance.saturating_add(received);
 
-        let mut winners: Vec<String> = Vec::new();
-        let mut losers: Vec<String> = Vec::new();
-        let mut overdraft_hit = false;
+            let mut winners: Vec<String> = Vec::new();
+            let mut losers: Vec<String> = Vec::new();
+            let mut overdraft_hit = false;
 
-        for tx in &account_txs {
-            if overdraft_hit {
-                losers.push(tx.tx_hash.clone());
-                continue;
+            for tx in &account_txs {
+                if overdraft_hit {
+                    losers.push(tx.tx_hash.clone());
+                    continue;
+                }
+
+                let total_cost = tx.amount_micro.saturating_add(tx.gas_micro);
+                if balance < total_cost {
+                    overdraft_hit = true;
+                    losers.push(tx.tx_hash.clone());
+                } else {
+                    balance = balance.saturating_sub(total_cost);
+                    winners.push(tx.tx_hash.clone());
+                }
             }
 
-            let total_cost = tx.amount_micro.saturating_add(tx.gas_micro);
-            if balance < total_cost {
-                overdraft_hit = true;
-                losers.push(tx.tx_hash.clone());
+            let winner_weight: f64 = account_txs
+                .iter()
+                .filter(|tx| winners.contains(&tx.tx_hash))
+                .map(|tx| tx.weight)
+                .sum();
+            let loser_weight: f64 = account_txs
+                .iter()
+                .filter(|tx| losers.contains(&tx.tx_hash))
+                .map(|tx| tx.weight)
+                .sum();
+
+            let reason = if losers.is_empty() {
+                ResolutionReason::HigherWeight
             } else {
-                balance = balance.saturating_sub(total_cost);
-                winners.push(tx.tx_hash.clone());
+                ResolutionReason::HigherWeight
+            };
+
+            ConflictResolution {
+                conflict_type: ConflictType::EconomicOverdraft,
+                account: conflict.account.clone(),
+                winner_tx_hashes: winners,
+                loser_tx_hashes: losers,
+                reason,
+                winner_weight,
+                loser_weight,
             }
-        }
-
-        let winner_weight: f64 = account_txs.iter()
-            .filter(|tx| winners.contains(&tx.tx_hash))
-            .map(|tx| tx.weight)
-            .sum();
-        let loser_weight: f64 = account_txs.iter()
-            .filter(|tx| losers.contains(&tx.tx_hash))
-            .map(|tx| tx.weight)
-            .sum();
-
-        let reason = if losers.is_empty() {
-            ResolutionReason::HigherWeight
-        } else {
-            ResolutionReason::HigherWeight
-        };
-
-        ConflictResolution {
-            conflict_type: ConflictType::EconomicOverdraft,
-            account: conflict.account.clone(),
-            winner_tx_hashes: winners,
-            loser_tx_hashes: losers,
-            reason,
-            winner_weight,
-            loser_weight,
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 pub fn resolve_all_conflicts(
@@ -164,7 +229,12 @@ pub fn resolve_all_conflicts(
     fork_point_accounts: &HashMap<String, Account>,
 ) -> Vec<ConflictResolution> {
     let mut resolutions = resolve_direct_conflicts(direct_conflicts, local_txs, remote_txs);
-    resolutions.extend(resolve_economic_conflicts(economic_conflicts, local_txs, remote_txs, fork_point_accounts));
+    resolutions.extend(resolve_economic_conflicts(
+        economic_conflicts,
+        local_txs,
+        remote_txs,
+        fork_point_accounts,
+    ));
     resolutions
 }
 
@@ -174,7 +244,14 @@ mod tests {
     use crate::merge::PartitionTxSummary;
     use rinku_core::types::to_micro_units;
 
-    fn make_tx(hash: &str, from: &str, to: &str, amount: f64, nonce: u64, weight: f64) -> PartitionTxSummary {
+    fn make_tx(
+        hash: &str,
+        from: &str,
+        to: &str,
+        amount: f64,
+        nonce: u64,
+        weight: f64,
+    ) -> PartitionTxSummary {
         PartitionTxSummary {
             tx_hash: hash.to_string(),
             from: from.to_string(),
@@ -183,12 +260,22 @@ mod tests {
             gas_micro: to_micro_units(0.001),
             nonce,
             weight,
+            dag_depth: 0,
+            parents: vec![],
             partition_epoch: Some(1),
             visible_stake_pct: 0.5,
         }
     }
 
-    fn make_tx_with_stake(hash: &str, from: &str, to: &str, amount: f64, nonce: u64, weight: f64, stake_pct: f64) -> PartitionTxSummary {
+    fn make_tx_with_stake(
+        hash: &str,
+        from: &str,
+        to: &str,
+        amount: f64,
+        nonce: u64,
+        weight: f64,
+        stake_pct: f64,
+    ) -> PartitionTxSummary {
         PartitionTxSummary {
             tx_hash: hash.to_string(),
             from: from.to_string(),
@@ -197,6 +284,8 @@ mod tests {
             gas_micro: to_micro_units(0.001),
             nonce,
             weight,
+            dag_depth: 0,
+            parents: vec![],
             partition_epoch: Some(1),
             visible_stake_pct: stake_pct,
         }
@@ -217,6 +306,7 @@ mod tests {
             penalty_decay_checkpoint: None,
             partition_budget: None,
             partition_budget_spent: 0,
+            ecdsa_public_key: None,
         }
     }
 
@@ -252,8 +342,18 @@ mod tests {
             remote_partition_epoch: Some(1),
         };
 
-        let local = vec![make_tx_with_stake("tx_local", "alice", "bob", 10.0, 5, 4.0, 0.7)];
-        let remote = vec![make_tx_with_stake("tx_remote", "alice", "carol", 10.0, 5, 3.0, 0.4)];
+        let local = vec![make_tx_with_stake(
+            "tx_local", "alice", "bob", 10.0, 5, 4.0, 0.7,
+        )];
+        let remote = vec![make_tx_with_stake(
+            "tx_remote",
+            "alice",
+            "carol",
+            10.0,
+            5,
+            3.0,
+            0.4,
+        )];
 
         let resolutions = resolve_direct_conflicts(&[conflict], &local, &remote);
         assert_eq!(resolutions.len(), 1);

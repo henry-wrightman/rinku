@@ -1,0 +1,17 @@
+# cargo-audit configuration — hard gate in .github/workflows/quality.yml
+# New vulnerabilities FAIL CI unless explicitly ignored here with a reason.
+# Keep docs/security/audit-allowlist.md in sync when editing this file.
+
+[advisories]
+ignore = [
+    # libp2p-mdns 0.46 → hickory-proto 0.24. Fixed in hickory ≥0.26; needs libp2p bump.
+    "RUSTSEC-2026-0119",
+    # libp2p-quic/tls (lockfile) → rustls-webpki 0.101 + ring 0.16 via rcgen.
+    # We use tcp/noise/yamux (not quic); upgrade path is libp2p ≥0.55+.
+    "RUSTSEC-2025-0009",
+    "RUSTSEC-2026-0104",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    # ark-relations 0.4 (zk feature) → tracing-subscriber 0.2. Needs ark ecosystem bump.
+    "RUSTSEC-2025-0055",
+]

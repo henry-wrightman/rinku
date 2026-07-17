@@ -107,7 +107,8 @@ impl Default for ValidatorSetState {
             epoch_start_time: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_secs() * 1000,
+                .as_secs()
+                * 1000,
             active_validators: HashMap::new(),
             pending_validators: HashMap::new(),
             exiting_validators: HashMap::new(),
@@ -189,11 +190,15 @@ impl ValidatorIdentityService {
     }
 
     pub fn local_bls_public_key(&self) -> Option<&[u8]> {
-        self.local_keys.as_ref().map(|k| k.bls_public_key.as_slice())
+        self.local_keys
+            .as_ref()
+            .map(|k| k.bls_public_key.as_slice())
     }
 
     pub fn local_bls_private_key(&self) -> Option<&[u8]> {
-        self.local_keys.as_ref().map(|k| k.bls_private_key.as_slice())
+        self.local_keys
+            .as_ref()
+            .map(|k| k.bls_private_key.as_slice())
     }
 
     pub fn current_epoch(&self) -> u64 {
@@ -209,31 +214,38 @@ impl ValidatorIdentityService {
     }
 
     pub fn is_active_validator(&self, address: &str) -> bool {
-        self.state.active_validators.get(address)
+        self.state
+            .active_validators
+            .get(address)
             .map(|v| v.is_active())
             .unwrap_or(false)
     }
-    
+
     pub fn get_validator_bls_key(&self, address: &str) -> Option<Vec<u8>> {
-        self.state.active_validators.get(address)
+        self.state
+            .active_validators
+            .get(address)
             .map(|v| v.bls_public_key.clone())
             .or_else(|| {
-                self.state.pending_validators.get(address)
+                self.state
+                    .pending_validators
+                    .get(address)
                     .map(|v| v.bls_public_key.clone())
             })
     }
-    
+
     pub fn get_validator_stake(&self, address: &str) -> Option<u64> {
-        self.state.active_validators.get(address)
+        self.state
+            .active_validators
+            .get(address)
             .map(|v| v.effective_stake)
-            .or_else(|| {
-                self.state.pending_validators.get(address)
-                    .map(|v| v.stake)
-            })
+            .or_else(|| self.state.pending_validators.get(address).map(|v| v.stake))
     }
 
     pub fn get_validator(&self, address: &str) -> Option<&ValidatorIdentity> {
-        self.state.active_validators.get(address)
+        self.state
+            .active_validators
+            .get(address)
             .or_else(|| self.state.pending_validators.get(address))
             .or_else(|| self.state.exiting_validators.get(address))
     }
@@ -279,7 +291,9 @@ impl ValidatorIdentityService {
             address, stake, activation_epoch
         );
 
-        self.state.pending_validators.insert(address, identity.clone());
+        self.state
+            .pending_validators
+            .insert(address, identity.clone());
         self.save_state()?;
 
         Ok(identity)
@@ -311,7 +325,10 @@ impl ValidatorIdentityService {
     }
 
     pub fn initiate_exit(&mut self, address: &str) -> Result<u64> {
-        let validator = self.state.active_validators.remove(address)
+        let validator = self
+            .state
+            .active_validators
+            .remove(address)
             .ok_or_else(|| anyhow!("Validator {} is not active", address))?;
 
         let exit_epoch = self.state.current_epoch + EXIT_DELAY_EPOCHS;
@@ -324,7 +341,9 @@ impl ValidatorIdentityService {
             address, exit_epoch
         );
 
-        self.state.exiting_validators.insert(address.to_string(), exiting);
+        self.state
+            .exiting_validators
+            .insert(address.to_string(), exiting);
         self.recalculate_total_stake();
         self.save_state()?;
 
@@ -332,7 +351,10 @@ impl ValidatorIdentityService {
     }
 
     pub fn slash_validator(&mut self, address: &str, slash_percent: f64) -> Result<u64> {
-        let validator = self.state.active_validators.get_mut(address)
+        let validator = self
+            .state
+            .active_validators
+            .get_mut(address)
             .or_else(|| self.state.exiting_validators.get_mut(address))
             .ok_or_else(|| anyhow!("Validator {} not found for slashing", address))?;
 
@@ -344,7 +366,9 @@ impl ValidatorIdentityService {
 
         warn!(
             "Slashed validator {} by {:.2}% ({} micro-units)",
-            address, slash_percent * 100.0, slash_amount
+            address,
+            slash_percent * 100.0,
+            slash_amount
         );
 
         self.recalculate_total_stake();
@@ -367,7 +391,10 @@ impl ValidatorIdentityService {
         let epochs_passed = elapsed / EPOCH_LENGTH_MS;
         let new_epoch = self.state.current_epoch + epochs_passed;
 
-        info!("Epoch transition: {} -> {}", self.state.current_epoch, new_epoch);
+        info!(
+            "Epoch transition: {} -> {}",
+            self.state.current_epoch, new_epoch
+        );
 
         let mut activated = Vec::new();
         let mut exited = Vec::new();
@@ -385,7 +412,11 @@ impl ValidatorIdentityService {
 
         let exiting: Vec<_> = self.state.exiting_validators.drain().collect();
         for (addr, mut validator) in exiting {
-            if validator.exit_epoch.map(|e| e <= new_epoch).unwrap_or(false) {
+            if validator
+                .exit_epoch
+                .map(|e| e <= new_epoch)
+                .unwrap_or(false)
+            {
                 validator.status = ValidatorStatus::Exited;
                 exited.push(addr.clone());
                 self.state.exited_validators.insert(addr, validator);
@@ -422,7 +453,9 @@ impl ValidatorIdentityService {
     }
 
     fn recalculate_total_stake(&mut self) {
-        self.state.total_active_stake = self.state.active_validators
+        self.state.total_active_stake = self
+            .state
+            .active_validators
             .values()
             .filter(|v| v.is_active())
             .map(|v| v.effective_stake)
@@ -444,14 +477,18 @@ impl ValidatorIdentityService {
         validators: &HashMap<String, rinku_core::types::Validator>,
     ) {
         let old_count = self.state.active_validators.len();
-        
+
         let mut new_validators = HashMap::new();
-        
+
         for (addr, legacy) in validators {
-            let bls_key = legacy.bls_public_key.as_ref()
+            let bls_key = legacy
+                .bls_public_key
+                .as_ref()
                 .and_then(|k| hex::decode(k).ok())
                 .or_else(|| {
-                    legacy.bls_public_key.as_ref()
+                    legacy
+                        .bls_public_key
+                        .as_ref()
                         .and_then(|k| URL_SAFE_NO_PAD.decode(k).ok())
                 })
                 .unwrap_or_default();
@@ -472,20 +509,20 @@ impl ValidatorIdentityService {
 
             new_validators.insert(addr.clone(), identity);
         }
-        
+
         let new_count = new_validators.len();
         self.state.active_validators = new_validators;
-        
+
         self.state.pending_validators.clear();
         self.state.exiting_validators.clear();
-        
+
         info!(
             "ValidatorIdentityService sync: REPLACED validator set ({} -> {} validators)",
             old_count, new_count
         );
-        
+
         self.recalculate_total_stake();
-        
+
         if let Err(e) = self.save_state() {
             warn!("Failed to persist validator set after sync: {}", e);
         }
@@ -493,9 +530,9 @@ impl ValidatorIdentityService {
 
     pub fn seed_genesis_validators(&mut self, validators: &[(String, Vec<u8>)]) {
         let old_count = self.state.active_validators.len();
-        
+
         let mut new_validators = HashMap::new();
-        
+
         for (address, bls_public_key) in validators {
             let identity = ValidatorIdentity {
                 address: address.clone(),
@@ -513,10 +550,10 @@ impl ValidatorIdentityService {
 
             new_validators.insert(address.clone(), identity);
         }
-        
+
         let new_count = new_validators.len();
         self.state.active_validators = new_validators;
-        
+
         self.state.pending_validators.clear();
         self.state.exiting_validators.clear();
 
@@ -524,7 +561,7 @@ impl ValidatorIdentityService {
             "Genesis validators seeded: REPLACED validator set ({} -> {} validators)",
             old_count, new_count
         );
-        
+
         self.recalculate_total_stake();
         let _ = self.save_state();
     }
@@ -568,18 +605,12 @@ mod tests {
         let (mut service, _temp) = create_test_service();
         let pubkey = vec![1u8; 48];
 
-        let result = service.register_validator(
-            "validator1".to_string(),
-            pubkey.clone(),
-            5_000_000_000,
-        );
+        let result =
+            service.register_validator("validator1".to_string(), pubkey.clone(), 5_000_000_000);
         assert!(result.is_err(), "Should reject below min stake");
 
-        let result = service.register_validator(
-            "validator1".to_string(),
-            pubkey,
-            MIN_VALIDATOR_STAKE,
-        );
+        let result =
+            service.register_validator("validator1".to_string(), pubkey, MIN_VALIDATOR_STAKE);
         assert!(result.is_ok(), "Should accept min stake");
     }
 
@@ -588,11 +619,9 @@ mod tests {
         let (mut service, _temp) = create_test_service();
         let pubkey = vec![1u8; 48];
 
-        let validator = service.register_validator(
-            "validator1".to_string(),
-            pubkey,
-            15_000_000_000,
-        ).unwrap();
+        let validator = service
+            .register_validator("validator1".to_string(), pubkey, 15_000_000_000)
+            .unwrap();
 
         assert_eq!(validator.status, ValidatorStatus::PendingActivation);
         assert_eq!(
@@ -606,11 +635,9 @@ mod tests {
         let (mut service, _temp) = create_test_service();
         let pubkey = vec![1u8; 48];
 
-        service.register_validator(
-            "validator1".to_string(),
-            pubkey,
-            MIN_VALIDATOR_STAKE,
-        ).unwrap();
+        service
+            .register_validator("validator1".to_string(), pubkey, MIN_VALIDATOR_STAKE)
+            .unwrap();
 
         let new_stake = service.add_stake("validator1", 5_000_000_000).unwrap();
         assert_eq!(new_stake, 15_000_000_000);
@@ -634,7 +661,10 @@ mod tests {
             missed_checkpoints: 0,
             last_checkpoint_signed: 0,
         };
-        service.state.active_validators.insert("validator1".to_string(), identity);
+        service
+            .state
+            .active_validators
+            .insert("validator1".to_string(), identity);
 
         let slashed = service.slash_validator("validator1", 0.15).unwrap();
         assert_eq!(slashed, 1_500_000_000);
@@ -670,17 +700,16 @@ mod tests {
         let (mut service, _temp) = create_test_service();
         let pubkey = vec![1u8; 48];
 
-        service.register_validator(
-            "validator1".to_string(),
-            pubkey.clone(),
-            MIN_VALIDATOR_STAKE,
-        ).unwrap();
+        service
+            .register_validator(
+                "validator1".to_string(),
+                pubkey.clone(),
+                MIN_VALIDATOR_STAKE,
+            )
+            .unwrap();
 
-        let result = service.register_validator(
-            "validator1".to_string(),
-            pubkey,
-            MIN_VALIDATOR_STAKE * 2,
-        );
+        let result =
+            service.register_validator("validator1".to_string(), pubkey, MIN_VALIDATOR_STAKE * 2);
         assert!(result.is_err(), "Duplicate registration should fail");
     }
 }

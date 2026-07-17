@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 use crate::config::{MEMPOOL_CLEANUP_INTERVAL_MS, TRANSACTION_TTL_MS};
 use crate::state::NodeState;
@@ -42,7 +42,10 @@ impl MempoolCleanupService {
 
         let cutoff_ms = now_ms.saturating_sub(self.ttl_ms);
 
-        let expired_count = self.state.prune_expired_pending_transactions(cutoff_ms).await;
+        let expired_count = self
+            .state
+            .prune_expired_pending_transactions(cutoff_ms)
+            .await;
 
         if expired_count > 0 {
             info!(

@@ -116,18 +116,22 @@ impl NodeState {
 
     /// Get paginated DAG nodes - sorted by timestamp desc, with limit
     /// Much more efficient than fetching all nodes for large DAGs
-    pub async fn get_dag_nodes_paginated(&self, page: usize, limit: usize) -> (Vec<DagNodeInfo>, usize, bool) {
+    pub async fn get_dag_nodes_paginated(
+        &self,
+        page: usize,
+        limit: usize,
+    ) -> (Vec<DagNodeInfo>, usize, bool) {
         let state = self.inner.read().await;
         let all_nodes = state.dag.get_all_nodes();
         let total = all_nodes.len();
-        
+
         // Sort by timestamp descending and paginate
         let mut sorted: Vec<_> = all_nodes.into_iter().collect();
         sorted.sort_by(|a, b| b.tx.tx.timestamp.cmp(&a.tx.tx.timestamp));
-        
+
         let start = page * limit;
         let has_more = start + limit < total;
-        
+
         let nodes: Vec<DagNodeInfo> = sorted
             .into_iter()
             .skip(start)
@@ -147,22 +151,22 @@ impl NodeState {
                 sig: n.tx.signature.clone(),
             })
             .collect();
-        
+
         (nodes, total, has_more)
     }
 
     /// Combined dashboard stats - single lock acquisition for all Explorer stats
     pub async fn get_dashboard_stats(&self) -> DashboardStats {
         let state = self.inner.read().await;
-        
+
         // Use O(1) methods instead of O(n) get_all_nodes() iteration
         // This prevents lock starvation under high transaction load
         let dag_nodes = state.dag.node_count();
         let unfinalized_count = state.dag.unfinalized_count();
         let finalized_count = dag_nodes.saturating_sub(unfinalized_count);
-        
+
         let latest_checkpoint_id = state.checkpoints.last().map(|cp| cp.hash.clone());
-        
+
         DashboardStats {
             dag_nodes,
             tip_count: state.dag.tip_count(),

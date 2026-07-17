@@ -29,4 +29,4 @@ COPY --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --from=builder /app/packages/wallet/dist ./packages/wallet/dist
 COPY scripts ./scripts
 
-CMD ["npm", "run", "activity-bot"]
+CMD ["npx", "tsx", "scripts/activity-bot-v2.ts", "--mode=realistic", "--accounts=10", "--duration=0"]
