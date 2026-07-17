@@ -44,27 +44,44 @@ pub fn verify_fast_path_ack(tx_hash: &str, bls_signature_b64: &str, bls_public_k
     bls_verify(&msg, &sig, bls_public_key)
 }
 
-/// Decode a validator BLS pubkey from URL-safe or standard base64.
-pub fn decode_bls_public_key_b64(pk_b64: &str) -> Option<Vec<u8>> {
+/// Decode a validator BLS pubkey. State stores these as hex; gossip/proofs often
+/// use URL-safe or standard base64. Prefer hex when the encoding is unambiguously hex
+/// so we do not mis-decode hex strings as base64 (which yields wrong key bytes).
+pub fn decode_bls_public_key(pk_encoded: &str) -> Option<Vec<u8>> {
+    let trimmed = pk_encoded.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let looks_like_hex = trimmed.len() >= 2
+        && trimmed.len() % 2 == 0
+        && trimmed.bytes().all(|b| b.is_ascii_hexdigit());
+    if looks_like_hex {
+        if let Ok(bytes) = hex::decode(trimmed) {
+            if !bytes.is_empty() {
+                return Some(bytes);
+            }
+        }
+    }
     URL_SAFE_NO_PAD
-        .decode(pk_b64)
-        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(pk_b64))
+        .decode(trimmed)
+        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(trimmed))
         .ok()
+        .filter(|b| !b.is_empty())
 }
 
 /// Returns Ok(()) if ACK has a valid BLS sig for the given pubkey.
 pub fn require_valid_ack_bls(
     tx_hash: &str,
     bls_signature: &Option<String>,
-    bls_public_key_b64: &Option<String>,
+    bls_public_key_encoded: &Option<String>,
 ) -> Result<(), &'static str> {
     let Some(sig) = bls_signature.as_ref().filter(|s| !s.is_empty()) else {
         return Err("missing BLS signature");
     };
-    let Some(pk_b64) = bls_public_key_b64.as_ref().filter(|s| !s.is_empty()) else {
+    let Some(pk_enc) = bls_public_key_encoded.as_ref().filter(|s| !s.is_empty()) else {
         return Err("validator has no BLS public key");
     };
-    let Some(pk) = decode_bls_public_key_b64(pk_b64) else {
+    let Some(pk) = decode_bls_public_key(pk_enc) else {
         return Err("invalid BLS public key encoding");
     };
     if !verify_fast_path_ack(tx_hash, sig, &pk) {
@@ -529,6 +546,19 @@ mod tests {
         // Missing sig
         assert!(require_valid_ack_bls(&tx_hash, &None, &Some(pk_b64)).is_err());
 
+        // State stores validator BLS pubkeys as hex — must verify against hex encoding
+        let pk_hex = hex::encode(&kp.public_key);
+        let sig2 = sign_fast_path_ack(&tx_hash, &kp.private_key).expect("sign");
+        assert!(
+            require_valid_ack_bls(&tx_hash, &Some(sig2.clone()), &Some(pk_hex.clone())).is_ok(),
+            "ACK verify must accept hex-encoded validator pubkeys from state"
+        );
+        // Hex must not be misread as base64
+        assert_eq!(
+            decode_bls_public_key(&pk_hex).as_deref(),
+            Some(kp.public_key.as_slice())
+        );
+
         let service = FastPathService::new(FastPathConfig::default());
         service.update_total_stake(100_000_000_000).await;
         let tx = SignedTransaction {
@@ -559,10 +589,7 @@ mod tests {
             bls_signature: sign_fast_path_ack(&tx_hash, &kp.private_key),
             timestamp_ms: 1,
         };
-        assert!(service
-            .add_ack_checked(good, Some(&URL_SAFE_NO_PAD.encode(&kp.public_key)))
-            .await
-            .is_some());
+        assert!(service.add_ack_checked(good, Some(&pk_hex)).await.is_some());
 
         let bad = FastPathAck {
             tx_hash: tx_hash.clone(),
@@ -571,9 +598,6 @@ mod tests {
             bls_signature: Some("not-a-real-sig".into()),
             timestamp_ms: 2,
         };
-        assert!(service
-            .add_ack_checked(bad, Some(&URL_SAFE_NO_PAD.encode(&kp.public_key)))
-            .await
-            .is_none());
+        assert!(service.add_ack_checked(bad, Some(&pk_hex)).await.is_none());
     }
 }
