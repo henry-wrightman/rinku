@@ -193,8 +193,7 @@ pub fn attribute_invalid_checkpoint_offender(
     }
     if let Some(bm) = checkpoint.signer_bitmap.as_ref() {
         if !bm.is_empty() && !sorted_validator_addresses.is_empty() {
-            let indices =
-                crate::bls::parse_signer_bitmap(bm, sorted_validator_addresses.len());
+            let indices = crate::bls::parse_signer_bitmap(bm, sorted_validator_addresses.len());
             if let Some(&idx) = indices.first() {
                 return sorted_validator_addresses.get(idx).cloned();
             }
@@ -646,7 +645,10 @@ mod tests {
 
         let mut cp_none = cp_bitmap_only;
         cp_none.signer_bitmap = None;
-        assert_eq!(attribute_invalid_checkpoint_offender(&cp_none, &addrs), None);
+        assert_eq!(
+            attribute_invalid_checkpoint_offender(&cp_none, &addrs),
+            None
+        );
     }
 
     #[test]

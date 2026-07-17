@@ -1,6 +1,6 @@
-use rinku_core::types::{FastPathAck, FastPathFinality, FastPathStatus, SignedTransaction};
-use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use rinku_core::types::{FastPathAck, FastPathFinality, FastPathStatus, SignedTransaction};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -28,11 +28,7 @@ pub fn sign_fast_path_ack(tx_hash: &str, bls_private_key: &[u8]) -> Option<Strin
 }
 
 /// Verify a fast-path ACK BLS signature. `bls_public_key` is raw compressed bytes.
-pub fn verify_fast_path_ack(
-    tx_hash: &str,
-    bls_signature_b64: &str,
-    bls_public_key: &[u8],
-) -> bool {
+pub fn verify_fast_path_ack(tx_hash: &str, bls_signature_b64: &str, bls_public_key: &[u8]) -> bool {
     let Some(msg) = ack_message_bytes(tx_hash) else {
         return false;
     };
@@ -192,11 +188,9 @@ impl FastPathService {
         bls_public_key_b64: Option<&str>,
     ) -> Option<FastPathFinality> {
         if let Some(pk) = bls_public_key_b64 {
-            if let Err(reason) = require_valid_ack_bls(
-                &ack.tx_hash,
-                &ack.bls_signature,
-                &Some(pk.to_string()),
-            ) {
+            if let Err(reason) =
+                require_valid_ack_bls(&ack.tx_hash, &ack.bls_signature, &Some(pk.to_string()))
+            {
                 warn!(
                     "Rejecting fast-path ACK from {}: {}",
                     &ack.validator_address[..16.min(ack.validator_address.len())],
@@ -525,7 +519,12 @@ mod tests {
         // Wrong key
         let kp2 = crate::bls::generate_bls_keypair();
         assert!(!verify_fast_path_ack(&tx_hash, &sig, &kp2.public_key));
-        assert!(require_valid_ack_bls(&tx_hash, &Some(sig), &Some(URL_SAFE_NO_PAD.encode(&kp2.public_key))).is_err());
+        assert!(require_valid_ack_bls(
+            &tx_hash,
+            &Some(sig),
+            &Some(URL_SAFE_NO_PAD.encode(&kp2.public_key))
+        )
+        .is_err());
 
         // Missing sig
         assert!(require_valid_ack_bls(&tx_hash, &None, &Some(pk_b64)).is_err());

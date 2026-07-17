@@ -3306,12 +3306,8 @@ impl GossipService {
                                 checkpoint.height,
                                 reason
                             );
-                            self.apply_invalid_checkpoint_slash(
-                                &checkpoint,
-                                &sorted_addrs,
-                                reason,
-                            )
-                            .await;
+                            self.apply_invalid_checkpoint_slash(&checkpoint, &sorted_addrs, reason)
+                                .await;
                         }
                         crate::state::checkpoints::BlsVerifyResult::ValidWithQuorum => {}
                     }
@@ -6723,12 +6719,9 @@ impl GossipService {
                     .iter()
                     .any(|a| a.validator_address == validator_address);
                 if !already_acked {
-                    let bls_signature = self
-                        .checkpoint_vote_signer
-                        .as_ref()
-                        .and_then(|s| {
-                            crate::fast_path::sign_fast_path_ack(&tx_hash, &s.bls_private_key)
-                        });
+                    let bls_signature = self.checkpoint_vote_signer.as_ref().and_then(|s| {
+                        crate::fast_path::sign_fast_path_ack(&tx_hash, &s.bls_private_key)
+                    });
                     finality.acks.push(rinku_core::types::FastPathAck {
                         tx_hash: tx_hash.clone(),
                         validator_address: validator_address.to_string(),
