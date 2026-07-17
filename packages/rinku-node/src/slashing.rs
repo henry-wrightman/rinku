@@ -160,6 +160,50 @@ impl SlashingService {
         Some(event)
     }
 
+    /// Record an InvalidCheckpoint slash (25%) for a failed BLS verify.
+    pub fn slash_invalid_checkpoint(
+        &mut self,
+        validator: &str,
+        stake_amount: u64,
+        checkpoint_height: u64,
+        details: Option<String>,
+    ) -> Option<SlashEvent> {
+        self.slash(
+            validator,
+            stake_amount,
+            SlashReason::InvalidCheckpoint,
+            checkpoint_height,
+            details,
+        )
+    }
+}
+
+/// Attribute an invalid-checkpoint BLS failure to a specific validator.
+/// Prefers the first `validator_signatures` entry; otherwise the first bit set
+/// in `signer_bitmap` mapped through address-sorted validator order.
+/// Returns `None` when attribution is ambiguous (no slash applied).
+pub fn attribute_invalid_checkpoint_offender(
+    checkpoint: &rinku_core::types::Checkpoint,
+    sorted_validator_addresses: &[String],
+) -> Option<String> {
+    if let Some(first) = checkpoint.validator_signatures.first() {
+        if !first.validator.is_empty() {
+            return Some(first.validator.clone());
+        }
+    }
+    if let Some(bm) = checkpoint.signer_bitmap.as_ref() {
+        if !bm.is_empty() && !sorted_validator_addresses.is_empty() {
+            let indices =
+                crate::bls::parse_signer_bitmap(bm, sorted_validator_addresses.len());
+            if let Some(&idx) = indices.first() {
+                return sorted_validator_addresses.get(idx).cloned();
+            }
+        }
+    }
+    None
+}
+
+impl SlashingService {
     pub fn record_liveness_failure(
         &mut self,
         validator: &str,
@@ -536,6 +580,74 @@ pub struct SlashingSnapshot {
 mod tests {
     use super::*;
     use rinku_core::types::to_micro_units;
+
+    #[test]
+    fn test_invalid_checkpoint_slash_fires() {
+        let mut service = SlashingService::new();
+        let event = service.slash_invalid_checkpoint(
+            "bad_proposer",
+            to_micro_units(1000.0),
+            42,
+            Some("BLS aggregate signature verification FAILED".into()),
+        );
+        assert!(event.is_some());
+        let event = event.unwrap();
+        assert_eq!(event.reason, SlashReason::InvalidCheckpoint);
+        assert_eq!(event.validator, "bad_proposer");
+        assert_eq!(event.amount, to_micro_units(250.0));
+        assert_eq!(event.percent_slashed, 25.0);
+        assert_eq!(event.checkpoint_height, 42);
+        assert_eq!(service.get_events().len(), 1);
+    }
+
+    #[test]
+    fn test_attribute_invalid_checkpoint_offender() {
+        use rinku_core::types::{Checkpoint, ValidatorSignature};
+
+        let cp = Checkpoint {
+            height: 1,
+            hash: "aa".repeat(32),
+            previous_hash: None,
+            tx_merkle_root: String::new(),
+            state_root: String::new(),
+            receipt_root: String::new(),
+            tip_count: 0,
+            timestamp: 0,
+            validator_signatures: vec![ValidatorSignature {
+                validator: "alice".into(),
+                signature: "sig".into(),
+                weight: 0,
+                bls_public_key: None,
+            }],
+            aggregated_signature: Some("junk".into()),
+            signer_bitmap: Some(vec![0b0000_0001]),
+            finalized_tx_hashes: vec![],
+            weight_trie_root: String::new(),
+            provisional: false,
+            partition_epoch: None,
+            visible_stake_pct: None,
+            merge_report_hash: None,
+            view_change_certificate: None,
+            view: 0,
+        };
+        let addrs = vec!["alice".into(), "bob".into()];
+        assert_eq!(
+            attribute_invalid_checkpoint_offender(&cp, &addrs),
+            Some("alice".into())
+        );
+
+        let mut cp_bitmap_only = cp.clone();
+        cp_bitmap_only.validator_signatures.clear();
+        // bit 0 set → first sorted addr
+        assert_eq!(
+            attribute_invalid_checkpoint_offender(&cp_bitmap_only, &addrs),
+            Some("alice".into())
+        );
+
+        let mut cp_none = cp_bitmap_only;
+        cp_none.signer_bitmap = None;
+        assert_eq!(attribute_invalid_checkpoint_offender(&cp_none, &addrs), None);
+    }
 
     #[test]
     fn test_slash_event() {

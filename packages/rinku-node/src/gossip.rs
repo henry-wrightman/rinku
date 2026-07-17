@@ -674,6 +674,7 @@ enum FastPathVoteOp {
         validator_address: String,
         validator_stake: u64,
         timestamp_ms: u64,
+        bls_signature: Option<String>,
     },
 }
 
@@ -1182,6 +1183,12 @@ impl GossipService {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
+        let local_ack_signer = self_arc.checkpoint_vote_signer.clone();
+        let sign_local_ack = |tx_hash: &str| -> Option<String> {
+            local_ack_signer
+                .as_ref()
+                .and_then(|s| crate::fast_path::sign_fast_path_ack(tx_hash, &s.bls_private_key))
+        };
 
         struct ConfirmedTx {
             tx_hash: String,
@@ -1283,11 +1290,12 @@ impl GossipService {
                                 let self_acked =
                                     finality.acks.iter().any(|a| a.validator_address == *addr);
                                 if !self_acked {
+                                    let self_sig = sign_local_ack(&tx.hash);
                                     finality.acks.push(rinku_core::types::FastPathAck {
                                         tx_hash: tx.hash.clone(),
                                         validator_address: addr.clone(),
                                         validator_stake: our_stake,
-                                        bls_signature: None,
+                                        bls_signature: self_sig,
                                         timestamp_ms: now_ms,
                                     });
                                     finality.total_stake_acked += our_stake;
@@ -1323,6 +1331,7 @@ impl GossipService {
                         validator_address,
                         validator_stake,
                         timestamp_ms,
+                        bls_signature,
                     } => {
                         if inner.fast_path_executed.contains(&tx_hash) {
                             continue;
@@ -1343,6 +1352,19 @@ impl GossipService {
                                     &validator_address[..16.min(validator_address.len())],
                                     validator_stake,
                                     v.stake
+                                );
+                                continue;
+                            }
+                            // Require valid BLS ACK over tx hash (A7)
+                            if let Err(reason) = crate::fast_path::require_valid_ack_bls(
+                                &tx_hash,
+                                &bls_signature,
+                                &v.bls_public_key,
+                            ) {
+                                warn!(
+                                    "Rejecting FastPathAck from {}: {}",
+                                    &validator_address[..16.min(validator_address.len())],
+                                    reason
                                 );
                                 continue;
                             }
@@ -1379,7 +1401,7 @@ impl GossipService {
                                 tx_hash: tx_hash.clone(),
                                 validator_address: validator_address.clone(),
                                 validator_stake: canonical_stake,
-                                bls_signature: None,
+                                bls_signature,
                                 timestamp_ms,
                             });
                             finality.total_stake_acked += canonical_stake;
@@ -1390,11 +1412,12 @@ impl GossipService {
                                 let self_acked =
                                     finality.acks.iter().any(|a| a.validator_address == *addr);
                                 if !self_acked {
+                                    let self_sig = sign_local_ack(&tx_hash);
                                     finality.acks.push(rinku_core::types::FastPathAck {
                                         tx_hash: tx_hash.clone(),
                                         validator_address: addr.clone(),
                                         validator_stake: our_stake,
-                                        bls_signature: None,
+                                        bls_signature: self_sig,
                                         timestamp_ms: now_ms,
                                     });
                                     finality.total_stake_acked += our_stake;
@@ -1437,7 +1460,9 @@ impl GossipService {
                         tx_hash: tx_hash.clone(),
                         validator_address: validator_addr.clone(),
                         validator_stake: *stake,
-                        bls_signature: None,
+                        bls_signature: local_ack_signer.as_ref().and_then(|s| {
+                            crate::fast_path::sign_fast_path_ack(tx_hash, &s.bls_private_key)
+                        }),
                         timestamp_ms: now_ms,
                         sender_url: sender_url.clone(),
                     };
@@ -3112,6 +3137,87 @@ impl GossipService {
         .await
     }
 
+    /// On failed checkpoint BLS verify: attribute offender and apply InvalidCheckpoint slash.
+    async fn apply_invalid_checkpoint_slash(
+        &self,
+        checkpoint: &Checkpoint,
+        sorted_validator_addresses: &[String],
+        reason: &str,
+    ) {
+        let Some(offender) = crate::slashing::attribute_invalid_checkpoint_offender(
+            checkpoint,
+            sorted_validator_addresses,
+        ) else {
+            warn!(
+                "Invalid checkpoint BLS at height {} but no attributable offender — reject only",
+                checkpoint.height
+            );
+            return;
+        };
+
+        let stake = if let Some(ref vi) = self.validator_identity {
+            let mut vi_guard = vi.write().await;
+            let stake = vi_guard
+                .get_validator(&offender)
+                .map(|v| v.effective_stake)
+                .unwrap_or(0);
+            if stake > 0 {
+                if let Err(e) = vi_guard.slash_validator(
+                    &offender,
+                    crate::slashing::SlashReason::InvalidCheckpoint.percent(),
+                ) {
+                    warn!(
+                        "Failed to slash stake for invalid checkpoint offender {}: {}",
+                        &offender[..16.min(offender.len())],
+                        e
+                    );
+                }
+            }
+            stake
+        } else {
+            0
+        };
+
+        let stake = if stake > 0 {
+            stake
+        } else {
+            let state = self.state.inner.read().await;
+            state
+                .validators
+                .get(&offender)
+                .map(|v| v.stake)
+                .unwrap_or(0)
+        };
+
+        if stake == 0 {
+            warn!(
+                "Invalid checkpoint BLS attributed to {} but stake unknown/zero — reject only",
+                &offender[..16.min(offender.len())]
+            );
+            return;
+        }
+
+        let mut slashing = self.state.slashing.write().await;
+        if let Some(event) = slashing.slash_invalid_checkpoint(
+            &offender,
+            stake,
+            checkpoint.height,
+            Some(format!(
+                "Invalid BLS aggregate on checkpoint {}: {}",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                reason
+            )),
+        ) {
+            warn!(
+                "InvalidCheckpoint slash: {} for {} micro-RKU ({}%) at height {}",
+                &offender[..16.min(offender.len())],
+                event.amount,
+                event.percent_slashed,
+                checkpoint.height
+            );
+        }
+    }
+
     async fn apply_single_checkpoint_inner(
         &self,
         checkpoint: Checkpoint,
@@ -3161,6 +3267,8 @@ impl GossipService {
                 .map(|(addr, v)| (addr.clone(), v.bls_public_key.clone(), v.effective_stake))
                 .collect();
             sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
+            let sorted_addrs: Vec<String> =
+                sorted_entries.iter().map(|(a, _, _)| a.clone()).collect();
             let bls_keys_and_stakes: Vec<(Vec<u8>, u64)> =
                 sorted_entries.into_iter().map(|(_, k, s)| (k, s)).collect();
             drop(vi_guard);
@@ -3198,6 +3306,12 @@ impl GossipService {
                                 checkpoint.height,
                                 reason
                             );
+                            self.apply_invalid_checkpoint_slash(
+                                &checkpoint,
+                                &sorted_addrs,
+                                reason,
+                            )
+                            .await;
                         }
                         crate::state::checkpoints::BlsVerifyResult::ValidWithQuorum => {}
                     }
@@ -5695,6 +5809,7 @@ impl GossipService {
                 validator_address,
                 validator_stake,
                 timestamp_ms,
+                bls_signature,
                 ..
             } => {
                 {
@@ -5710,6 +5825,7 @@ impl GossipService {
                         validator_address,
                         validator_stake,
                         timestamp_ms,
+                        bls_signature,
                     }) {
                         warn!("Fast-path vote channel full, dropped AckVote: {}", e);
                     }
@@ -6607,11 +6723,17 @@ impl GossipService {
                     .iter()
                     .any(|a| a.validator_address == validator_address);
                 if !already_acked {
+                    let bls_signature = self
+                        .checkpoint_vote_signer
+                        .as_ref()
+                        .and_then(|s| {
+                            crate::fast_path::sign_fast_path_ack(&tx_hash, &s.bls_private_key)
+                        });
                     finality.acks.push(rinku_core::types::FastPathAck {
                         tx_hash: tx_hash.clone(),
                         validator_address: validator_address.to_string(),
                         validator_stake,
-                        bls_signature: None,
+                        bls_signature,
                         timestamp_ms,
                     });
                     finality.total_stake_acked += validator_stake;

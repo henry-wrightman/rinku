@@ -61,6 +61,17 @@ npx tsx scripts/validate-multi-node.ts \
 4. **Do not deploy** to Fly.io testnet without explicit user request (`scripts/fly-deploy.sh`).
 5. **Stress bots** default to localhost — confirm URLs before running against live testnet.
 
+## Testnet accepted risk (deferred to Phase B)
+
+Explicit §12.5 / slash-hygiene items **not** required for testnet check-in:
+
+- Full slash-reason wiring beyond DoubleSign + InvalidCheckpoint (InvalidProof, InvalidWitness, ReceiptTampering e2e)
+- Unbonding / exit e2e under adversarial conditions
+- Economic e2e: stake → slash → supply audit
+- Fast-path **BroadcastVote** as implicit ACK without BLS (unsigned soft path); only `TxConfirmAck` / `AckVote` require BLS
+- Fast-path nothing-at-stake / incentive analysis
+- Chaos partition simulation in scheduled CI
+
 ## Testnet endpoints
 
 - Genesis: `https://rinku-genesis.fly.dev`

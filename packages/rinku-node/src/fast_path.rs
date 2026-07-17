@@ -1,11 +1,81 @@
 use rinku_core::types::{FastPathAck, FastPathFinality, FastPathStatus, SignedTransaction};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use crate::bls::{bls_sign, bls_verify};
+
 const FAST_PATH_QUORUM_THRESHOLD: f64 = 0.667;
 const FAST_PATH_TIMEOUT_MS: u64 = 5000;
+
+/// Canonical message bytes for a fast-path ACK: raw tx hash (32 bytes).
+pub fn ack_message_bytes(tx_hash: &str) -> Option<Vec<u8>> {
+    let bytes = hex::decode(tx_hash).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(bytes)
+}
+
+/// Sign a fast-path ACK over the tx hash. Returns URL-safe base64 signature.
+pub fn sign_fast_path_ack(tx_hash: &str, bls_private_key: &[u8]) -> Option<String> {
+    let msg = ack_message_bytes(tx_hash)?;
+    let sig = bls_sign(&msg, bls_private_key).ok()?;
+    Some(URL_SAFE_NO_PAD.encode(sig))
+}
+
+/// Verify a fast-path ACK BLS signature. `bls_public_key` is raw compressed bytes.
+pub fn verify_fast_path_ack(
+    tx_hash: &str,
+    bls_signature_b64: &str,
+    bls_public_key: &[u8],
+) -> bool {
+    let Some(msg) = ack_message_bytes(tx_hash) else {
+        return false;
+    };
+    let Ok(sig) = URL_SAFE_NO_PAD
+        .decode(bls_signature_b64)
+        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(bls_signature_b64))
+    else {
+        return false;
+    };
+    if bls_public_key.is_empty() || sig.is_empty() {
+        return false;
+    }
+    bls_verify(&msg, &sig, bls_public_key)
+}
+
+/// Decode a validator BLS pubkey from URL-safe or standard base64.
+pub fn decode_bls_public_key_b64(pk_b64: &str) -> Option<Vec<u8>> {
+    URL_SAFE_NO_PAD
+        .decode(pk_b64)
+        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(pk_b64))
+        .ok()
+}
+
+/// Returns Ok(()) if ACK has a valid BLS sig for the given pubkey.
+pub fn require_valid_ack_bls(
+    tx_hash: &str,
+    bls_signature: &Option<String>,
+    bls_public_key_b64: &Option<String>,
+) -> Result<(), &'static str> {
+    let Some(sig) = bls_signature.as_ref().filter(|s| !s.is_empty()) else {
+        return Err("missing BLS signature");
+    };
+    let Some(pk_b64) = bls_public_key_b64.as_ref().filter(|s| !s.is_empty()) else {
+        return Err("validator has no BLS public key");
+    };
+    let Some(pk) = decode_bls_public_key_b64(pk_b64) else {
+        return Err("invalid BLS public key encoding");
+    };
+    if !verify_fast_path_ack(tx_hash, sig, &pk) {
+        return Err("invalid BLS signature");
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 pub struct FastPathConfig {
@@ -111,6 +181,31 @@ impl FastPathService {
     }
 
     pub async fn add_ack(&self, ack: FastPathAck) -> Option<FastPathFinality> {
+        self.add_ack_checked(ack, None).await
+    }
+
+    /// Add an ACK. When `bls_public_key_b64` is `Some`, the ACK's BLS signature is required
+    /// and verified; invalid/missing signatures are dropped.
+    pub async fn add_ack_checked(
+        &self,
+        ack: FastPathAck,
+        bls_public_key_b64: Option<&str>,
+    ) -> Option<FastPathFinality> {
+        if let Some(pk) = bls_public_key_b64 {
+            if let Err(reason) = require_valid_ack_bls(
+                &ack.tx_hash,
+                &ack.bls_signature,
+                &Some(pk.to_string()),
+            ) {
+                warn!(
+                    "Rejecting fast-path ACK from {}: {}",
+                    &ack.validator_address[..16.min(ack.validator_address.len())],
+                    reason
+                );
+                return None;
+            }
+        }
+
         let mut inner = self.inner.write().await;
 
         if let Some(finality) = inner.pending_txs.get_mut(&ack.tx_hash) {
@@ -414,5 +509,72 @@ mod tests {
         let result = service.add_ack(ack2).await.unwrap();
         assert_eq!(result.status, FastPathStatus::Confirmed);
         assert!(result.confirmed_at_ms.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_ack_bls_verify_accepts_valid_and_rejects_invalid() {
+        let kp = crate::bls::generate_bls_keypair();
+        // Use a realistic 32-byte hex hash
+        let tx_hash = hex::encode([0xabu8; 32]);
+        let sig = sign_fast_path_ack(&tx_hash, &kp.private_key).expect("sign");
+        let pk_b64 = URL_SAFE_NO_PAD.encode(&kp.public_key);
+
+        assert!(verify_fast_path_ack(&tx_hash, &sig, &kp.public_key));
+        assert!(require_valid_ack_bls(&tx_hash, &Some(sig.clone()), &Some(pk_b64.clone())).is_ok());
+
+        // Wrong key
+        let kp2 = crate::bls::generate_bls_keypair();
+        assert!(!verify_fast_path_ack(&tx_hash, &sig, &kp2.public_key));
+        assert!(require_valid_ack_bls(&tx_hash, &Some(sig), &Some(URL_SAFE_NO_PAD.encode(&kp2.public_key))).is_err());
+
+        // Missing sig
+        assert!(require_valid_ack_bls(&tx_hash, &None, &Some(pk_b64)).is_err());
+
+        let service = FastPathService::new(FastPathConfig::default());
+        service.update_total_stake(100_000_000_000).await;
+        let tx = SignedTransaction {
+            tx: Transaction {
+                from: "sender".into(),
+                to: "receiver".into(),
+                amount: 0,
+                nonce: 0,
+                timestamp: 1000,
+                parents: vec![],
+                kind: None,
+                gas_limit: None,
+                gas_price: None,
+                data: Some("hi".into()),
+                signature: None,
+                memo: None,
+                references: None,
+            },
+            hash: tx_hash.clone(),
+            signature: "sig".into(),
+        };
+        service.register_fast_path_tx(&tx).await.unwrap();
+
+        let good = FastPathAck {
+            tx_hash: tx_hash.clone(),
+            validator_address: "v1".into(),
+            validator_stake: 70_000_000_000,
+            bls_signature: sign_fast_path_ack(&tx_hash, &kp.private_key),
+            timestamp_ms: 1,
+        };
+        assert!(service
+            .add_ack_checked(good, Some(&URL_SAFE_NO_PAD.encode(&kp.public_key)))
+            .await
+            .is_some());
+
+        let bad = FastPathAck {
+            tx_hash: tx_hash.clone(),
+            validator_address: "v2".into(),
+            validator_stake: 70_000_000_000,
+            bls_signature: Some("not-a-real-sig".into()),
+            timestamp_ms: 2,
+        };
+        assert!(service
+            .add_ack_checked(bad, Some(&URL_SAFE_NO_PAD.encode(&kp.public_key)))
+            .await
+            .is_none());
     }
 }
