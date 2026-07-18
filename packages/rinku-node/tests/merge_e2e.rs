@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-use rinku_core::types::{
-    Account, TransactionKind, to_micro_units, from_micro_units,
-};
+use rinku_core::types::{from_micro_units, to_micro_units, Account, TransactionKind};
 use rinku_node::merge::{
-    MergeReport, MergePhase, PartitionTxSummary, RollbackReport,
-    conflict_detection, resolution, cascade,
+    cascade, conflict_detection, resolution, MergePhase, MergeReport, PartitionTxSummary,
+    RollbackReport,
 };
+use std::collections::HashMap;
 
 fn make_account(address: &str, balance_rku: f64, nonce: u64) -> Account {
     Account {
@@ -22,6 +20,7 @@ fn make_account(address: &str, balance_rku: f64, nonce: u64) -> Account {
         penalty_decay_checkpoint: None,
         partition_budget: None,
         partition_budget_spent: 0,
+        ecdsa_public_key: None,
     }
 }
 
@@ -31,7 +30,14 @@ fn make_staked_account(address: &str, balance_rku: f64, nonce: u64, staked_rku: 
     acct
 }
 
-fn make_summary(hash: &str, from: &str, to: &str, amount: f64, nonce: u64, weight: f64) -> PartitionTxSummary {
+fn make_summary(
+    hash: &str,
+    from: &str,
+    to: &str,
+    amount: f64,
+    nonce: u64,
+    weight: f64,
+) -> PartitionTxSummary {
     PartitionTxSummary {
         tx_hash: hash.to_string(),
         from: from.to_string(),
@@ -40,6 +46,8 @@ fn make_summary(hash: &str, from: &str, to: &str, amount: f64, nonce: u64, weigh
         gas_micro: 0,
         nonce,
         weight,
+        dag_depth: 0,
+        parents: vec![],
         partition_epoch: Some(1),
         visible_stake_pct: 0.5,
     }
@@ -77,7 +85,8 @@ fn run_full_merge_pipeline(
     report.resolutions = resolutions;
 
     report.phase = MergePhase::CascadeRollback;
-    let all_txs: Vec<PartitionTxSummary> = local_summaries.iter()
+    let all_txs: Vec<PartitionTxSummary> = local_summaries
+        .iter()
         .chain(remote_summaries.iter())
         .cloned()
         .collect();
@@ -119,12 +128,8 @@ fn test_clean_merge_no_conflicts() {
     accounts.insert("carol".to_string(), make_account("carol", 0.0, 0));
     accounts.insert("dave".to_string(), make_account("dave", 0.0, 0));
 
-    let local = vec![
-        make_summary("tx_a1", "alice", "carol", 10.0, 0, 1.0),
-    ];
-    let remote = vec![
-        make_summary("tx_b1", "bob", "dave", 20.0, 0, 1.0),
-    ];
+    let local = vec![make_summary("tx_a1", "alice", "carol", 10.0, 0, 1.0)];
+    let remote = vec![make_summary("tx_b1", "bob", "dave", 20.0, 0, 1.0)];
 
     let (report, rollback) = run_full_merge_pipeline(&local, &remote, &accounts);
 
@@ -151,12 +156,8 @@ fn test_direct_double_spend_higher_weight_wins() {
     accounts.insert("bob".to_string(), make_account("bob", 0.0, 0));
     accounts.insert("carol".to_string(), make_account("carol", 0.0, 0));
 
-    let local = vec![
-        make_summary("tx_local", "alice", "bob", 50.0, 0, 5.0),
-    ];
-    let remote = vec![
-        make_summary("tx_remote", "alice", "carol", 50.0, 0, 1.0),
-    ];
+    let local = vec![make_summary("tx_local", "alice", "bob", 50.0, 0, 5.0)];
+    let remote = vec![make_summary("tx_remote", "alice", "carol", 50.0, 0, 1.0)];
 
     let (report, _) = run_full_merge_pipeline(&local, &remote, &accounts);
 
@@ -165,11 +166,17 @@ fn test_direct_double_spend_higher_weight_wins() {
     assert_eq!(report.direct_conflicts[0].nonce, 0);
 
     assert_eq!(report.resolutions.len(), 1);
-    assert!(report.resolutions[0].winner_tx_hashes.contains(&"tx_local".to_string()));
-    assert!(report.resolutions[0].loser_tx_hashes.contains(&"tx_remote".to_string()));
+    assert!(report.resolutions[0]
+        .winner_tx_hashes
+        .contains(&"tx_local".to_string()));
+    assert!(report.resolutions[0]
+        .loser_tx_hashes
+        .contains(&"tx_remote".to_string()));
 
     assert!(report.transactions_kept.contains(&"tx_local".to_string()));
-    assert!(report.transactions_rejected.contains(&"tx_remote".to_string()));
+    assert!(report
+        .transactions_rejected
+        .contains(&"tx_remote".to_string()));
 }
 
 #[test]
@@ -179,18 +186,16 @@ fn test_direct_double_spend_hash_tiebreak() {
     accounts.insert("bob".to_string(), make_account("bob", 0.0, 0));
     accounts.insert("carol".to_string(), make_account("carol", 0.0, 0));
 
-    let local = vec![
-        make_summary("zzz_local", "alice", "bob", 50.0, 0, 1.0),
-    ];
-    let remote = vec![
-        make_summary("aaa_remote", "alice", "carol", 50.0, 0, 1.0),
-    ];
+    let local = vec![make_summary("zzz_local", "alice", "bob", 50.0, 0, 1.0)];
+    let remote = vec![make_summary("aaa_remote", "alice", "carol", 50.0, 0, 1.0)];
 
     let (report, _) = run_full_merge_pipeline(&local, &remote, &accounts);
 
     assert_eq!(report.direct_conflicts.len(), 1);
     assert!(report.transactions_kept.contains(&"aaa_remote".to_string()));
-    assert!(report.transactions_rejected.contains(&"zzz_local".to_string()));
+    assert!(report
+        .transactions_rejected
+        .contains(&"zzz_local".to_string()));
 }
 
 #[test]
@@ -200,12 +205,8 @@ fn test_economic_overdraft_detection() {
     accounts.insert("bob".to_string(), make_account("bob", 0.0, 0));
     accounts.insert("carol".to_string(), make_account("carol", 0.0, 0));
 
-    let local = vec![
-        make_summary("tx_l1", "alice", "bob", 70.0, 0, 1.0),
-    ];
-    let remote = vec![
-        make_summary("tx_r1", "alice", "carol", 70.0, 1, 1.0),
-    ];
+    let local = vec![make_summary("tx_l1", "alice", "bob", 70.0, 0, 1.0)];
+    let remote = vec![make_summary("tx_r1", "alice", "carol", 70.0, 1, 1.0)];
 
     let (report, rollback) = run_full_merge_pipeline(&local, &remote, &accounts);
 
@@ -231,19 +232,34 @@ fn test_cascade_rollback_fund_dependency() {
         make_summary("tx_a_to_b", "alice", "bob", 50.0, 0, 5.0),
         make_summary("tx_b_to_carol", "bob", "carol", 40.0, 0, 1.0),
     ];
-    let remote = vec![
-        make_summary("tx_a_to_dave_dup", "alice", "dave", 50.0, 0, 1.0),
-    ];
+    let remote = vec![make_summary(
+        "tx_a_to_dave_dup",
+        "alice",
+        "dave",
+        50.0,
+        0,
+        1.0,
+    )];
 
     let (report, _rollback) = run_full_merge_pipeline(&local, &remote, &accounts);
 
-    assert!(report.transactions_kept.contains(&"tx_a_to_b".to_string()),
-        "tx_a_to_b should win (higher weight)");
-    assert!(report.transactions_rejected.contains(&"tx_a_to_dave_dup".to_string()),
-        "tx_a_to_dave_dup should lose (lower weight, same nonce as tx_a_to_b)");
+    assert!(
+        report.transactions_kept.contains(&"tx_a_to_b".to_string()),
+        "tx_a_to_b should win (higher weight)"
+    );
+    assert!(
+        report
+            .transactions_rejected
+            .contains(&"tx_a_to_dave_dup".to_string()),
+        "tx_a_to_dave_dup should lose (lower weight, same nonce as tx_a_to_b)"
+    );
 
-    assert!(report.transactions_kept.contains(&"tx_b_to_carol".to_string()),
-        "tx_b_to_carol should survive since tx_a_to_b survived and bob has 5+50=55 >= 40");
+    assert!(
+        report
+            .transactions_kept
+            .contains(&"tx_b_to_carol".to_string()),
+        "tx_b_to_carol should survive since tx_a_to_b survived and bob has 5+50=55 >= 40"
+    );
 }
 
 #[test]
@@ -257,18 +273,35 @@ fn test_cascade_rollback_propagates_when_funds_lost() {
         make_summary("tx_a_bob_local", "alice", "bob", 90.0, 0, 1.0),
         make_summary("tx_b_carol", "bob", "carol", 80.0, 0, 1.0),
     ];
-    let remote = vec![
-        make_summary("tx_a_carol_remote", "alice", "carol", 90.0, 0, 2.0),
-    ];
+    let remote = vec![make_summary(
+        "tx_a_carol_remote",
+        "alice",
+        "carol",
+        90.0,
+        0,
+        2.0,
+    )];
 
     let (report, _) = run_full_merge_pipeline(&local, &remote, &accounts);
 
-    assert!(report.transactions_rejected.contains(&"tx_a_bob_local".to_string()),
-        "Local alice->bob should lose (lower weight)");
-    assert!(report.transactions_rejected.contains(&"tx_b_carol".to_string()),
-        "bob->carol should cascade-rollback (bob has 0 balance without alice's funds)");
-    assert!(report.transactions_kept.contains(&"tx_a_carol_remote".to_string()),
-        "Remote alice->carol should win (higher weight)");
+    assert!(
+        report
+            .transactions_rejected
+            .contains(&"tx_a_bob_local".to_string()),
+        "Local alice->bob should lose (lower weight)"
+    );
+    assert!(
+        report
+            .transactions_rejected
+            .contains(&"tx_b_carol".to_string()),
+        "bob->carol should cascade-rollback (bob has 0 balance without alice's funds)"
+    );
+    assert!(
+        report
+            .transactions_kept
+            .contains(&"tx_a_carol_remote".to_string()),
+        "Remote alice->carol should win (higher weight)"
+    );
 }
 
 #[test]
@@ -283,23 +316,29 @@ fn test_nonce_gap_cascade() {
         make_summary("tx_n1", "alice", "bob", 10.0, 1, 1.0),
         make_summary("tx_n2", "alice", "bob", 10.0, 2, 1.0),
     ];
-    let remote = vec![
-        make_summary("tx_n1_dup", "alice", "carol", 10.0, 1, 5.0),
-    ];
+    let remote = vec![make_summary("tx_n1_dup", "alice", "carol", 10.0, 1, 5.0)];
 
     let (report, _) = run_full_merge_pipeline(&local, &remote, &accounts);
 
-    assert!(report.transactions_kept.contains(&"tx_n0".to_string()),
-        "nonce 0 has no conflict, should survive");
+    assert!(
+        report.transactions_kept.contains(&"tx_n0".to_string()),
+        "nonce 0 has no conflict, should survive"
+    );
 
-    assert!(report.transactions_rejected.contains(&"tx_n1".to_string()),
-        "nonce 1 local should lose (lower weight)");
+    assert!(
+        report.transactions_rejected.contains(&"tx_n1".to_string()),
+        "nonce 1 local should lose (lower weight)"
+    );
 
-    assert!(report.transactions_kept.contains(&"tx_n1_dup".to_string()),
-        "nonce 1 remote should win (higher weight)");
+    assert!(
+        report.transactions_kept.contains(&"tx_n1_dup".to_string()),
+        "nonce 1 remote should win (higher weight)"
+    );
 
-    assert!(report.transactions_kept.contains(&"tx_n2".to_string()),
-        "nonce 2 should survive (nonce 1 slot filled by winning tx_n1_dup)");
+    assert!(
+        report.transactions_kept.contains(&"tx_n2".to_string()),
+        "nonce 2 should survive (nonce 1 slot filled by winning tx_n1_dup)"
+    );
 }
 
 #[test]
@@ -314,23 +353,29 @@ fn test_nonce_gap_cascade_balance_insufficient() {
         make_summary("tx_n1", "alice", "bob", 90.0, 1, 1.0),
         make_summary("tx_n2", "alice", "bob", 5.0, 2, 1.0),
     ];
-    let remote = vec![
-        make_summary("tx_n0_dup", "alice", "carol", 90.0, 0, 5.0),
-    ];
+    let remote = vec![make_summary("tx_n0_dup", "alice", "carol", 90.0, 0, 5.0)];
 
     let (report, rollback) = run_full_merge_pipeline(&local, &remote, &accounts);
 
-    assert!(report.transactions_rejected.contains(&"tx_n0".to_string()),
-        "nonce 0 local should lose (lower weight)");
+    assert!(
+        report.transactions_rejected.contains(&"tx_n0".to_string()),
+        "nonce 0 local should lose (lower weight)"
+    );
 
-    assert!(report.transactions_kept.contains(&"tx_n0_dup".to_string()),
-        "nonce 0 remote should win (higher weight)");
+    assert!(
+        report.transactions_kept.contains(&"tx_n0_dup".to_string()),
+        "nonce 0 remote should win (higher weight)"
+    );
 
-    assert!(report.transactions_rejected.contains(&"tx_n1".to_string()),
-        "nonce 1 should be rejected (alice has only 10 left, needs 90)");
+    assert!(
+        report.transactions_rejected.contains(&"tx_n1".to_string()),
+        "nonce 1 should be rejected (alice has only 10 left, needs 90)"
+    );
 
-    assert!(report.transactions_rejected.contains(&"tx_n2".to_string()),
-        "nonce 2 should cascade-rollback (nonce 1 rejected creates gap)");
+    assert!(
+        report.transactions_rejected.contains(&"tx_n2".to_string()),
+        "nonce 2 should cascade-rollback (nonce 1 rejected creates gap)"
+    );
 
     let alice_balance = from_micro_units(*rollback.final_balances_micro.get("alice").unwrap());
     assert_eq!(alice_balance, 10.0, "Alice should have 100 - 90 = 10 left");
@@ -357,13 +402,25 @@ fn test_multiple_accounts_mixed_conflicts() {
 
     assert_eq!(report.direct_conflicts.len(), 2);
 
-    assert!(report.transactions_kept.contains(&"tx_alice_carol_l".to_string()),
-        "Alice local (weight 3.0) beats remote (weight 1.0)");
-    assert!(report.transactions_rejected.contains(&"tx_alice_dave_r".to_string()));
+    assert!(
+        report
+            .transactions_kept
+            .contains(&"tx_alice_carol_l".to_string()),
+        "Alice local (weight 3.0) beats remote (weight 1.0)"
+    );
+    assert!(report
+        .transactions_rejected
+        .contains(&"tx_alice_dave_r".to_string()));
 
-    assert!(report.transactions_kept.contains(&"tx_bob_carol_r".to_string()),
-        "Bob remote (weight 4.0) beats local (weight 1.0)");
-    assert!(report.transactions_rejected.contains(&"tx_bob_dave_l".to_string()));
+    assert!(
+        report
+            .transactions_kept
+            .contains(&"tx_bob_carol_r".to_string()),
+        "Bob remote (weight 4.0) beats local (weight 1.0)"
+    );
+    assert!(report
+        .transactions_rejected
+        .contains(&"tx_bob_dave_l".to_string()));
 
     let balances = &rollback.final_balances_micro;
     assert_eq!(from_micro_units(*balances.get("alice").unwrap()), 150.0);
@@ -386,20 +443,26 @@ fn test_deep_cascade_chain_three_hops() {
         make_summary("tx_b_c", "bob", "carol", 80.0, 0, 1.0),
         make_summary("tx_c_d", "carol", "dave", 70.0, 0, 1.0),
     ];
-    let remote = vec![
-        make_summary("tx_a_e", "alice", "eve", 90.0, 0, 2.0),
-    ];
+    let remote = vec![make_summary("tx_a_e", "alice", "eve", 90.0, 0, 2.0)];
 
     let (report, _) = run_full_merge_pipeline(&local, &remote, &accounts);
 
-    assert!(report.transactions_rejected.contains(&"tx_a_b".to_string()),
-        "alice->bob loses (lower weight)");
-    assert!(report.transactions_rejected.contains(&"tx_b_c".to_string()),
-        "bob->carol cascades (bob has no funds)");
-    assert!(report.transactions_rejected.contains(&"tx_c_d".to_string()),
-        "carol->dave cascades (carol has no funds)");
-    assert!(report.transactions_kept.contains(&"tx_a_e".to_string()),
-        "alice->eve wins");
+    assert!(
+        report.transactions_rejected.contains(&"tx_a_b".to_string()),
+        "alice->bob loses (lower weight)"
+    );
+    assert!(
+        report.transactions_rejected.contains(&"tx_b_c".to_string()),
+        "bob->carol cascades (bob has no funds)"
+    );
+    assert!(
+        report.transactions_rejected.contains(&"tx_c_d".to_string()),
+        "carol->dave cascades (carol has no funds)"
+    );
+    assert!(
+        report.transactions_kept.contains(&"tx_a_e".to_string()),
+        "alice->eve wins"
+    );
 }
 
 #[test]
@@ -426,9 +489,11 @@ fn test_balance_conservation() {
     let total_final: u64 = rollback.final_balances_micro.values().sum();
 
     assert_eq!(
-        total_initial, total_final,
+        total_initial,
+        total_final,
         "Balance must be conserved: initial={}, final={}",
-        from_micro_units(total_initial), from_micro_units(total_final)
+        from_micro_units(total_initial),
+        from_micro_units(total_final)
     );
 }
 
@@ -455,7 +520,8 @@ fn test_no_negative_balances_after_merge() {
         assert!(
             balance >= 0.0,
             "Account {} has negative balance: {}",
-            addr, balance
+            addr,
+            balance
         );
     }
 }
@@ -476,7 +542,11 @@ fn test_surviving_nonce_continuity() {
 
     let (report, _) = run_full_merge_pipeline(&local, &remote, &accounts);
 
-    assert_eq!(report.transactions_kept.len(), 4, "All txs should survive with no conflicts");
+    assert_eq!(
+        report.transactions_kept.len(),
+        4,
+        "All txs should survive with no conflicts"
+    );
     assert!(report.transactions_rejected.is_empty());
 }
 
@@ -513,8 +583,14 @@ fn test_one_sided_merge_local_only() {
 
     assert_eq!(report.transactions_kept.len(), 2);
     assert!(report.transactions_rejected.is_empty());
-    assert_eq!(from_micro_units(*rollback.final_balances_micro.get("alice").unwrap()), 50.0);
-    assert_eq!(from_micro_units(*rollback.final_balances_micro.get("bob").unwrap()), 50.0);
+    assert_eq!(
+        from_micro_units(*rollback.final_balances_micro.get("alice").unwrap()),
+        50.0
+    );
+    assert_eq!(
+        from_micro_units(*rollback.final_balances_micro.get("bob").unwrap()),
+        50.0
+    );
 }
 
 #[test]
@@ -524,39 +600,67 @@ fn test_one_sided_merge_remote_only() {
     accounts.insert("bob".to_string(), make_account("bob", 0.0, 0));
 
     let local: Vec<PartitionTxSummary> = vec![];
-    let remote = vec![
-        make_summary("tx_r1", "alice", "bob", 25.0, 0, 1.0),
-    ];
+    let remote = vec![make_summary("tx_r1", "alice", "bob", 25.0, 0, 1.0)];
 
     let (report, rollback) = run_full_merge_pipeline(&local, &remote, &accounts);
 
     assert_eq!(report.transactions_kept.len(), 1);
     assert!(report.transactions_rejected.is_empty());
-    assert_eq!(from_micro_units(*rollback.final_balances_micro.get("alice").unwrap()), 75.0);
+    assert_eq!(
+        from_micro_units(*rollback.final_balances_micro.get("alice").unwrap()),
+        75.0
+    );
 }
 
 #[test]
 fn test_partition_safety_classification() {
     use rinku_core::types::PartitionSafety;
 
-    assert_eq!(TransactionKind::DataOnly.partition_safety(), PartitionSafety::Safe);
-    assert_eq!(TransactionKind::Consolidation.partition_safety(), PartitionSafety::Safe);
-    assert_eq!(TransactionKind::Reward.partition_safety(), PartitionSafety::Safe);
+    assert_eq!(
+        TransactionKind::DataOnly.partition_safety(),
+        PartitionSafety::Safe
+    );
+    assert_eq!(
+        TransactionKind::Consolidation.partition_safety(),
+        PartitionSafety::Safe
+    );
+    assert_eq!(
+        TransactionKind::Reward.partition_safety(),
+        PartitionSafety::Safe
+    );
 
-    assert_eq!(TransactionKind::Transfer.partition_safety(), PartitionSafety::BoundedSpend);
-    assert_eq!(TransactionKind::Contract.partition_safety(), PartitionSafety::BoundedSpend);
+    assert_eq!(
+        TransactionKind::Transfer.partition_safety(),
+        PartitionSafety::BoundedSpend
+    );
+    assert_eq!(
+        TransactionKind::Contract.partition_safety(),
+        PartitionSafety::BoundedSpend
+    );
 
-    assert_eq!(TransactionKind::Stake.partition_safety(), PartitionSafety::CpOnly);
-    assert_eq!(TransactionKind::Unstake.partition_safety(), PartitionSafety::CpOnly);
-    assert_eq!(TransactionKind::ClaimRewards.partition_safety(), PartitionSafety::CpOnly);
+    assert_eq!(
+        TransactionKind::Stake.partition_safety(),
+        PartitionSafety::CpOnly
+    );
+    assert_eq!(
+        TransactionKind::Unstake.partition_safety(),
+        PartitionSafety::CpOnly
+    );
+    assert_eq!(
+        TransactionKind::ClaimRewards.partition_safety(),
+        PartitionSafety::CpOnly
+    );
 }
 
 #[test]
 fn test_partition_budget_enforcement() {
     assert!(TransactionKind::Transfer.allowed_during_partition(None, to_micro_units(100.0)));
-    assert!(TransactionKind::Transfer.allowed_during_partition(Some(to_micro_units(200.0)), to_micro_units(100.0)));
-    assert!(!TransactionKind::Transfer.allowed_during_partition(Some(to_micro_units(50.0)), to_micro_units(100.0)));
-    assert!(TransactionKind::Transfer.allowed_during_partition(Some(to_micro_units(100.0)), to_micro_units(100.0)));
+    assert!(TransactionKind::Transfer
+        .allowed_during_partition(Some(to_micro_units(200.0)), to_micro_units(100.0)));
+    assert!(!TransactionKind::Transfer
+        .allowed_during_partition(Some(to_micro_units(50.0)), to_micro_units(100.0)));
+    assert!(TransactionKind::Transfer
+        .allowed_during_partition(Some(to_micro_units(100.0)), to_micro_units(100.0)));
 
     assert!(!TransactionKind::Stake.allowed_during_partition(None, 0));
     assert!(!TransactionKind::Stake.allowed_during_partition(Some(to_micro_units(1000.0)), 0));
@@ -568,22 +672,23 @@ fn test_partition_budget_enforcement() {
 #[test]
 fn test_penalty_constants_for_nonce_reuse() {
     let mut accounts = HashMap::new();
-    accounts.insert("alice".to_string(), make_staked_account("alice", 1000.0, 0, 500.0));
+    accounts.insert(
+        "alice".to_string(),
+        make_staked_account("alice", 1000.0, 0, 500.0),
+    );
     accounts.insert("bob".to_string(), make_account("bob", 0.0, 0));
     accounts.insert("carol".to_string(), make_account("carol", 0.0, 0));
 
-    let local = vec![
-        make_summary("tx_local", "alice", "bob", 50.0, 0, 1.0),
-    ];
-    let remote = vec![
-        make_summary("tx_remote", "alice", "carol", 50.0, 0, 2.0),
-    ];
+    let local = vec![make_summary("tx_local", "alice", "bob", 50.0, 0, 1.0)];
+    let remote = vec![make_summary("tx_remote", "alice", "carol", 50.0, 0, 2.0)];
 
     let (report, _) = run_full_merge_pipeline(&local, &remote, &accounts);
 
     assert_eq!(report.direct_conflicts.len(), 1);
 
-    let nonce_reuse_conflicts: Vec<_> = report.direct_conflicts.iter()
+    let nonce_reuse_conflicts: Vec<_> = report
+        .direct_conflicts
+        .iter()
         .filter(|c| c.account == "alice")
         .collect();
     assert_eq!(nonce_reuse_conflicts.len(), 1);
@@ -616,14 +721,24 @@ fn test_high_volume_merge_determinism() {
     let mut local = Vec::new();
     for i in 0..50 {
         local.push(make_summary(
-            &format!("tx_a_{}", i), "alice", "carol", 10.0, i, 1.0,
+            &format!("tx_a_{}", i),
+            "alice",
+            "carol",
+            10.0,
+            i,
+            1.0,
         ));
     }
 
     let mut remote = Vec::new();
     for i in 0..50 {
         remote.push(make_summary(
-            &format!("tx_b_{}", i), "bob", "carol", 10.0, i, 1.0,
+            &format!("tx_b_{}", i),
+            "bob",
+            "carol",
+            10.0,
+            i,
+            1.0,
         ));
     }
 
@@ -632,7 +747,10 @@ fn test_high_volume_merge_determinism() {
 
     assert_eq!(report1.transactions_kept, report2.transactions_kept);
     assert_eq!(report1.transactions_rejected, report2.transactions_rejected);
-    assert_eq!(rollback1.final_balances_micro, rollback2.final_balances_micro);
+    assert_eq!(
+        rollback1.final_balances_micro,
+        rollback2.final_balances_micro
+    );
 }
 
 #[test]
@@ -647,24 +765,38 @@ fn test_high_volume_with_conflicts_determinism() {
 
     for i in 0..20 {
         local.push(make_summary(
-            &format!("tx_l_{}", i), "alice", "bob", 10.0, i, 1.0 + (i % 3) as f64,
+            &format!("tx_l_{}", i),
+            "alice",
+            "bob",
+            10.0,
+            i,
+            1.0 + (i % 3) as f64,
         ));
         remote.push(make_summary(
-            &format!("tx_r_{}", i), "alice", "carol", 10.0, i, 2.0 + (i % 2) as f64,
+            &format!("tx_r_{}", i),
+            "alice",
+            "carol",
+            10.0,
+            i,
+            2.0 + (i % 2) as f64,
         ));
     }
 
     let (r1, rb1) = run_full_merge_pipeline(&local, &remote, &accounts);
     let (r2, rb2) = run_full_merge_pipeline(&local, &remote, &accounts);
 
-    assert_eq!(r1.transactions_kept, r2.transactions_kept,
-        "Merge results must be deterministic");
+    assert_eq!(
+        r1.transactions_kept, r2.transactions_kept,
+        "Merge results must be deterministic"
+    );
     assert_eq!(r1.transactions_rejected, r2.transactions_rejected);
     assert_eq!(rb1.final_balances_micro, rb2.final_balances_micro);
 
     for (addr, &balance_micro) in &rb1.final_balances_micro {
-        assert!(balance_micro <= to_micro_units(500.0) || addr != "alice",
-            "Alice cannot have more than starting balance");
+        assert!(
+            balance_micro <= to_micro_units(500.0) || addr != "alice",
+            "Alice cannot have more than starting balance"
+        );
     }
 }
 
@@ -677,7 +809,9 @@ fn test_micro_unit_conversion_roundtrip() {
         assert!(
             (back - v).abs() < 0.000002,
             "Roundtrip failed for {}: got {} (micro={})",
-            v, back, micro
+            v,
+            back,
+            micro
         );
     }
 }
@@ -694,6 +828,90 @@ fn test_identical_tx_in_both_partitions_not_conflict() {
 
     let (report, _) = run_full_merge_pipeline(&local, &remote, &accounts);
 
-    assert!(report.direct_conflicts.is_empty(),
-        "Same tx hash in both partitions should not be flagged as conflict");
+    assert!(
+        report.direct_conflicts.is_empty(),
+        "Same tx hash in both partitions should not be flagged as conflict"
+    );
+}
+
+/// Scripted partition heal: conflicting spends + dependent spend → weight wins → balance parity.
+#[test]
+fn test_partition_heal_balance_parity() {
+    let mut accounts = HashMap::new();
+    accounts.insert("alice".to_string(), make_account("alice", 100.0, 0));
+    accounts.insert("bob".to_string(), make_account("bob", 0.0, 0));
+    accounts.insert("carol".to_string(), make_account("carol", 0.0, 0));
+    accounts.insert("dave".to_string(), make_account("dave", 0.0, 0));
+
+    // Partition A (higher weight): Alice → Bob, then Bob spends onward.
+    let mut local_funding = make_summary("local_funding", "alice", "bob", 60.0, 0, 10.0);
+    local_funding.parents = vec![];
+    let mut local_spend = make_summary("local_spend", "bob", "dave", 50.0, 0, 5.0);
+    local_spend.parents = vec!["local_funding".to_string()];
+    let local = vec![local_funding, local_spend];
+
+    // Partition B (lower weight): Alice double-spends same nonce to Carol.
+    let remote = vec![make_summary(
+        "remote_funding",
+        "alice",
+        "carol",
+        60.0,
+        0,
+        3.0,
+    )];
+
+    let (report, rollback) = run_full_merge_pipeline(&local, &remote, &accounts);
+
+    assert_eq!(
+        report.direct_conflicts.len(),
+        1,
+        "Alice nonce-0 conflict expected"
+    );
+    assert!(
+        report
+            .transactions_kept
+            .contains(&"local_funding".to_string()),
+        "Higher-weight local funding must win"
+    );
+    assert!(
+        report
+            .transactions_rejected
+            .contains(&"remote_funding".to_string()),
+        "Lower-weight remote funding must lose"
+    );
+    assert!(
+        report
+            .transactions_kept
+            .contains(&"local_spend".to_string()),
+        "Dependent Bob→Dave spend must survive after heal"
+    );
+
+    let alice = from_micro_units(*rollback.final_balances_micro.get("alice").unwrap());
+    let bob = from_micro_units(*rollback.final_balances_micro.get("bob").unwrap());
+    let carol = from_micro_units(*rollback.final_balances_micro.get("carol").unwrap());
+    let dave = from_micro_units(*rollback.final_balances_micro.get("dave").unwrap());
+
+    assert!((alice - 40.0).abs() < 1e-9, "alice={alice}");
+    assert!((bob - 10.0).abs() < 1e-9, "bob={bob}");
+    assert!((carol - 0.0).abs() < 1e-9, "carol={carol}");
+    assert!((dave - 50.0).abs() < 1e-9, "dave={dave}");
+
+    let total: u64 = rollback.final_balances_micro.values().sum();
+    assert_eq!(
+        total,
+        to_micro_units(100.0),
+        "Heal must conserve fork-point balance"
+    );
+
+    // Commute partitions: same healed balances.
+    let (report2, rollback2) = run_full_merge_pipeline(&remote, &local, &accounts);
+    assert_eq!(
+        rollback.final_balances_micro,
+        rollback2.final_balances_micro
+    );
+    let mut kept = report.transactions_kept.clone();
+    kept.sort();
+    let mut kept2 = report2.transactions_kept.clone();
+    kept2.sort();
+    assert_eq!(kept, kept2, "Heal outcome must be commutative");
 }

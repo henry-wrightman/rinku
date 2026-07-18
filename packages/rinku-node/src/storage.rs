@@ -69,7 +69,7 @@ impl RedbStorage {
         std::fs::create_dir_all(data_dir)?;
 
         let db = Database::create(&db_path)?;
-        
+
         {
             let write_txn = db.begin_write()?;
             let _ = write_txn.open_table(TABLE_ACCOUNTS);
@@ -129,7 +129,10 @@ impl RedbStorage {
                 );
             }
             Some(v) if v < STORAGE_SCHEMA_VERSION => {
-                info!("Migrating storage schema from v{} to v{}", v, STORAGE_SCHEMA_VERSION);
+                info!(
+                    "Migrating storage schema from v{} to v{}",
+                    v, STORAGE_SCHEMA_VERSION
+                );
                 drop(read_txn);
                 let write_txn = db.begin_write()?;
                 {
@@ -468,7 +471,7 @@ impl RedbStorage {
     ) -> Result<()> {
         let db = self.db_read();
         let write_txn = db.begin_write()?;
-        
+
         {
             let mut table = write_txn.open_table(TABLE_ACCOUNTS)?;
             for (addr, account) in accounts {
@@ -476,7 +479,7 @@ impl RedbStorage {
                 table.insert(addr.as_bytes(), data.as_slice())?;
             }
         }
-        
+
         {
             let mut table = write_txn.open_table(TABLE_VALIDATORS)?;
             for (addr, validator) in validators {
@@ -484,7 +487,7 @@ impl RedbStorage {
                 table.insert(addr.as_bytes(), data.as_slice())?;
             }
         }
-        
+
         {
             let mut table = write_txn.open_table(TABLE_CHECKPOINTS)?;
             for checkpoint in checkpoints {
@@ -493,12 +496,11 @@ impl RedbStorage {
                 table.insert(key.as_slice(), data.as_slice())?;
             }
         }
-        
+
         {
             let mut table = write_txn.open_table(TABLE_DAG)?;
-            let current_hashes: std::collections::HashSet<&[u8]> = dag_entries.iter()
-                .map(|e| e.tx.hash.as_bytes())
-                .collect();
+            let current_hashes: std::collections::HashSet<&[u8]> =
+                dag_entries.iter().map(|e| e.tx.hash.as_bytes()).collect();
             let stale_keys: Vec<Vec<u8>> = {
                 let mut keys = Vec::new();
                 let iter = table.iter()?;
@@ -513,7 +515,11 @@ impl RedbStorage {
                 keys
             };
             if !stale_keys.is_empty() {
-                debug!("Cleaning {} stale TABLE_DAG entries (keeping {})", stale_keys.len(), dag_entries.len());
+                debug!(
+                    "Cleaning {} stale TABLE_DAG entries (keeping {})",
+                    stale_keys.len(),
+                    dag_entries.len()
+                );
                 for key in &stale_keys {
                     table.remove(key.as_slice())?;
                 }
@@ -523,18 +529,39 @@ impl RedbStorage {
                 table.insert(entry.tx.hash.as_bytes(), data.as_slice())?;
             }
         }
-        
+
         {
             let mut table = write_txn.open_table(TABLE_METADATA)?;
-            table.insert(b"gas_price".as_slice(), serde_json::to_vec(&gas_price)?.as_slice())?;
-            table.insert(b"total_supply".as_slice(), serde_json::to_vec(&total_supply)?.as_slice())?;
-            table.insert(b"genesis_time".as_slice(), serde_json::to_vec(&genesis_time)?.as_slice())?;
-            table.insert(b"total_transactions".as_slice(), serde_json::to_vec(&total_transactions)?.as_slice())?;
-            table.insert(b"storage_schema_version".as_slice(), serde_json::to_vec(&STORAGE_SCHEMA_VERSION)?.as_slice())?;
-            table.insert(b"last_node_version".as_slice(), serde_json::to_vec(&crate::versioning::NODE_VERSION)?.as_slice())?;
-            table.insert(b"last_protocol_version".as_slice(), serde_json::to_vec(&crate::versioning::PROTOCOL_VERSION)?.as_slice())?;
+            table.insert(
+                b"gas_price".as_slice(),
+                serde_json::to_vec(&gas_price)?.as_slice(),
+            )?;
+            table.insert(
+                b"total_supply".as_slice(),
+                serde_json::to_vec(&total_supply)?.as_slice(),
+            )?;
+            table.insert(
+                b"genesis_time".as_slice(),
+                serde_json::to_vec(&genesis_time)?.as_slice(),
+            )?;
+            table.insert(
+                b"total_transactions".as_slice(),
+                serde_json::to_vec(&total_transactions)?.as_slice(),
+            )?;
+            table.insert(
+                b"storage_schema_version".as_slice(),
+                serde_json::to_vec(&STORAGE_SCHEMA_VERSION)?.as_slice(),
+            )?;
+            table.insert(
+                b"last_node_version".as_slice(),
+                serde_json::to_vec(&crate::versioning::NODE_VERSION)?.as_slice(),
+            )?;
+            table.insert(
+                b"last_protocol_version".as_slice(),
+                serde_json::to_vec(&crate::versioning::PROTOCOL_VERSION)?.as_slice(),
+            )?;
         }
-        
+
         write_txn.commit()?;
         debug!(
             "Saved snapshot: {} accounts, {} validators, {} checkpoints, {} txs",
@@ -562,7 +589,7 @@ impl RedbStorage {
     > {
         let db = self.db_read();
         let read_txn = db.begin_read()?;
-        
+
         let gas_price: u64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"gas_price".as_slice())? {
@@ -573,7 +600,7 @@ impl RedbStorage {
                 }
             }
         };
-        
+
         let total_supply: u64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"total_supply".as_slice())? {
@@ -581,7 +608,7 @@ impl RedbStorage {
                 None => return Ok(None),
             }
         };
-        
+
         let genesis_time: u64 = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"genesis_time".as_slice())? {
@@ -589,7 +616,7 @@ impl RedbStorage {
                 None => return Ok(None),
             }
         };
-        
+
         let persisted_total_transactions: Option<u64> = {
             let table = read_txn.open_table(TABLE_METADATA)?;
             match table.get(b"total_transactions".as_slice())? {
@@ -597,7 +624,7 @@ impl RedbStorage {
                 None => None,
             }
         };
-        
+
         let mut accounts = HashMap::new();
         {
             let table = read_txn.open_table(TABLE_ACCOUNTS)?;
@@ -608,7 +635,7 @@ impl RedbStorage {
                 accounts.insert(addr, account);
             }
         }
-        
+
         let mut validators = HashMap::new();
         {
             let table = read_txn.open_table(TABLE_VALIDATORS)?;
@@ -619,7 +646,7 @@ impl RedbStorage {
                 validators.insert(addr, validator);
             }
         }
-        
+
         let mut checkpoints = Vec::new();
         {
             let table = read_txn.open_table(TABLE_CHECKPOINTS)?;
@@ -630,7 +657,7 @@ impl RedbStorage {
             }
         }
         checkpoints.sort_by_key(|c| c.height);
-        
+
         let mut dag_entries = Vec::new();
         {
             let table = read_txn.open_table(TABLE_DAG)?;
@@ -654,7 +681,7 @@ impl RedbStorage {
                 }
             }
         }
-        
+
         info!(
             "Loaded snapshot: {} accounts, {} validators, {} checkpoints, {} txs",
             accounts.len(),
@@ -662,7 +689,7 @@ impl RedbStorage {
             checkpoints.len(),
             dag_entries.len()
         );
-        
+
         Ok(Some((
             accounts,
             validators,
@@ -685,7 +712,7 @@ impl RedbStorage {
         write_txn.commit()?;
         Ok(())
     }
-    
+
     pub fn load_genesis_hash(&self) -> Result<Option<String>> {
         let db = self.db_read();
         let read_txn = db.begin_read()?;
@@ -739,8 +766,10 @@ impl RedbStorage {
             table.insert(b"emission_snapshot".as_slice(), data.as_slice())?;
         }
         write_txn.commit()?;
-        debug!("Saved emission snapshot: emitted={:.2}, burned={:.2}", 
-               snapshot.total_emitted, snapshot.total_burned);
+        debug!(
+            "Saved emission snapshot: emitted={:.2}, burned={:.2}",
+            snapshot.total_emitted, snapshot.total_burned
+        );
         Ok(())
     }
 
@@ -753,8 +782,7 @@ impl RedbStorage {
                 let snapshot: EmissionSnapshot = serde_json::from_slice(data.value())?;
                 info!(
                     "Loaded emission snapshot: emitted={:.2} RKU, burned={:.2} RKU",
-                    snapshot.total_emitted,
-                    snapshot.total_burned
+                    snapshot.total_emitted, snapshot.total_burned
                 );
                 Ok(Some(snapshot))
             }
@@ -774,7 +802,10 @@ impl RedbStorage {
             table.insert(b"weights_snapshot".as_slice(), data.as_slice())?;
         }
         write_txn.commit()?;
-        debug!("Saved weights snapshot: {} transaction weights", weights.len());
+        debug!(
+            "Saved weights snapshot: {} transaction weights",
+            weights.len()
+        );
         Ok(())
     }
 
@@ -784,8 +815,12 @@ impl RedbStorage {
         let table = read_txn.open_table(TABLE_WEIGHTS)?;
         match table.get(b"weights_snapshot".as_slice())? {
             Some(data) => {
-                let weights: HashMap<String, AggregatedWeight> = serde_json::from_slice(data.value())?;
-                info!("Loaded weights snapshot: {} transaction weights", weights.len());
+                let weights: HashMap<String, AggregatedWeight> =
+                    serde_json::from_slice(data.value())?;
+                info!(
+                    "Loaded weights snapshot: {} transaction weights",
+                    weights.len()
+                );
                 Ok(Some(weights))
             }
             None => {
@@ -847,7 +882,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let storage = RedbStorage::open(dir.path().to_str().unwrap()).unwrap();
 
-        storage.put_metadata(b"test_key", &"test_value".to_string()).unwrap();
+        storage
+            .put_metadata(b"test_key", &"test_value".to_string())
+            .unwrap();
         let value: Option<String> = storage.get_metadata(b"test_key").unwrap();
         assert_eq!(value, Some("test_value".to_string()));
     }
@@ -870,11 +907,18 @@ mod tests {
         let dir = tempdir().unwrap();
         let storage = RedbStorage::open(dir.path().to_str().unwrap()).unwrap();
 
-        storage.put_dag(b"tx1", &"transaction1".to_string()).unwrap();
-        storage.put_dag(b"tx2", &"transaction2".to_string()).unwrap();
+        storage
+            .put_dag(b"tx1", &"transaction1".to_string())
+            .unwrap();
+        storage
+            .put_dag(b"tx2", &"transaction2".to_string())
+            .unwrap();
 
-        assert_eq!(storage.get_dag::<String>(b"tx1").unwrap(), Some("transaction1".to_string()));
-        
+        assert_eq!(
+            storage.get_dag::<String>(b"tx1").unwrap(),
+            Some("transaction1".to_string())
+        );
+
         storage.delete_dag(b"tx1").unwrap();
         assert_eq!(storage.get_dag::<String>(b"tx1").unwrap(), None);
     }
@@ -890,9 +934,11 @@ mod tests {
         }
 
         let mut count = 0;
-        storage.iter_accounts::<u64, _>(|_key, _value| {
-            count += 1;
-        }).unwrap();
+        storage
+            .iter_accounts::<u64, _>(|_key, _value| {
+                count += 1;
+            })
+            .unwrap();
 
         assert_eq!(count, 10);
     }
@@ -904,7 +950,9 @@ mod tests {
 
         for i in 0..5u64 {
             let key = i.to_be_bytes();
-            storage.put_checkpoint(&key, &format!("checkpoint_{}", i)).unwrap();
+            storage
+                .put_checkpoint(&key, &format!("checkpoint_{}", i))
+                .unwrap();
         }
 
         assert_eq!(storage.count_checkpoints().unwrap(), 5);

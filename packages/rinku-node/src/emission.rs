@@ -1,5 +1,5 @@
+use rinku_core::types::{from_micro_units, micro_serde, MICRO_UNITS};
 use serde::{Deserialize, Serialize};
-use rinku_core::types::{MICRO_UNITS, micro_serde, from_micro_units};
 
 pub const MAX_SUPPLY: u64 = 3_000_000_000_000_000;
 pub const GENESIS_ALLOCATION: u64 = 600_000_000_000_000;
@@ -80,7 +80,7 @@ impl EmissionService {
     pub fn get_checkpoint_reward(&self, checkpoint_height: u64) -> u64 {
         let halvings = (checkpoint_height / HALVING_INTERVAL) as u32;
         let effective_halvings = halvings.min(HALVINGS_COUNT);
-        
+
         let reward = INITIAL_CHECKPOINT_REWARD >> effective_halvings;
         reward.max(MIN_CHECKPOINT_REWARD)
     }
@@ -124,7 +124,9 @@ impl EmissionService {
         self.last_reward_height = target_height;
         tracing::info!(
             "Emission rollback: height {} -> {}, reverted {} micro-units of emission",
-            old_height, target_height, reverted_emission
+            old_height,
+            target_height,
+            reverted_emission
         );
     }
 
@@ -144,11 +146,11 @@ impl EmissionService {
     pub fn progressive_burn(&self) -> f64 {
         let circulating_supply = self.get_circulating_supply();
         let supply_ratio = circulating_supply as f64 / MAX_SUPPLY as f64;
-        
+
         if supply_ratio >= SUPPLY_TARGET_FOR_FULL_BURN {
             return BURN_CEILING_PERCENT;
         }
-        
+
         let burn_progress = supply_ratio / SUPPLY_TARGET_FOR_FULL_BURN;
         burn_progress * BURN_CEILING_PERCENT
     }
@@ -156,7 +158,7 @@ impl EmissionService {
     pub fn get_adaptive_fee_split(&self) -> FeeSplit {
         let burn_percent = self.progressive_burn();
         let validator_percent = (1.0 - burn_percent).max(VALIDATOR_FEE_FLOOR_PERCENT);
-        
+
         FeeSplit {
             validator_share: validator_percent,
             burn_share: 1.0 - validator_percent,
@@ -216,14 +218,14 @@ impl EmissionService {
     pub fn merge_from(&mut self, snapshot: EmissionSnapshot) -> (u64, u64) {
         let old_emitted = self.total_emitted;
         let old_burned = self.total_burned;
-        
+
         self.total_emitted = self.total_emitted.max(snapshot.total_emitted);
         self.total_burned = self.total_burned.max(snapshot.total_burned);
         self.last_reward_height = self.last_reward_height.max(snapshot.last_reward_height);
-        
+
         let emitted_delta = self.total_emitted - old_emitted;
         let burned_delta = self.total_burned - old_burned;
-        
+
         (emitted_delta, burned_delta)
     }
 }
@@ -252,7 +254,7 @@ pub fn calculate_effective_age_weight(
     if stake_amount < MIN_BOND_FOR_AGE_WEIGHT {
         return 0.0;
     }
-    
+
     let decay_factor = (1.0 - AGE_DECAY_PER_MISS).powi(missed_checkpoints as i32);
     age_weight * decay_factor
 }
@@ -266,7 +268,7 @@ pub fn distribute_checkpoint_reward(
     }
 
     let total_stake: u64 = validators.iter().map(|v| v.stake_amount).sum();
-    
+
     let effective_age_weights: Vec<f64> = validators
         .iter()
         .map(|v| calculate_effective_age_weight(v.age_weight, v.stake_amount, v.missed_checkpoints))
@@ -281,15 +283,17 @@ pub fn distribute_checkpoint_reward(
 
     for (i, validator) in validators.iter().enumerate() {
         let mut share = 0u64;
-        
+
         if total_stake > 0 {
-            share += ((stake_pool as u128 * validator.stake_amount as u128) / total_stake as u128) as u64;
+            share += ((stake_pool as u128 * validator.stake_amount as u128) / total_stake as u128)
+                as u64;
         }
-        
+
         if total_effective_age > 0.0 {
-            share += (age_pool as f64 * effective_age_weights[i] / total_effective_age).round() as u64;
+            share +=
+                (age_pool as f64 * effective_age_weights[i] / total_effective_age).round() as u64;
         }
-        
+
         if share > 0 {
             distributed += share;
             distribution.push((validator.address.clone(), share));
@@ -373,9 +377,13 @@ mod tests {
         let reward = to_micro_units(100.0);
         let dist = distribute_checkpoint_reward(reward, &validators);
         assert_eq!(dist.len(), 2);
-        
+
         let total: u64 = dist.iter().map(|(_, amount)| *amount).sum();
-        let diff = if total > reward { total - reward } else { reward - total };
+        let diff = if total > reward {
+            total - reward
+        } else {
+            reward - total
+        };
         assert!(diff <= 2, "Rounding error should be minimal");
     }
 }

@@ -1,24 +1,23 @@
 #![cfg(feature = "p2p")]
 
 use anyhow::Result;
-use libp2p::futures::{StreamExt, FutureExt};
+use libp2p::futures::{FutureExt, StreamExt};
 use libp2p::{
     gossipsub::{self, IdentTopic, MessageAuthenticity, ValidationMode},
-    identity::Keypair,
     identify,
-    mdns,
-    noise,
+    identity::Keypair,
+    mdns, noise,
     request_response::{self, OutboundRequestId, ProtocolSupport, ResponseChannel},
     swarm::SwarmEvent,
-    tcp, yamux, Multiaddr, PeerId, Swarm, StreamProtocol,
+    tcp, yamux, Multiaddr, PeerId, StreamProtocol, Swarm,
 };
 
 use crate::cbor_codec::CborCodec;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tracing::{debug, info, trace, warn};
@@ -26,37 +25,58 @@ use tracing::{debug, info, trace, warn};
 use crate::gossip::GossipMessage;
 
 fn topic_critical() -> String {
-    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    let major = crate::versioning::PROTOCOL_VERSION
+        .split('.')
+        .next()
+        .unwrap_or("1");
     format!("rinku/{}/critical", major)
 }
 
 fn topic_consensus() -> String {
-    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    let major = crate::versioning::PROTOCOL_VERSION
+        .split('.')
+        .next()
+        .unwrap_or("1");
     format!("rinku/{}/consensus", major)
 }
 
 fn topic_data() -> String {
-    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    let major = crate::versioning::PROTOCOL_VERSION
+        .split('.')
+        .next()
+        .unwrap_or("1");
     format!("rinku/{}/data", major)
 }
 
 fn topic_general() -> String {
-    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    let major = crate::versioning::PROTOCOL_VERSION
+        .split('.')
+        .next()
+        .unwrap_or("1");
     format!("rinku/{}/general", major)
 }
 
 fn topic_priority() -> String {
-    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    let major = crate::versioning::PROTOCOL_VERSION
+        .split('.')
+        .next()
+        .unwrap_or("1");
     format!("rinku/{}/priority", major)
 }
 
 fn sync_protocol_id() -> String {
-    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    let major = crate::versioning::PROTOCOL_VERSION
+        .split('.')
+        .next()
+        .unwrap_or("1");
     format!("/rinku/sync/{}", major)
 }
 
 fn vote_protocol_id() -> String {
-    let major = crate::versioning::PROTOCOL_VERSION.split('.').next().unwrap_or("1");
+    let major = crate::versioning::PROTOCOL_VERSION
+        .split('.')
+        .next()
+        .unwrap_or("1");
     format!("/rinku/vote/{}", major)
 }
 
@@ -317,20 +337,23 @@ impl Default for NetworkConfig {
 
 fn load_or_generate_keypair(data_dir: Option<&str>) -> Keypair {
     let key_path = data_dir.map(|d| format!("{}/p2p-identity.key", d));
-    
+
     if let Some(ref path) = key_path {
         if let Ok(bytes) = std::fs::read(path) {
             if let Ok(keypair) = Keypair::from_protobuf_encoding(&bytes) {
                 info!("Loaded existing P2P identity from {}", path);
                 return keypair;
             } else {
-                warn!("Failed to decode P2P identity from {}, generating new one", path);
+                warn!(
+                    "Failed to decode P2P identity from {}, generating new one",
+                    path
+                );
             }
         }
     }
-    
+
     let keypair = Keypair::generate_ed25519();
-    
+
     if let Some(ref path) = key_path {
         if let Ok(bytes) = keypair.to_protobuf_encoding() {
             if let Err(e) = std::fs::write(path, bytes) {
@@ -340,7 +363,7 @@ fn load_or_generate_keypair(data_dir: Option<&str>) -> Keypair {
             }
         }
     }
-    
+
     keypair
 }
 
@@ -503,7 +526,7 @@ impl NetworkService {
             .validation_mode(ValidationMode::Permissive)
             .flood_publish(true)
             .message_id_fn(|msg| {
-                use sha2::{Sha256, Digest};
+                use sha2::{Digest, Sha256};
                 let mut hasher = Sha256::new();
                 hasher.update(&msg.data);
                 let hash = hasher.finalize();
@@ -519,48 +542,44 @@ impl NetworkService {
         )
         .map_err(|e| anyhow::anyhow!("Failed to create gossipsub: {}", e))?;
 
-        let mdns = mdns::tokio::Behaviour::new(
-            mdns::Config::default(),
-            local_peer_id,
-        )?;
+        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
 
         // Request-response protocol for sync operations
         // Use custom CBOR codec with 16MB limits to support checkpoint votes with many transactions
         // This allows up to ~30,000 transactions per checkpoint (at ~500 bytes each)
-        let sync_protocol = StreamProtocol::try_from_owned(sync_protocol_id())
-            .expect("valid sync protocol string");
+        let sync_protocol =
+            StreamProtocol::try_from_owned(sync_protocol_id()).expect("valid sync protocol string");
         let cbor_codec: CborCodec<SyncRequest, SyncResponse> = CborCodec::new(
-            16 * 1024 * 1024,  // 16 MB max request size
-            16 * 1024 * 1024,  // 16 MB max response size
+            16 * 1024 * 1024, // 16 MB max request size
+            16 * 1024 * 1024, // 16 MB max response size
         );
         let request_response = request_response::Behaviour::with_codec(
             cbor_codec,
             [(sync_protocol, ProtocolSupport::Full)],
-            request_response::Config::default()
-                .with_request_timeout(Duration::from_secs(10)),
+            request_response::Config::default().with_request_timeout(Duration::from_secs(10)),
         );
 
-        let vote_protocol_str = StreamProtocol::try_from_owned(vote_protocol_id())
-            .expect("valid vote protocol string");
-        let vote_cbor_codec: CborCodec<VoteRequest, VoteResponse> = CborCodec::new(
-            16 * 1024 * 1024,
-            1024 * 1024,
-        );
+        let vote_protocol_str =
+            StreamProtocol::try_from_owned(vote_protocol_id()).expect("valid vote protocol string");
+        let vote_cbor_codec: CborCodec<VoteRequest, VoteResponse> =
+            CborCodec::new(16 * 1024 * 1024, 1024 * 1024);
         let vote_protocol = request_response::Behaviour::with_codec(
             vote_cbor_codec,
             [(vote_protocol_str, ProtocolSupport::Full)],
-            request_response::Config::default()
-                .with_request_timeout(Duration::from_secs(5)),
+            request_response::Config::default().with_request_timeout(Duration::from_secs(5)),
         );
 
         // Identify protocol for peer info exchange
         let identify = identify::Behaviour::new(
-            identify::Config::new(format!("/rinku/{}", crate::versioning::PROTOCOL_VERSION), local_key.public())
-                .with_agent_version(format!("rinku-node/{}", crate::versioning::NODE_VERSION)),
+            identify::Config::new(
+                format!("/rinku/{}", crate::versioning::PROTOCOL_VERSION),
+                local_key.public(),
+            )
+            .with_agent_version(format!("rinku-node/{}", crate::versioning::NODE_VERSION)),
         );
 
-        let behaviour = RinkuBehaviour { 
-            gossipsub, 
+        let behaviour = RinkuBehaviour {
+            gossipsub,
             request_response,
             vote_protocol,
             identify,
@@ -613,7 +632,10 @@ impl NetworkService {
 
         let peers = Arc::new(RwLock::new(HashMap::new()));
 
-        let peer_scores_path = config.data_dir.as_ref().map(|d| format!("{}/peer_scores.json", d));
+        let peer_scores_path = config
+            .data_dir
+            .as_ref()
+            .map(|d| format!("{}/peer_scores.json", d));
         let peer_scores = Arc::new(RwLock::new(load_peer_scores(&peer_scores_path)));
 
         let shared_checkpoint_height = Arc::new(AtomicU64::new(0));
@@ -680,11 +702,26 @@ impl NetworkService {
         let listen_addr: Multiaddr = self.config.listen_addr.parse()?;
         self.swarm.listen_on(listen_addr)?;
 
-        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_critical)?;
-        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_consensus)?;
-        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_data)?;
-        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_general)?;
-        self.swarm.behaviour_mut().gossipsub.subscribe(&self.topic_priority)?;
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&self.topic_critical)?;
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&self.topic_consensus)?;
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&self.topic_data)?;
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&self.topic_general)?;
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&self.topic_priority)?;
 
         for peer_addr in &self.config.bootstrap_peers {
             if let Ok(addr) = peer_addr.parse::<Multiaddr>() {
@@ -720,13 +757,16 @@ impl NetworkService {
     }
 
     fn has_critical_in_buffer(&self) -> bool {
-        self.outbound_buffer.iter().any(|m| matches!(m,
-            GossipMessage::CheckpointAnnouncement { .. } |
-            GossipMessage::CheckpointIntent { .. } |
-            GossipMessage::DaChunk { .. } |
-            GossipMessage::QccVoteRequest { .. } |
-            GossipMessage::QccVoteCast { .. }
-        ))
+        self.outbound_buffer.iter().any(|m| {
+            matches!(
+                m,
+                GossipMessage::CheckpointAnnouncement { .. }
+                    | GossipMessage::CheckpointIntent { .. }
+                    | GossipMessage::DaChunk { .. }
+                    | GossipMessage::QccVoteRequest { .. }
+                    | GossipMessage::QccVoteCast { .. }
+            )
+        })
     }
 
     async fn flush_outbound_buffer(&mut self) {
@@ -745,7 +785,7 @@ impl NetworkService {
         reconnect_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_coalesce_flush = Instant::now();
         let coalesce_dur = std::time::Duration::from_millis(Self::COALESCE_INTERVAL_MS);
-        
+
         loop {
             while let Ok(cmd) = self.command_rx.try_recv() {
                 self.handle_command(cmd).await;
@@ -755,7 +795,8 @@ impl NetworkService {
 
             let should_flush = self.has_critical_in_buffer()
                 || self.outbound_buffer.len() >= Self::OUTBOUND_BUFFER_CAP
-                || (!self.outbound_buffer.is_empty() && last_coalesce_flush.elapsed() >= coalesce_dur);
+                || (!self.outbound_buffer.is_empty()
+                    && last_coalesce_flush.elapsed() >= coalesce_dur);
 
             if should_flush {
                 self.flush_outbound_buffer().await;
@@ -853,12 +894,20 @@ impl NetworkService {
 
             if let Some(pid) = target_peer_id {
                 if self.swarm.is_connected(&pid) {
-                    debug!("Reconnect: peer {} already reconnected, dropping from queue", pid);
+                    debug!(
+                        "Reconnect: peer {} already reconnected, dropping from queue",
+                        pid
+                    );
                     continue;
                 }
             }
 
-            info!("Reconnect: re-dialing {} (attempt {}/{})", addr, retries + 1, MAX_RAPID_RECONNECTS);
+            info!(
+                "Reconnect: re-dialing {} (attempt {}/{})",
+                addr,
+                retries + 1,
+                MAX_RAPID_RECONNECTS
+            );
             match self.swarm.dial(addr.clone()) {
                 Ok(_) => {
                     if retries + 1 < MAX_RAPID_RECONNECTS {
@@ -875,7 +924,7 @@ impl NetworkService {
 
         self.reconnect_pending = still_pending;
     }
-    
+
     async fn perform_mesh_maintenance(&mut self) {
         self.mesh_maintenance_counter = self.mesh_maintenance_counter.wrapping_add(1);
 
@@ -901,13 +950,13 @@ impl NetworkService {
             let peers = self.peers.read().await;
             peers.values().filter(|p| p.handshake_validated).count()
         };
-        
+
         if validated_peer_count < MIN_MESH_PEERS {
             info!(
                 "Mesh unhealthy: {} validated peers (min: {}), re-dialing bootstrap peers",
                 validated_peer_count, MIN_MESH_PEERS
             );
-            
+
             for peer_addr in &self.config.bootstrap_peers.clone() {
                 if let Ok(addr) = peer_addr.parse::<Multiaddr>() {
                     info!("Re-dialing bootstrap peer: {}", addr);
@@ -925,12 +974,14 @@ impl NetworkService {
             let now_secs = current_time_secs();
             let stale_peers: Vec<PeerId> = {
                 let peers = self.peers.read().await;
-                peers.iter()
+                peers
+                    .iter()
                     .filter(|(pid, stats)| {
                         stats.handshake_validated
                             && self.swarm.is_connected(pid)
                             && stats.consecutive_rr_failures > 0
-                            && now_secs.saturating_sub(stats.last_rr_success) > RR_STALE_THRESHOLD_SECS
+                            && now_secs.saturating_sub(stats.last_rr_success)
+                                > RR_STALE_THRESHOLD_SECS
                     })
                     .map(|(pid, _)| *pid)
                     .collect()
@@ -952,23 +1003,32 @@ impl NetworkService {
         {
             let connected_peer_ids: Vec<PeerId> = {
                 let peers = self.peers.read().await;
-                peers.iter()
+                peers
+                    .iter()
                     .filter(|(_, stats)| stats.handshake_validated)
                     .map(|(pid, _)| *pid)
                     .collect()
             };
 
-            let handshake = self.create_handshake(0, self.handshake_config.validator_address.clone());
+            let handshake =
+                self.create_handshake(0, self.handshake_config.validator_address.clone());
             let request = SyncRequest::Handshake(handshake);
 
             for pid in connected_peer_ids {
                 if self.swarm.is_connected(&pid) {
                     debug!("PEX: Sending periodic handshake to {}", pid);
-                    let request_id = self.swarm.behaviour_mut().request_response.send_request(&pid, request.clone());
-                    self.pending_requests.insert(request_id, PendingSyncRequest {
-                        peer_id: pid,
-                        response_tx: None,
-                    });
+                    let request_id = self
+                        .swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_request(&pid, request.clone());
+                    self.pending_requests.insert(
+                        request_id,
+                        PendingSyncRequest {
+                            peer_id: pid,
+                            response_tx: None,
+                        },
+                    );
                 }
             }
         }
@@ -978,13 +1038,20 @@ impl NetworkService {
         match cmd {
             NetworkCommand::Dial(addr, response_tx) => {
                 debug!("Dialing peer at {}", addr);
-                let result = self.swarm.dial(addr.clone())
+                let result = self
+                    .swarm
+                    .dial(addr.clone())
                     .map_err(|e| anyhow::anyhow!("Dial error: {}", e));
                 let _ = response_tx.send(result);
             }
             NetworkCommand::SendVoteResponse(channel, response) => {
                 debug!("Sending vote response via command");
-                if let Err(e) = self.swarm.behaviour_mut().vote_protocol.send_response(channel, response) {
+                if let Err(e) = self
+                    .swarm
+                    .behaviour_mut()
+                    .vote_protocol
+                    .send_response(channel, response)
+                {
                     warn!("Failed to send vote response: {:?}", e);
                 }
             }
@@ -1013,26 +1080,40 @@ impl NetworkService {
                     stats.bytes_received += msg_size as u64;
                 }
                 if msg_size > 128 * 1024 {
-                    warn!("Large incoming gossip message: {}KB from {:?}", msg_size / 1024, propagation_source);
+                    warn!(
+                        "Large incoming gossip message: {}KB from {:?}",
+                        msg_size / 1024,
+                        propagation_source
+                    );
                 }
 
                 if !self.check_rate_limit_sync(&propagation_source) {
                     // Just drop the message, don't penalize - high load is not misbehavior
-                    debug!("Rate limit exceeded for peer: {}, dropping message", propagation_source);
+                    debug!(
+                        "Rate limit exceeded for peer: {}, dropping message",
+                        propagation_source
+                    );
                     return;
                 }
 
                 let allow_message = match self.peers.try_read() {
-                    Ok(peers) => peers.get(&propagation_source)
+                    Ok(peers) => peers
+                        .get(&propagation_source)
                         .map(|p| p.handshake_validated)
                         .unwrap_or(false),
                     Err(_) => {
-                        debug!("Peers lock contended, allowing gossip from {}", propagation_source);
+                        debug!(
+                            "Peers lock contended, allowing gossip from {}",
+                            propagation_source
+                        );
                         true
                     }
                 };
                 if !allow_message {
-                    warn!("Dropping gossip from unhandshaked peer: {}", propagation_source);
+                    warn!(
+                        "Dropping gossip from unhandshaked peer: {}",
+                        propagation_source
+                    );
                     self.record_misbehavior_sync(&propagation_source.to_string());
                     let _ = self.swarm.disconnect_peer_id(propagation_source);
                     return;
@@ -1040,67 +1121,96 @@ impl NetworkService {
 
                 match serde_json::from_slice::<GossipMessage>(&message.data) {
                     Ok(gossip_msg) => {
-                    let msgs_to_route: Vec<GossipMessage> = match gossip_msg {
-                        GossipMessage::Batch { messages } => messages,
-                        other => vec![other],
-                    };
-                    for routed_msg in msgs_to_route {
-                    let is_checkpoint = matches!(&routed_msg, GossipMessage::CheckpointAnnouncement { .. });
-                    let is_priority = matches!(&routed_msg, GossipMessage::CheckpointIntent { .. } | GossipMessage::LeaderTimeout { .. } | GossipMessage::DaChunk { .. } | GossipMessage::QccVoteRequest { .. } | GossipMessage::QccVoteCast { .. } | GossipMessage::CheckpointSignature { .. });
-                    if is_checkpoint {
-                        match self.checkpoint_message_tx.try_send(routed_msg) {
-                            Ok(_) => {
-                                debug!("Routed checkpoint to dedicated channel from {}", propagation_source);
-                            },
-                            Err(tokio::sync::mpsc::error::TrySendError::Full(msg)) => {
-                                warn!("Checkpoint channel full, falling back to priority channel from {}", propagation_source);
-                                match self.priority_message_tx.try_send(msg) {
+                        let msgs_to_route: Vec<GossipMessage> = match gossip_msg {
+                            GossipMessage::Batch { messages } => messages,
+                            other => vec![other],
+                        };
+                        for routed_msg in msgs_to_route {
+                            let is_checkpoint =
+                                matches!(&routed_msg, GossipMessage::CheckpointAnnouncement { .. });
+                            let is_priority = matches!(
+                                &routed_msg,
+                                GossipMessage::CheckpointIntent { .. }
+                                    | GossipMessage::LeaderTimeout { .. }
+                                    | GossipMessage::DaChunk { .. }
+                                    | GossipMessage::QccVoteRequest { .. }
+                                    | GossipMessage::QccVoteCast { .. }
+                                    | GossipMessage::CheckpointSignature { .. }
+                            );
+                            if is_checkpoint {
+                                match self.checkpoint_message_tx.try_send(routed_msg) {
                                     Ok(_) => {
-                                        debug!("Checkpoint fallback to priority channel succeeded");
-                                    },
-                                    Err(tokio::sync::mpsc::error::TrySendError::Full(msg2)) => {
-                                        warn!("Checkpoint fallback: priority also full, falling back to regular channel");
-                                        if let Err(e) = self.message_tx.try_send(msg2) {
-                                            warn!("Checkpoint DROPPED — all channels full: {}", e);
+                                        debug!(
+                                            "Routed checkpoint to dedicated channel from {}",
+                                            propagation_source
+                                        );
+                                    }
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(msg)) => {
+                                        warn!("Checkpoint channel full, falling back to priority channel from {}", propagation_source);
+                                        match self.priority_message_tx.try_send(msg) {
+                                            Ok(_) => {
+                                                debug!("Checkpoint fallback to priority channel succeeded");
+                                            }
+                                            Err(tokio::sync::mpsc::error::TrySendError::Full(
+                                                msg2,
+                                            )) => {
+                                                warn!("Checkpoint fallback: priority also full, falling back to regular channel");
+                                                if let Err(e) = self.message_tx.try_send(msg2) {
+                                                    warn!("Checkpoint DROPPED — all channels full: {}", e);
+                                                }
+                                            }
+                                            Err(
+                                                tokio::sync::mpsc::error::TrySendError::Closed(_),
+                                            ) => {
+                                                warn!(
+                                                    "Checkpoint fallback: priority channel closed"
+                                                );
+                                            }
                                         }
-                                    },
+                                    }
                                     Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                                        warn!("Checkpoint fallback: priority channel closed");
-                                    },
+                                        warn!("Checkpoint message channel closed");
+                                    }
                                 }
-                            },
-                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                                warn!("Checkpoint message channel closed");
-                            },
+                            } else if is_priority {
+                                match self.priority_message_tx.try_send(routed_msg) {
+                                    Ok(_) => {
+                                        debug!(
+                                            "Routed priority message to priority channel from {}",
+                                            propagation_source
+                                        );
+                                    }
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(msg)) => {
+                                        warn!("Priority channel full, falling back to regular channel from {}", propagation_source);
+                                        let _ = self.message_tx.try_send(msg);
+                                    }
+                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                        warn!("Priority message channel closed");
+                                    }
+                                }
+                            } else {
+                                match self.message_tx.try_send(routed_msg) {
+                                    Ok(_) => {}
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                        warn!(
+                                            "Gossip message channel full, dropping message from {}",
+                                            propagation_source
+                                        );
+                                    }
+                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                        warn!("Gossip message channel closed");
+                                    }
+                                }
+                            }
                         }
-                    } else if is_priority {
-                        match self.priority_message_tx.try_send(routed_msg) {
-                            Ok(_) => {
-                                debug!("Routed priority message to priority channel from {}", propagation_source);
-                            },
-                            Err(tokio::sync::mpsc::error::TrySendError::Full(msg)) => {
-                                warn!("Priority channel full, falling back to regular channel from {}", propagation_source);
-                                let _ = self.message_tx.try_send(msg);
-                            },
-                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                                warn!("Priority message channel closed");
-                            },
-                        }
-                    } else {
-                        match self.message_tx.try_send(routed_msg) {
-                            Ok(_) => {},
-                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                                warn!("Gossip message channel full, dropping message from {}", propagation_source);
-                            },
-                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                                warn!("Gossip message channel closed");
-                            },
-                        }
-                    }
-                    }
                     }
                     Err(e) => {
-                        warn!("Failed to deserialize gossip message from {}: {} ({}B dropped)", propagation_source, e, message.data.len());
+                        warn!(
+                            "Failed to deserialize gossip message from {}: {} ({}B dropped)",
+                            propagation_source,
+                            e,
+                            message.data.len()
+                        );
                     }
                 }
 
@@ -1121,8 +1231,11 @@ impl NetworkService {
             SwarmEvent::Behaviour(RinkuBehaviourEvent::Mdns(mdns::Event::Discovered(peers))) => {
                 for (peer_id, addr) in peers {
                     info!("mDNS discovered peer: {} at {}", peer_id, addr);
-                    self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
-                    
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .add_explicit_peer(&peer_id);
+
                     let now = current_time_secs();
                     let max_tokens = self.dos_config.max_rate_limit_tokens;
                     let saved_score = self.get_saved_peer_score_sync(&peer_id);
@@ -1150,17 +1263,22 @@ impl NetworkService {
             SwarmEvent::Behaviour(RinkuBehaviourEvent::Mdns(mdns::Event::Expired(peers))) => {
                 for (peer_id, _) in peers {
                     debug!("mDNS peer expired: {}", peer_id);
-                    self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
-                    
+                    self.swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .remove_explicit_peer(&peer_id);
+
                     if let Ok(mut peer_map) = self.peers.try_write() {
                         peer_map.remove(&peer_id);
                     }
                 }
             }
 
-            SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+            SwarmEvent::ConnectionEstablished {
+                peer_id, endpoint, ..
+            } => {
                 let peer_id_str = peer_id.to_string();
-                
+
                 if self.is_peer_banned_sync(&peer_id_str) {
                     warn!("Rejecting banned peer: {}", peer_id_str);
                     let _ = self.swarm.disconnect_peer_id(peer_id);
@@ -1188,9 +1306,12 @@ impl NetworkService {
                 });
 
                 info!("Connected to peer: {} via {:?}", peer_id, endpoint);
-                
-                self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
-                
+
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .add_explicit_peer(&peer_id);
+
                 let now = current_time_secs();
                 let max_tokens = self.dos_config.max_rate_limit_tokens;
                 let saved_score = self.get_saved_peer_score_sync(&peer_id);
@@ -1214,47 +1335,64 @@ impl NetworkService {
                 });
 
                 // Proactively initiate handshake
-                let handshake = self.create_handshake(0, self.handshake_config.validator_address.clone());
-                let request_id = self.swarm.behaviour_mut()
+                let handshake =
+                    self.create_handshake(0, self.handshake_config.validator_address.clone());
+                let request_id = self
+                    .swarm
+                    .behaviour_mut()
                     .request_response
                     .send_request(&peer_id, SyncRequest::Handshake(handshake));
-                self.pending_requests.insert(request_id, PendingSyncRequest {
-                    peer_id,
-                    response_tx: None,
-                });
+                self.pending_requests.insert(
+                    request_id,
+                    PendingSyncRequest {
+                        peer_id,
+                        response_tx: None,
+                    },
+                );
             }
 
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                 info!("Disconnected from peer: {} (cause: {:?})", peer_id, cause);
-                
-                self.swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
-                
-                let stale_sync: Vec<_> = self.pending_requests.iter()
+
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .remove_explicit_peer(&peer_id);
+
+                let stale_sync: Vec<_> = self
+                    .pending_requests
+                    .iter()
                     .filter(|(_, p)| p.peer_id == peer_id)
                     .map(|(id, _)| *id)
                     .collect();
                 for id in &stale_sync {
                     if let Some(p) = self.pending_requests.remove(id) {
                         if let Some(tx) = p.response_tx {
-                            let _ = tx.send(SyncResponse::Error { message: "ConnectionClosed".into() });
+                            let _ = tx.send(SyncResponse::Error {
+                                message: "ConnectionClosed".into(),
+                            });
                         }
                     }
                 }
-                let stale_vote: Vec<_> = self.pending_vote_requests.iter()
+                let stale_vote: Vec<_> = self
+                    .pending_vote_requests
+                    .iter()
                     .filter(|(_, p)| p.peer_id == peer_id)
                     .map(|(id, _)| *id)
                     .collect();
                 for id in &stale_vote {
                     if let Some(p) = self.pending_vote_requests.remove(id) {
                         if let Some(tx) = p.response_tx {
-                            let _ = tx.send(VoteResponse::Error { message: "ConnectionClosed".into() });
+                            let _ = tx.send(VoteResponse::Error {
+                                message: "ConnectionClosed".into(),
+                            });
                         }
                     }
                 }
                 if !stale_sync.is_empty() || !stale_vote.is_empty() {
                     info!("Cleaned {} stale sync + {} stale vote pending requests for disconnected peer {}", stale_sync.len(), stale_vote.len(), peer_id);
                 }
-                
+
                 let was_validated;
                 {
                     let mut peers = match self.peers.try_write() {
@@ -1282,8 +1420,12 @@ impl NetworkService {
                             })
                         });
                         if !already_queued {
-                            info!("Scheduling immediate reconnect to validated peer {} at {}", peer_id, reconnect_addr);
-                            self.reconnect_pending.push((reconnect_addr, 0, Instant::now()));
+                            info!(
+                                "Scheduling immediate reconnect to validated peer {} at {}",
+                                peer_id, reconnect_addr
+                            );
+                            self.reconnect_pending
+                                .push((reconnect_addr, 0, Instant::now()));
                         }
                     }
                 }
@@ -1295,19 +1437,26 @@ impl NetworkService {
 
             // Request-response: incoming request from peer
             SwarmEvent::Behaviour(RinkuBehaviourEvent::RequestResponse(
-                request_response::Event::Message { peer, message }
+                request_response::Event::Message { peer, message },
             )) => {
                 match message {
-                    request_response::Message::Request { request, channel, .. } => {
+                    request_response::Message::Request {
+                        request, channel, ..
+                    } => {
                         if !self.check_rate_limit_sync(&peer) {
-                            debug!("Rate limit exceeded for sync request from: {}, rejecting", peer);
+                            debug!(
+                                "Rate limit exceeded for sync request from: {}, rejecting",
+                                peer
+                            );
                             let _ = self.swarm.behaviour_mut().request_response.send_response(
                                 channel,
-                                SyncResponse::Error { message: "Rate limit exceeded".to_string() }
+                                SyncResponse::Error {
+                                    message: "Rate limit exceeded".to_string(),
+                                },
                             );
                             return;
                         }
-                        
+
                         if let SyncRequest::Handshake(ref info) = request {
                             let pex_addrs_to_process = info.known_peer_addrs.clone();
                             match self.validate_handshake(info) {
@@ -1336,11 +1485,15 @@ impl NetworkService {
                                     entry.score = entry.score.saturating_add(10);
                                     self.persist_peer_score_sync(&peer, entry.score);
                                     info!("Handshake from {}: their validator_address={:?}, responding with ours={:?}", peer, info.validator_address, self.handshake_config.validator_address);
-                                    let response = SyncResponse::Handshake(self.create_handshake(0, self.handshake_config.validator_address.clone()));
-                                    let _ = self.swarm.behaviour_mut().request_response.send_response(
-                                        channel,
-                                        response
-                                    );
+                                    let response = SyncResponse::Handshake(self.create_handshake(
+                                        0,
+                                        self.handshake_config.validator_address.clone(),
+                                    ));
+                                    let _ = self
+                                        .swarm
+                                        .behaviour_mut()
+                                        .request_response
+                                        .send_response(channel, response);
                                     drop(peers);
                                     if !pex_addrs_to_process.is_empty() {
                                         self.process_pex_addresses(&pex_addrs_to_process, &peer);
@@ -1349,24 +1502,30 @@ impl NetworkService {
                                 Err(e) => {
                                     warn!("Handshake validation failed for {}: {}", peer, e);
                                     self.record_misbehavior_sync(&peer.to_string());
-                                    let _ = self.swarm.behaviour_mut().request_response.send_response(
-                                        channel,
-                                        SyncResponse::Error { message: format!("Handshake rejected: {}", e) }
-                                    );
+                                    let _ =
+                                        self.swarm.behaviour_mut().request_response.send_response(
+                                            channel,
+                                            SyncResponse::Error {
+                                                message: format!("Handshake rejected: {}", e),
+                                            },
+                                        );
                                 }
                             }
                             return;
                         }
 
                         let handshake_ok = match self.peers.try_read() {
-                            Ok(peers) => peers.get(&peer)
+                            Ok(peers) => peers
+                                .get(&peer)
                                 .map(|p| p.handshake_validated)
                                 .unwrap_or(false),
                             Err(_) => {
                                 debug!("Peers lock contended for sync handshake check from {}, deferring", peer);
                                 let _ = self.swarm.behaviour_mut().request_response.send_response(
                                     channel,
-                                    SyncResponse::Error { message: "Node busy, try again".to_string() }
+                                    SyncResponse::Error {
+                                        message: "Node busy, try again".to_string(),
+                                    },
                                 );
                                 return;
                             }
@@ -1376,7 +1535,9 @@ impl NetworkService {
                             self.record_misbehavior_sync(&peer.to_string());
                             let _ = self.swarm.behaviour_mut().request_response.send_response(
                                 channel,
-                                SyncResponse::Error { message: "Handshake required".to_string() }
+                                SyncResponse::Error {
+                                    message: "Handshake required".to_string(),
+                                },
                             );
                             return;
                         }
@@ -1388,25 +1549,36 @@ impl NetworkService {
                             response_channel: channel,
                         };
                         match self.sync_incoming_tx.try_send(incoming) {
-                            Ok(_) => {},
+                            Ok(_) => {}
                             Err(tokio::sync::mpsc::error::TrySendError::Full(rejected)) => {
-                                warn!("Sync incoming channel full, rejecting request from {}", peer);
+                                warn!(
+                                    "Sync incoming channel full, rejecting request from {}",
+                                    peer
+                                );
                                 let _ = self.swarm.behaviour_mut().request_response.send_response(
                                     rejected.response_channel,
-                                    SyncResponse::Error { message: "Node busy, try again".to_string() }
+                                    SyncResponse::Error {
+                                        message: "Node busy, try again".to_string(),
+                                    },
                                 );
-                            },
+                            }
                             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
                                 warn!("Sync incoming channel closed");
-                            },
+                            }
                         }
                     }
-                    request_response::Message::Response { request_id, response } => {
+                    request_response::Message::Response {
+                        request_id,
+                        response,
+                    } => {
                         debug!("Received sync response for {:?}", request_id);
                         if let Some(pending) = self.pending_requests.remove(&request_id) {
                             self.record_rr_success(pending.peer_id).await;
                             let pex_result = if let SyncResponse::Handshake(info) = &response {
-                                info!("Handshake response from {}: validator_address={:?}", pending.peer_id, info.validator_address);
+                                info!(
+                                    "Handshake response from {}: validator_address={:?}",
+                                    pending.peer_id, info.validator_address
+                                );
                                 let pex_addrs = info.known_peer_addrs.clone();
                                 match self.validate_handshake(info) {
                                     Ok(_) => {
@@ -1418,12 +1590,18 @@ impl NetworkService {
                                             peer_stats.handshake_validated = true;
                                             peer_stats.handshake_info = Some(info.clone());
                                             peer_stats.score = peer_stats.score.saturating_add(10);
-                                            self.persist_peer_score_sync(&pending.peer_id, peer_stats.score);
+                                            self.persist_peer_score_sync(
+                                                &pending.peer_id,
+                                                peer_stats.score,
+                                            );
                                         }
                                         Some((pex_addrs, pending.peer_id))
                                     }
                                     Err(e) => {
-                                        warn!("Handshake response invalid from {}: {}", pending.peer_id, e);
+                                        warn!(
+                                            "Handshake response invalid from {}: {}",
+                                            pending.peer_id, e
+                                        );
                                         self.record_misbehavior_sync(&pending.peer_id.to_string());
                                         None
                                     }
@@ -1445,7 +1623,11 @@ impl NetworkService {
             }
 
             SwarmEvent::Behaviour(RinkuBehaviourEvent::RequestResponse(
-                request_response::Event::OutboundFailure { peer, request_id, error }
+                request_response::Event::OutboundFailure {
+                    peer,
+                    request_id,
+                    error,
+                },
             )) => {
                 warn!("Sync request to {} failed: {:?}", peer, error);
                 if let Some(pending) = self.pending_requests.remove(&request_id) {
@@ -1460,25 +1642,30 @@ impl NetworkService {
 
             // Request-response: inbound failure
             SwarmEvent::Behaviour(RinkuBehaviourEvent::RequestResponse(
-                request_response::Event::InboundFailure { peer, error, .. }
+                request_response::Event::InboundFailure { peer, error, .. },
             )) => {
                 warn!("Inbound sync request from {} failed: {:?}", peer, error);
             }
 
             SwarmEvent::Behaviour(RinkuBehaviourEvent::VoteProtocol(
-                request_response::Event::Message { peer, message }
+                request_response::Event::Message { peer, message },
             )) => {
                 match message {
-                    request_response::Message::Request { request, channel, .. } => {
+                    request_response::Message::Request {
+                        request, channel, ..
+                    } => {
                         let handshake_ok = match self.peers.try_read() {
-                            Ok(peers) => peers.get(&peer)
+                            Ok(peers) => peers
+                                .get(&peer)
                                 .map(|p| p.handshake_validated)
                                 .unwrap_or(false),
                             Err(_) => {
                                 debug!("Peers lock contended for vote handshake check from {}, deferring", peer);
                                 let _ = self.swarm.behaviour_mut().vote_protocol.send_response(
                                     channel,
-                                    VoteResponse::Error { message: "Node busy, try again".to_string() }
+                                    VoteResponse::Error {
+                                        message: "Node busy, try again".to_string(),
+                                    },
                                 );
                                 return;
                             }
@@ -1487,7 +1674,9 @@ impl NetworkService {
                             warn!("Vote request rejected (handshake required) from {}", peer);
                             let _ = self.swarm.behaviour_mut().vote_protocol.send_response(
                                 channel,
-                                VoteResponse::Error { message: "Handshake required".to_string() }
+                                VoteResponse::Error {
+                                    message: "Handshake required".to_string(),
+                                },
                             );
                             return;
                         }
@@ -1499,20 +1688,28 @@ impl NetworkService {
                             response_channel: channel,
                         };
                         match self.vote_incoming_tx.try_send(incoming) {
-                            Ok(_) => {},
+                            Ok(_) => {}
                             Err(tokio::sync::mpsc::error::TrySendError::Full(rejected)) => {
-                                warn!("Vote incoming channel full, rejecting request from {}", peer);
+                                warn!(
+                                    "Vote incoming channel full, rejecting request from {}",
+                                    peer
+                                );
                                 let _ = self.swarm.behaviour_mut().vote_protocol.send_response(
                                     rejected.response_channel,
-                                    VoteResponse::Error { message: "Node busy, try again".to_string() }
+                                    VoteResponse::Error {
+                                        message: "Node busy, try again".to_string(),
+                                    },
                                 );
-                            },
+                            }
                             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
                                 warn!("Vote incoming channel closed");
-                            },
+                            }
                         }
                     }
-                    request_response::Message::Response { request_id, response } => {
+                    request_response::Message::Response {
+                        request_id,
+                        response,
+                    } => {
                         debug!("Received vote response for {:?}", request_id);
                         if let Some(pending) = self.pending_vote_requests.remove(&request_id) {
                             self.record_rr_success(pending.peer_id).await;
@@ -1525,7 +1722,11 @@ impl NetworkService {
             }
 
             SwarmEvent::Behaviour(RinkuBehaviourEvent::VoteProtocol(
-                request_response::Event::OutboundFailure { peer, request_id, error }
+                request_response::Event::OutboundFailure {
+                    peer,
+                    request_id,
+                    error,
+                },
             )) => {
                 warn!("Vote request to {} failed: {:?}", peer, error);
                 if let Some(pending) = self.pending_vote_requests.remove(&request_id) {
@@ -1539,13 +1740,17 @@ impl NetworkService {
             }
 
             SwarmEvent::Behaviour(RinkuBehaviourEvent::VoteProtocol(
-                request_response::Event::InboundFailure { peer, error, .. }
+                request_response::Event::InboundFailure { peer, error, .. },
             )) => {
                 warn!("Inbound vote request from {} failed: {:?}", peer, error);
             }
 
             // Identify: received peer info
-            SwarmEvent::Behaviour(RinkuBehaviourEvent::Identify(identify::Event::Received { peer_id, info, .. })) => {
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::Identify(identify::Event::Received {
+                peer_id,
+                info,
+                ..
+            })) => {
                 info!(
                     "Identified peer {}: {} (protocols: {})",
                     peer_id,
@@ -1554,7 +1759,10 @@ impl NetworkService {
                 );
             }
 
-            SwarmEvent::Behaviour(RinkuBehaviourEvent::Identify(identify::Event::Sent { peer_id, .. })) => {
+            SwarmEvent::Behaviour(RinkuBehaviourEvent::Identify(identify::Event::Sent {
+                peer_id,
+                ..
+            })) => {
                 debug!("Sent identify info to {}", peer_id);
             }
 
@@ -1606,8 +1814,17 @@ impl NetworkService {
         }
     }
 
-    pub fn send_sync_response(&mut self, channel: ResponseChannel<SyncResponse>, response: SyncResponse) {
-        if let Err(e) = self.swarm.behaviour_mut().request_response.send_response(channel, response) {
+    pub fn send_sync_response(
+        &mut self,
+        channel: ResponseChannel<SyncResponse>,
+        response: SyncResponse,
+    ) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .request_response
+            .send_response(channel, response)
+        {
             warn!("Failed to send sync response: {:?}", e);
         }
     }
@@ -1620,11 +1837,9 @@ impl NetworkService {
             | GM::LeaderTimeout { .. }
             | GM::CheckpointSignature { .. } => &self.topic_critical,
 
-            GM::TxConfirmAck { .. }
-            | GM::TxConfirmBroadcast { .. } => &self.topic_consensus,
+            GM::TxConfirmAck { .. } | GM::TxConfirmBroadcast { .. } => &self.topic_consensus,
 
-            GM::QccVoteRequest { .. }
-            | GM::QccVoteCast { .. } => &self.topic_priority,
+            GM::QccVoteRequest { .. } | GM::QccVoteCast { .. } => &self.topic_priority,
 
             GM::DaChunk { .. } => &self.topic_data,
 
@@ -1638,9 +1853,19 @@ impl NetworkService {
                 let data_len = data.len() as u64;
 
                 if data_len > 128 * 1024 {
-                    warn!("Large gossip message: {}KB (type: {}, topic: {})", data_len / 1024, message.variant_name(), topic);
+                    warn!(
+                        "Large gossip message: {}KB (type: {}, topic: {})",
+                        data_len / 1024,
+                        message.variant_name(),
+                        topic
+                    );
                 } else if data_len > 64 * 1024 {
-                    info!("Gossip message: {}KB (type: {}, topic: {})", data_len / 1024, message.variant_name(), topic);
+                    info!(
+                        "Gossip message: {}KB (type: {}, topic: {})",
+                        data_len / 1024,
+                        message.variant_name(),
+                        topic
+                    );
                 }
 
                 match self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
@@ -1686,14 +1911,13 @@ impl NetworkService {
         let mut general_msgs: Vec<GossipMessage> = Vec::new();
         for msg in messages {
             match &msg {
-                GM::CheckpointIntent { .. }
-                | GM::CheckpointAnnouncement { .. } => critical_msgs.push(msg),
+                GM::CheckpointIntent { .. } | GM::CheckpointAnnouncement { .. } => {
+                    critical_msgs.push(msg)
+                }
 
-                GM::TxConfirmAck { .. }
-                | GM::TxConfirmBroadcast { .. } => consensus_msgs.push(msg),
+                GM::TxConfirmAck { .. } | GM::TxConfirmBroadcast { .. } => consensus_msgs.push(msg),
 
-                GM::QccVoteRequest { .. }
-                | GM::QccVoteCast { .. } => priority_msgs.push(msg),
+                GM::QccVoteRequest { .. } | GM::QccVoteCast { .. } => priority_msgs.push(msg),
 
                 GM::DaChunk { .. } => data_msgs.push(msg),
 
@@ -1706,18 +1930,24 @@ impl NetworkService {
         let d_count = data_msgs.len();
         let g_count = general_msgs.len();
         for msg in priority_msgs {
-            self.publish_to_topic(self.topic_priority.clone(), &msg).await;
+            self.publish_to_topic(self.topic_priority.clone(), &msg)
+                .await;
         }
         for msg in critical_msgs {
-            self.publish_to_topic(self.topic_critical.clone(), &msg).await;
+            self.publish_to_topic(self.topic_critical.clone(), &msg)
+                .await;
         }
         if s_count <= 1 {
             for msg in &consensus_msgs {
-                self.publish_to_topic(self.topic_consensus.clone(), msg).await;
+                self.publish_to_topic(self.topic_consensus.clone(), msg)
+                    .await;
             }
         } else {
-            let batch = GM::Batch { messages: consensus_msgs };
-            self.publish_to_topic(self.topic_consensus.clone(), &batch).await;
+            let batch = GM::Batch {
+                messages: consensus_msgs,
+            };
+            self.publish_to_topic(self.topic_consensus.clone(), &batch)
+                .await;
         }
         for msg in data_msgs {
             self.publish_to_topic(self.topic_data.clone(), &msg).await;
@@ -1727,13 +1957,22 @@ impl NetworkService {
                 self.publish_to_topic(self.topic_general.clone(), msg).await;
             }
         } else {
-            let batch = GM::Batch { messages: general_msgs };
-            self.publish_to_topic(self.topic_general.clone(), &batch).await;
+            let batch = GM::Batch {
+                messages: general_msgs,
+            };
+            self.publish_to_topic(self.topic_general.clone(), &batch)
+                .await;
         }
         if total > 3 {
-            let publishes = p_count + c_count + d_count + (if s_count > 1 { 1 } else { s_count }) + (if g_count > 1 { 1 } else { g_count });
-            debug!("Coalesced {} msgs into {} publishes (P:{} C:{} S:{} D:{} G:{})",
-                total, publishes, p_count, c_count, s_count, d_count, g_count);
+            let publishes = p_count
+                + c_count
+                + d_count
+                + (if s_count > 1 { 1 } else { s_count })
+                + (if g_count > 1 { 1 } else { g_count });
+            debug!(
+                "Coalesced {} msgs into {} publishes (P:{} C:{} S:{} D:{} G:{})",
+                total, publishes, p_count, c_count, s_count, d_count, g_count
+            );
         }
     }
 
@@ -1829,8 +2068,11 @@ impl NetworkService {
             banned_at: now,
             expires_at: now + self.dos_config.ban_duration_secs,
         };
-        
-        warn!("Banning peer {} for {} secs: {}", peer_id, self.dos_config.ban_duration_secs, reason);
+
+        warn!(
+            "Banning peer {} for {} secs: {}",
+            peer_id, self.dos_config.ban_duration_secs, reason
+        );
         if let Ok(mut banned) = self.banned_peers.try_write() {
             banned.insert(peer_id, ban);
         }
@@ -1845,8 +2087,11 @@ impl NetworkService {
             banned_at: now,
             expires_at: now + self.dos_config.ban_duration_secs,
         };
-        
-        warn!("Banning peer {} for {} secs: {}", peer_id, self.dos_config.ban_duration_secs, reason);
+
+        warn!(
+            "Banning peer {} for {} secs: {}",
+            peer_id, self.dos_config.ban_duration_secs, reason
+        );
         self.banned_peers.write().await.insert(peer_id, ban);
     }
 
@@ -1875,18 +2120,21 @@ impl NetworkService {
         let mut peers = match self.peers.try_write() {
             Ok(p) => p,
             Err(_) => {
-                trace!("Rate limit check skipped (lock contended) for peer {}, allowing message", peer_id);
+                trace!(
+                    "Rate limit check skipped (lock contended) for peer {}, allowing message",
+                    peer_id
+                );
                 return true;
             }
         };
-        
+
         if let Some(peer) = peers.get_mut(peer_id) {
             let now = current_time_secs();
             let elapsed = now.saturating_sub(peer.last_rate_update);
-            
+
             let tokens_to_add = (elapsed as u32) * self.dos_config.rate_limit_tokens_per_second;
-            peer.rate_limit_tokens = (peer.rate_limit_tokens + tokens_to_add)
-                .min(self.dos_config.max_rate_limit_tokens);
+            peer.rate_limit_tokens =
+                (peer.rate_limit_tokens + tokens_to_add).min(self.dos_config.max_rate_limit_tokens);
             peer.last_rate_update = now;
 
             if peer.rate_limit_tokens > 0 {
@@ -1899,17 +2147,17 @@ impl NetworkService {
             true
         }
     }
-    
+
     /// Check rate limit for a peer (returns true if request allowed) - async version
     pub async fn check_rate_limit(&self, peer_id: &PeerId) -> bool {
         let mut peers = self.peers.write().await;
         if let Some(peer) = peers.get_mut(peer_id) {
             let now = current_time_secs();
             let elapsed = now.saturating_sub(peer.last_rate_update);
-            
+
             let tokens_to_add = (elapsed as u32) * self.dos_config.rate_limit_tokens_per_second;
-            peer.rate_limit_tokens = (peer.rate_limit_tokens + tokens_to_add)
-                .min(self.dos_config.max_rate_limit_tokens);
+            peer.rate_limit_tokens =
+                (peer.rate_limit_tokens + tokens_to_add).min(self.dos_config.max_rate_limit_tokens);
             peer.last_rate_update = now;
 
             if peer.rate_limit_tokens > 0 {
@@ -1924,7 +2172,11 @@ impl NetworkService {
     }
 
     /// Create a handshake info for this node, including known peer addresses for PEX
-    pub fn create_handshake(&self, _checkpoint_height: u64, validator_address: Option<String>) -> PeerHandshake {
+    pub fn create_handshake(
+        &self,
+        _checkpoint_height: u64,
+        validator_address: Option<String>,
+    ) -> PeerHandshake {
         let known_peer_addrs = self.collect_known_peer_addrs();
         let real_height = self.shared_checkpoint_height.load(Ordering::Relaxed);
         PeerHandshake {
@@ -1934,7 +2186,11 @@ impl NetworkService {
             node_id: self.local_peer_id.to_string(),
             checkpoint_height: real_height,
             validator_address,
-            capabilities: vec!["sync".to_string(), "gossip".to_string(), "proofs".to_string()],
+            capabilities: vec![
+                "sync".to_string(),
+                "gossip".to_string(),
+                "proofs".to_string(),
+            ],
             known_peer_addrs,
         }
     }
@@ -1966,7 +2222,12 @@ impl NetworkService {
             }
             let peer_addrs_added = addrs.len() - base_count;
             if peer_addrs_added > 0 {
-                debug!("PEX: Sharing {} addrs from {} connected peers (total {} addrs)", peer_addrs_added, peers.len(), addrs.len());
+                debug!(
+                    "PEX: Sharing {} addrs from {} connected peers (total {} addrs)",
+                    peer_addrs_added,
+                    peers.len(),
+                    addrs.len()
+                );
             }
         }
         const MAX_PEX_ADDRS: usize = 20;
@@ -1979,7 +2240,8 @@ impl NetworkService {
         const MAX_PEX_ADDRS_PER_HANDSHAKE: usize = 10;
         let now = current_time_secs();
 
-        self.recently_dialed_pex.retain(|_, ts| now - *ts < PEX_DIAL_COOLDOWN_SECS);
+        self.recently_dialed_pex
+            .retain(|_, ts| now - *ts < PEX_DIAL_COOLDOWN_SECS);
 
         let mut dialed_this_round = 0usize;
         for addr_str in peer_addrs {
@@ -2014,13 +2276,18 @@ impl NetworkService {
 
                     let is_banned = {
                         let banned = self.banned_peers.try_read();
-                        banned.map(|b| b.contains_key(&target_peer_id.to_string())).unwrap_or(false)
+                        banned
+                            .map(|b| b.contains_key(&target_peer_id.to_string()))
+                            .unwrap_or(false)
                     };
                     if is_banned {
                         continue;
                     }
 
-                    info!("PEX: Discovered new peer {} via {}, dialing {}", target_peer_id, from_peer, addr_str);
+                    info!(
+                        "PEX: Discovered new peer {} via {}, dialing {}",
+                        target_peer_id, from_peer, addr_str
+                    );
                     self.recently_dialed_pex.insert(addr_str.clone(), now);
                     dialed_this_round += 1;
                     if let Err(e) = self.swarm.dial(addr.clone()) {
@@ -2035,7 +2302,7 @@ impl NetworkService {
     pub async fn get_banned_peers(&self) -> Vec<BannedPeer> {
         self.banned_peers.read().await.values().cloned().collect()
     }
-    
+
     /// Record misbehavior for a peer - escalates to ban after threshold (async version)
     pub async fn record_misbehavior(&self, peer_id: &str) {
         let mut peers = self.peers.write().await;
@@ -2044,19 +2311,20 @@ impl NetworkService {
         } else {
             return;
         };
-        
+
         if let Some(peer) = peers.get_mut(&peer_key) {
             peer.rate_limit_tokens = peer.rate_limit_tokens.saturating_sub(10);
             peer.score = peer.score.saturating_sub(MISBEHAVIOR_SCORE_PENALTY);
             self.persist_peer_score_async(&peer_key, peer.score).await;
-            
+
             if peer.rate_limit_tokens == 0 || peer.score <= BAN_SCORE_THRESHOLD {
                 drop(peers);
-                self.ban_peer(peer_id.to_string(), "Repeated misbehavior".to_string()).await;
+                self.ban_peer(peer_id.to_string(), "Repeated misbehavior".to_string())
+                    .await;
             }
         }
     }
-    
+
     /// Record misbehavior for a peer - sync version
     /// Deducts tokens and bans peer if depleted
     pub fn record_misbehavior_sync(&self, peer_id: &str) {
@@ -2065,7 +2333,7 @@ impl NetworkService {
         } else {
             return;
         };
-        
+
         let should_ban = if let Ok(mut peers) = self.peers.try_write() {
             if let Some(peer) = peers.get_mut(&peer_key) {
                 peer.rate_limit_tokens = peer.rate_limit_tokens.saturating_sub(10);
@@ -2078,7 +2346,7 @@ impl NetworkService {
         } else {
             false
         };
-        
+
         if should_ban {
             self.ban_peer_sync(peer_id.to_string(), "Repeated misbehavior".to_string());
         }
@@ -2232,12 +2500,15 @@ impl NetworkHandle {
     }
 
     pub fn try_broadcast(&self, message: GossipMessage) -> Result<()> {
-        self.outbound_tx.try_send(message).map_err(|e| anyhow::anyhow!("outbound full: {}", e))?;
+        self.outbound_tx
+            .try_send(message)
+            .map_err(|e| anyhow::anyhow!("outbound full: {}", e))?;
         Ok(())
     }
 
     pub fn update_checkpoint_height(&self, height: u64) {
-        self.shared_checkpoint_height.store(height, Ordering::Relaxed);
+        self.shared_checkpoint_height
+            .store(height, Ordering::Relaxed);
     }
 
     pub async fn get_peer_count(&self) -> usize {
@@ -2254,13 +2525,17 @@ impl NetworkHandle {
 
     /// Connect to a peer by multiaddr
     pub async fn connect(&self, addr: &str) -> Result<()> {
-        let multiaddr: Multiaddr = addr.parse()
+        let multiaddr: Multiaddr = addr
+            .parse()
             .map_err(|e| anyhow::anyhow!("Invalid multiaddr: {}", e))?;
-        
+
         let (response_tx, response_rx) = oneshot::channel();
-        self.command_tx.send(NetworkCommand::Dial(multiaddr, response_tx)).await?;
-        
-        response_rx.await
+        self.command_tx
+            .send(NetworkCommand::Dial(multiaddr, response_tx))
+            .await?;
+
+        response_rx
+            .await
             .map_err(|_| anyhow::anyhow!("Dial command cancelled"))?
     }
 
@@ -2268,7 +2543,7 @@ impl NetworkHandle {
     pub async fn stats(&self) -> NetworkStats {
         let stats = self.stats.read().await;
         let peer_count = self.peers.read().await.len();
-        
+
         NetworkStats {
             local_peer_id: self.local_peer_id.clone(),
             connected_peers: peer_count,
@@ -2283,21 +2558,26 @@ impl NetworkHandle {
     pub async fn get_connected_peer_ids(&self) -> Vec<String> {
         match self.peers.try_read() {
             Ok(peers) => peers.keys().map(|p| p.to_string()).collect(),
-            Err(_) => {
-                self.peers.read().await
-                    .keys()
-                    .map(|p| p.to_string())
-                    .collect()
-            }
+            Err(_) => self
+                .peers
+                .read()
+                .await
+                .keys()
+                .map(|p| p.to_string())
+                .collect(),
         }
     }
 
     pub async fn get_connected_validator_peer_ids(&self) -> Vec<String> {
-        self.peers.read().await
+        self.peers
+            .read()
+            .await
             .iter()
             .filter(|(_, stats)| {
                 stats.handshake_validated
-                    && stats.handshake_info.as_ref()
+                    && stats
+                        .handshake_info
+                        .as_ref()
                         .and_then(|h| h.validator_address.as_ref())
                         .map(|addr| !addr.is_empty())
                         .unwrap_or(false)
@@ -2334,14 +2614,21 @@ impl NetworkHandle {
     }
 
     /// Send a sync response for an incoming request
-    pub fn send_sync_response(&self, channel: ResponseChannel<SyncResponse>, response: SyncResponse) {
-        let _ = self.command_tx.try_send(NetworkCommand::SendSyncResponse(channel, response));
+    pub fn send_sync_response(
+        &self,
+        channel: ResponseChannel<SyncResponse>,
+        response: SyncResponse,
+    ) {
+        let _ = self
+            .command_tx
+            .try_send(NetworkCommand::SendSyncResponse(channel, response));
     }
 
     /// Send a sync request to a specific peer and wait for response
     pub async fn sync_request(&self, peer_id: &str, request: SyncRequest) -> Result<SyncResponse> {
         let rx = self.send_sync_request(peer_id, request).await?;
-        let response = rx.await
+        let response = rx
+            .await
             .map_err(|_| anyhow::anyhow!("Sync request cancelled"))?;
         Ok(response)
     }
@@ -2349,11 +2636,19 @@ impl NetworkHandle {
     /// Send a sync request and return the response receiver without awaiting it.
     /// This allows callers to drop any locks before awaiting the response,
     /// preventing mutex serialization when sending multiple parallel requests.
-    pub async fn send_sync_request(&self, peer_id: &str, request: SyncRequest) -> Result<oneshot::Receiver<SyncResponse>> {
-        let peer_id: PeerId = peer_id.parse()
+    pub async fn send_sync_request(
+        &self,
+        peer_id: &str,
+        request: SyncRequest,
+    ) -> Result<oneshot::Receiver<SyncResponse>> {
+        let peer_id: PeerId = peer_id
+            .parse()
             .map_err(|e| anyhow::anyhow!("Invalid peer ID: {}", e))?;
         let (response_tx, response_rx) = oneshot::channel();
-        match self.sync_request_tx.try_send((peer_id, request, response_tx)) {
+        match self
+            .sync_request_tx
+            .try_send((peer_id, request, response_tx))
+        {
             Ok(_) => Ok(response_rx),
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 Err(anyhow::anyhow!("Sync request channel full"))
@@ -2371,37 +2666,55 @@ impl NetworkHandle {
 
     /// Request delta sync from a checkpoint
     pub async fn request_delta(&self, peer_id: &str, from_checkpoint: u64) -> Result<SyncResponse> {
-        self.sync_request(peer_id, SyncRequest::Delta { from_checkpoint }).await
+        self.sync_request(peer_id, SyncRequest::Delta { from_checkpoint })
+            .await
     }
 
     /// Request a transaction by hash
     pub async fn request_transaction(&self, peer_id: &str, hash: String) -> Result<SyncResponse> {
-        self.sync_request(peer_id, SyncRequest::Transaction { hash }).await
+        self.sync_request(peer_id, SyncRequest::Transaction { hash })
+            .await
     }
 
     /// Request a proof for a transaction
     pub async fn request_proof(&self, peer_id: &str, tx_hash: String) -> Result<SyncResponse> {
-        self.sync_request(peer_id, SyncRequest::Proof { tx_hash }).await
+        self.sync_request(peer_id, SyncRequest::Proof { tx_hash })
+            .await
     }
 
     /// Send handshake to peer
     pub async fn handshake(&self, peer_id: &str, info: PeerHandshake) -> Result<SyncResponse> {
-        self.sync_request(peer_id, SyncRequest::Handshake(info)).await
+        self.sync_request(peer_id, SyncRequest::Handshake(info))
+            .await
     }
 
     pub fn take_vote_incoming_rx(&mut self) -> Option<mpsc::Receiver<IncomingVoteRequest>> {
         self.vote_incoming_rx.take()
     }
 
-    pub fn send_vote_response(&self, channel: ResponseChannel<VoteResponse>, response: VoteResponse) {
-        let _ = self.command_tx.try_send(NetworkCommand::SendVoteResponse(channel, response));
+    pub fn send_vote_response(
+        &self,
+        channel: ResponseChannel<VoteResponse>,
+        response: VoteResponse,
+    ) {
+        let _ = self
+            .command_tx
+            .try_send(NetworkCommand::SendVoteResponse(channel, response));
     }
 
-    pub async fn send_vote_request(&self, peer_id: &str, request: VoteRequest) -> Result<oneshot::Receiver<VoteResponse>> {
-        let peer_id: PeerId = peer_id.parse()
+    pub async fn send_vote_request(
+        &self,
+        peer_id: &str,
+        request: VoteRequest,
+    ) -> Result<oneshot::Receiver<VoteResponse>> {
+        let peer_id: PeerId = peer_id
+            .parse()
             .map_err(|e| anyhow::anyhow!("Invalid peer ID: {}", e))?;
         let (response_tx, response_rx) = oneshot::channel();
-        match self.vote_request_tx.try_send((peer_id, request, response_tx)) {
+        match self
+            .vote_request_tx
+            .try_send((peer_id, request, response_tx))
+        {
             Ok(_) => Ok(response_rx),
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 Err(anyhow::anyhow!("Vote request channel full"))
@@ -2414,7 +2727,8 @@ impl NetworkHandle {
 
     pub async fn vote_request(&self, peer_id: &str, request: VoteRequest) -> Result<VoteResponse> {
         let rx = self.send_vote_request(peer_id, request).await?;
-        let response = rx.await
+        let response = rx
+            .await
             .map_err(|_| anyhow::anyhow!("Vote request cancelled"))?;
         Ok(response)
     }

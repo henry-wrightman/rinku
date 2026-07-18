@@ -1,12 +1,12 @@
 //! TPS Benchmarking Module for Rinku Node
-//! 
+//!
 //! Provides tools for measuring transaction throughput, latency, and performance
 //! under various load conditions. Targets: 1,000-10,000+ TPS at mainnet scale.
 
-use std::time::{Duration, Instant};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 
 /// Benchmark configuration
 #[derive(Debug, Clone)]
@@ -96,10 +96,10 @@ impl LatencyTracker {
 
         latencies.sort_unstable();
         let len = latencies.len();
-        
+
         let sum: u64 = latencies.iter().sum();
         let avg = sum as f64 / len as f64;
-        
+
         // Safe percentile calculation that works for any sample size >= 1
         let p50 = latencies[len / 2];
         let p95_idx = ((len as u64 * 95) / 100) as usize;
@@ -176,10 +176,10 @@ impl ThroughputMeter {
         let mut last_time = self.last_report_time.lock().unwrap();
         let now = Instant::now();
         let elapsed = now.duration_since(*last_time).as_secs_f64();
-        
+
         let current = self.tx_count.load(Ordering::Relaxed);
         let last = self.last_report_count.load(Ordering::Relaxed);
-        
+
         if elapsed > 0.0 {
             let tps = (current - last) as f64 / elapsed;
             *last_time = now;
@@ -325,7 +325,7 @@ impl BenchmarkRunner {
         let tps = self.current_tps();
         let success = self.success_count.load(Ordering::Relaxed);
         let errors = self.error_count.load(Ordering::Relaxed);
-        
+
         println!(
             "{} Progress: {} txs, {:.0} TPS, {} success, {} errors",
             prefix, total, tps, success, errors
@@ -335,7 +335,7 @@ impl BenchmarkRunner {
 
 /// Simple in-memory benchmark for testing transaction validation speed
 pub fn benchmark_validation_speed(iterations: u64) -> BenchmarkResults {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
 
     let config = BenchmarkConfig {
         tx_count: iterations,
@@ -347,21 +347,21 @@ pub fn benchmark_validation_speed(iterations: u64) -> BenchmarkResults {
     };
 
     let runner = BenchmarkRunner::new(config);
-    
+
     for _ in 0..iterations {
         let start = Instant::now();
-        
+
         // Simulate transaction validation:
         // 1. Hash computation
         let mut hasher = Sha256::new();
         hasher.update(b"test transaction data");
         let _hash = hasher.finalize();
-        
+
         // 2. Signature verification (simulated with hash)
         let mut hasher2 = Sha256::new();
         hasher2.update(&_hash);
         let _sig_check = hasher2.finalize();
-        
+
         let elapsed = start.elapsed();
         runner.record_success(elapsed.as_micros() as u64);
     }
@@ -371,7 +371,7 @@ pub fn benchmark_validation_speed(iterations: u64) -> BenchmarkResults {
 
 /// Benchmark merkle tree operations
 pub fn benchmark_merkle_operations(leaf_count: usize, iterations: u64) -> BenchmarkResults {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
 
     let config = BenchmarkConfig {
         tx_count: iterations,
@@ -383,7 +383,7 @@ pub fn benchmark_merkle_operations(leaf_count: usize, iterations: u64) -> Benchm
     };
 
     let runner = BenchmarkRunner::new(config);
-    
+
     // Generate test leaves
     let leaves: Vec<Vec<u8>> = (0..leaf_count)
         .map(|i| {
@@ -395,7 +395,7 @@ pub fn benchmark_merkle_operations(leaf_count: usize, iterations: u64) -> Benchm
 
     for _ in 0..iterations {
         let start = Instant::now();
-        
+
         // Build merkle tree
         let mut current_level = leaves.clone();
         while current_level.len() > 1 {
@@ -412,7 +412,7 @@ pub fn benchmark_merkle_operations(leaf_count: usize, iterations: u64) -> Benchm
             }
             current_level = next_level;
         }
-        
+
         let elapsed = start.elapsed();
         runner.record_success(elapsed.as_micros() as u64);
     }
@@ -427,11 +427,11 @@ mod tests {
     #[test]
     fn test_latency_tracker() {
         let tracker = LatencyTracker::new();
-        
+
         for i in 1..=100 {
             tracker.record(i);
         }
-        
+
         let stats = tracker.compute_stats();
         assert_eq!(stats.count, 100);
         assert!(stats.avg > 0.0);
@@ -443,10 +443,10 @@ mod tests {
     #[test]
     fn test_throughput_meter() {
         let meter = ThroughputMeter::new();
-        
+
         meter.record_tx(100);
         meter.record_tx(200);
-        
+
         assert_eq!(meter.total_count(), 300);
         assert!(meter.overall_tps() > 0.0);
     }
@@ -454,10 +454,10 @@ mod tests {
     #[test]
     fn test_tx_generator() {
         let gen = TxGenerator::new("from_addr", "to_addr");
-        
+
         let tx1 = gen.next_tx();
         let tx2 = gen.next_tx();
-        
+
         assert_eq!(tx1.nonce, 0);
         assert_eq!(tx2.nonce, 1);
         assert_eq!(tx1.from, "from_addr");
@@ -470,13 +470,13 @@ mod tests {
             workers: 2,
             ..Default::default()
         };
-        
+
         let runner = BenchmarkRunner::new(config);
-        
+
         for i in 0..100 {
             runner.record_success((i + 1) * 10);
         }
-        
+
         let results = runner.results();
         assert_eq!(results.success_count, 100);
         assert!(results.tps > 0.0);
@@ -485,20 +485,24 @@ mod tests {
     #[test]
     fn test_validation_benchmark() {
         let results = benchmark_validation_speed(1000);
-        
+
         assert_eq!(results.total_txs, 1000);
         assert!(results.tps > 0.0);
-        println!("Validation benchmark: {:.0} TPS, avg latency: {:.2} us", 
-            results.tps, results.avg_latency_us);
+        println!(
+            "Validation benchmark: {:.0} TPS, avg latency: {:.2} us",
+            results.tps, results.avg_latency_us
+        );
     }
 
     #[test]
     fn test_merkle_benchmark() {
         let results = benchmark_merkle_operations(100, 100);
-        
+
         assert_eq!(results.total_txs, 100);
         assert!(results.tps > 0.0);
-        println!("Merkle benchmark (100 leaves): {:.0} TPS, avg latency: {:.2} us",
-            results.tps, results.avg_latency_us);
+        println!(
+            "Merkle benchmark (100 leaves): {:.0} TPS, avg latency: {:.2} us",
+            results.tps, results.avg_latency_us
+        );
     }
 }

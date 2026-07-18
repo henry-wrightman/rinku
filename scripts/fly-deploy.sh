@@ -272,6 +272,13 @@ apply_genesis_validators_secrets() {
         fly secrets deploy -a "$app"
     done
     log_success "Applied GENESIS_VALIDATORS to all nodes"
+
+    # Drop bootstrap-only trust escape once validators are pinned.
+    log_info "Clearing ALLOW_UNTRUSTED_GENESIS (validators now pinned)..."
+    for app in "${ALL_APPS[@]}"; do
+        fly secrets unset -a "$app" ALLOW_UNTRUSTED_GENESIS 2>/dev/null || true
+    done
+    log_success "ALLOW_UNTRUSTED_GENESIS cleared"
 }
 
 configure_genesis() {
@@ -280,9 +287,16 @@ configure_genesis() {
     
     local app_ip=$(get_app_ipv4 "$genesis_app")
     
+    # MAINNET_MODE defaults FAUCET_ENABLED=false; enable faucet + write CORS for the
+    # public testnet frontends (validators stay faucet-off via their own configure path).
+    #
+    # ALLOW_UNTRUSTED_GENESIS is bootstrap-only: first genesis boot has no
+    # GENESIS_VALIDATORS yet. Cleared after apply_genesis_validators_secrets.
     fly secrets set -a "$genesis_app" \
         IS_GENESIS_NODE="true" \
         MAINNET_MODE="true" \
+        FAUCET_ENABLED="true" \
+        CORS_ALLOW_ORIGINS="https://rinkuchan.com,http://localhost:5000,http://127.0.0.1:5000" \
         ALLOW_UNTRUSTED_GENESIS="true" \
         CHAIN_ID="$CHAIN_ID" \
         NETWORK_ID="$NETWORK_ID" \
@@ -477,8 +491,8 @@ deploy_fresh() {
     echo "  - Genesis node data"
     echo "  - Validator 1 data"  
     echo "  - Validator 2 data"
-    echo "  - Validator 3 data"
-    echo "  - Validator 4 data"
+    # echo "  - Validator 3 data"
+    # echo "  - Validator 4 data"
     echo ""
     read -p "Are you sure you want to continue? (yes/no): " confirm
     

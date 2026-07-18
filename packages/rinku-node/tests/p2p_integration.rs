@@ -1,5 +1,5 @@
 //! P2P Integration Tests for Rinku Node
-//! 
+//!
 //! Tests libp2p networking functionality including:
 //! - DoS protection (rate limiting, peer banning, connection limits)
 //! - Handshake validation (protocol version, chain/network IDs)
@@ -8,16 +8,15 @@
 
 #[cfg(feature = "p2p")]
 mod p2p_tests {
-    use rinku_node::network::{
-        DoSConfig, HandshakeConfig, NetworkConfig, 
-        AccountData, SnapshotData, SyncRequest, SyncResponse,
-        PeerHandshake,
-    };
     use rinku_node::gossip::BloomFilter;
+    use rinku_node::network::{
+        AccountData, DoSConfig, HandshakeConfig, NetworkConfig, PeerHandshake, SnapshotData,
+        SyncRequest, SyncResponse,
+    };
+    use rinku_node::state::checkpoints::BlsVerifyResult;
     use rinku_node::sync_verification::{
-        SyncVerifier, VerificationResult,
-        build_merkle_root, hash_account_leaf, verify_snapshot,
-        generate_account_proofs, verify_account_proof,
+        build_account_merkle_root_sorted, build_merkle_root, generate_account_proofs,
+        hash_account_leaf, verify_account_proof, verify_snapshot, SyncVerifier, VerificationResult,
     };
 
     // ============================================
@@ -88,7 +87,7 @@ mod p2p_tests {
             checkpoint_height: 100,
             validator_address: Some("test_validator".to_string()),
             capabilities: vec!["sync".to_string(), "gossip".to_string()],
-            known_peer_addrs: vec!["/ip4/192.168.1.1/tcp/4001".to_string()]
+            known_peer_addrs: vec!["/ip4/192.168.1.1/tcp/4001".to_string()],
         };
 
         let serialized = serde_json::to_string(&handshake).unwrap();
@@ -122,7 +121,10 @@ mod p2p_tests {
         assert!(node2_filter.might_contain("tx2"), "Node 2 should have tx2");
         assert!(node2_filter.might_contain("tx3"), "Node 2 should have tx3");
         assert!(node2_filter.might_contain("tx4"), "Node 2 should have tx4");
-        assert!(!node2_filter.might_contain("tx1"), "Node 2 should NOT have tx1 (definitively)");
+        assert!(
+            !node2_filter.might_contain("tx1"),
+            "Node 2 should NOT have tx1 (definitively)"
+        );
 
         // Node 1 should send tx1 to Node 2 (it's not in Node 2's filter)
         let txs_to_send: Vec<&str> = vec!["tx1", "tx2", "tx3"]
@@ -266,8 +268,9 @@ mod p2p_tests {
         for (i, proof) in proofs.iter().enumerate() {
             let result = verify_account_proof(proof, &root);
             assert_eq!(
-                result, VerificationResult::Valid,
-                "Proof for account {} should verify", 
+                result,
+                VerificationResult::Valid,
+                "Proof for account {} should verify",
                 accounts[i].address
             );
         }
@@ -306,7 +309,7 @@ mod p2p_tests {
             ],
             enable_mdns: true,
             data_dir: None,
-            external_addr: Some("/ip4/1.2.3.4/tcp/4001".to_string())
+            external_addr: Some("/ip4/1.2.3.4/tcp/4001".to_string()),
         };
 
         assert_eq!(config.bootstrap_peers.len(), 2);
@@ -321,10 +324,18 @@ mod p2p_tests {
     fn test_sync_request_serialization() {
         let requests = vec![
             SyncRequest::Snapshot,
-            SyncRequest::Delta { from_checkpoint: 100 },
-            SyncRequest::Transaction { hash: "tx123".to_string() },
-            SyncRequest::Proof { tx_hash: "tx456".to_string() },
-            SyncRequest::AccountsState { addresses: vec!["alice".to_string(), "bob".to_string()] },
+            SyncRequest::Delta {
+                from_checkpoint: 100,
+            },
+            SyncRequest::Transaction {
+                hash: "tx123".to_string(),
+            },
+            SyncRequest::Proof {
+                tx_hash: "tx456".to_string(),
+            },
+            SyncRequest::AccountsState {
+                addresses: vec!["alice".to_string(), "bob".to_string()],
+            },
         ];
 
         for req in requests {
@@ -361,11 +372,8 @@ mod p2p_tests {
     #[test]
     fn test_three_node_bloom_filter_propagation() {
         // Simulate 3 nodes in a mesh
-        let mut node_filters: Vec<BloomFilter> = vec![
-            BloomFilter::new(),
-            BloomFilter::new(),
-            BloomFilter::new(),
-        ];
+        let mut node_filters: Vec<BloomFilter> =
+            vec![BloomFilter::new(), BloomFilter::new(), BloomFilter::new()];
 
         // Node 0 has tx1, tx2
         node_filters[0].insert("tx1");
@@ -380,8 +388,13 @@ mod p2p_tests {
         node_filters[2].insert("tx4");
 
         // Simulate gossip: each node determines what to send to others
-        fn determine_missing_txs(sender: &BloomFilter, receiver: &BloomFilter, sender_txs: &[&str]) -> Vec<String> {
-            sender_txs.iter()
+        fn determine_missing_txs(
+            sender: &BloomFilter,
+            receiver: &BloomFilter,
+            sender_txs: &[&str],
+        ) -> Vec<String> {
+            sender_txs
+                .iter()
                 .filter(|tx| sender.might_contain(*tx) && !receiver.might_contain(*tx))
                 .map(|s| s.to_string())
                 .collect()
@@ -403,9 +416,7 @@ mod p2p_tests {
 
     #[test]
     fn test_sync_verification_summary() {
-        let accounts = vec![
-            make_test_account("alice", 1000, 5),
-        ];
+        let accounts = vec![make_test_account("alice", 1000, 5)];
         let hashes: Vec<String> = accounts.iter().map(hash_account_leaf).collect();
         let merkle_root = build_merkle_root(&hashes);
 
@@ -426,6 +437,41 @@ mod p2p_tests {
         assert!(verifier.all_valid());
         assert!(verifier.failures().is_empty());
     }
+
+    #[test]
+    fn test_gossip_checkpoint_bls_only_accepts_quorum() {
+        assert!(BlsVerifyResult::ValidWithQuorum.is_gossip_acceptable());
+        assert!(!BlsVerifyResult::NoSignature.is_gossip_acceptable());
+        assert!(!BlsVerifyResult::ValidNoQuorum {
+            signer_stake: 1,
+            total_stake: 100
+        }
+        .is_gossip_acceptable());
+        assert!(!BlsVerifyResult::Invalid("bad".into()).is_gossip_acceptable());
+    }
+
+    #[test]
+    fn test_bootstrap_would_reject_tampered_snapshot_strict() {
+        let accounts = vec![
+            make_test_account("alice", 1000, 5),
+            make_test_account("bob", 500, 3),
+        ];
+        let merkle_root = build_account_merkle_root_sorted(&accounts);
+        let mut bad = accounts;
+        bad[1].balance = 0;
+        let snapshot = SnapshotData {
+            accounts: bad,
+            validators: vec![],
+            checkpoints: vec![],
+            recent_txs: vec![],
+            merkle_root,
+        };
+        let mut verifier = SyncVerifier::new(true);
+        assert!(
+            !verifier.verify_snapshot(&snapshot),
+            "tampered snapshot must fail strict SyncVerifier"
+        );
+    }
 }
 
 // ============================================
@@ -435,11 +481,11 @@ mod p2p_tests {
 
 #[cfg(feature = "p2p")]
 mod e2e_tests {
-    use rinku_node::network::{NetworkConfig, NetworkService};
     use rinku_node::gossip::BloomFilter;
+    use rinku_node::network::{NetworkConfig, NetworkService};
+    use std::sync::Mutex;
     use std::time::Duration;
     use std::time::Instant;
-    use std::sync::Mutex;
     use tokio::time::sleep;
 
     static E2E_LOCK: Mutex<()> = Mutex::new(());
@@ -450,7 +496,7 @@ mod e2e_tests {
             bootstrap_peers: Vec::new(),
             enable_mdns: false, // Disable mDNS for predictable testing
             data_dir: None,
-            external_addr: Some(format!("/ip4/127.0.0.1/tcp/{}", port))
+            external_addr: Some(format!("/ip4/127.0.0.1/tcp/{}", port)),
         };
         NetworkService::new(config).expect("Failed to create network service")
     }
@@ -495,7 +541,7 @@ mod e2e_tests {
             let _ = node1.run().await;
         });
 
-        // Start node2 in background  
+        // Start node2 in background
         let node2_handle = tokio::spawn(async move {
             let _ = node2.run().await;
         });
@@ -524,8 +570,16 @@ mod e2e_tests {
         println!("Node2 peers: {}", stats2.connected_peers);
 
         // Assert connections were established
-        assert!(peers1 >= 1, "Node1 should have at least 1 peer, got {}", peers1);
-        assert!(peers2 >= 1, "Node2 should have at least 1 peer, got {}", peers2);
+        assert!(
+            peers1 >= 1,
+            "Node1 should have at least 1 peer, got {}",
+            peers1
+        );
+        assert!(
+            peers2 >= 1,
+            "Node2 should have at least 1 peer, got {}",
+            peers2
+        );
 
         // Cleanup - abort the background tasks
         node1_handle.abort();
@@ -543,8 +597,12 @@ mod e2e_tests {
         let (mut node1, handle1) = spawn_test_node(port1);
         let (mut node2, handle2) = spawn_test_node(port2);
 
-        let node1_task = tokio::spawn(async move { let _ = node1.run().await; });
-        let node2_task = tokio::spawn(async move { let _ = node2.run().await; });
+        let node1_task = tokio::spawn(async move {
+            let _ = node1.run().await;
+        });
+        let node2_task = tokio::spawn(async move {
+            let _ = node2.run().await;
+        });
 
         sleep(Duration::from_millis(500)).await;
 
@@ -572,7 +630,11 @@ mod e2e_tests {
         let broadcast_result = handle1.broadcast(bloom_msg).await;
 
         // Assert broadcast succeeded
-        assert!(broadcast_result.is_ok(), "Bloom filter broadcast should succeed, got: {:?}", broadcast_result);
+        assert!(
+            broadcast_result.is_ok(),
+            "Bloom filter broadcast should succeed, got: {:?}",
+            broadcast_result
+        );
         println!("Bloom filter announced successfully");
 
         sleep(Duration::from_millis(300)).await;
@@ -598,21 +660,35 @@ mod e2e_tests {
         let (mut node2, handle2) = spawn_test_node(port2);
         let (mut node3, handle3) = spawn_test_node(port3);
 
-        let t1 = tokio::spawn(async move { let _ = node1.run().await; });
-        let t2 = tokio::spawn(async move { let _ = node2.run().await; });
-        let t3 = tokio::spawn(async move { let _ = node3.run().await; });
+        let t1 = tokio::spawn(async move {
+            let _ = node1.run().await;
+        });
+        let t2 = tokio::spawn(async move {
+            let _ = node2.run().await;
+        });
+        let t3 = tokio::spawn(async move {
+            let _ = node3.run().await;
+        });
 
         sleep(Duration::from_millis(500)).await;
 
         // Node2 connects to Node1
-        let addr1 = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", port1, handle1.local_peer_id());
+        let addr1 = format!(
+            "/ip4/127.0.0.1/tcp/{}/p2p/{}",
+            port1,
+            handle1.local_peer_id()
+        );
         let _ = handle2.connect(&addr1).await;
 
-        // Node3 connects to Node1  
+        // Node3 connects to Node1
         let _ = handle3.connect(&addr1).await;
 
         // Node3 connects to Node2
-        let addr2 = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", port2, handle2.local_peer_id());
+        let addr2 = format!(
+            "/ip4/127.0.0.1/tcp/{}/p2p/{}",
+            port2,
+            handle2.local_peer_id()
+        );
         let _ = handle3.connect(&addr2).await;
 
         let peers1 = wait_for_peers(&handle1, 1, Duration::from_secs(8)).await;
@@ -624,8 +700,10 @@ mod e2e_tests {
         let s2 = handle2.stats().await;
         let s3 = handle3.stats().await;
 
-        println!("Mesh stats - Node1: {} peers, Node2: {} peers, Node3: {} peers",
-            s1.connected_peers, s2.connected_peers, s3.connected_peers);
+        println!(
+            "Mesh stats - Node1: {} peers, Node2: {} peers, Node3: {} peers",
+            s1.connected_peers, s2.connected_peers, s3.connected_peers
+        );
 
         // Assert mesh formation - each node should have at least 1 peer
         assert!(peers1 >= 1, "Node1 should have peers, got {}", peers1);
@@ -634,14 +712,18 @@ mod e2e_tests {
 
         // Assert total connections (mesh should have 3 edges: 1-2, 1-3, 2-3)
         let total_connections = s1.connected_peers + s2.connected_peers + s3.connected_peers;
-        assert!(total_connections >= 4, "Mesh should have at least 4 total connections (counting both sides), got {}", total_connections);
+        assert!(
+            total_connections >= 4,
+            "Mesh should have at least 4 total connections (counting both sides), got {}",
+            total_connections
+        );
 
         t1.abort();
         t2.abort();
         t3.abort();
     }
 
-    /// Test: Request/response sync protocol 
+    /// Test: Request/response sync protocol
     #[tokio::test]
     async fn test_e2e_sync_request() {
         let _guard = E2E_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -650,8 +732,12 @@ mod e2e_tests {
         let (mut node1, handle1) = spawn_test_node(port1);
         let (mut node2, handle2) = spawn_test_node(port2);
 
-        let node1_task = tokio::spawn(async move { let _ = node1.run().await; });
-        let node2_task = tokio::spawn(async move { let _ = node2.run().await; });
+        let node1_task = tokio::spawn(async move {
+            let _ = node1.run().await;
+        });
+        let node2_task = tokio::spawn(async move {
+            let _ = node2.run().await;
+        });
 
         sleep(Duration::from_millis(500)).await;
 
@@ -670,8 +756,9 @@ mod e2e_tests {
         // Both are valid outcomes - the key is that the request/response mechanism works
         let sync_result = tokio::time::timeout(
             Duration::from_secs(3),
-            handle2.request_snapshot(handle1.local_peer_id())
-        ).await;
+            handle2.request_snapshot(handle1.local_peer_id()),
+        )
+        .await;
 
         // Assert the request was attempted (either success, error, or timeout)
         // This verifies the request/response protocol is functional
@@ -679,11 +766,11 @@ mod e2e_tests {
             Ok(Ok(response)) => {
                 println!("Got sync response: {:?}", response);
                 "success"
-            },
+            }
             Ok(Err(e)) => {
                 println!("Sync request failed: {:?}", e);
                 "error"
-            },
+            }
             Err(_) => {
                 println!("Sync request timed out (expected without full handler)");
                 "timeout"
@@ -709,8 +796,12 @@ mod e2e_tests {
         let (mut node1, handle1) = spawn_test_node(port1);
         let (mut node2, handle2) = spawn_test_node(port2);
 
-        let t1 = tokio::spawn(async move { let _ = node1.run().await; });
-        let t2 = tokio::spawn(async move { let _ = node2.run().await; });
+        let t1 = tokio::spawn(async move {
+            let _ = node1.run().await;
+        });
+        let t2 = tokio::spawn(async move {
+            let _ = node2.run().await;
+        });
 
         sleep(Duration::from_millis(500)).await;
 
@@ -723,7 +814,11 @@ mod e2e_tests {
         );
 
         // Connect
-        let addr = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", port1, handle1.local_peer_id());
+        let addr = format!(
+            "/ip4/127.0.0.1/tcp/{}/p2p/{}",
+            port1,
+            handle1.local_peer_id()
+        );
         let _ = handle2.connect(&addr).await;
 
         let _ = wait_for_peers(&handle1, 1, Duration::from_secs(8)).await;
@@ -733,11 +828,22 @@ mod e2e_tests {
         let peers1 = handle1.get_peer_count().await;
         let peers2 = handle2.get_peer_count().await;
 
-        println!("After connection - Node1: {} peers, Node2: {} peers", peers1, peers2);
+        println!(
+            "After connection - Node1: {} peers, Node2: {} peers",
+            peers1, peers2
+        );
 
         // Assert both nodes see each other
-        assert!(peers1 >= 1, "Node1 should have at least 1 peer after connection, got {}", peers1);
-        assert!(peers2 >= 1, "Node2 should have at least 1 peer after connection, got {}", peers2);
+        assert!(
+            peers1 >= 1,
+            "Node1 should have at least 1 peer after connection, got {}",
+            peers1
+        );
+        assert!(
+            peers2 >= 1,
+            "Node2 should have at least 1 peer after connection, got {}",
+            peers2
+        );
 
         t1.abort();
         t2.abort();

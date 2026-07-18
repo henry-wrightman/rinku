@@ -6,7 +6,7 @@ impl NodeState {
         let contract_id = contract.contract_id.clone();
         state.contracts.insert(contract_id.clone(), contract);
         info!("Stored contract {}", contract_id);
-        
+
         let contracts_data: Vec<_> = state.contracts.values().cloned().collect();
         drop(state);
         let storage = self.storage.clone();
@@ -36,8 +36,11 @@ impl NodeState {
             contract.state = new_state;
             contract.state_hash = state_hash;
             contract.height = new_height;
-            info!("Updated contract {} state at height {}", contract_id, new_height);
-            
+            info!(
+                "Updated contract {} state at height {}",
+                contract_id, new_height
+            );
+
             let contracts_data: Vec<_> = state.contracts.values().cloned().collect();
             drop(state);
             let storage = self.storage.clone();
@@ -58,11 +61,11 @@ impl NodeState {
             .map(|pos| (pos.staker.clone(), pos.amount))
             .collect();
         drop(rewards);
-        
+
         let mut state = self.inner.write().await;
         let mut reconciled_count = 0;
         let mut changes: Vec<(String, u64, u64)> = Vec::new();
-        
+
         for (staker, rewards_amount) in &stake_positions {
             if let Some(account) = state.accounts.get_mut(staker) {
                 let diff = account.staked.abs_diff(*rewards_amount);
@@ -80,11 +83,11 @@ impl NodeState {
                 }
             }
         }
-        
+
         if reconciled_count > 0 {
             info!("Reconciled {} account stake values", reconciled_count);
         }
-        
+
         (reconciled_count, changes)
     }
 
@@ -93,7 +96,7 @@ impl NodeState {
     /// This prevents indefinite mempool growth during checkpoint failures
     pub async fn prune_expired_pending_transactions(&self, cutoff_ms: u64) -> usize {
         let mut state = self.inner.write().await;
-        
+
         // Collect hashes of expired unfinalized transactions
         let expired_hashes: Vec<String> = state
             .dag
@@ -123,14 +126,17 @@ impl NodeState {
             .collect();
 
         let count = expired_hashes.len();
-        
+
         // Remove each expired transaction from the DAG
         for hash in expired_hashes {
             if state.dag.remove_node(&hash).is_none() {
-                warn!("Failed to remove expired tx {}: not found", &hash[..16.min(hash.len())]);
+                warn!(
+                    "Failed to remove expired tx {}: not found",
+                    &hash[..16.min(hash.len())]
+                );
             }
         }
-        
+
         count
     }
 
@@ -140,7 +146,8 @@ impl NodeState {
         key: &str,
     ) -> Option<serde_json::Value> {
         let state = self.inner.read().await;
-        state.contracts
+        state
+            .contracts
             .get(contract_id)
             .and_then(|c| c.state.get(key).cloned())
     }

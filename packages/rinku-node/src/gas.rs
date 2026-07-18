@@ -1,5 +1,5 @@
 pub use rinku_core::types::GasConfig;
-use rinku_core::types::{MICRO_UNITS, from_micro_units, to_micro_units};
+use rinku_core::types::{from_micro_units, to_micro_units, MICRO_UNITS};
 use std::collections::VecDeque;
 
 pub struct GasService {
@@ -39,13 +39,7 @@ impl GasService {
     }
 
     pub fn update_price(&mut self) {
-        let recent_tx_count: u32 = self
-            .tx_counts
-            .iter()
-            .rev()
-            .take(1)
-            .map(|(_, c)| *c)
-            .sum();
+        let recent_tx_count: u32 = self.tx_counts.iter().rev().take(1).map(|(_, c)| *c).sum();
 
         let target = self.config.target_txs_per_period;
         let adjustment = self.config.adjustment_factor;

@@ -15,12 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -44,7 +44,7 @@ jobs:
     name: Protocol conformance (TS)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -61,3 +61,25 @@ jobs:
           npm run test -w @rinku/core -- src/__tests__/checkpoint.test.ts
           npm run test -w @rinku/core -- src/self-proof.test.ts
           npm run test -w @rinku/core -- src/__tests__/multiproof-fuzz.test.ts
+
+  partition-merge-heal:
+    name: Partition merge heal
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-merge-heal-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Scripted partition heal (split → merge → balance parity)
+        run: bash scripts/test-partition-heal.sh

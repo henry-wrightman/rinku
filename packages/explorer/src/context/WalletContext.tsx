@@ -207,7 +207,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const res = await fetch(`${API_URL}/tx`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(signedTx),
+      body: JSON.stringify({
+        tx: signedTx.tx,
+        publicKey: wallet.publicKey,
+      }),
     });
 
     if (!res.ok) {
@@ -254,7 +257,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const retryRes = await fetch(`${API_URL}/tx`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(retrySigned),
+          body: JSON.stringify({
+            tx: retrySigned.tx,
+            publicKey: wallet.publicKey,
+          }),
         });
 
         if (!retryRes.ok) {

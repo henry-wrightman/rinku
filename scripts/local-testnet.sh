@@ -155,6 +155,7 @@ start_testnet() {
     NODE_PEERS="$(build_peer_list 0)" \
     DATA_DIR="$genesis_db" \
     MAINNET_MODE=true \
+    FAUCET_ENABLED=true \
     ALLOW_UNTRUSTED_GENESIS=true \
     CHAIN_ID="$CHAIN_ID" \
     NETWORK_ID="$NETWORK_ID" \
@@ -209,6 +210,7 @@ start_testnet() {
         GENESIS_VALIDATORS="$genesis_validator_env" \
         DATA_DIR="$db_path" \
         MAINNET_MODE=true \
+        FAUCET_ENABLED=true \
         CHAIN_ID="$CHAIN_ID" \
         NETWORK_ID="$NETWORK_ID" \
         VALIDATOR_KEY_PASSWORD="testnet-node-$((i+1))" \

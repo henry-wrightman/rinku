@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use rinku_core::types::{from_micro_units, micro_serde};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::{info, warn};
-use rinku_core::types::{micro_serde, from_micro_units};
 
 pub const UNBONDING_PERIOD_MS: u64 = 14 * 24 * 60 * 60 * 1000;
 pub const SLASH_DOUBLE_SIGN_PERCENT: f64 = 0.15;
@@ -160,6 +160,49 @@ impl SlashingService {
         Some(event)
     }
 
+    /// Record an InvalidCheckpoint slash (25%) for a failed BLS verify.
+    pub fn slash_invalid_checkpoint(
+        &mut self,
+        validator: &str,
+        stake_amount: u64,
+        checkpoint_height: u64,
+        details: Option<String>,
+    ) -> Option<SlashEvent> {
+        self.slash(
+            validator,
+            stake_amount,
+            SlashReason::InvalidCheckpoint,
+            checkpoint_height,
+            details,
+        )
+    }
+}
+
+/// Attribute an invalid-checkpoint BLS failure to a specific validator.
+/// Prefers the first `validator_signatures` entry; otherwise the first bit set
+/// in `signer_bitmap` mapped through address-sorted validator order.
+/// Returns `None` when attribution is ambiguous (no slash applied).
+pub fn attribute_invalid_checkpoint_offender(
+    checkpoint: &rinku_core::types::Checkpoint,
+    sorted_validator_addresses: &[String],
+) -> Option<String> {
+    if let Some(first) = checkpoint.validator_signatures.first() {
+        if !first.validator.is_empty() {
+            return Some(first.validator.clone());
+        }
+    }
+    if let Some(bm) = checkpoint.signer_bitmap.as_ref() {
+        if !bm.is_empty() && !sorted_validator_addresses.is_empty() {
+            let indices = crate::bls::parse_signer_bitmap(bm, sorted_validator_addresses.len());
+            if let Some(&idx) = indices.first() {
+                return sorted_validator_addresses.get(idx).cloned();
+            }
+        }
+    }
+    None
+}
+
+impl SlashingService {
     pub fn record_liveness_failure(
         &mut self,
         validator: &str,
@@ -292,9 +335,8 @@ impl SlashingService {
             }
         }
 
-        self.double_sign_evidence.retain(|e| {
-            !e.processed || (now - e.timestamp < DOUBLE_SIGN_EVIDENCE_EXPIRY_MS)
-        });
+        self.double_sign_evidence
+            .retain(|e| !e.processed || (now - e.timestamp < DOUBLE_SIGN_EVIDENCE_EXPIRY_MS));
 
         events
     }
@@ -361,7 +403,7 @@ impl SlashingService {
     pub fn get_slash_events(&self, limit: usize) -> Vec<&SlashEvent> {
         self.slash_events.iter().rev().take(limit).collect()
     }
-    
+
     pub fn get_events(&self) -> &[SlashEvent] {
         &self.slash_events
     }
@@ -385,16 +427,30 @@ impl SlashingService {
             liveness_failures: self
                 .liveness_failures
                 .iter()
-                .map(|(k, v)| (k.clone(), LivenessInfo { count: v.count, last_failure: v.last_failure }))
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        LivenessInfo {
+                            count: v.count,
+                            last_failure: v.last_failure,
+                        },
+                    )
+                })
                 .collect(),
         }
     }
 
     pub fn from_json(snapshot: SlashingSnapshot) -> Self {
-        let next_slash_id = snapshot.slash_events.iter()
-            .filter_map(|e| e.id.strip_prefix("slash_").and_then(|s| s.parse::<u64>().ok()))
+        let next_slash_id = snapshot
+            .slash_events
+            .iter()
+            .filter_map(|e| {
+                e.id.strip_prefix("slash_")
+                    .and_then(|s| s.parse::<u64>().ok())
+            })
             .max()
-            .unwrap_or(0) + 1;
+            .unwrap_or(0)
+            + 1;
 
         Self {
             slash_events: snapshot.slash_events,
@@ -404,7 +460,13 @@ impl SlashingService {
                 .liveness_failures
                 .into_iter()
                 .map(|(k, v)| {
-                    (k, LivenessRecord { count: v.count, last_failure: v.last_failure })
+                    (
+                        k,
+                        LivenessRecord {
+                            count: v.count,
+                            last_failure: v.last_failure,
+                        },
+                    )
                 })
                 .collect(),
             double_sign_evidence: Vec::new(),
@@ -416,20 +478,25 @@ impl SlashingService {
         let mut events_added = 0;
         let mut unbonding_added = 0;
         let mut liveness_updated = 0;
-        
-        let existing_ids: std::collections::HashSet<_> = 
+
+        let existing_ids: std::collections::HashSet<_> =
             self.slash_events.iter().map(|e| e.id.clone()).collect();
         for event in snapshot.slash_events {
             if !existing_ids.contains(&event.id) {
-                if let Some(id_num) = event.id.strip_prefix("slash_").and_then(|s| s.parse::<u64>().ok()) {
+                if let Some(id_num) = event
+                    .id
+                    .strip_prefix("slash_")
+                    .and_then(|s| s.parse::<u64>().ok())
+                {
                     self.next_slash_id = self.next_slash_id.max(id_num + 1);
                 }
                 self.slash_events.push(event);
                 events_added += 1;
             }
         }
-        
-        let existing_unbonding: std::collections::HashSet<_> = self.unbonding_queue
+
+        let existing_unbonding: std::collections::HashSet<_> = self
+            .unbonding_queue
             .iter()
             .map(|e| (e.validator.clone(), e.started_at))
             .collect();
@@ -439,8 +506,8 @@ impl SlashingService {
                 unbonding_added += 1;
             }
         }
-        
-        let peer_failures: std::collections::HashMap<String, LivenessInfo> = 
+
+        let peer_failures: std::collections::HashMap<String, LivenessInfo> =
             snapshot.liveness_failures.into_iter().collect();
         for (validator, peer_info) in peer_failures {
             match self.liveness_failures.get_mut(&validator) {
@@ -452,19 +519,22 @@ impl SlashingService {
                     }
                 }
                 None => {
-                    self.liveness_failures.insert(validator, LivenessRecord {
-                        count: peer_info.count,
-                        last_failure: peer_info.last_failure,
-                    });
+                    self.liveness_failures.insert(
+                        validator,
+                        LivenessRecord {
+                            count: peer_info.count,
+                            last_failure: peer_info.last_failure,
+                        },
+                    );
                     liveness_updated += 1;
                 }
             }
         }
-        
+
         let old_total = self.total_slashed;
         self.total_slashed = self.total_slashed.max(snapshot.total_slashed);
         let total_slashed_delta = self.total_slashed - old_total;
-        
+
         SlashingMergeResult {
             events_added,
             unbonding_added,
@@ -511,10 +581,87 @@ mod tests {
     use rinku_core::types::to_micro_units;
 
     #[test]
+    fn test_invalid_checkpoint_slash_fires() {
+        let mut service = SlashingService::new();
+        let event = service.slash_invalid_checkpoint(
+            "bad_proposer",
+            to_micro_units(1000.0),
+            42,
+            Some("BLS aggregate signature verification FAILED".into()),
+        );
+        assert!(event.is_some());
+        let event = event.unwrap();
+        assert_eq!(event.reason, SlashReason::InvalidCheckpoint);
+        assert_eq!(event.validator, "bad_proposer");
+        assert_eq!(event.amount, to_micro_units(250.0));
+        assert_eq!(event.percent_slashed, 25.0);
+        assert_eq!(event.checkpoint_height, 42);
+        assert_eq!(service.get_events().len(), 1);
+    }
+
+    #[test]
+    fn test_attribute_invalid_checkpoint_offender() {
+        use rinku_core::types::{Checkpoint, ValidatorSignature};
+
+        let cp = Checkpoint {
+            height: 1,
+            hash: "aa".repeat(32),
+            previous_hash: None,
+            tx_merkle_root: String::new(),
+            state_root: String::new(),
+            receipt_root: String::new(),
+            tip_count: 0,
+            timestamp: 0,
+            validator_signatures: vec![ValidatorSignature {
+                validator: "alice".into(),
+                signature: "sig".into(),
+                weight: 0,
+                bls_public_key: None,
+            }],
+            aggregated_signature: Some("junk".into()),
+            signer_bitmap: Some(vec![0b0000_0001]),
+            finalized_tx_hashes: vec![],
+            weight_trie_root: String::new(),
+            provisional: false,
+            partition_epoch: None,
+            visible_stake_pct: None,
+            merge_report_hash: None,
+            view_change_certificate: None,
+            view: 0,
+        };
+        let addrs = vec!["alice".into(), "bob".into()];
+        assert_eq!(
+            attribute_invalid_checkpoint_offender(&cp, &addrs),
+            Some("alice".into())
+        );
+
+        let mut cp_bitmap_only = cp.clone();
+        cp_bitmap_only.validator_signatures.clear();
+        // bit 0 set → first sorted addr
+        assert_eq!(
+            attribute_invalid_checkpoint_offender(&cp_bitmap_only, &addrs),
+            Some("alice".into())
+        );
+
+        let mut cp_none = cp_bitmap_only;
+        cp_none.signer_bitmap = None;
+        assert_eq!(
+            attribute_invalid_checkpoint_offender(&cp_none, &addrs),
+            None
+        );
+    }
+
+    #[test]
     fn test_slash_event() {
         let mut service = SlashingService::new();
-        let event = service.slash("validator1", to_micro_units(1000.0), SlashReason::DoubleSign, 100, None);
-        
+        let event = service.slash(
+            "validator1",
+            to_micro_units(1000.0),
+            SlashReason::DoubleSign,
+            100,
+            None,
+        );
+
         assert!(event.is_some());
         let event = event.unwrap();
         assert_eq!(event.validator, "validator1");
@@ -525,13 +672,13 @@ mod tests {
     #[test]
     fn test_liveness_tracking() {
         let mut service = SlashingService::new();
-        
+
         let result1 = service.record_liveness_failure("v1", 1, to_micro_units(1000.0));
         assert!(result1.is_none());
-        
+
         let result2 = service.record_liveness_failure("v1", 2, to_micro_units(1000.0));
         assert!(result2.is_none());
-        
+
         let result3 = service.record_liveness_failure("v1", 3, to_micro_units(1000.0));
         assert!(result3.is_some());
     }
@@ -551,7 +698,7 @@ mod tests {
     fn test_unbonding_queue() {
         let mut service = SlashingService::new();
         service.start_unbonding("v1", to_micro_units(500.0));
-        
+
         assert_eq!(service.get_unbonding_queue().len(), 1);
         assert_eq!(service.get_unbonding_for_validator("v1").len(), 1);
         assert_eq!(service.get_unbonding_for_validator("v2").len(), 0);
@@ -560,7 +707,7 @@ mod tests {
     #[test]
     fn test_double_sign_evidence_submission() {
         let mut service = SlashingService::new();
-        
+
         let submitted = service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -569,7 +716,7 @@ mod tests {
             "sig1".to_string(),
             Some("sig2".to_string()),
         );
-        
+
         assert!(submitted.is_some());
         assert_eq!(service.get_pending_evidence().len(), 1);
     }
@@ -577,7 +724,7 @@ mod tests {
     #[test]
     fn test_double_sign_same_hash_rejected() {
         let mut service = SlashingService::new();
-        
+
         let submitted = service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -586,7 +733,7 @@ mod tests {
             "sig1".to_string(),
             None,
         );
-        
+
         assert!(submitted.is_none(), "Same hash should be rejected");
         assert_eq!(service.get_pending_evidence().len(), 0);
     }
@@ -594,7 +741,7 @@ mod tests {
     #[test]
     fn test_double_sign_duplicate_rejected() {
         let mut service = SlashingService::new();
-        
+
         service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -603,7 +750,7 @@ mod tests {
             "sig1".to_string(),
             None,
         );
-        
+
         let duplicate = service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -612,7 +759,7 @@ mod tests {
             "sig1".to_string(),
             None,
         );
-        
+
         assert!(duplicate.is_none(), "Duplicate evidence should be rejected");
         assert_eq!(service.get_pending_evidence().len(), 1);
     }
@@ -620,7 +767,7 @@ mod tests {
     #[test]
     fn test_process_double_sign_evidence() {
         let mut service = SlashingService::new();
-        
+
         service.submit_double_sign_evidence(
             "validator1".to_string(),
             100,
@@ -629,9 +776,9 @@ mod tests {
             "sig1".to_string(),
             None,
         );
-        
+
         let events = service.process_double_sign_evidence(to_micro_units(1000.0));
-        
+
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].validator, "validator1");
         assert_eq!(events[0].reason, SlashReason::DoubleSign);

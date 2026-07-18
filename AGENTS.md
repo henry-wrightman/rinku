@@ -23,7 +23,7 @@ Rinku is a DAG-based distributed ledger with BLS validator consensus, libp2p gos
 | `quality.yml` | PR/push to main | `cargo fmt`, `clippy -D warnings`, `cargo audit`, `npm audit`, release build |
 | `integration.yml` | PR/push to main | 3-node local consensus + multi-node validation; protocol conformance |
 | `coverage.yml` | PR/push to main | Tarpaulin + Vitest → Codecov |
-| `network-health.yml` | Cron 15min + manual | Live testnet health + deep protocol validation |
+| `network-health.yml` | Cron 4h + manual | Live testnet health + deep protocol validation |
 
 ### Running validation locally
 
@@ -60,6 +60,18 @@ npx tsx scripts/validate-multi-node.ts \
 3. **Protocol changes** must update both `packages/rinku-core/` (Rust) and `packages/core/` (TS) when they share semantics.
 4. **Do not deploy** to Fly.io testnet without explicit user request (`scripts/fly-deploy.sh`).
 5. **Stress bots** default to localhost — confirm URLs before running against live testnet.
+
+## Testnet accepted risk (deferred to Phase B)
+
+Explicit §12.5 / slash-hygiene items **not** required for testnet check-in:
+
+- Full slash-reason wiring beyond DoubleSign + InvalidCheckpoint (InvalidProof, InvalidWitness, ReceiptTampering e2e)
+- Unbonding / exit e2e under adversarial conditions
+- Economic e2e: stake → slash → supply audit
+- Fast-path **BroadcastVote** as implicit ACK without BLS (unsigned soft path); only `TxConfirmAck` / `AckVote` require BLS
+- Fast-path nothing-at-stake / incentive analysis
+- Chaos partition simulation in scheduled CI
+- Gossip-relayed faucet txs still lack an operator MAC (HTTP `/api/tx` system admit is closed; faucet mint requires `/api/faucet/request` + `FAUCET_ENABLED`)
 
 ## Testnet endpoints
 

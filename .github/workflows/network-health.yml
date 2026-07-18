@@ -2,74 +2,37 @@ name: Network Health
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '0 */4 * * *'
   workflow_dispatch:
+    inputs:
+      expect_load:
+        description: 'Fail if checkpoints stall (activity bot expected online)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      run_load_burst:
+        description: 'Run a short activity-bot-v2 burst before checks'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  GENESIS: https://rinku-genesis.fly.dev
+  VAL1: https://rinku-validator-1.fly.dev
+  VAL2: https://rinku-validator-2.fly.dev
 
 jobs:
   health-check:
     name: Testnet Node Health
     runs-on: ubuntu-latest
     steps:
-      - name: Check genesis node
-        run: |
-          response=$(curl --silent --fail --max-time 10 https://rinku-genesis.fly.dev/health)
-          echo "Genesis: $response"
-          echo "$response" | grep -q '"status":"ok"'
-
-      - name: Check validator-1
-        run: |
-          response=$(curl --silent --fail --max-time 10 https://rinku-validator-1.fly.dev/health)
-          echo "Validator-1: $response"
-          echo "$response" | grep -q '"status":"ok"'
-
-      - name: Check validator-2
-        run: |
-          response=$(curl --silent --fail --max-time 10 https://rinku-validator-2.fly.dev/health)
-          echo "Validator-2: $response"
-          echo "$response" | grep -q '"status":"ok"'
-
-      - name: Verify checkpoint consensus
-        run: |
-          genesis_height=$(curl --silent --fail --max-time 10 https://rinku-genesis.fly.dev/api/network/stats | python3 -c "import sys,json; print(json.load(sys.stdin)['checkpointCount'])")
-          val1_height=$(curl --silent --fail --max-time 10 https://rinku-validator-1.fly.dev/api/network/stats | python3 -c "import sys,json; print(json.load(sys.stdin)['checkpointCount'])")
-          val2_height=$(curl --silent --fail --max-time 10 https://rinku-validator-2.fly.dev/api/network/stats | python3 -c "import sys,json; print(json.load(sys.stdin)['checkpointCount'])")
-
-          echo "Checkpoint heights — genesis: $genesis_height, val-1: $val1_height, val-2: $val2_height"
-
-          max_diff=2
-          diff1=$(( genesis_height - val1_height ))
-          diff2=$(( genesis_height - val2_height ))
-          abs_diff1=${diff1#-}
-          abs_diff2=${diff2#-}
-
-          if [ "$abs_diff1" -gt "$max_diff" ] || [ "$abs_diff2" -gt "$max_diff" ]; then
-            echo "❌ Checkpoint height divergence exceeds threshold"
-            exit 1
-          fi
-
-          echo "✅ All nodes in consensus (spread: val1=${diff1}, val2=${diff2})"
-
-      - name: Verify protocol version consistency
-        run: |
-          genesis_ver=$(curl --silent --fail --max-time 10 https://rinku-genesis.fly.dev/api/version | python3 -c "import sys,json; print(json.load(sys.stdin)['protocolVersion'])")
-          val1_ver=$(curl --silent --fail --max-time 10 https://rinku-validator-1.fly.dev/api/version | python3 -c "import sys,json; print(json.load(sys.stdin)['protocolVersion'])")
-          val2_ver=$(curl --silent --fail --max-time 10 https://rinku-validator-2.fly.dev/api/version | python3 -c "import sys,json; print(json.load(sys.stdin)['protocolVersion'])")
-
-          echo "Protocol versions — genesis: $genesis_ver, val-1: $val1_ver, val-2: $val2_ver"
-
-          if [ "$genesis_ver" != "$val1_ver" ] || [ "$genesis_ver" != "$val2_ver" ]; then
-            echo "❌ Protocol version mismatch across nodes"
-            exit 1
-          fi
-
-          echo "✅ All nodes running protocol v$genesis_ver"
-
-  deep-validation:
-    name: Testnet protocol validation
-    runs-on: ubuntu-latest
-    needs: health-check
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -78,8 +41,59 @@ jobs:
 
       - run: npm ci
 
-      - name: Validate genesis node state
-        run: npx tsx scripts/validate-testnet.ts https://rinku-genesis.fly.dev
+      - name: Restore prior checkpoint heights
+        uses: actions/cache@v6
+        with:
+          path: .network-health-heights.json
+          key: network-health-heights-${{ github.run_id }}
+          restore-keys: |
+            network-health-heights-
+
+      - name: Optional load burst (manual)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_load_burst == 'true' }}
+        run: |
+          echo "Running 90s activity-bot-v2 burst against testnet..."
+          RINKU_NODE_URLS="$GENESIS,$VAL1,$VAL2" \
+            npx tsx scripts/activity-bot-v2.ts --mode=realistic --accounts=4 --duration=90
+
+      - name: Health + peers + consensus + stall tracking
+        env:
+          PREV_HEIGHTS_FILE: .network-health-heights.json
+          MIN_PEER_COUNT: "1"
+          MAX_HEIGHT_SPREAD: "2"
+          # Idle without bot is expected; only fail on age/stall when expect_load=true
+          EXPECT_LOAD: ${{ github.event_name == 'workflow_dispatch' && inputs.expect_load == 'true' && 'true' || 'false' }}
+          MAX_CHECKPOINT_AGE_MS: ${{ github.event_name == 'workflow_dispatch' && inputs.expect_load == 'true' && '1800000' || '0' }}
+          STALL_FAIL: ${{ github.event_name == 'workflow_dispatch' && inputs.expect_load == 'true' && 'true' || 'false' }}
+        run: |
+          npx tsx scripts/check-network-health.ts "$GENESIS" "$VAL1" "$VAL2"
+
+      - name: Persist checkpoint heights for next interval
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .network-health-heights.json
+          key: network-health-heights-${{ github.run_id }}
+
+  deep-validation:
+    name: Testnet protocol validation
+    runs-on: ubuntu-latest
+    needs: health-check
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build @rinku/core (required by validate-testnet.ts)
+        run: npm run build -w @rinku/core
+
+      - name: Validate genesis node state (pruned-DAG aware)
+        run: npx tsx scripts/validate-testnet.ts ${{ env.GENESIS }}
 
       - name: Validate multi-node consensus
-        run: npx tsx scripts/validate-multi-node.ts https://rinku-genesis.fly.dev https://rinku-validator-1.fly.dev https://rinku-validator-2.fly.dev
+        run: npx tsx scripts/validate-multi-node.ts ${{ env.GENESIS }} ${{ env.VAL1 }} ${{ env.VAL2 }}

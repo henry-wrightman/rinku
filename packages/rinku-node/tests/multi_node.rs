@@ -129,6 +129,7 @@ fn create_test_account(address: &str, balance: u64, nonce: u64) -> Account {
         penalty_decay_checkpoint: None,
         partition_budget: None,
         partition_budget_spent: 0,
+        ecdsa_public_key: None,
     }
 }
 

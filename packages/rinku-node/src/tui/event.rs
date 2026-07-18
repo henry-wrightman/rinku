@@ -19,19 +19,19 @@ impl EventHandler {
         let (tx, rx) = mpsc::channel();
         let event_tx = tx.clone();
 
-        thread::spawn(move || {
-            loop {
-                if event::poll(tick_rate).unwrap_or(false) {
-                    if let Ok(Event::Key(key)) = event::read() {
-                        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                            let _ = event_tx.send(AppEvent::Quit);
-                            break;
-                        }
-                        let _ = event_tx.send(AppEvent::Key(key));
+        thread::spawn(move || loop {
+            if event::poll(tick_rate).unwrap_or(false) {
+                if let Ok(Event::Key(key)) = event::read() {
+                    if key.code == KeyCode::Char('c')
+                        && key.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        let _ = event_tx.send(AppEvent::Quit);
+                        break;
                     }
+                    let _ = event_tx.send(AppEvent::Key(key));
                 }
-                let _ = event_tx.send(AppEvent::Tick);
             }
+            let _ = event_tx.send(AppEvent::Tick);
         });
 
         Self { rx, _tx: tx }

@@ -17,7 +17,7 @@ repository = "https://github.com/rinku-ledger/rinku"
 
 [workspace.dependencies]
 # Pin base64ct to avoid edition2024 requirement (for older Rust toolchains)
-base64ct = "=1.7.3"
+base64ct = "=1.8.3"
 
 # Crypto
 p256 = { version = "0.13", features = ["ecdsa", "serde"] }
@@ -49,7 +49,7 @@ tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
 libp2p = { version = "0.54", features = ["tcp", "noise", "yamux", "gossipsub", "mdns", "tokio", "macros", "request-response", "cbor", "identify"] }
 
 # DAG/Graph
-petgraph = "0.6"
+petgraph = "0.8"
 
 # Persistence
 sled = "0.34"
@@ -62,7 +62,6 @@ flate2 = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-prometheus = "0.13"
 
 # Error handling
 thiserror = "1.0"

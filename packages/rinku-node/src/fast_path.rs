@@ -1,11 +1,94 @@
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use rinku_core::types::{FastPathAck, FastPathFinality, FastPathStatus, SignedTransaction};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use crate::bls::{bls_sign, bls_verify};
+
 const FAST_PATH_QUORUM_THRESHOLD: f64 = 0.667;
 const FAST_PATH_TIMEOUT_MS: u64 = 5000;
+
+/// Canonical message bytes for a fast-path ACK: raw tx hash (32 bytes).
+pub fn ack_message_bytes(tx_hash: &str) -> Option<Vec<u8>> {
+    let bytes = hex::decode(tx_hash).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(bytes)
+}
+
+/// Sign a fast-path ACK over the tx hash. Returns URL-safe base64 signature.
+pub fn sign_fast_path_ack(tx_hash: &str, bls_private_key: &[u8]) -> Option<String> {
+    let msg = ack_message_bytes(tx_hash)?;
+    let sig = bls_sign(&msg, bls_private_key).ok()?;
+    Some(URL_SAFE_NO_PAD.encode(sig))
+}
+
+/// Verify a fast-path ACK BLS signature. `bls_public_key` is raw compressed bytes.
+pub fn verify_fast_path_ack(tx_hash: &str, bls_signature_b64: &str, bls_public_key: &[u8]) -> bool {
+    let Some(msg) = ack_message_bytes(tx_hash) else {
+        return false;
+    };
+    let Ok(sig) = URL_SAFE_NO_PAD
+        .decode(bls_signature_b64)
+        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(bls_signature_b64))
+    else {
+        return false;
+    };
+    if bls_public_key.is_empty() || sig.is_empty() {
+        return false;
+    }
+    bls_verify(&msg, &sig, bls_public_key)
+}
+
+/// Decode a validator BLS pubkey. State stores these as hex; gossip/proofs often
+/// use URL-safe or standard base64. Prefer hex when the encoding is unambiguously hex
+/// so we do not mis-decode hex strings as base64 (which yields wrong key bytes).
+pub fn decode_bls_public_key(pk_encoded: &str) -> Option<Vec<u8>> {
+    let trimmed = pk_encoded.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let looks_like_hex = trimmed.len() >= 2
+        && trimmed.len() % 2 == 0
+        && trimmed.bytes().all(|b| b.is_ascii_hexdigit());
+    if looks_like_hex {
+        if let Ok(bytes) = hex::decode(trimmed) {
+            if !bytes.is_empty() {
+                return Some(bytes);
+            }
+        }
+    }
+    URL_SAFE_NO_PAD
+        .decode(trimmed)
+        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(trimmed))
+        .ok()
+        .filter(|b| !b.is_empty())
+}
+
+/// Returns Ok(()) if ACK has a valid BLS sig for the given pubkey.
+pub fn require_valid_ack_bls(
+    tx_hash: &str,
+    bls_signature: &Option<String>,
+    bls_public_key_encoded: &Option<String>,
+) -> Result<(), &'static str> {
+    let Some(sig) = bls_signature.as_ref().filter(|s| !s.is_empty()) else {
+        return Err("missing BLS signature");
+    };
+    let Some(pk_enc) = bls_public_key_encoded.as_ref().filter(|s| !s.is_empty()) else {
+        return Err("validator has no BLS public key");
+    };
+    let Some(pk) = decode_bls_public_key(pk_enc) else {
+        return Err("invalid BLS public key encoding");
+    };
+    if !verify_fast_path_ack(tx_hash, sig, &pk) {
+        return Err("invalid BLS signature");
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 pub struct FastPathConfig {
@@ -71,18 +154,22 @@ impl FastPathService {
         }
 
         let mut inner = self.inner.write().await;
-        
+
         if inner.pending_txs.contains_key(&tx.hash) || inner.confirmed_txs.contains_key(&tx.hash) {
-            return inner.pending_txs.get(&tx.hash).cloned()
+            return inner
+                .pending_txs
+                .get(&tx.hash)
+                .cloned()
                 .or_else(|| inner.confirmed_txs.get(&tx.hash).cloned());
         }
 
-        let quorum_required = (inner.total_validator_stake as f64 * inner.config.quorum_threshold) as u64;
+        let quorum_required =
+            (inner.total_validator_stake as f64 * inner.config.quorum_threshold) as u64;
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        
+
         let finality = FastPathFinality {
             tx_hash: tx.hash.clone(),
             status: FastPathStatus::Pending,
@@ -96,7 +183,7 @@ impl FastPathService {
         };
 
         inner.pending_txs.insert(tx.hash.clone(), finality.clone());
-        
+
         info!(
             "Registered fast-path tx {} (quorum required: {})",
             &tx.hash[..16.min(tx.hash.len())],
@@ -107,27 +194,57 @@ impl FastPathService {
     }
 
     pub async fn add_ack(&self, ack: FastPathAck) -> Option<FastPathFinality> {
-        let mut inner = self.inner.write().await;
-        
-        if let Some(finality) = inner.pending_txs.get_mut(&ack.tx_hash) {
-            if finality.acks.iter().any(|a| a.validator_address == ack.validator_address) {
-                debug!("Duplicate ACK from {} for {}", 
+        self.add_ack_checked(ack, None).await
+    }
+
+    /// Add an ACK. When `bls_public_key_b64` is `Some`, the ACK's BLS signature is required
+    /// and verified; invalid/missing signatures are dropped.
+    pub async fn add_ack_checked(
+        &self,
+        ack: FastPathAck,
+        bls_public_key_b64: Option<&str>,
+    ) -> Option<FastPathFinality> {
+        if let Some(pk) = bls_public_key_b64 {
+            if let Err(reason) =
+                require_valid_ack_bls(&ack.tx_hash, &ack.bls_signature, &Some(pk.to_string()))
+            {
+                warn!(
+                    "Rejecting fast-path ACK from {}: {}",
                     &ack.validator_address[..16.min(ack.validator_address.len())],
-                    &ack.tx_hash[..16.min(ack.tx_hash.len())]);
+                    reason
+                );
+                return None;
+            }
+        }
+
+        let mut inner = self.inner.write().await;
+
+        if let Some(finality) = inner.pending_txs.get_mut(&ack.tx_hash) {
+            if finality
+                .acks
+                .iter()
+                .any(|a| a.validator_address == ack.validator_address)
+            {
+                debug!(
+                    "Duplicate ACK from {} for {}",
+                    &ack.validator_address[..16.min(ack.validator_address.len())],
+                    &ack.tx_hash[..16.min(ack.tx_hash.len())]
+                );
                 return Some(finality.clone());
             }
 
             finality.total_stake_acked += ack.validator_stake;
             finality.acks.push(ack.clone());
 
-            if finality.total_stake_acked >= finality.quorum_stake_required 
-                && finality.status == FastPathStatus::Pending {
+            if finality.total_stake_acked >= finality.quorum_stake_required
+                && finality.status == FastPathStatus::Pending
+            {
                 finality.status = FastPathStatus::Confirmed;
                 finality.confirmed_at_ms = Some(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
-                        .as_millis() as u64
+                        .as_millis() as u64,
                 );
 
                 info!(
@@ -140,13 +257,13 @@ impl FastPathService {
 
                 let finality_clone = finality.clone();
                 let tx_hash = ack.tx_hash.clone();
-                
+
                 drop(inner);
                 let mut inner = self.inner.write().await;
                 if let Some(f) = inner.pending_txs.remove(&tx_hash) {
                     inner.confirmed_txs.insert(tx_hash, f);
                 }
-                
+
                 return Some(finality_clone);
             }
 
@@ -162,11 +279,11 @@ impl FastPathService {
 
     pub async fn mark_finalized(&self, tx_hash: &str, checkpoint_height: u64) {
         let mut inner = self.inner.write().await;
-        
+
         if let Some(finality) = inner.confirmed_txs.get_mut(tx_hash) {
             finality.status = FastPathStatus::Finalized;
             finality.checkpoint_height = Some(checkpoint_height);
-            
+
             debug!(
                 "Fast-path tx {} finalized at checkpoint {}",
                 &tx_hash[..16.min(tx_hash.len())],
@@ -179,7 +296,10 @@ impl FastPathService {
 
     pub async fn get_status(&self, tx_hash: &str) -> Option<FastPathFinality> {
         let inner = self.inner.read().await;
-        inner.pending_txs.get(tx_hash).cloned()
+        inner
+            .pending_txs
+            .get(tx_hash)
+            .cloned()
             .or_else(|| inner.confirmed_txs.get(tx_hash).cloned())
     }
 
@@ -195,8 +315,9 @@ impl FastPathService {
             .as_millis() as u64;
 
         let mut inner = self.inner.write().await;
-        
-        let to_remove: Vec<String> = inner.confirmed_txs
+
+        let to_remove: Vec<String> = inner
+            .confirmed_txs
             .iter()
             .filter(|(_, f)| {
                 if let Some(confirmed_at) = f.confirmed_at_ms {
@@ -221,8 +342,9 @@ impl FastPathService {
 
         let mut inner = self.inner.write().await;
         let timeout_ms = inner.config.timeout_ms;
-        
-        let to_remove: Vec<String> = inner.pending_txs
+
+        let to_remove: Vec<String> = inner
+            .pending_txs
             .iter()
             .filter(|(_, f)| {
                 if let Some(first_ack) = f.acks.first() {
@@ -258,7 +380,7 @@ impl FastPathService {
 
     pub async fn get_stats(&self) -> FastPathStats {
         let inner = self.inner.read().await;
-        
+
         // Calculate average confirmation time from confirmed transactions
         let mut total_ms: u64 = 0;
         let mut count: usize = 0;
@@ -273,7 +395,7 @@ impl FastPathService {
         } else {
             None
         };
-        
+
         FastPathStats {
             enabled: inner.config.enabled,
             pending_count: inner.pending_txs.len(),
@@ -341,7 +463,11 @@ mod tests {
                 nonce: 1,
                 timestamp: 1000,
                 parents: vec![],
-                kind: if amount == 0 { Some(TransactionKind::DataOnly) } else { Some(TransactionKind::Transfer) },
+                kind: if amount == 0 {
+                    Some(TransactionKind::DataOnly)
+                } else {
+                    Some(TransactionKind::Transfer)
+                },
                 gas_limit: Some(21000),
                 gas_price: Some(100_000),
                 data: None,
@@ -370,7 +496,7 @@ mod tests {
 
         let tx = create_test_tx(0, Some("Test message".to_string()));
         let finality = service.register_fast_path_tx(&tx).await.unwrap();
-        
+
         assert_eq!(finality.status, FastPathStatus::Pending);
         assert!(finality.quorum_stake_required > 0);
 
@@ -394,5 +520,148 @@ mod tests {
         let result = service.add_ack(ack2).await.unwrap();
         assert_eq!(result.status, FastPathStatus::Confirmed);
         assert!(result.confirmed_at_ms.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_ack_bls_verify_accepts_valid_and_rejects_invalid() {
+        let kp = crate::bls::generate_bls_keypair();
+        let tx_hash = hex::encode([0xabu8; 32]);
+        let sig = sign_fast_path_ack(&tx_hash, &kp.private_key).expect("sign");
+
+        // Production path first: NodeState stores Validator.bls_public_key as hex
+        // (see state/validators.rs replace_validators_with_genesis).
+        let pk_hex = hex::encode(&kp.public_key);
+        assert!(
+            require_valid_ack_bls(&tx_hash, &Some(sig.clone()), &Some(pk_hex.clone())).is_ok(),
+            "ACK verify must accept hex-encoded validator pubkeys from state"
+        );
+        assert_eq!(
+            decode_bls_public_key(&pk_hex).as_deref(),
+            Some(kp.public_key.as_slice()),
+            "hex pubkey must decode to raw compressed bytes, not a base64 mis-parse"
+        );
+
+        // Gossip/proof paths may still use URL-safe base64
+        let pk_b64 = URL_SAFE_NO_PAD.encode(&kp.public_key);
+        assert!(require_valid_ack_bls(&tx_hash, &Some(sig.clone()), &Some(pk_b64.clone())).is_ok());
+        assert!(verify_fast_path_ack(&tx_hash, &sig, &kp.public_key));
+
+        // Wrong key
+        let kp2 = crate::bls::generate_bls_keypair();
+        assert!(!verify_fast_path_ack(&tx_hash, &sig, &kp2.public_key));
+        assert!(require_valid_ack_bls(
+            &tx_hash,
+            &Some(sig.clone()),
+            &Some(hex::encode(&kp2.public_key))
+        )
+        .is_err());
+        assert!(require_valid_ack_bls(
+            &tx_hash,
+            &Some(sig),
+            &Some(URL_SAFE_NO_PAD.encode(&kp2.public_key))
+        )
+        .is_err());
+
+        // Missing sig
+        assert!(require_valid_ack_bls(&tx_hash, &None, &Some(pk_hex.clone())).is_err());
+
+        let service = FastPathService::new(FastPathConfig::default());
+        service.update_total_stake(100_000_000_000).await;
+        let tx = SignedTransaction {
+            tx: Transaction {
+                from: "sender".into(),
+                to: "receiver".into(),
+                amount: 0,
+                nonce: 0,
+                timestamp: 1000,
+                parents: vec![],
+                kind: None,
+                gas_limit: None,
+                gas_price: None,
+                data: Some("hi".into()),
+                signature: None,
+                memo: None,
+                references: None,
+            },
+            hash: tx_hash.clone(),
+            signature: "sig".into(),
+        };
+        service.register_fast_path_tx(&tx).await.unwrap();
+
+        let good = FastPathAck {
+            tx_hash: tx_hash.clone(),
+            validator_address: "v1".into(),
+            validator_stake: 70_000_000_000,
+            bls_signature: sign_fast_path_ack(&tx_hash, &kp.private_key),
+            timestamp_ms: 1,
+        };
+        assert!(service.add_ack_checked(good, Some(&pk_hex)).await.is_some());
+
+        let bad = FastPathAck {
+            tx_hash: tx_hash.clone(),
+            validator_address: "v2".into(),
+            validator_stake: 70_000_000_000,
+            bls_signature: Some("not-a-real-sig".into()),
+            timestamp_ms: 2,
+        };
+        assert!(service.add_ack_checked(bad, Some(&pk_hex)).await.is_none());
+    }
+
+    /// Regression: hex-encoded BLS pubkeys are also valid base64 alphabet. Decoding them
+    /// as base64 yields the wrong key length/bytes and would reject valid ACKs — the bug
+    /// that shipped when unit tests only exercised URL_SAFE_NO_PAD pubkeys.
+    #[test]
+    fn test_ack_bls_hex_pubkey_must_not_be_decoded_as_base64() {
+        let kp = crate::bls::generate_bls_keypair();
+        let pk_hex = hex::encode(&kp.public_key);
+        assert!(
+            pk_hex.len() >= 2
+                && pk_hex.len() % 2 == 0
+                && pk_hex.bytes().all(|b| b.is_ascii_hexdigit()),
+            "fixture must look like hex so the ambiguous-decode path is exercised"
+        );
+
+        let naive_b64 = URL_SAFE_NO_PAD
+            .decode(&pk_hex)
+            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(&pk_hex));
+        if let Ok(wrong) = naive_b64 {
+            assert_ne!(
+                wrong.as_slice(),
+                kp.public_key.as_slice(),
+                "precondition: naive base64 of hex must not equal the real pubkey"
+            );
+        }
+
+        let decoded = decode_bls_public_key(&pk_hex).expect("hex decode");
+        assert_eq!(decoded, kp.public_key);
+
+        let tx_hash = hex::encode([0x11u8; 32]);
+        let sig = sign_fast_path_ack(&tx_hash, &kp.private_key).expect("sign");
+        // Same shape gossip uses: Option from Validator.bls_public_key
+        let from_state: Option<String> = Some(pk_hex);
+        assert!(require_valid_ack_bls(&tx_hash, &Some(sig), &from_state).is_ok());
+    }
+
+    /// End-to-end of the gossip verify inputs: sign with checkpoint-vote private key,
+    /// verify with the hex string as stored on Validator in NodeState.
+    #[test]
+    fn test_ack_bls_gossip_verify_uses_validator_map_encoding() {
+        let kp = crate::bls::generate_bls_keypair();
+        let tx_hash = hex::encode([0x5eu8; 32]);
+        let sig = sign_fast_path_ack(&tx_hash, &kp.private_key).expect("sign");
+
+        // Mirrors state/validators.rs: bls_public_key: Some(hex::encode(bls_public_key))
+        let validator = rinku_core::types::Validator {
+            address: "validator1".into(),
+            stake: 50_000_000_000_000,
+            first_stake_time: 0,
+            bls_public_key: Some(hex::encode(&kp.public_key)),
+            missed_checkpoints: 0,
+        };
+
+        assert!(
+            require_valid_ack_bls(&tx_hash, &Some(sig), &validator.bls_public_key).is_ok(),
+            "gossip AckVote verify must succeed against Validator.bls_public_key as stored in state"
+        );
     }
 }

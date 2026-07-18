@@ -11,7 +11,7 @@ jobs:
     name: Rust coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install cargo-tarpaulin
         uses: taiki-e/install-action@v2
         with:
@@ -19,7 +19,7 @@ jobs:
       - name: Run tarpaulin
         run: cargo tarpaulin --workspace --out Lcov --output-dir coverage/rust --exclude rinku-contract-sdk
       - name: Upload Rust coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: coverage/rust/lcov.info
           flags: rust
@@ -29,7 +29,7 @@ jobs:
     name: Node coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Use Node.js 22.x
         uses: actions/setup-node@v4
         with:
@@ -40,7 +40,7 @@ jobs:
       - name: Run core tests with coverage
         run: npm run test:coverage -w @rinku/core
       - name: Upload Node coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: packages/core/coverage/lcov.info
           flags: node

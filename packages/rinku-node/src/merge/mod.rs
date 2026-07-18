@@ -1,19 +1,22 @@
 pub mod cascade;
 pub mod conflict_detection;
-pub mod resolution;
 pub mod orchestrator;
 #[cfg(test)]
 mod proptests;
+pub mod resolution;
 
-use std::collections::HashMap;
+use rinku_core::types::{Account, Checkpoint, SignedTransaction};
 use serde::{Deserialize, Serialize};
-use rinku_core::types::{SignedTransaction, Account, Checkpoint};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeRequest {
     pub partition_epoch: u64,
     pub fork_point_checkpoint_height: u64,
     pub transactions: Vec<SignedTransaction>,
+    /// Peer-reported DAG node weights keyed by tx hash (avoids remote weight=1.0).
+    #[serde(default)]
+    pub tx_weights: HashMap<String, f64>,
     pub accounts: HashMap<String, Account>,
     pub checkpoints: Vec<Checkpoint>,
     pub visible_stake_pct: f64,
@@ -202,6 +205,9 @@ pub struct PartitionTxSummary {
     pub gas_micro: u64,
     pub nonce: u64,
     pub weight: f64,
+    /// Topological distance from fork-point within the partition DAG set.
+    pub dag_depth: u32,
+    pub parents: Vec<String>,
     pub partition_epoch: Option<u64>,
     pub visible_stake_pct: f64,
 }
@@ -217,6 +223,8 @@ impl PartitionTxSummary {
             gas_micro,
             nonce: tx.tx.nonce,
             weight,
+            dag_depth: 0,
+            parents: tx.tx.parents.clone(),
             partition_epoch: None,
             visible_stake_pct: 0.0,
         }

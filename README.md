@@ -178,7 +178,11 @@ curl http://localhost:3001/api/dag/summary
 | `MAINNET_MODE` | Enforce mainnet-grade security | `false` |
 | `PUBLIC_URL` | Node's public URL for leader election | `""` |
 | `GENESIS_VALIDATORS` | Genesis validator set (addr:bls;...) | `""` |
-| `VALIDATOR_KEY_PASSWORD` | Validator key passphrase | `""` |
+| `RATE_LIMIT_TX_MAX` | Max tx submits per IP per minute | `30` |
+| `RATE_LIMIT_CONTRACT_MAX` | Max contract deploy/call per IP per minute | `20` |
+| `RATE_LIMIT_GENERAL_MAX` | Max general write ops (e.g. faucet) per IP per minute | `100` |
+| `FAUCET_ENABLED` | Enable faucet mint endpoints | `true` unless `MAINNET_MODE` |
+| `CORS_ALLOW_ORIGINS` | Comma-separated origins for write-route CORS (`*` = any) | localhost explorer ports |
 
 ---
 
@@ -292,14 +296,20 @@ The node exposes a REST API on port 3001:
 ```
 rinku/
 ├── packages/
-│   ├── rinku-core/      # Core types, crypto, merkle trees (Rust)
-│   ├── rinku-node/      # Full node implementation (Rust)
-│   ├── core/            # TypeScript core library
-│   ├── explorer/        # React block explorer
-│   └── faucet/          # Testnet faucet
-├── scripts/             # Deployment and testing scripts
-├── fly.toml             # Fly.io deployment config
-└── Cargo.toml           # Rust workspace config
+│   ├── rinku-core/           # Protocol primitives: crypto, merkle, checkpoints (Rust)
+│   ├── rinku-node/           # Full node: consensus, P2P, API server (Rust)
+│   ├── rinku-contract-sdk/   # WASM smart contract SDK (Rust)
+│   ├── core/                 # Protocol primitives (TypeScript dual of rinku-core)
+│   ├── wallet/               # Wallet helpers for Explorer and clients
+│   ├── zk/                   # Zero-knowledge privacy layer (Circom + TS)
+│   ├── explorer/             # React block explorer (includes faucet UI)
+│   ├── stateless/            # Stateless dApp helpers (ContractOutput proofs)
+│   └── examples/             # Sample WASM contracts
+├── scripts/                  # Deployment, validation, and stress-test harnesses
+├── docs/                     # Versioning, architecture notes, whitepaper
+├── fly.toml                  # Fly.io node deployment config
+├── Cargo.toml                # Rust workspace
+└── package.json              # npm workspaces
 ```
 
 ---
@@ -312,11 +322,8 @@ rinku/
 # Terminal 1: Rust node
 RUST_LOG=info cargo run -p rinku-node
 
-# Terminal 2: Explorer (port 5000)
+# Terminal 2: Explorer (port 5000; faucet UI talks to the node API)
 npm run build -w @rinku/core && npm run dev -w @rinku/explorer
-
-# Terminal 3: Faucet
-npm run dev -w @rinku/faucet
 ```
 
 ### Run Tests

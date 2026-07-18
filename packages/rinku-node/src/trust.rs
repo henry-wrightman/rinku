@@ -153,7 +153,8 @@ impl TrustVerifier {
             );
         }
 
-        let quorum_reached = (verified_stake as f64 / total_stake as f64) >= self.config.checkpoint_quorum_threshold;
+        let quorum_reached =
+            (verified_stake as f64 / total_stake as f64) >= self.config.checkpoint_quorum_threshold;
 
         CheckpointVerificationResult {
             valid: quorum_reached,
@@ -186,9 +187,7 @@ impl TrustVerifier {
             if checkpoints[i].previous_hash.as_deref() != Some(expected_prev) {
                 return Err(format!(
                     "Broken chain at height {}: expected previous_hash {}, got {:?}",
-                    checkpoints[i].height,
-                    expected_prev,
-                    checkpoints[i].previous_hash
+                    checkpoints[i].height, expected_prev, checkpoints[i].previous_hash
                 ));
             }
         }
@@ -272,7 +271,7 @@ mod tests {
     fn test_trust_verifier_no_genesis_validators() {
         let config = TrustConfig::default();
         let verifier = TrustVerifier::new(config);
-        
+
         assert!(!verifier.has_genesis_validators());
     }
 
@@ -286,7 +285,7 @@ mod tests {
             ..Default::default()
         };
         let verifier = TrustVerifier::new(config);
-        
+
         assert!(verifier.has_genesis_validators());
     }
 
@@ -295,10 +294,10 @@ mod tests {
         let config = TrustConfig::default();
         let verifier = TrustVerifier::new(config);
         let validators = HashMap::new();
-        
+
         let checkpoint = make_test_checkpoint(0, "genesis_hash");
         let result = verifier.verify_checkpoint(&checkpoint, &validators);
-        
+
         assert!(result.valid);
         assert!(result.quorum_reached);
     }
@@ -308,10 +307,10 @@ mod tests {
         let config = TrustConfig::default();
         let verifier = TrustVerifier::new(config);
         let validators = HashMap::new();
-        
+
         let checkpoint = make_test_checkpoint(1, "first_hash");
         let result = verifier.verify_checkpoint(&checkpoint, &validators);
-        
+
         assert!(result.valid);
         assert!(result.quorum_reached);
     }
@@ -321,10 +320,10 @@ mod tests {
         let config = TrustConfig::default();
         let verifier = TrustVerifier::new(config);
         let validators = HashMap::new();
-        
+
         let checkpoint = make_test_checkpoint(2, "second_hash");
         let result = verifier.verify_checkpoint(&checkpoint, &validators);
-        
+
         assert!(!result.valid);
         assert!(!result.quorum_reached);
         assert!(result.error.is_some());
@@ -342,9 +341,9 @@ mod tests {
         };
         let verifier = TrustVerifier::new(config);
         let validators = HashMap::new();
-        
+
         let result = verifier.get_validator_public_key("genesis_val", &validators);
-        
+
         assert!(result.is_some());
         assert_eq!(result.unwrap(), pubkey);
     }
@@ -353,18 +352,21 @@ mod tests {
     fn test_get_validator_public_key_from_on_chain() {
         let config = TrustConfig::default();
         let verifier = TrustVerifier::new(config);
-        
+
         let mut validators = HashMap::new();
-        validators.insert("onchain_val".to_string(), Validator {
-            address: "onchain_val".to_string(),
-            stake: 1000,
-            first_stake_time: 0,
-            bls_public_key: Some("0102030405".to_string()),
-            missed_checkpoints: 0,
-        });
-        
+        validators.insert(
+            "onchain_val".to_string(),
+            Validator {
+                address: "onchain_val".to_string(),
+                stake: 1000,
+                first_stake_time: 0,
+                bls_public_key: Some("0102030405".to_string()),
+                missed_checkpoints: 0,
+            },
+        );
+
         let result = verifier.get_validator_public_key("onchain_val", &validators);
-        
+
         assert!(result.is_some());
         assert_eq!(result.unwrap(), vec![1u8, 2, 3, 4, 5]);
     }
@@ -374,9 +376,9 @@ mod tests {
         let config = TrustConfig::default();
         let verifier = TrustVerifier::new(config);
         let validators = HashMap::new();
-        
+
         let result = verifier.get_validator_public_key("unknown_val", &validators);
-        
+
         assert!(result.is_none());
     }
 
@@ -387,7 +389,7 @@ mod tests {
             ..Default::default()
         };
         let verifier = TrustVerifier::new(config);
-        
+
         assert!(verifier.is_trusted_checkpoint("trusted_hash"));
         assert!(!verifier.is_trusted_checkpoint("untrusted_hash"));
     }
@@ -396,7 +398,7 @@ mod tests {
     fn test_is_trusted_checkpoint_none_configured() {
         let config = TrustConfig::default();
         let verifier = TrustVerifier::new(config);
-        
+
         assert!(!verifier.is_trusted_checkpoint("any_hash"));
     }
 
@@ -405,9 +407,9 @@ mod tests {
         let config = TrustConfig::default();
         let verifier = TrustVerifier::new(config);
         let validators = HashMap::new();
-        
+
         let result = verifier.verify_checkpoint_chain(&[], &validators);
-        
+
         assert!(result.is_ok());
     }
 }

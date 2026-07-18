@@ -45,13 +45,15 @@ pub fn compute_bls_fingerprint(public_key: &[u8]) -> String {
 }
 
 pub fn bls_get_public_key(private_key: &[u8]) -> Result<Vec<u8>, String> {
-    let sk = SecretKey::from_bytes(private_key).map_err(|e| format!("Invalid private key: {:?}", e))?;
+    let sk =
+        SecretKey::from_bytes(private_key).map_err(|e| format!("Invalid private key: {:?}", e))?;
     let pk = sk.sk_to_pk();
     Ok(pk.compress().to_vec())
 }
 
 pub fn bls_sign(message: &[u8], private_key: &[u8]) -> Result<Vec<u8>, String> {
-    let sk = SecretKey::from_bytes(private_key).map_err(|e| format!("Invalid private key: {:?}", e))?;
+    let sk =
+        SecretKey::from_bytes(private_key).map_err(|e| format!("Invalid private key: {:?}", e))?;
     let sig = sk.sign(message, DST, &[]);
     Ok(sig.compress().to_vec())
 }
@@ -75,12 +77,16 @@ pub fn aggregate_signatures(signatures: &[Vec<u8>]) -> Result<Vec<u8>, String> {
         return Err("No signatures to aggregate".to_string());
     }
 
-    let parsed_sigs: Result<Vec<Signature>, _> = signatures.iter().map(|s| Signature::from_bytes(s)).collect();
+    let parsed_sigs: Result<Vec<Signature>, _> = signatures
+        .iter()
+        .map(|s| Signature::from_bytes(s))
+        .collect();
 
     let sigs = parsed_sigs.map_err(|e| format!("Invalid signature: {:?}", e))?;
     let sig_refs: Vec<&Signature> = sigs.iter().collect();
 
-    let agg = AggregateSignature::aggregate(&sig_refs, true).map_err(|e| format!("Aggregation failed: {:?}", e))?;
+    let agg = AggregateSignature::aggregate(&sig_refs, true)
+        .map_err(|e| format!("Aggregation failed: {:?}", e))?;
 
     Ok(agg.to_signature().compress().to_vec())
 }
@@ -90,24 +96,29 @@ pub fn aggregate_public_keys(public_keys: &[Vec<u8>]) -> Result<Vec<u8>, String>
         return Err("No public keys to aggregate".to_string());
     }
 
-    let parsed_pks: Result<Vec<PublicKey>, _> = public_keys.iter().map(|pk| PublicKey::from_bytes(pk)).collect();
+    let parsed_pks: Result<Vec<PublicKey>, _> = public_keys
+        .iter()
+        .map(|pk| PublicKey::from_bytes(pk))
+        .collect();
 
     let pks = parsed_pks.map_err(|e| format!("Invalid public key: {:?}", e))?;
 
     let pk_refs: Vec<&PublicKey> = pks.iter().collect();
-    let agg_pk = pk_refs
-        .iter()
-        .skip(1)
-        .fold(pk_refs[0].clone(), |acc, pk| {
-            let mut agg = blst::min_pk::AggregatePublicKey::from_public_key(&acc);
-            agg.add_public_key(*pk, true).expect("Failed to add public key");
-            agg.to_public_key()
-        });
+    let agg_pk = pk_refs.iter().skip(1).fold(pk_refs[0].clone(), |acc, pk| {
+        let mut agg = blst::min_pk::AggregatePublicKey::from_public_key(&acc);
+        agg.add_public_key(*pk, true)
+            .expect("Failed to add public key");
+        agg.to_public_key()
+    });
 
     Ok(agg_pk.compress().to_vec())
 }
 
-pub fn verify_aggregated_signature(message: &[u8], aggregated_sig: &[u8], public_keys: &[Vec<u8>]) -> bool {
+pub fn verify_aggregated_signature(
+    message: &[u8],
+    aggregated_sig: &[u8],
+    public_keys: &[Vec<u8>],
+) -> bool {
     let agg_pk = match aggregate_public_keys(public_keys) {
         Ok(pk) => pk,
         Err(_) => return false,

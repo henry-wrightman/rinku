@@ -5,10 +5,7 @@ use std::collections::HashMap;
 use tracing::info;
 use wasmi::*;
 
-use crate::contracts::{
-    compute_state_diff, ContractEvent, ExecutionResult, GasMeter,
-    GasSchedule,
-};
+use crate::contracts::{compute_state_diff, ContractEvent, ExecutionResult, GasMeter, GasSchedule};
 
 const MAX_STORAGE_KEY_LEN: usize = 256;
 const MAX_STORAGE_VALUE_LEN: usize = 8192;
@@ -26,7 +23,12 @@ pub const BASE_CONTRACT_CALL_GAS: u64 = 21_000;
 pub const GAS_PER_INPUT_BYTE: u64 = 16;
 pub const BASE_TX_GAS: u64 = 21_000;
 
-pub fn compute_total_gas(fuel_consumed: u64, host_gas_used: u64, base_gas: u64, input_bytes: usize) -> u64 {
+pub fn compute_total_gas(
+    fuel_consumed: u64,
+    host_gas_used: u64,
+    base_gas: u64,
+    input_bytes: usize,
+) -> u64 {
     let fuel_gas = fuel_consumed.div_ceil(FUEL_TO_GAS_RATIO);
     let input_gas = (input_bytes as u64) * GAS_PER_INPUT_BYTE;
     base_gas + fuel_gas + host_gas_used + input_gas
@@ -169,14 +171,14 @@ fn write_to_guest(
         if current_pages + needed_pages as u32 > caller.data().max_memory_pages {
             return Err(Error::new("Memory page limit exceeded"));
         }
-        memory.grow(caller.as_context_mut(), needed_pages as u64).map_err(|_| {
-            Error::new("Memory grow failed")
-        })?;
+        memory
+            .grow(caller.as_context_mut(), needed_pages as u64)
+            .map_err(|_| Error::new("Memory grow failed"))?;
     }
 
-    memory.write(caller.as_context_mut(), offset as usize, data).map_err(|_| {
-        Error::new("Memory write failed")
-    })?;
+    memory
+        .write(caller.as_context_mut(), offset as usize, data)
+        .map_err(|_| Error::new("Memory write failed"))?;
 
     caller.data_mut().alloc_offset = offset + len;
     Ok((offset as i32, len as i32))
@@ -200,9 +202,9 @@ fn read_from_guest(
     }
 
     let mut buf = vec![0u8; len];
-    memory.read(caller.as_context(), ptr, &mut buf).map_err(|_| {
-        Error::new("Memory read failed")
-    })?;
+    memory
+        .read(caller.as_context(), ptr, &mut buf)
+        .map_err(|_| Error::new("Memory read failed"))?;
     Ok(buf)
 }
 
@@ -286,7 +288,11 @@ impl WasmEngine {
     ) -> WasmExecutionOutput {
         let fuel = gas_limit.unwrap_or(DEFAULT_FUEL);
         let input_bytes = serde_json::to_vec(input).map(|v| v.len()).unwrap_or(0);
-        let base_gas = if entrypoint == "init" { BASE_CONTRACT_DEPLOY_GAS } else { BASE_CONTRACT_CALL_GAS };
+        let base_gas = if entrypoint == "init" {
+            BASE_CONTRACT_DEPLOY_GAS
+        } else {
+            BASE_CONTRACT_CALL_GAS
+        };
         let host_state = HostState::new(
             contract_id.to_string(),
             caller.to_string(),
@@ -342,7 +348,11 @@ impl WasmEngine {
                 store.data_mut().alloc_offset = mem_size;
                 tracing::info!(
                     "WASM alloc_offset={} (mem_size={}, pages={}) for {} entrypoint={}",
-                    mem_size, mem_size, mem_size / 65536, contract_id, entrypoint
+                    mem_size,
+                    mem_size,
+                    mem_size / 65536,
+                    contract_id,
+                    entrypoint
                 );
             }
         }
@@ -353,16 +363,35 @@ impl WasmEngine {
         if let Ok(func) = result_i32 {
             let call_result = func.call(&mut store, ());
             let fuel_consumed = fuel.saturating_sub(store.get_fuel().unwrap_or(0));
-            return self.handle_i32_result(call_result, store, contract_id, height, fuel_consumed, base_gas, input_bytes);
+            return self.handle_i32_result(
+                call_result,
+                store,
+                contract_id,
+                height,
+                fuel_consumed,
+                base_gas,
+                input_bytes,
+            );
         }
 
         if let Ok(func) = result_void {
             let call_result = func.call(&mut store, ());
             let fuel_consumed = fuel.saturating_sub(store.get_fuel().unwrap_or(0));
-            return self.handle_void_result(call_result, store, contract_id, height, fuel_consumed, base_gas, input_bytes);
+            return self.handle_void_result(
+                call_result,
+                store,
+                contract_id,
+                height,
+                fuel_consumed,
+                base_gas,
+                input_bytes,
+            );
         }
 
-        wrap_err(format!("Entrypoint '{}' not found in WASM module", entrypoint))
+        wrap_err(format!(
+            "Entrypoint '{}' not found in WASM module",
+            entrypoint
+        ))
     }
 
     fn handle_i32_result(
@@ -380,7 +409,8 @@ impl WasmEngine {
                 let host = store.into_data();
                 if status_code != 0 {
                     let host_gas = host.gas_meter.gas_used();
-                    let total_gas = compute_total_gas(fuel_consumed, host_gas, base_gas, input_bytes);
+                    let total_gas =
+                        compute_total_gas(fuel_consumed, host_gas, base_gas, input_bytes);
                     return WasmExecutionOutput {
                         transfer_ops: Vec::new(),
                         view_key_emissions: Vec::new(),
@@ -389,13 +419,22 @@ impl WasmEngine {
                             success: false,
                             state_diff: None,
                             gas_used: total_gas,
-                            error: host.error.or_else(|| Some(format!("Contract returned error code: {}", status_code))),
+                            error: host.error.or_else(|| {
+                                Some(format!("Contract returned error code: {}", status_code))
+                            }),
                             logs: host.logs,
                             events: host.events,
                         },
                     };
                 }
-                build_success_output(host, contract_id, height, fuel_consumed, base_gas, input_bytes)
+                build_success_output(
+                    host,
+                    contract_id,
+                    height,
+                    fuel_consumed,
+                    base_gas,
+                    input_bytes,
+                )
             }
             Err(e) => {
                 let host = store.into_data();
@@ -409,7 +448,10 @@ impl WasmEngine {
                         success: false,
                         state_diff: None,
                         gas_used: total_gas,
-                        error: Some(host.error.unwrap_or_else(|| format!("Execution error: {}", e))),
+                        error: Some(
+                            host.error
+                                .unwrap_or_else(|| format!("Execution error: {}", e)),
+                        ),
                         logs: host.logs,
                         events: host.events,
                     },
@@ -431,7 +473,14 @@ impl WasmEngine {
         match call_result {
             Ok(()) => {
                 let host = store.into_data();
-                build_success_output(host, contract_id, height, fuel_consumed, base_gas, input_bytes)
+                build_success_output(
+                    host,
+                    contract_id,
+                    height,
+                    fuel_consumed,
+                    base_gas,
+                    input_bytes,
+                )
             }
             Err(e) => {
                 let host = store.into_data();
@@ -445,7 +494,10 @@ impl WasmEngine {
                         success: false,
                         state_diff: None,
                         gas_used: total_gas,
-                        error: Some(host.error.unwrap_or_else(|| format!("Execution error: {}", e))),
+                        error: Some(
+                            host.error
+                                .unwrap_or_else(|| format!("Execution error: {}", e)),
+                        ),
                         logs: host.logs,
                         events: host.events,
                     },
@@ -465,507 +517,759 @@ impl WasmEngine {
         Ok(())
     }
 
-    fn register_storage_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
-        linker.func_wrap(module, "storage_read", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+    fn register_storage_functions(
+        &self,
+        linker: &mut Linker<HostState>,
+        module: &str,
+    ) -> Result<()> {
+        linker
+            .func_wrap(
+                module,
+                "storage_read",
+                |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            let key = match read_string_from_guest(&memory, &caller, key_ptr, key_len, MAX_STORAGE_KEY_LEN) {
-                Ok(k) => k,
-                Err(_) => return -1,
-            };
+                    let key = match read_string_from_guest(
+                        &memory,
+                        &caller,
+                        key_ptr,
+                        key_len,
+                        MAX_STORAGE_KEY_LEN,
+                    ) {
+                        Ok(k) => k,
+                        Err(_) => return -1,
+                    };
 
-            caller.data_mut().gas_meter.charge("storage_read", 1);
+                    caller.data_mut().gas_meter.charge("storage_read", 1);
 
-            let value = match caller.data().storage.get(&key) {
-                Some(v) => serde_json::to_vec(v).unwrap_or_default(),
-                None => return 0,
-            };
+                    let value = match caller.data().storage.get(&key) {
+                        Some(v) => serde_json::to_vec(v).unwrap_or_default(),
+                        None => return 0,
+                    };
 
-            match write_to_guest(&memory, &mut caller, &value) {
-                Ok((ptr, _len)) => ptr,
-                Err(_) => -1,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+                    match write_to_guest(&memory, &mut caller, &value) {
+                        Ok((ptr, _len)) => ptr,
+                        Err(_) => -1,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap(module, "storage_read_len", |caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+        linker
+            .func_wrap(
+                module,
+                "storage_read_len",
+                |caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            let key = match read_string_from_guest(&memory, &caller, key_ptr, key_len, MAX_STORAGE_KEY_LEN) {
-                Ok(k) => k,
-                Err(_) => return -1,
-            };
+                    let key = match read_string_from_guest(
+                        &memory,
+                        &caller,
+                        key_ptr,
+                        key_len,
+                        MAX_STORAGE_KEY_LEN,
+                    ) {
+                        Ok(k) => k,
+                        Err(_) => return -1,
+                    };
 
-            match caller.data().storage.get(&key) {
-                Some(v) => serde_json::to_vec(v).unwrap_or_default().len() as i32,
-                None => 0,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+                    match caller.data().storage.get(&key) {
+                        Some(v) => serde_json::to_vec(v).unwrap_or_default().len() as i32,
+                        None => 0,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap(module, "storage_write", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+        linker
+            .func_wrap(
+                module,
+                "storage_write",
+                |mut caller: Caller<'_, HostState>,
+                 key_ptr: i32,
+                 key_len: i32,
+                 val_ptr: i32,
+                 val_len: i32|
+                 -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            let key = match read_string_from_guest(&memory, &caller, key_ptr, key_len, MAX_STORAGE_KEY_LEN) {
-                Ok(k) => k,
-                Err(_) => return -1,
-            };
+                    let key = match read_string_from_guest(
+                        &memory,
+                        &caller,
+                        key_ptr,
+                        key_len,
+                        MAX_STORAGE_KEY_LEN,
+                    ) {
+                        Ok(k) => k,
+                        Err(_) => return -1,
+                    };
 
-            let val_bytes = match read_from_guest(&memory, &caller, val_ptr, val_len) {
-                Ok(b) if b.len() <= MAX_STORAGE_VALUE_LEN => b,
-                _ => return -1,
-            };
+                    let val_bytes = match read_from_guest(&memory, &caller, val_ptr, val_len) {
+                        Ok(b) if b.len() <= MAX_STORAGE_VALUE_LEN => b,
+                        _ => return -1,
+                    };
 
-            caller.data_mut().gas_meter.charge("storage_write", 1);
+                    caller.data_mut().gas_meter.charge("storage_write", 1);
 
-            let value: Value = match serde_json::from_slice(&val_bytes) {
-                Ok(v) => v,
-                Err(_) => return -1,
-            };
+                    let value: Value = match serde_json::from_slice(&val_bytes) {
+                        Ok(v) => v,
+                        Err(_) => return -1,
+                    };
 
-            caller.data_mut().storage.insert(key, value);
-            0
-        }).map_err(|e| anyhow!("{}", e))?;
+                    caller.data_mut().storage.insert(key, value);
+                    0
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap(module, "storage_delete", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+        linker
+            .func_wrap(
+                module,
+                "storage_delete",
+                |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            let key = match read_string_from_guest(&memory, &caller, key_ptr, key_len, MAX_STORAGE_KEY_LEN) {
-                Ok(k) => k,
-                Err(_) => return -1,
-            };
+                    let key = match read_string_from_guest(
+                        &memory,
+                        &caller,
+                        key_ptr,
+                        key_len,
+                        MAX_STORAGE_KEY_LEN,
+                    ) {
+                        Ok(k) => k,
+                        Err(_) => return -1,
+                    };
 
-            caller.data_mut().gas_meter.charge("storage_delete", 1);
+                    caller.data_mut().gas_meter.charge("storage_delete", 1);
 
-            match caller.data_mut().storage.remove(&key) {
-                Some(_) => 0,
-                None => 1,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+                    match caller.data_mut().storage.remove(&key) {
+                        Some(_) => 0,
+                        None => 1,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap(module, "storage_has", |caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+        linker
+            .func_wrap(
+                module,
+                "storage_has",
+                |caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32| -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            let key = match read_string_from_guest(&memory, &caller, key_ptr, key_len, MAX_STORAGE_KEY_LEN) {
-                Ok(k) => k,
-                Err(_) => return -1,
-            };
+                    let key = match read_string_from_guest(
+                        &memory,
+                        &caller,
+                        key_ptr,
+                        key_len,
+                        MAX_STORAGE_KEY_LEN,
+                    ) {
+                        Ok(k) => k,
+                        Err(_) => return -1,
+                    };
 
-            if caller.data().storage.contains_key(&key) { 1 } else { 0 }
-        }).map_err(|e| anyhow!("{}", e))?;
+                    if caller.data().storage.contains_key(&key) {
+                        1
+                    } else {
+                        0
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
     }
 
-    fn register_context_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
-        linker.func_wrap(module, "get_caller", |mut caller: Caller<'_, HostState>| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
-            let addr = caller.data().caller.clone();
-            match write_to_guest(&memory, &mut caller, addr.as_bytes()) {
-                Ok((ptr, _)) => ptr,
-                Err(_) => -1,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
-
-        linker.func_wrap(module, "get_caller_len", |caller: Caller<'_, HostState>| -> i32 {
-            caller.data().caller.len() as i32
-        }).map_err(|e| anyhow!("{}", e))?;
-
-        linker.func_wrap(module, "get_block_height", |caller: Caller<'_, HostState>| -> i64 {
-            caller.data().block_height as i64
-        }).map_err(|e| anyhow!("{}", e))?;
-
-        linker.func_wrap(module, "get_timestamp", |caller: Caller<'_, HostState>| -> i64 {
-            caller.data().timestamp as i64
-        }).map_err(|e| anyhow!("{}", e))?;
-
-        linker.func_wrap(module, "get_contract_id", |mut caller: Caller<'_, HostState>| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
-            let id = caller.data().contract_id.clone();
-            match write_to_guest(&memory, &mut caller, id.as_bytes()) {
-                Ok((ptr, _)) => ptr,
-                Err(_) => -1,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
-
-        linker.func_wrap(module, "get_contract_id_len", |caller: Caller<'_, HostState>| -> i32 {
-            caller.data().contract_id.len() as i32
-        }).map_err(|e| anyhow!("{}", e))?;
-
-        linker.func_wrap(module, "get_input", |mut caller: Caller<'_, HostState>| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
-            let input = caller.data().input_data.clone();
-            let alloc_off = caller.data().alloc_offset;
-            let mem_sz = memory.data_size(caller.as_context()) as u32;
-            tracing::info!(
-                "get_input: {} bytes, alloc_offset={}, mem_size={}, data={}",
-                input.len(), alloc_off, mem_sz,
-                String::from_utf8_lossy(&input[..input.len().min(200)])
-            );
-            match write_to_guest(&memory, &mut caller, &input) {
-                Ok((ptr, len)) => {
-                    tracing::debug!("get_input: wrote at ptr={}, len={}", ptr, len);
-                    ptr
+    fn register_context_functions(
+        &self,
+        linker: &mut Linker<HostState>,
+        module: &str,
+    ) -> Result<()> {
+        linker
+            .func_wrap(
+                module,
+                "get_caller",
+                |mut caller: Caller<'_, HostState>| -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
+                    let addr = caller.data().caller.clone();
+                    match write_to_guest(&memory, &mut caller, addr.as_bytes()) {
+                        Ok((ptr, _)) => ptr,
+                        Err(_) => -1,
+                    }
                 },
-                Err(e) => {
-                    tracing::warn!("get_input: write_to_guest failed: {}", e);
-                    -1
-                },
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap(module, "get_input_len", |caller: Caller<'_, HostState>| -> i32 {
-            caller.data().input_data.len() as i32
-        }).map_err(|e| anyhow!("{}", e))?;
+        linker
+            .func_wrap(
+                module,
+                "get_caller_len",
+                |caller: Caller<'_, HostState>| -> i32 { caller.data().caller.len() as i32 },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
+
+        linker
+            .func_wrap(
+                module,
+                "get_block_height",
+                |caller: Caller<'_, HostState>| -> i64 { caller.data().block_height as i64 },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
+
+        linker
+            .func_wrap(
+                module,
+                "get_timestamp",
+                |caller: Caller<'_, HostState>| -> i64 { caller.data().timestamp as i64 },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
+
+        linker
+            .func_wrap(
+                module,
+                "get_contract_id",
+                |mut caller: Caller<'_, HostState>| -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
+                    let id = caller.data().contract_id.clone();
+                    match write_to_guest(&memory, &mut caller, id.as_bytes()) {
+                        Ok((ptr, _)) => ptr,
+                        Err(_) => -1,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
+
+        linker
+            .func_wrap(
+                module,
+                "get_contract_id_len",
+                |caller: Caller<'_, HostState>| -> i32 { caller.data().contract_id.len() as i32 },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
+
+        linker
+            .func_wrap(
+                module,
+                "get_input",
+                |mut caller: Caller<'_, HostState>| -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
+                    let input = caller.data().input_data.clone();
+                    let alloc_off = caller.data().alloc_offset;
+                    let mem_sz = memory.data_size(caller.as_context()) as u32;
+                    tracing::info!(
+                        "get_input: {} bytes, alloc_offset={}, mem_size={}, data={}",
+                        input.len(),
+                        alloc_off,
+                        mem_sz,
+                        String::from_utf8_lossy(&input[..input.len().min(200)])
+                    );
+                    match write_to_guest(&memory, &mut caller, &input) {
+                        Ok((ptr, len)) => {
+                            tracing::debug!("get_input: wrote at ptr={}, len={}", ptr, len);
+                            ptr
+                        }
+                        Err(e) => {
+                            tracing::warn!("get_input: write_to_guest failed: {}", e);
+                            -1
+                        }
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
+
+        linker
+            .func_wrap(
+                module,
+                "get_input_len",
+                |caller: Caller<'_, HostState>| -> i32 { caller.data().input_data.len() as i32 },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
     }
 
     fn register_io_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
-        linker.func_wrap(module, "log", |mut caller: Caller<'_, HostState>, msg_ptr: i32, msg_len: i32| {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                _ => return,
-            };
+        linker
+            .func_wrap(
+                module,
+                "log",
+                |mut caller: Caller<'_, HostState>, msg_ptr: i32, msg_len: i32| {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        _ => return,
+                    };
 
-            let msg_bytes = match read_from_guest(&memory, &caller, msg_ptr, msg_len) {
-                Ok(b) => b,
-                Err(_) => return,
-            };
+                    let msg_bytes = match read_from_guest(&memory, &caller, msg_ptr, msg_len) {
+                        Ok(b) => b,
+                        Err(_) => return,
+                    };
 
-            let msg = String::from_utf8_lossy(&msg_bytes[..msg_bytes.len().min(MAX_LOG_LEN)]).to_string();
+                    let msg =
+                        String::from_utf8_lossy(&msg_bytes[..msg_bytes.len().min(MAX_LOG_LEN)])
+                            .to_string();
 
-            if caller.data().logs.len() < MAX_LOGS {
-                caller.data_mut().gas_meter.charge("log", 1);
-                caller.data_mut().logs.push(msg);
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+                    if caller.data().logs.len() < MAX_LOGS {
+                        caller.data_mut().gas_meter.charge("log", 1);
+                        caller.data_mut().logs.push(msg);
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap(module, "emit_event", |mut caller: Caller<'_, HostState>, name_ptr: i32, name_len: i32, data_ptr: i32, data_len: i32| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+        linker
+            .func_wrap(
+                module,
+                "emit_event",
+                |mut caller: Caller<'_, HostState>,
+                 name_ptr: i32,
+                 name_len: i32,
+                 data_ptr: i32,
+                 data_len: i32|
+                 -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            let event_name = match read_string_from_guest(&memory, &caller, name_ptr, name_len, MAX_STORAGE_KEY_LEN) {
-                Ok(n) => n,
-                Err(_) => return -1,
-            };
+                    let event_name = match read_string_from_guest(
+                        &memory,
+                        &caller,
+                        name_ptr,
+                        name_len,
+                        MAX_STORAGE_KEY_LEN,
+                    ) {
+                        Ok(n) => n,
+                        Err(_) => return -1,
+                    };
 
-            let data_bytes = match read_from_guest(&memory, &caller, data_ptr, data_len) {
-                Ok(b) => b,
-                Err(_) => return -1,
-            };
+                    let data_bytes = match read_from_guest(&memory, &caller, data_ptr, data_len) {
+                        Ok(b) => b,
+                        Err(_) => return -1,
+                    };
 
-            let event_data: HashMap<String, Value> = match serde_json::from_slice(&data_bytes) {
-                Ok(d) => d,
-                Err(_) => return -1,
-            };
+                    let event_data: HashMap<String, Value> =
+                        match serde_json::from_slice(&data_bytes) {
+                            Ok(d) => d,
+                            Err(_) => return -1,
+                        };
 
-            if caller.data().events.len() >= MAX_EVENTS {
-                return -1;
-            }
+                    if caller.data().events.len() >= MAX_EVENTS {
+                        return -1;
+                    }
 
-            let index = caller.data().events.len();
-            let contract_id = caller.data().contract_id.clone();
+                    let index = caller.data().events.len();
+                    let contract_id = caller.data().contract_id.clone();
 
-            caller.data_mut().gas_meter.charge("emit", 1);
-            caller.data_mut().events.push(ContractEvent {
-                contract_id,
-                event_name,
-                data: event_data,
-                index,
-            });
-            0
-        }).map_err(|e| anyhow!("{}", e))?;
+                    caller.data_mut().gas_meter.charge("emit", 1);
+                    caller.data_mut().events.push(ContractEvent {
+                        contract_id,
+                        event_name,
+                        data: event_data,
+                        index,
+                    });
+                    0
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap(module, "set_return_data", |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                _ => return,
-            };
+        linker
+            .func_wrap(
+                module,
+                "set_return_data",
+                |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        _ => return,
+                    };
 
-            let data = match read_from_guest(&memory, &caller, data_ptr, data_len) {
-                Ok(b) if b.len() <= MAX_RETURN_DATA => b,
-                _ => return,
-            };
+                    let data = match read_from_guest(&memory, &caller, data_ptr, data_len) {
+                        Ok(b) if b.len() <= MAX_RETURN_DATA => b,
+                        _ => return,
+                    };
 
-            caller.data_mut().return_data = data;
-        }).map_err(|e| anyhow!("{}", e))?;
+                    caller.data_mut().return_data = data;
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap(module, "set_error", |mut caller: Caller<'_, HostState>, msg_ptr: i32, msg_len: i32| {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                _ => return,
-            };
+        linker
+            .func_wrap(
+                module,
+                "set_error",
+                |mut caller: Caller<'_, HostState>, msg_ptr: i32, msg_len: i32| {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        _ => return,
+                    };
 
-            let msg_bytes = match read_from_guest(&memory, &caller, msg_ptr, msg_len) {
-                Ok(b) => b,
-                Err(_) => return,
-            };
+                    let msg_bytes = match read_from_guest(&memory, &caller, msg_ptr, msg_len) {
+                        Ok(b) => b,
+                        Err(_) => return,
+                    };
 
-            let msg = String::from_utf8_lossy(&msg_bytes[..msg_bytes.len().min(MAX_LOG_LEN)]).to_string();
-            caller.data_mut().error = Some(msg);
-        }).map_err(|e| anyhow!("{}", e))?;
+                    let msg =
+                        String::from_utf8_lossy(&msg_bytes[..msg_bytes.len().min(MAX_LOG_LEN)])
+                            .to_string();
+                    caller.data_mut().error = Some(msg);
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-        linker.func_wrap(module, "get_return_data_len", |caller: Caller<'_, HostState>| -> i32 {
-            caller.data().return_data.len() as i32
-        }).map_err(|e| anyhow!("{}", e))?;
-
-        Ok(())
-    }
-
-    fn register_crypto_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
-        linker.func_wrap(module, "sha256", |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
-
-            let data = match read_from_guest(&memory, &caller, data_ptr, data_len) {
-                Ok(b) => b,
-                Err(_) => return -1,
-            };
-
-            caller.data_mut().gas_meter.charge("hash", 1);
-
-            use sha2::{Sha256, Digest};
-            let hash = Sha256::digest(&data);
-
-            match write_to_guest(&memory, &mut caller, hash.as_slice()) {
-                Ok((ptr, _)) => ptr,
-                Err(_) => -1,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
-
-        linker.func_wrap(module, "keccak256", |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
-
-            let data = match read_from_guest(&memory, &caller, data_ptr, data_len) {
-                Ok(b) => b,
-                Err(_) => return -1,
-            };
-
-            caller.data_mut().gas_meter.charge("hash", 1);
-
-            use sha2::{Sha256, Digest};
-            let hash = Sha256::digest(&data);
-
-            match write_to_guest(&memory, &mut caller, hash.as_slice()) {
-                Ok((ptr, _)) => ptr,
-                Err(_) => -1,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+        linker
+            .func_wrap(
+                module,
+                "get_return_data_len",
+                |caller: Caller<'_, HostState>| -> i32 { caller.data().return_data.len() as i32 },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
     }
 
-    fn register_ledger_functions(&self, linker: &mut Linker<HostState>, module: &str) -> Result<()> {
-        linker.func_wrap(module, "get_balance", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+    fn register_crypto_functions(
+        &self,
+        linker: &mut Linker<HostState>,
+        module: &str,
+    ) -> Result<()> {
+        linker
+            .func_wrap(
+                module,
+                "sha256",
+                |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            let address = match read_string_from_guest(&memory, &caller, addr_ptr, addr_len, 64) {
-                Ok(a) => a,
-                Err(_) => return -1,
-            };
+                    let data = match read_from_guest(&memory, &caller, data_ptr, data_len) {
+                        Ok(b) => b,
+                        Err(_) => return -1,
+                    };
 
-            caller.data_mut().gas_meter.charge("balance_check", 1);
+                    caller.data_mut().gas_meter.charge("hash", 1);
 
-            match caller.data().accounts.get(&address) {
-                Some(acct) => (acct.balance * 1_000_000.0) as i64,
-                None => 0,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+                    use sha2::{Digest, Sha256};
+                    let hash = Sha256::digest(&data);
 
-        linker.func_wrap(module, "get_staked", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+                    match write_to_guest(&memory, &mut caller, hash.as_slice()) {
+                        Ok((ptr, _)) => ptr,
+                        Err(_) => -1,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-            let address = match read_string_from_guest(&memory, &caller, addr_ptr, addr_len, 64) {
-                Ok(a) => a,
-                Err(_) => return -1,
-            };
+        linker
+            .func_wrap(
+                module,
+                "keccak256",
+                |mut caller: Caller<'_, HostState>, data_ptr: i32, data_len: i32| -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            caller.data_mut().gas_meter.charge("balance_check", 1);
+                    let data = match read_from_guest(&memory, &caller, data_ptr, data_len) {
+                        Ok(b) => b,
+                        Err(_) => return -1,
+                    };
 
-            match caller.data().accounts.get(&address) {
-                Some(acct) => (acct.staked * 1_000_000.0) as i64,
-                None => 0,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+                    caller.data_mut().gas_meter.charge("hash", 1);
 
-        linker.func_wrap(module, "get_account_age", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+                    use sha2::{Digest, Sha256};
+                    let hash = Sha256::digest(&data);
 
-            let address = match read_string_from_guest(&memory, &caller, addr_ptr, addr_len, 64) {
-                Ok(a) => a,
-                Err(_) => return -1,
-            };
+                    match write_to_guest(&memory, &mut caller, hash.as_slice()) {
+                        Ok((ptr, _)) => ptr,
+                        Err(_) => -1,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-            caller.data_mut().gas_meter.charge("account_age_check", 1);
+        Ok(())
+    }
 
-            let current_time = caller.data().timestamp;
-            match caller.data().accounts.get(&address) {
-                Some(acct) => (current_time.saturating_sub(acct.first_seen)) as i64,
-                None => 0,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+    fn register_ledger_functions(
+        &self,
+        linker: &mut Linker<HostState>,
+        module: &str,
+    ) -> Result<()> {
+        linker
+            .func_wrap(
+                module,
+                "get_balance",
+                |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-        linker.func_wrap(module, "get_nonce", |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+                    let address =
+                        match read_string_from_guest(&memory, &caller, addr_ptr, addr_len, 64) {
+                            Ok(a) => a,
+                            Err(_) => return -1,
+                        };
 
-            let address = match read_string_from_guest(&memory, &caller, addr_ptr, addr_len, 64) {
-                Ok(a) => a,
-                Err(_) => return -1,
-            };
+                    caller.data_mut().gas_meter.charge("balance_check", 1);
 
-            caller.data_mut().gas_meter.charge("balance_check", 1);
+                    match caller.data().accounts.get(&address) {
+                        Some(acct) => (acct.balance * 1_000_000.0) as i64,
+                        None => 0,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-            match caller.data().accounts.get(&address) {
-                Some(acct) => acct.nonce as i64,
-                None => 0,
-            }
-        }).map_err(|e| anyhow!("{}", e))?;
+        linker
+            .func_wrap(
+                module,
+                "get_staked",
+                |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-        linker.func_wrap(module, "transfer", |mut caller: Caller<'_, HostState>, from_ptr: i32, from_len: i32, to_ptr: i32, to_len: i32, amount_micro: i64| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+                    let address =
+                        match read_string_from_guest(&memory, &caller, addr_ptr, addr_len, 64) {
+                            Ok(a) => a,
+                            Err(_) => return -1,
+                        };
 
-            let from = match read_string_from_guest(&memory, &caller, from_ptr, from_len, 64) {
-                Ok(a) => a,
-                Err(_) => return -1,
-            };
+                    caller.data_mut().gas_meter.charge("balance_check", 1);
 
-            let to = match read_string_from_guest(&memory, &caller, to_ptr, to_len, 64) {
-                Ok(a) => a,
-                Err(_) => return -1,
-            };
+                    match caller.data().accounts.get(&address) {
+                        Some(acct) => (acct.staked * 1_000_000.0) as i64,
+                        None => 0,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-            if amount_micro <= 0 {
-                return -2;
-            }
+        linker
+            .func_wrap(
+                module,
+                "get_account_age",
+                |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            let amount = amount_micro as f64 / 1_000_000.0;
+                    let address =
+                        match read_string_from_guest(&memory, &caller, addr_ptr, addr_len, 64) {
+                            Ok(a) => a,
+                            Err(_) => return -1,
+                        };
 
-            let caller_addr = caller.data().caller.clone();
-            if from != caller_addr {
-                return -3;
-            }
+                    caller.data_mut().gas_meter.charge("account_age_check", 1);
 
-            caller.data_mut().gas_meter.charge("transfer", 1);
+                    let current_time = caller.data().timestamp;
+                    match caller.data().accounts.get(&address) {
+                        Some(acct) => (current_time.saturating_sub(acct.first_seen)) as i64,
+                        None => 0,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-            let from_balance = caller.data().accounts.get(&from).map(|a| a.balance).unwrap_or(0.0);
-            if from_balance < amount {
-                return -4;
-            }
+        linker
+            .func_wrap(
+                module,
+                "get_nonce",
+                |mut caller: Caller<'_, HostState>, addr_ptr: i32, addr_len: i32| -> i64 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-            if caller.data().transfer_ops.len() >= MAX_TRANSFERS {
-                return -5;
-            }
+                    let address =
+                        match read_string_from_guest(&memory, &caller, addr_ptr, addr_len, 64) {
+                            Ok(a) => a,
+                            Err(_) => return -1,
+                        };
 
-            let timestamp = caller.data().timestamp;
-            let host = caller.data_mut();
-            if let Some(acct) = host.accounts.get_mut(&from) {
-                acct.balance -= amount;
-            }
-            let to_balance = host.accounts.get(&to).map(|a| a.balance).unwrap_or(0.0);
-            if let Some(acct) = host.accounts.get_mut(&to) {
-                acct.balance += amount;
-            } else {
-                host.accounts.insert(to.clone(), AccountSnapshot {
-                    address: to.clone(),
-                    balance: to_balance + amount,
-                    nonce: 0,
-                    first_seen: timestamp,
-                    staked: 0.0,
-                });
-            }
+                    caller.data_mut().gas_meter.charge("balance_check", 1);
 
-            caller.data_mut().transfer_ops.push(TransferOp {
-                from,
-                to,
-                amount,
-            });
+                    match caller.data().accounts.get(&address) {
+                        Some(acct) => acct.nonce as i64,
+                        None => 0,
+                    }
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
-            0
-        }).map_err(|e| anyhow!("{}", e))?;
+        linker
+            .func_wrap(
+                module,
+                "transfer",
+                |mut caller: Caller<'_, HostState>,
+                 from_ptr: i32,
+                 from_len: i32,
+                 to_ptr: i32,
+                 to_len: i32,
+                 amount_micro: i64|
+                 -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
 
-        linker.func_wrap(module, "emit_view_key", |mut caller: Caller<'_, HostState>, key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32| -> i32 {
-            let memory = match get_memory(&caller) {
-                Some(m) => m,
-                None => return -1,
-            };
+                    let from =
+                        match read_string_from_guest(&memory, &caller, from_ptr, from_len, 64) {
+                            Ok(a) => a,
+                            Err(_) => return -1,
+                        };
 
-            let key = match read_string_from_guest(&memory, &caller, key_ptr, key_len, MAX_STORAGE_KEY_LEN) {
-                Ok(k) => k,
-                Err(_) => return -1,
-            };
+                    let to = match read_string_from_guest(&memory, &caller, to_ptr, to_len, 64) {
+                        Ok(a) => a,
+                        Err(_) => return -1,
+                    };
 
-            let val_bytes = match read_from_guest(&memory, &caller, val_ptr, val_len) {
-                Ok(b) if b.len() <= MAX_STORAGE_VALUE_LEN => b,
-                _ => return -1,
-            };
+                    if amount_micro <= 0 {
+                        return -2;
+                    }
 
-            let value: Value = match serde_json::from_slice(&val_bytes) {
-                Ok(v) => v,
-                Err(_) => return -1,
-            };
+                    let amount = amount_micro as f64 / 1_000_000.0;
 
-            if caller.data().view_key_emissions.len() >= MAX_VIEW_KEYS {
-                return -1;
-            }
+                    let caller_addr = caller.data().caller.clone();
+                    if from != caller_addr {
+                        return -3;
+                    }
 
-            caller.data_mut().gas_meter.charge("emit", 1);
-            caller.data_mut().view_key_emissions.push(ViewKeyEmission {
-                key,
-                value,
-            });
+                    caller.data_mut().gas_meter.charge("transfer", 1);
 
-            0
-        }).map_err(|e| anyhow!("{}", e))?;
+                    let from_balance = caller
+                        .data()
+                        .accounts
+                        .get(&from)
+                        .map(|a| a.balance)
+                        .unwrap_or(0.0);
+                    if from_balance < amount {
+                        return -4;
+                    }
 
-        linker.func_wrap(module, "get_gas_price", |caller: Caller<'_, HostState>| -> i64 {
-            let host = caller.data();
-            (host.gas_price * 1_000_000.0) as i64
-        }).map_err(|e| anyhow!("{}", e))?;
+                    if caller.data().transfer_ops.len() >= MAX_TRANSFERS {
+                        return -5;
+                    }
+
+                    let timestamp = caller.data().timestamp;
+                    let host = caller.data_mut();
+                    if let Some(acct) = host.accounts.get_mut(&from) {
+                        acct.balance -= amount;
+                    }
+                    let to_balance = host.accounts.get(&to).map(|a| a.balance).unwrap_or(0.0);
+                    if let Some(acct) = host.accounts.get_mut(&to) {
+                        acct.balance += amount;
+                    } else {
+                        host.accounts.insert(
+                            to.clone(),
+                            AccountSnapshot {
+                                address: to.clone(),
+                                balance: to_balance + amount,
+                                nonce: 0,
+                                first_seen: timestamp,
+                                staked: 0.0,
+                            },
+                        );
+                    }
+
+                    caller
+                        .data_mut()
+                        .transfer_ops
+                        .push(TransferOp { from, to, amount });
+
+                    0
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
+
+        linker
+            .func_wrap(
+                module,
+                "emit_view_key",
+                |mut caller: Caller<'_, HostState>,
+                 key_ptr: i32,
+                 key_len: i32,
+                 val_ptr: i32,
+                 val_len: i32|
+                 -> i32 {
+                    let memory = match get_memory(&caller) {
+                        Some(m) => m,
+                        None => return -1,
+                    };
+
+                    let key = match read_string_from_guest(
+                        &memory,
+                        &caller,
+                        key_ptr,
+                        key_len,
+                        MAX_STORAGE_KEY_LEN,
+                    ) {
+                        Ok(k) => k,
+                        Err(_) => return -1,
+                    };
+
+                    let val_bytes = match read_from_guest(&memory, &caller, val_ptr, val_len) {
+                        Ok(b) if b.len() <= MAX_STORAGE_VALUE_LEN => b,
+                        _ => return -1,
+                    };
+
+                    let value: Value = match serde_json::from_slice(&val_bytes) {
+                        Ok(v) => v,
+                        Err(_) => return -1,
+                    };
+
+                    if caller.data().view_key_emissions.len() >= MAX_VIEW_KEYS {
+                        return -1;
+                    }
+
+                    caller.data_mut().gas_meter.charge("emit", 1);
+                    caller
+                        .data_mut()
+                        .view_key_emissions
+                        .push(ViewKeyEmission { key, value });
+
+                    0
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
+
+        linker
+            .func_wrap(
+                module,
+                "get_gas_price",
+                |caller: Caller<'_, HostState>| -> i64 {
+                    let host = caller.data();
+                    (host.gas_price * 1_000_000.0) as i64
+                },
+            )
+            .map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
     }
@@ -993,13 +1297,15 @@ fn wrap_err(msg: String) -> WasmExecutionOutput {
     }
 }
 
-fn build_success_output(host: HostState, contract_id: &str, height: u64, fuel_consumed: u64, base_gas: u64, input_bytes: usize) -> WasmExecutionOutput {
-    let state_diff = compute_state_diff(
-        contract_id,
-        height,
-        &host.original_storage,
-        &host.storage,
-    );
+fn build_success_output(
+    host: HostState,
+    contract_id: &str,
+    height: u64,
+    fuel_consumed: u64,
+    base_gas: u64,
+    input_bytes: usize,
+) -> WasmExecutionOutput {
+    let state_diff = compute_state_diff(contract_id, height, &host.original_storage, &host.storage);
     let has_changes = !state_diff.changes.is_empty();
     let host_gas = host.gas_meter.gas_used();
     let total_gas = compute_total_gas(fuel_consumed, host_gas, base_gas, input_bytes);
@@ -1059,7 +1365,8 @@ mod tests {
     }
 
     fn make_simple_wasm() -> Vec<u8> {
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1)
@@ -1070,12 +1377,15 @@ mod tests {
                     (i32.const 0)
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         wat::parse_str(&wat).expect("Failed to parse WAT")
     }
 
     fn make_counter_wasm() -> Vec<u8> {
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1)
@@ -1093,7 +1403,9 @@ mod tests {
                     (i32.const 0)
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         wat::parse_str(&wat).expect("Failed to parse WAT")
     }
 
@@ -1120,7 +1432,17 @@ mod tests {
         let input = HashMap::new();
         let state = HashMap::new();
 
-        let output = engine.execute("test_contract", &wasm, "hello", &input, &state, 1, Some(1_000_000), "caller_addr", 100);
+        let output = engine.execute(
+            "test_contract",
+            &wasm,
+            "hello",
+            &input,
+            &state,
+            1,
+            Some(1_000_000),
+            "caller_addr",
+            100,
+        );
 
         assert!(output.result.success);
         assert_eq!(output.result.logs, vec!["hello from wasm"]);
@@ -1134,7 +1456,17 @@ mod tests {
         let input = HashMap::new();
         let state = HashMap::new();
 
-        let output = engine.execute("counter_contract", &wasm, "init", &input, &state, 1, Some(1_000_000), "caller_addr", 100);
+        let output = engine.execute(
+            "counter_contract",
+            &wasm,
+            "init",
+            &input,
+            &state,
+            1,
+            Some(1_000_000),
+            "caller_addr",
+            100,
+        );
 
         assert!(output.result.success);
         assert!(output.result.state_diff.is_some());
@@ -1150,7 +1482,17 @@ mod tests {
         let input = HashMap::new();
         let state = HashMap::new();
 
-        let output = engine.execute("test_contract", &wasm, "nonexistent", &input, &state, 1, Some(1_000_000), "caller_addr", 100);
+        let output = engine.execute(
+            "test_contract",
+            &wasm,
+            "nonexistent",
+            &input,
+            &state,
+            1,
+            Some(1_000_000),
+            "caller_addr",
+            100,
+        );
 
         assert!(!output.result.success);
         assert!(output.result.error.unwrap().contains("not found"));
@@ -1163,7 +1505,17 @@ mod tests {
         let input = HashMap::new();
         let state = HashMap::new();
 
-        let output = engine.execute("test_contract", &wasm, "hello", &input, &state, 1, Some(1), "caller_addr", 100);
+        let output = engine.execute(
+            "test_contract",
+            &wasm,
+            "hello",
+            &input,
+            &state,
+            1,
+            Some(1),
+            "caller_addr",
+            100,
+        );
 
         assert!(!output.result.success);
     }
@@ -1175,7 +1527,17 @@ mod tests {
         let input = HashMap::new();
         let state = HashMap::new();
 
-        let output = engine.execute("my_contract", &wasm, "hello", &input, &state, 42, Some(1_000_000), "alice", 1234567890);
+        let output = engine.execute(
+            "my_contract",
+            &wasm,
+            "hello",
+            &input,
+            &state,
+            42,
+            Some(1_000_000),
+            "alice",
+            1234567890,
+        );
 
         assert!(output.result.success);
     }
@@ -1184,7 +1546,8 @@ mod tests {
     fn test_get_balance_host_function() {
         let engine = WasmEngine::new();
 
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1)
@@ -1198,17 +1561,22 @@ mod tests {
                     (if (result i32) (then (i32.const 0)) (else (i32.const 1)))
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         let wasm = wat::parse_str(&wat).expect("Failed to parse WAT");
 
         let mut accounts = HashMap::new();
-        accounts.insert("alice_address_here".to_string(), AccountSnapshot {
-            address: "alice_address_here".to_string(),
-            balance: 100.0,
-            nonce: 5,
-            first_seen: 1000,
-            staked: 50.0,
-        });
+        accounts.insert(
+            "alice_address_here".to_string(),
+            AccountSnapshot {
+                address: "alice_address_here".to_string(),
+                balance: 100.0,
+                nonce: 5,
+                first_seen: 1000,
+                staked: 50.0,
+            },
+        );
 
         let ctx = ExecutionContext {
             accounts,
@@ -1217,8 +1585,16 @@ mod tests {
         };
 
         let output = engine.execute_with_context(
-            "test", &wasm, "check_balance", &HashMap::new(), &HashMap::new(),
-            1, Some(1_000_000), "caller", 2000, ctx,
+            "test",
+            &wasm,
+            "check_balance",
+            &HashMap::new(),
+            &HashMap::new(),
+            1,
+            Some(1_000_000),
+            "caller",
+            2000,
+            ctx,
         );
 
         assert!(output.result.success, "Error: {:?}", output.result.error);
@@ -1228,7 +1604,8 @@ mod tests {
     fn test_transfer_host_function() {
         let engine = WasmEngine::new();
 
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1)
@@ -1243,24 +1620,32 @@ mod tests {
                     )
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         let wasm = wat::parse_str(&wat).expect("Failed to parse WAT");
 
         let mut accounts = HashMap::new();
-        accounts.insert("alice".to_string(), AccountSnapshot {
-            address: "alice".to_string(),
-            balance: 100.0,
-            nonce: 0,
-            first_seen: 1000,
-            staked: 0.0,
-        });
-        accounts.insert("bob00".to_string(), AccountSnapshot {
-            address: "bob00".to_string(),
-            balance: 50.0,
-            nonce: 0,
-            first_seen: 1000,
-            staked: 0.0,
-        });
+        accounts.insert(
+            "alice".to_string(),
+            AccountSnapshot {
+                address: "alice".to_string(),
+                balance: 100.0,
+                nonce: 0,
+                first_seen: 1000,
+                staked: 0.0,
+            },
+        );
+        accounts.insert(
+            "bob00".to_string(),
+            AccountSnapshot {
+                address: "bob00".to_string(),
+                balance: 50.0,
+                nonce: 0,
+                first_seen: 1000,
+                staked: 0.0,
+            },
+        );
 
         let ctx = ExecutionContext {
             accounts,
@@ -1269,8 +1654,16 @@ mod tests {
         };
 
         let output = engine.execute_with_context(
-            "test", &wasm, "do_transfer", &HashMap::new(), &HashMap::new(),
-            1, Some(1_000_000), "alice", 2000, ctx,
+            "test",
+            &wasm,
+            "do_transfer",
+            &HashMap::new(),
+            &HashMap::new(),
+            1,
+            Some(1_000_000),
+            "alice",
+            2000,
+            ctx,
         );
 
         assert!(output.result.success, "Error: {:?}", output.result.error);
@@ -1284,7 +1677,8 @@ mod tests {
     fn test_transfer_insufficient_balance() {
         let engine = WasmEngine::new();
 
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1)
@@ -1299,17 +1693,22 @@ mod tests {
                     )
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         let wasm = wat::parse_str(&wat).expect("Failed to parse WAT");
 
         let mut accounts = HashMap::new();
-        accounts.insert("alice".to_string(), AccountSnapshot {
-            address: "alice".to_string(),
-            balance: 10.0,
-            nonce: 0,
-            first_seen: 1000,
-            staked: 0.0,
-        });
+        accounts.insert(
+            "alice".to_string(),
+            AccountSnapshot {
+                address: "alice".to_string(),
+                balance: 10.0,
+                nonce: 0,
+                first_seen: 1000,
+                staked: 0.0,
+            },
+        );
 
         let ctx = ExecutionContext {
             accounts,
@@ -1318,8 +1717,16 @@ mod tests {
         };
 
         let output = engine.execute_with_context(
-            "test", &wasm, "do_transfer", &HashMap::new(), &HashMap::new(),
-            1, Some(1_000_000), "alice", 2000, ctx,
+            "test",
+            &wasm,
+            "do_transfer",
+            &HashMap::new(),
+            &HashMap::new(),
+            1,
+            Some(1_000_000),
+            "alice",
+            2000,
+            ctx,
         );
 
         assert!(!output.result.success);
@@ -1329,7 +1736,8 @@ mod tests {
     fn test_emit_view_key() {
         let engine = WasmEngine::new();
 
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1)
@@ -1343,12 +1751,21 @@ mod tests {
                     )
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         let wasm = wat::parse_str(&wat).expect("Failed to parse WAT");
 
         let output = engine.execute(
-            "test", &wasm, "emit_vk", &HashMap::new(), &HashMap::new(),
-            1, Some(1_000_000), "caller", 100,
+            "test",
+            &wasm,
+            "emit_vk",
+            &HashMap::new(),
+            &HashMap::new(),
+            1,
+            Some(1_000_000),
+            "caller",
+            100,
         );
 
         assert!(output.result.success, "Error: {:?}", output.result.error);
@@ -1360,7 +1777,8 @@ mod tests {
     fn test_memory_limit_enforcement() {
         let engine = WasmEngine::new();
 
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1 256)
@@ -1368,7 +1786,9 @@ mod tests {
                     (i32.const 0)
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         let wasm = wat::parse_str(&wat).expect("Failed to parse WAT");
 
         let ctx = ExecutionContext {
@@ -1378,8 +1798,16 @@ mod tests {
         };
 
         let output = engine.execute_with_context(
-            "test", &wasm, "hello", &HashMap::new(), &HashMap::new(),
-            1, Some(1_000_000), "caller", 100, ctx,
+            "test",
+            &wasm,
+            "hello",
+            &HashMap::new(),
+            &HashMap::new(),
+            1,
+            Some(1_000_000),
+            "caller",
+            100,
+            ctx,
         );
 
         assert!(output.result.success);
@@ -1402,14 +1830,18 @@ mod tests {
 
         let result = engine.validate_wasm(&wasm);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unknown namespace"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unknown namespace"));
     }
 
     #[test]
     fn test_storage_has() {
         let engine = WasmEngine::new();
 
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1)
@@ -1430,15 +1862,24 @@ mod tests {
                     )
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         let wasm = wat::parse_str(&wat).expect("Failed to parse WAT");
 
         let mut state = HashMap::new();
         state.insert("mykey".to_string(), Value::Number(42.into()));
 
         let output = engine.execute(
-            "test", &wasm, "check", &HashMap::new(), &state,
-            1, Some(1_000_000), "caller", 100,
+            "test",
+            &wasm,
+            "check",
+            &HashMap::new(),
+            &state,
+            1,
+            Some(1_000_000),
+            "caller",
+            100,
         );
 
         assert!(output.result.success, "Error: {:?}", output.result.error);
@@ -1448,7 +1889,8 @@ mod tests {
     fn test_execute_full_transfer_and_view_key_pipeline() {
         let engine = WasmEngine::new();
 
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1)
@@ -1485,24 +1927,32 @@ mod tests {
                     )
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         let wasm = wat::parse_str(&wat).expect("Failed to parse WAT");
 
         let mut accounts = HashMap::new();
-        accounts.insert("alice_addr".to_string(), AccountSnapshot {
-            address: "alice_addr".to_string(),
-            balance: 100.0,
-            nonce: 0,
-            first_seen: 1000,
-            staked: 0.0,
-        });
-        accounts.insert("bob_address".to_string(), AccountSnapshot {
-            address: "bob_address".to_string(),
-            balance: 10.0,
-            nonce: 0,
-            first_seen: 1000,
-            staked: 0.0,
-        });
+        accounts.insert(
+            "alice_addr".to_string(),
+            AccountSnapshot {
+                address: "alice_addr".to_string(),
+                balance: 100.0,
+                nonce: 0,
+                first_seen: 1000,
+                staked: 0.0,
+            },
+        );
+        accounts.insert(
+            "bob_address".to_string(),
+            AccountSnapshot {
+                address: "bob_address".to_string(),
+                balance: 10.0,
+                nonce: 0,
+                first_seen: 1000,
+                staked: 0.0,
+            },
+        );
 
         let ctx = ExecutionContext {
             accounts,
@@ -1511,19 +1961,39 @@ mod tests {
         };
 
         let output = engine.execute_with_context(
-            "test_contract", &wasm, "run", &HashMap::new(), &HashMap::new(),
-            1, Some(1_000_000), "alice_addr", 2000, ctx,
+            "test_contract",
+            &wasm,
+            "run",
+            &HashMap::new(),
+            &HashMap::new(),
+            1,
+            Some(1_000_000),
+            "alice_addr",
+            2000,
+            ctx,
         );
 
-        assert!(output.result.success, "Execution failed: {:?}", output.result.error);
+        assert!(
+            output.result.success,
+            "Execution failed: {:?}",
+            output.result.error
+        );
 
         assert_eq!(output.transfer_ops.len(), 1, "Expected 1 transfer op");
         let transfer = &output.transfer_ops[0];
         assert_eq!(transfer.from, "alice_addr");
         assert_eq!(transfer.to, "bob_address");
-        assert!((transfer.amount - 5.0).abs() < 0.001, "Expected ~5.0 RKU, got {}", transfer.amount);
+        assert!(
+            (transfer.amount - 5.0).abs() < 0.001,
+            "Expected ~5.0 RKU, got {}",
+            transfer.amount
+        );
 
-        assert_eq!(output.view_key_emissions.len(), 1, "Expected 1 view key emission");
+        assert_eq!(
+            output.view_key_emissions.len(),
+            1,
+            "Expected 1 view key emission"
+        );
         let vk = &output.view_key_emissions[0];
         assert_eq!(vk.key, "balance");
     }
@@ -1532,7 +2002,8 @@ mod tests {
     fn test_execute_full_multiple_transfers_and_balance_tracking() {
         let engine = WasmEngine::new();
 
-        let wat = format!(r#"
+        let wat = format!(
+            r#"
             (module
                 {}
                 (memory (export "memory") 1)
@@ -1564,17 +2035,22 @@ mod tests {
                     )
                 )
             )
-        "#, all_imports_wat());
+        "#,
+            all_imports_wat()
+        );
         let wasm = wat::parse_str(&wat).expect("Failed to parse WAT");
 
         let mut accounts = HashMap::new();
-        accounts.insert("alice_addr".to_string(), AccountSnapshot {
-            address: "alice_addr".to_string(),
-            balance: 50.0,
-            nonce: 0,
-            first_seen: 1000,
-            staked: 0.0,
-        });
+        accounts.insert(
+            "alice_addr".to_string(),
+            AccountSnapshot {
+                address: "alice_addr".to_string(),
+                balance: 50.0,
+                nonce: 0,
+                first_seen: 1000,
+                staked: 0.0,
+            },
+        );
 
         let ctx = ExecutionContext {
             accounts,
@@ -1583,11 +2059,23 @@ mod tests {
         };
 
         let output = engine.execute_with_context(
-            "test_contract", &wasm, "multi_transfer", &HashMap::new(), &HashMap::new(),
-            1, Some(1_000_000), "alice_addr", 2000, ctx,
+            "test_contract",
+            &wasm,
+            "multi_transfer",
+            &HashMap::new(),
+            &HashMap::new(),
+            1,
+            Some(1_000_000),
+            "alice_addr",
+            2000,
+            ctx,
         );
 
-        assert!(output.result.success, "Execution failed: {:?}", output.result.error);
+        assert!(
+            output.result.success,
+            "Execution failed: {:?}",
+            output.result.error
+        );
         assert_eq!(output.transfer_ops.len(), 2, "Expected 2 transfer ops");
 
         assert_eq!(output.transfer_ops[0].from, "alice_addr");
@@ -1605,13 +2093,23 @@ mod tests {
 
         let mut mgr = ContractStorageManager::new();
 
-        mgr.write_key("token_contract", "total_supply", &Value::from(1000000), None).unwrap();
-        mgr.write_key("token_contract", "balance:alice", &Value::from(500), None).unwrap();
-        mgr.write_key("token_contract", "balance:bob", &Value::from(300), None).unwrap();
+        mgr.write_key(
+            "token_contract",
+            "total_supply",
+            &Value::from(1000000),
+            None,
+        )
+        .unwrap();
+        mgr.write_key("token_contract", "balance:alice", &Value::from(500), None)
+            .unwrap();
+        mgr.write_key("token_contract", "balance:bob", &Value::from(300), None)
+            .unwrap();
 
         let pre_root = mgr.root();
 
-        let proof_alice = mgr.prove_key("token_contract", "balance:alice", None).unwrap();
+        let proof_alice = mgr
+            .prove_key("token_contract", "balance:alice", None)
+            .unwrap();
         assert!(proof_alice.verify());
         assert_eq!(proof_alice.root, pre_root);
 
@@ -1619,11 +2117,14 @@ mod tests {
             ("balance:alice".to_string(), Some(Value::from(450))),
             ("balance:bob".to_string(), Some(Value::from(350))),
         ];
-        let new_root = mgr.apply_state_diff("token_contract", &changes, None).unwrap();
+        let new_root = mgr
+            .apply_state_diff("token_contract", &changes, None)
+            .unwrap();
         assert_ne!(pre_root, new_root);
 
         assert_eq!(
-            mgr.read_key("token_contract", "balance:alice", None).unwrap(),
+            mgr.read_key("token_contract", "balance:alice", None)
+                .unwrap(),
             Some(Value::from(450))
         );
         assert_eq!(
@@ -1631,12 +2132,15 @@ mod tests {
             Some(Value::from(350))
         );
 
-        let proof_alice_post = mgr.prove_key("token_contract", "balance:alice", None).unwrap();
+        let proof_alice_post = mgr
+            .prove_key("token_contract", "balance:alice", None)
+            .unwrap();
         assert!(proof_alice_post.verify());
         assert_eq!(proof_alice_post.root, new_root);
 
         assert_eq!(
-            mgr.read_key("token_contract", "total_supply", None).unwrap(),
+            mgr.read_key("token_contract", "total_supply", None)
+                .unwrap(),
             Some(Value::from(1000000))
         );
     }

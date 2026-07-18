@@ -83,7 +83,10 @@ impl DagPruningService {
     ) -> Result<PruningStats> {
         let prune_boundary = self.calculate_prune_boundary(current_checkpoint);
         if prune_boundary == 0 {
-            debug!("No pruning needed, checkpoint {} below threshold", current_checkpoint);
+            debug!(
+                "No pruning needed, checkpoint {} below threshold",
+                current_checkpoint
+            );
             return Ok(self.stats.clone());
         }
 
@@ -108,7 +111,8 @@ impl DagPruningService {
 
         let checkpoint_heights_to_delete: Vec<u64> = (0..prune_boundary).collect();
         if !checkpoint_heights_to_delete.is_empty() {
-            checkpoints_pruned = storage.batch_delete_checkpoints(&checkpoint_heights_to_delete)? as u64;
+            checkpoints_pruned =
+                storage.batch_delete_checkpoints(&checkpoint_heights_to_delete)? as u64;
         }
 
         let now = std::time::SystemTime::now()
@@ -138,7 +142,7 @@ impl DagPruningService {
         _prune_boundary: u64,
         finalized_tx_hashes: &HashSet<String>,
     ) -> bool {
-        // CRITICAL FIX: 
+        // CRITICAL FIX:
         // 1. Prefer keeping unfinalized transactions to allow them to finalize
         // 2. Only prune finalized transactions that are old enough
         // 3. Safety cap: prune VERY old unfinalized transactions (10x retention) to prevent
@@ -146,23 +150,23 @@ impl DagPruningService {
         //
         // Previously this was inverted (!contains), causing unfinalized txs to be pruned
         // while finalized ones were kept forever - completely backwards!
-        
+
         let is_finalized = finalized_tx_hashes.contains(&tx.hash);
-        
+
         // Calculate retention periods
         // Normal retention: assume ~10s per checkpoint
         let retention_ms = self.config.retention_checkpoints * 10_000;
         // Safety cap: unfinalized transactions older than 10x retention are pruned
         // This prevents unbounded memory growth from stuck transactions
         let max_unfinalized_age_ms = retention_ms * 10;
-        
+
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        
+
         let tx_age_ms = now_ms.saturating_sub(tx.tx.timestamp);
-        
+
         if is_finalized {
             // Prune finalized transactions older than retention period
             tx_age_ms > retention_ms

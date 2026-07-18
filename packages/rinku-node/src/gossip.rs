@@ -304,6 +304,9 @@ pub enum GossipMessage {
         tx: SignedTransaction,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
+        /// Uncompressed SEC1 ECDSA public key hex for authenticity checks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        public_key: Option<String>,
     },
     TipAnnouncement {
         tips: Vec<String>,
@@ -405,6 +408,10 @@ pub enum GossipMessage {
         timestamp_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
+        /// ECDSA public key (hex) of the tx sender, so peers can authenticate
+        /// the tx on first sighting. Absent for system txs (faucet/consolidation).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        public_key: Option<String>,
     },
     TxConfirmAck {
         tx_hash: String,
@@ -671,6 +678,7 @@ enum FastPathVoteOp {
         validator_address: String,
         validator_stake: u64,
         timestamp_ms: u64,
+        bls_signature: Option<String>,
     },
 }
 
@@ -711,6 +719,10 @@ pub struct GossipService {
     qcc_vote_tx: Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Sender<QccGossipVote>>>>,
     highest_seen_peer_height: Arc<std::sync::atomic::AtomicU64>,
     qcc_vote_lock: Arc<tokio::sync::Mutex<(u64, String)>>,
+    /// Unix-ms timestamp of the last divergence-triggered full snapshot resync.
+    /// Used to rate-limit resyncs when the local state root diverges from a
+    /// committed checkpoint (see check_post_apply_consensus).
+    divergence_resync_at_ms: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Clone for GossipService {
@@ -746,6 +758,7 @@ impl Clone for GossipService {
             qcc_vote_tx: self.qcc_vote_tx.clone(),
             highest_seen_peer_height: self.highest_seen_peer_height.clone(),
             qcc_vote_lock: self.qcc_vote_lock.clone(),
+            divergence_resync_at_ms: self.divergence_resync_at_ms.clone(),
         }
     }
 }
@@ -852,6 +865,7 @@ impl GossipService {
             qcc_vote_tx: Arc::new(tokio::sync::Mutex::new(None)),
             highest_seen_peer_height: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             qcc_vote_lock: Arc::new(tokio::sync::Mutex::new((0u64, String::new()))),
+            divergence_resync_at_ms: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -1179,6 +1193,12 @@ impl GossipService {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
+        let local_ack_signer = self_arc.checkpoint_vote_signer.clone();
+        let sign_local_ack = |tx_hash: &str| -> Option<String> {
+            local_ack_signer
+                .as_ref()
+                .and_then(|s| crate::fast_path::sign_fast_path_ack(tx_hash, &s.bls_private_key))
+        };
 
         struct ConfirmedTx {
             tx_hash: String,
@@ -1203,7 +1223,10 @@ impl GossipService {
                         send_ack,
                     } => {
                         if inner.fast_path_tx_bodies.len() < 10_000 {
-                            inner.fast_path_tx_bodies.entry(tx.hash.clone()).or_insert_with(|| tx.clone());
+                            inner
+                                .fast_path_tx_bodies
+                                .entry(tx.hash.clone())
+                                .or_insert_with(|| tx.clone());
                         }
 
                         if inner.fast_path_executed.contains(&tx.hash) {
@@ -1277,11 +1300,12 @@ impl GossipService {
                                 let self_acked =
                                     finality.acks.iter().any(|a| a.validator_address == *addr);
                                 if !self_acked {
+                                    let self_sig = sign_local_ack(&tx.hash);
                                     finality.acks.push(rinku_core::types::FastPathAck {
                                         tx_hash: tx.hash.clone(),
                                         validator_address: addr.clone(),
                                         validator_stake: our_stake,
-                                        bls_signature: None,
+                                        bls_signature: self_sig,
                                         timestamp_ms: now_ms,
                                     });
                                     finality.total_stake_acked += our_stake;
@@ -1295,9 +1319,7 @@ impl GossipService {
                             finality.status = rinku_core::types::FastPathStatus::Confirmed;
                             finality.confirmed_at_ms = Some(now_ms);
                             let f = finality.clone();
-                            inner
-                                .fast_path_confirmed
-                                .insert(tx.hash.clone(), f.clone());
+                            inner.fast_path_confirmed.insert(tx.hash.clone(), f.clone());
                             inner.fast_path_pending.remove(&tx.hash);
                             newly_confirmed.push(ConfirmedTx {
                                 tx_hash: tx.hash.clone(),
@@ -1319,6 +1341,7 @@ impl GossipService {
                         validator_address,
                         validator_stake,
                         timestamp_ms,
+                        bls_signature,
                     } => {
                         if inner.fast_path_executed.contains(&tx_hash) {
                             continue;
@@ -1339,6 +1362,19 @@ impl GossipService {
                                     &validator_address[..16.min(validator_address.len())],
                                     validator_stake,
                                     v.stake
+                                );
+                                continue;
+                            }
+                            // Require valid BLS ACK over tx hash (A7)
+                            if let Err(reason) = crate::fast_path::require_valid_ack_bls(
+                                &tx_hash,
+                                &bls_signature,
+                                &v.bls_public_key,
+                            ) {
+                                warn!(
+                                    "Rejecting FastPathAck from {}: {}",
+                                    &validator_address[..16.min(validator_address.len())],
+                                    reason
                                 );
                                 continue;
                             }
@@ -1375,7 +1411,7 @@ impl GossipService {
                                 tx_hash: tx_hash.clone(),
                                 validator_address: validator_address.clone(),
                                 validator_stake: canonical_stake,
-                                bls_signature: None,
+                                bls_signature,
                                 timestamp_ms,
                             });
                             finality.total_stake_acked += canonical_stake;
@@ -1386,11 +1422,12 @@ impl GossipService {
                                 let self_acked =
                                     finality.acks.iter().any(|a| a.validator_address == *addr);
                                 if !self_acked {
+                                    let self_sig = sign_local_ack(&tx_hash);
                                     finality.acks.push(rinku_core::types::FastPathAck {
                                         tx_hash: tx_hash.clone(),
                                         validator_address: addr.clone(),
                                         validator_stake: our_stake,
-                                        bls_signature: None,
+                                        bls_signature: self_sig,
                                         timestamp_ms: now_ms,
                                     });
                                     finality.total_stake_acked += our_stake;
@@ -1404,9 +1441,7 @@ impl GossipService {
                             finality.status = rinku_core::types::FastPathStatus::Confirmed;
                             finality.confirmed_at_ms = Some(now_ms);
                             let f = finality.clone();
-                            inner
-                                .fast_path_confirmed
-                                .insert(tx_hash.clone(), f.clone());
+                            inner.fast_path_confirmed.insert(tx_hash.clone(), f.clone());
                             inner.fast_path_pending.remove(&tx_hash);
                             let stored_body = inner.fast_path_tx_bodies.get(&tx_hash).cloned();
                             newly_confirmed.push(ConfirmedTx {
@@ -1435,7 +1470,9 @@ impl GossipService {
                         tx_hash: tx_hash.clone(),
                         validator_address: validator_addr.clone(),
                         validator_stake: *stake,
-                        bls_signature: None,
+                        bls_signature: local_ack_signer.as_ref().and_then(|s| {
+                            crate::fast_path::sign_fast_path_ack(tx_hash, &s.bls_private_key)
+                        }),
                         timestamp_ms: now_ms,
                         sender_url: sender_url.clone(),
                     };
@@ -1615,7 +1652,10 @@ impl GossipService {
                 } else {
                     {
                         let mut vote_state = self.qcc_vote_lock.lock().await;
-                        if vote_state.0 >= vote_height && !(vote_state.0 == vote_height && vote_state.1 == request.checkpoint_hash) {
+                        if vote_state.0 >= vote_height
+                            && !(vote_state.0 == vote_height
+                                && vote_state.1 == request.checkpoint_hash)
+                        {
                             if vote_state.0 == vote_height {
                                 warn!(
                                     "EQUIVOCATION PREVENTED (req-resp): Declining vote for checkpoint {} at height {} — already voted for {} at this height",
@@ -1633,108 +1673,117 @@ impl GossipService {
                         } else {
                             *vote_state = (vote_height, request.checkpoint_hash.clone());
                             drop(vote_state);
-                    if let Some(ref signer) = self.checkpoint_vote_signer {
-                    if signer.validator_address.is_empty() {
-                        VoteResponse::CheckpointVote(None)
-                    } else {
-                        let tx_hashes_for_verify = if !request.finalized_tx_hashes.is_empty() {
-                            let mut sorted = request.finalized_tx_hashes.clone();
-                            sorted.sort();
-                            Some(sorted)
-                        } else {
-                            None
-                        };
-                        let total_txs = request.finalized_tx_hashes.len();
-                        let expected_merkle = request.tx_merkle_root.clone();
-                        let checkpoint_hash_hex = request.checkpoint_hash.clone();
-                        let bls_key = signer.bls_private_key.clone();
+                            if let Some(ref signer) = self.checkpoint_vote_signer {
+                                if signer.validator_address.is_empty() {
+                                    VoteResponse::CheckpointVote(None)
+                                } else {
+                                    let tx_hashes_for_verify =
+                                        if !request.finalized_tx_hashes.is_empty() {
+                                            let mut sorted = request.finalized_tx_hashes.clone();
+                                            sorted.sort();
+                                            Some(sorted)
+                                        } else {
+                                            None
+                                        };
+                                    let total_txs = request.finalized_tx_hashes.len();
+                                    let expected_merkle = request.tx_merkle_root.clone();
+                                    let checkpoint_hash_hex = request.checkpoint_hash.clone();
+                                    let bls_key = signer.bls_private_key.clone();
 
-                        let vote_compute =
-                            tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-                                if let Some(tx_hashes) = tx_hashes_for_verify {
-                                    let computed_root =
-                                        rinku_core::MerkleTree::from_hex_leaves(&tx_hashes)
-                                            .map(|t| t.root())
-                                            .unwrap_or_else(|_| "0".repeat(64));
-                                    if computed_root != expected_merkle {
-                                        return Err(format!(
-                                            "merkle_mismatch:{}:{}",
-                                            &computed_root[..16],
-                                            &expected_merkle[..16]
-                                        ));
-                                    }
-                                } else if expected_merkle != "0".repeat(64) {
-                                    return Err(format!(
-                                        "no_hashes_nonzero_root:{}",
-                                        &expected_merkle[..16.min(expected_merkle.len())]
-                                    ));
-                                }
+                                    let vote_compute = tokio::task::spawn_blocking(
+                                        move || -> Result<Vec<u8>, String> {
+                                            if let Some(tx_hashes) = tx_hashes_for_verify {
+                                                let computed_root =
+                                                    rinku_core::MerkleTree::from_hex_leaves(
+                                                        &tx_hashes,
+                                                    )
+                                                    .map(|t| t.root())
+                                                    .unwrap_or_else(|_| "0".repeat(64));
+                                                if computed_root != expected_merkle {
+                                                    return Err(format!(
+                                                        "merkle_mismatch:{}:{}",
+                                                        &computed_root[..16],
+                                                        &expected_merkle[..16]
+                                                    ));
+                                                }
+                                            } else if expected_merkle != "0".repeat(64) {
+                                                return Err(format!(
+                                                    "no_hashes_nonzero_root:{}",
+                                                    &expected_merkle
+                                                        [..16.min(expected_merkle.len())]
+                                                ));
+                                            }
 
-                                let hash_bytes = hex::decode(&checkpoint_hash_hex)
-                                    .map_err(|e| format!("hex_decode:{}", e))?;
-                                let signature = bls_sign(&hash_bytes, &bls_key)
-                                    .map_err(|e| format!("bls_sign:{}", e))?;
-                                Ok(signature)
-                            })
-                            .await;
+                                            let hash_bytes = hex::decode(&checkpoint_hash_hex)
+                                                .map_err(|e| format!("hex_decode:{}", e))?;
+                                            let signature = bls_sign(&hash_bytes, &bls_key)
+                                                .map_err(|e| format!("bls_sign:{}", e))?;
+                                            Ok(signature)
+                                        },
+                                    )
+                                    .await;
 
-                        match vote_compute {
-                            Ok(Ok(signature)) => {
-                                let final_height = self.state.get_checkpoint_height();
-                                if vote_height <= final_height {
-                                    debug!(
+                                    match vote_compute {
+                                        Ok(Ok(signature)) => {
+                                            let final_height = self.state.get_checkpoint_height();
+                                            if vote_height <= final_height {
+                                                debug!(
                                         "Post-check: declining vote for checkpoint {} (committed during processing, height now {})",
                                         vote_height, final_height
                                     );
-                                    VoteResponse::CheckpointVote(None)
-                                } else {
-                                    if total_txs > 0 {
-                                        info!(
+                                                VoteResponse::CheckpointVote(None)
+                                            } else {
+                                                if total_txs > 0 {
+                                                    info!(
                                             "Verified merkle root for checkpoint {} vote ({} txs)",
                                             request.height, total_txs
                                         );
-                                    }
-                                    let response = CheckpointVoteResponse {
-                                        validator_address: signer.validator_address.clone(),
-                                        signature: URL_SAFE_NO_PAD.encode(&signature),
-                                        signature_bytes: signature,
-                                        bls_public_key: URL_SAFE_NO_PAD
-                                            .encode(&signer.bls_public_key),
-                                        stake: GENESIS_VALIDATOR_STAKE,
-                                    };
-                                    VoteResponse::CheckpointVote(Some(response))
-                                }
-                            }
-                            Ok(Err(err_msg)) => {
-                                if err_msg.starts_with("merkle_mismatch:") {
-                                    let parts: Vec<&str> = err_msg.splitn(3, ':').collect();
-                                    warn!(
+                                                }
+                                                let response = CheckpointVoteResponse {
+                                                    validator_address: signer
+                                                        .validator_address
+                                                        .clone(),
+                                                    signature: URL_SAFE_NO_PAD.encode(&signature),
+                                                    signature_bytes: signature,
+                                                    bls_public_key: URL_SAFE_NO_PAD
+                                                        .encode(&signer.bls_public_key),
+                                                    stake: GENESIS_VALIDATOR_STAKE,
+                                                };
+                                                VoteResponse::CheckpointVote(Some(response))
+                                            }
+                                        }
+                                        Ok(Err(err_msg)) => {
+                                            if err_msg.starts_with("merkle_mismatch:") {
+                                                let parts: Vec<&str> =
+                                                    err_msg.splitn(3, ':').collect();
+                                                warn!(
                                         "Declining checkpoint vote for height {}: merkle root mismatch (ours={}, theirs={})",
                                         request.height, parts.get(1).unwrap_or(&"?"), parts.get(2).unwrap_or(&"?")
                                     );
-                                } else if err_msg.starts_with("no_hashes_nonzero_root:") {
-                                    warn!(
+                                            } else if err_msg.starts_with("no_hashes_nonzero_root:")
+                                            {
+                                                warn!(
                                         "Declining vote for height {}: non-empty merkle root but no tx hashes provided",
                                         request.height
                                     );
-                                } else {
-                                    warn!(
-                                        "Vote computation failed for height {}: {}",
-                                        request.height, err_msg
-                                    );
+                                            } else {
+                                                warn!(
+                                                    "Vote computation failed for height {}: {}",
+                                                    request.height, err_msg
+                                                );
+                                            }
+                                            VoteResponse::CheckpointVote(None)
+                                        }
+                                        Err(e) => VoteResponse::Error {
+                                            message: format!("Vote spawn_blocking failed: {}", e),
+                                        },
+                                    }
                                 }
+                            } else {
                                 VoteResponse::CheckpointVote(None)
                             }
-                            Err(e) => VoteResponse::Error {
-                                message: format!("Vote spawn_blocking failed: {}", e),
-                            },
                         }
                     }
-                } else {
-                    VoteResponse::CheckpointVote(None)
-                }
-                }
-                }
                 };
                 let vote_ms = vote_start.elapsed().as_millis();
                 if vote_ms > 100 {
@@ -1847,19 +1896,17 @@ impl GossipService {
                     })
                     .collect();
 
-                // Get merkle root from latest checkpoint
-                let merkle_root = snapshot
-                    .checkpoints
-                    .last()
-                    .map(|c| c.tx_merkle_root.clone())
-                    .unwrap_or_default();
+                // Account-state merkle root (sorted) — used by SyncVerifier on the receiver.
+                let merkle_root =
+                    crate::sync_verification::build_account_merkle_root_sorted(&account_data);
 
                 info!(
-                    "Sending snapshot: {} accounts, {} validators, {} checkpoints, {} txs",
+                    "Sending snapshot: {} accounts, {} validators, {} checkpoints, {} txs (accounts_root={})",
                     account_data.len(),
                     validator_data.len(),
                     checkpoint_data.len(),
-                    tx_data.len()
+                    tx_data.len(),
+                    &merkle_root[..16.min(merkle_root.len())]
                 );
 
                 SyncResponse::Snapshot(SnapshotData {
@@ -1894,10 +1941,20 @@ impl GossipService {
                     let all_unfinalized = state.dag.get_unfinalized_nodes();
                     let mut mempool_txs: Vec<TransactionData> = Vec::new();
                     for n in all_unfinalized.iter() {
-                        if mempool_txs.len() >= MAX_MEMPOOL_SYNC_TXS { break; }
-                        if !(n.hash.len() == 64 && n.hash.chars().all(|c| c.is_ascii_hexdigit())) { continue; }
-                        let account_nonce = state.accounts.get(&n.tx.tx.from).map(|a| a.nonce).unwrap_or(0);
-                        if n.tx.tx.nonce < account_nonce { continue; }
+                        if mempool_txs.len() >= MAX_MEMPOOL_SYNC_TXS {
+                            break;
+                        }
+                        if !(n.hash.len() == 64 && n.hash.chars().all(|c| c.is_ascii_hexdigit())) {
+                            continue;
+                        }
+                        let account_nonce = state
+                            .accounts
+                            .get(&n.tx.tx.from)
+                            .map(|a| a.nonce)
+                            .unwrap_or(0);
+                        if n.tx.tx.nonce < account_nonce {
+                            continue;
+                        }
                         mempool_txs.push(TransactionData {
                             hash: n.hash.clone(),
                             from: n.tx.tx.from.clone(),
@@ -1930,159 +1987,121 @@ impl GossipService {
                         precomputed_proofs: vec![],
                     })
                 } else {
-
-                let network_height = self.highest_seen_peer_height.load(std::sync::atomic::Ordering::Relaxed);
-                let we_are_behind = network_height > 0 && local_tip + 2 <= network_height;
-                if we_are_behind {
-                    debug!(
+                    let network_height = self
+                        .highest_seen_peer_height
+                        .load(std::sync::atomic::Ordering::Relaxed);
+                    let we_are_behind = network_height > 0 && local_tip + 2 <= network_height;
+                    if we_are_behind {
+                        debug!(
                         "Delta sync REJECTED: we are behind network (local_tip={}, network={}), not serving delta while catching up",
                         local_tip, network_height
                     );
-                    SyncResponse::Delta(DeltaData {
-                        transactions: vec![],
-                        new_checkpoints: vec![],
-                        from_checkpoint,
-                        to_checkpoint: from_checkpoint,
-                        tx_checkpoint_heights: std::collections::HashMap::new(),
-                        validators: vec![],
-                        precomputed_proofs: vec![],
-                    })
-                } else {
-
-                info!(
-                    "Handling P2P delta sync request from checkpoint {}",
-                    from_checkpoint
-                );
-
-                let gap = local_tip.saturating_sub(from_checkpoint);
-                let max_sync_checkpoints: usize = if gap > 20 { 10 } else if gap > 5 { 15 } else { 20 };
-                let end_height = (from_checkpoint + max_sync_checkpoints as u64).min(local_tip);
-
-                let cached_result = {
-                    let inner = self.inner.read().await;
-                    let mut cached_cps: Vec<CheckpointData> = Vec::new();
-                    let mut cached_txs: Vec<TransactionData> = Vec::new();
-                    let mut tx_heights: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-                    let mut all_proofs: std::collections::HashMap<String, rinku_core::types::AccountStateProof> = std::collections::HashMap::new();
-                    let mut cache_complete = true;
-
-                    for h in (from_checkpoint + 1)..=end_height {
-                        if let Some(cached) = inner.recent_checkpoint_data.get(&h) {
-                            let cp = &cached.checkpoint;
-                            cached_cps.push(CheckpointData {
-                                height: cp.height,
-                                merkle_root: cp.tx_merkle_root.clone(),
-                                timestamp: cp.timestamp,
-                                tx_count: cp.finalized_tx_hashes.len() as u64,
-                                hash: Some(cp.hash.clone()),
-                                previous_hash: cp.previous_hash.clone(),
-                                signature: cp.aggregated_signature.clone(),
-                                genesis_hash: None,
-                                finalized_tx_hashes: cp.finalized_tx_hashes.clone(),
-                                state_root: Some(cp.state_root.clone()),
-                                receipt_root: Some(cp.receipt_root.clone()),
-                                tip_count: Some(cp.tip_count),
-                                validator_signatures: cp.validator_signatures.clone(),
-                                signer_bitmap: cp.signer_bitmap.clone(),
-                            });
-
-                            for stx in &cached.finalized_transactions {
-                                tx_heights.insert(stx.hash.clone(), h);
-                                cached_txs.push(TransactionData {
-                                    hash: stx.hash.clone(),
-                                    from: stx.tx.from.clone(),
-                                    to: stx.tx.to.clone(),
-                                    amount: stx.tx.amount,
-                                    nonce: stx.tx.nonce,
-                                    timestamp: stx.tx.timestamp,
-                                    signature: stx.signature.clone(),
-                                    parents: stx.tx.parents.clone(),
-                                    gas_price: stx.tx.gas_price.unwrap_or(0),
-                                    memo: stx.tx.memo.clone(),
-                                    references: stx.tx.references.clone(),
-                                });
-                            }
-
-                            for proof in &cached.precomputed_proofs {
-                                all_proofs.insert(proof.address.clone(), proof.clone());
-                            }
-                        } else {
-                            cache_complete = false;
-                            break;
-                        }
-                    }
-
-                    if cache_complete && !cached_cps.is_empty() {
-                        Some((cached_cps, cached_txs, tx_heights, all_proofs.into_values().collect::<Vec<_>>()))
+                        SyncResponse::Delta(DeltaData {
+                            transactions: vec![],
+                            new_checkpoints: vec![],
+                            from_checkpoint,
+                            to_checkpoint: from_checkpoint,
+                            tx_checkpoint_heights: std::collections::HashMap::new(),
+                            validators: vec![],
+                            precomputed_proofs: vec![],
+                        })
                     } else {
-                        None
-                    }
-                };
+                        info!(
+                            "Handling P2P delta sync request from checkpoint {}",
+                            from_checkpoint
+                        );
 
-                if let Some((new_checkpoints, txs, tx_checkpoint_heights, delta_proofs)) = cached_result {
-                    let max_included_height = new_checkpoints.last().map(|cp| cp.height).unwrap_or(from_checkpoint);
+                        let gap = local_tip.saturating_sub(from_checkpoint);
+                        let max_sync_checkpoints: usize = if gap > 20 {
+                            10
+                        } else if gap > 5 {
+                            15
+                        } else {
+                            20
+                        };
+                        let end_height =
+                            (from_checkpoint + max_sync_checkpoints as u64).min(local_tip);
 
-                    let (validators_map, _, _, _, _) = self.get_cached_validators().await;
-                    let validators: Vec<ValidatorData> = validators_map.values().map(|v| ValidatorData {
-                        address: v.address.clone(),
-                        stake: v.stake,
-                        bls_public_key: v.bls_public_key.clone().unwrap_or_default(),
-                        status: "Active".to_string(),
-                    }).collect();
+                        let cached_result = {
+                            let inner = self.inner.read().await;
+                            let mut cached_cps: Vec<CheckpointData> = Vec::new();
+                            let mut cached_txs: Vec<TransactionData> = Vec::new();
+                            let mut tx_heights: std::collections::HashMap<String, u64> =
+                                std::collections::HashMap::new();
+                            let mut all_proofs: std::collections::HashMap<
+                                String,
+                                rinku_core::types::AccountStateProof,
+                            > = std::collections::HashMap::new();
+                            let mut cache_complete = true;
 
-                    let delta_ms = delta_start.elapsed().as_millis();
-                    let tx_count = txs.len();
-                    let cp_count = new_checkpoints.len();
-                    let response = SyncResponse::Delta(DeltaData {
-                        transactions: txs,
-                        new_checkpoints,
-                        from_checkpoint,
-                        to_checkpoint: max_included_height,
-                        tx_checkpoint_heights,
-                        validators,
-                        precomputed_proofs: delta_proofs,
-                    });
-                    info!("DELTA-FETCH response (LOCK-FREE): {} txs, {} checkpoints (from {} to {}) built in {}ms",
-                        tx_count, cp_count, from_checkpoint, max_included_height, delta_ms);
-                    response
-                } else {
-                    info!("Delta sync cache miss for from_checkpoint={}, falling back to state locks", from_checkpoint);
+                            for h in (from_checkpoint + 1)..=end_height {
+                                if let Some(cached) = inner.recent_checkpoint_data.get(&h) {
+                                    let cp = &cached.checkpoint;
+                                    cached_cps.push(CheckpointData {
+                                        height: cp.height,
+                                        merkle_root: cp.tx_merkle_root.clone(),
+                                        timestamp: cp.timestamp,
+                                        tx_count: cp.finalized_tx_hashes.len() as u64,
+                                        hash: Some(cp.hash.clone()),
+                                        previous_hash: cp.previous_hash.clone(),
+                                        signature: cp.aggregated_signature.clone(),
+                                        genesis_hash: None,
+                                        finalized_tx_hashes: cp.finalized_tx_hashes.clone(),
+                                        state_root: Some(cp.state_root.clone()),
+                                        receipt_root: Some(cp.receipt_root.clone()),
+                                        tip_count: Some(cp.tip_count),
+                                        validator_signatures: cp.validator_signatures.clone(),
+                                        signer_bitmap: cp.signer_bitmap.clone(),
+                                    });
 
-                    let (
-                        new_checkpoints,
-                        tx_checkpoint_heights,
-                        max_included_height,
-                        validators,
-                        txs,
-                    ) = {
-                        let (new_checkpoints, all_validators) = {
-                            let state_guard = self.state.inner.read().await;
+                                    for stx in &cached.finalized_transactions {
+                                        tx_heights.insert(stx.hash.clone(), h);
+                                        cached_txs.push(TransactionData {
+                                            hash: stx.hash.clone(),
+                                            from: stx.tx.from.clone(),
+                                            to: stx.tx.to.clone(),
+                                            amount: stx.tx.amount,
+                                            nonce: stx.tx.nonce,
+                                            timestamp: stx.tx.timestamp,
+                                            signature: stx.signature.clone(),
+                                            parents: stx.tx.parents.clone(),
+                                            gas_price: stx.tx.gas_price.unwrap_or(0),
+                                            memo: stx.tx.memo.clone(),
+                                            references: stx.tx.references.clone(),
+                                        });
+                                    }
 
-                            let cps: Vec<CheckpointData> = state_guard
-                                .checkpoints
-                                .iter()
-                                .filter(|cp| cp.height > from_checkpoint)
-                                .take(max_sync_checkpoints)
-                                .map(|cp| CheckpointData {
-                                    height: cp.height,
-                                    merkle_root: cp.tx_merkle_root.clone(),
-                                    timestamp: cp.timestamp,
-                                    tx_count: cp.finalized_tx_hashes.len() as u64,
-                                    hash: Some(cp.hash.clone()),
-                                    previous_hash: cp.previous_hash.clone(),
-                                    signature: cp.aggregated_signature.clone(),
-                                    genesis_hash: state_guard.genesis_hash.clone(),
-                                    finalized_tx_hashes: cp.finalized_tx_hashes.clone(),
-                                    state_root: Some(cp.state_root.clone()),
-                                    receipt_root: Some(cp.receipt_root.clone()),
-                                    tip_count: Some(cp.tip_count),
-                                    validator_signatures: cp.validator_signatures.clone(),
-                                    signer_bitmap: cp.signer_bitmap.clone(),
-                                })
-                                .collect();
+                                    for proof in &cached.precomputed_proofs {
+                                        all_proofs.insert(proof.address.clone(), proof.clone());
+                                    }
+                                } else {
+                                    cache_complete = false;
+                                    break;
+                                }
+                            }
 
-                            let vals: Vec<ValidatorData> = state_guard
-                                .validators
+                            if cache_complete && !cached_cps.is_empty() {
+                                Some((
+                                    cached_cps,
+                                    cached_txs,
+                                    tx_heights,
+                                    all_proofs.into_values().collect::<Vec<_>>(),
+                                ))
+                            } else {
+                                None
+                            }
+                        };
+
+                        if let Some((new_checkpoints, txs, tx_checkpoint_heights, delta_proofs)) =
+                            cached_result
+                        {
+                            let max_included_height = new_checkpoints
+                                .last()
+                                .map(|cp| cp.height)
+                                .unwrap_or(from_checkpoint);
+
+                            let (validators_map, _, _, _, _) = self.get_cached_validators().await;
+                            let validators: Vec<ValidatorData> = validators_map
                                 .values()
                                 .map(|v| ValidatorData {
                                     address: v.address.clone(),
@@ -2092,99 +2111,171 @@ impl GossipService {
                                 })
                                 .collect();
 
-                            (cps, vals)
-                        };
-
-                        let max_included_height = new_checkpoints
-                            .last()
-                            .map(|cp| cp.height)
-                            .unwrap_or(from_checkpoint);
-
-                        let included_tx_hashes: std::collections::HashSet<String> = new_checkpoints
-                            .iter()
-                            .flat_map(|cp| cp.finalized_tx_hashes.iter().cloned())
-                            .collect();
-
-                        let (tx_checkpoint_heights, txs) = if included_tx_hashes.is_empty() {
-                            (std::collections::HashMap::new(), Vec::new())
+                            let delta_ms = delta_start.elapsed().as_millis();
+                            let tx_count = txs.len();
+                            let cp_count = new_checkpoints.len();
+                            let response = SyncResponse::Delta(DeltaData {
+                                transactions: txs,
+                                new_checkpoints,
+                                from_checkpoint,
+                                to_checkpoint: max_included_height,
+                                tx_checkpoint_heights,
+                                validators,
+                                precomputed_proofs: delta_proofs,
+                            });
+                            info!("DELTA-FETCH response (LOCK-FREE): {} txs, {} checkpoints (from {} to {}) built in {}ms",
+                        tx_count, cp_count, from_checkpoint, max_included_height, delta_ms);
+                            response
                         } else {
-                            let state_guard = self.state.inner.read().await;
-                            let mut heights = std::collections::HashMap::new();
-                            let mut tx_list: Vec<TransactionData> = Vec::new();
-                            for hash in &included_tx_hashes {
-                                if let Some(node) = state_guard.dag.get_node(hash) {
-                                    if let Some(height) = node.checkpoint_height {
-                                        if height > from_checkpoint && height <= max_included_height {
-                                            heights.insert(node.hash.clone(), height);
+                            info!("Delta sync cache miss for from_checkpoint={}, falling back to state locks", from_checkpoint);
+
+                            let (
+                                new_checkpoints,
+                                tx_checkpoint_heights,
+                                max_included_height,
+                                validators,
+                                txs,
+                            ) = {
+                                let (new_checkpoints, all_validators) = {
+                                    let state_guard = self.state.inner.read().await;
+
+                                    let cps: Vec<CheckpointData> = state_guard
+                                        .checkpoints
+                                        .iter()
+                                        .filter(|cp| cp.height > from_checkpoint)
+                                        .take(max_sync_checkpoints)
+                                        .map(|cp| CheckpointData {
+                                            height: cp.height,
+                                            merkle_root: cp.tx_merkle_root.clone(),
+                                            timestamp: cp.timestamp,
+                                            tx_count: cp.finalized_tx_hashes.len() as u64,
+                                            hash: Some(cp.hash.clone()),
+                                            previous_hash: cp.previous_hash.clone(),
+                                            signature: cp.aggregated_signature.clone(),
+                                            genesis_hash: state_guard.genesis_hash.clone(),
+                                            finalized_tx_hashes: cp.finalized_tx_hashes.clone(),
+                                            state_root: Some(cp.state_root.clone()),
+                                            receipt_root: Some(cp.receipt_root.clone()),
+                                            tip_count: Some(cp.tip_count),
+                                            validator_signatures: cp.validator_signatures.clone(),
+                                            signer_bitmap: cp.signer_bitmap.clone(),
+                                        })
+                                        .collect();
+
+                                    let vals: Vec<ValidatorData> = state_guard
+                                        .validators
+                                        .values()
+                                        .map(|v| ValidatorData {
+                                            address: v.address.clone(),
+                                            stake: v.stake,
+                                            bls_public_key: v
+                                                .bls_public_key
+                                                .clone()
+                                                .unwrap_or_default(),
+                                            status: "Active".to_string(),
+                                        })
+                                        .collect();
+
+                                    (cps, vals)
+                                };
+
+                                let max_included_height = new_checkpoints
+                                    .last()
+                                    .map(|cp| cp.height)
+                                    .unwrap_or(from_checkpoint);
+
+                                let included_tx_hashes: std::collections::HashSet<String> =
+                                    new_checkpoints
+                                        .iter()
+                                        .flat_map(|cp| cp.finalized_tx_hashes.iter().cloned())
+                                        .collect();
+
+                                let (tx_checkpoint_heights, txs) = if included_tx_hashes.is_empty()
+                                {
+                                    (std::collections::HashMap::new(), Vec::new())
+                                } else {
+                                    let state_guard = self.state.inner.read().await;
+                                    let mut heights = std::collections::HashMap::new();
+                                    let mut tx_list: Vec<TransactionData> = Vec::new();
+                                    for hash in &included_tx_hashes {
+                                        if let Some(node) = state_guard.dag.get_node(hash) {
+                                            if let Some(height) = node.checkpoint_height {
+                                                if height > from_checkpoint
+                                                    && height <= max_included_height
+                                                {
+                                                    heights.insert(node.hash.clone(), height);
+                                                }
+                                            }
+                                            let dominated = node
+                                                .checkpoint_height
+                                                .map(|h| h > from_checkpoint)
+                                                .unwrap_or(true);
+                                            if dominated {
+                                                tx_list.push(TransactionData {
+                                                    hash: node.hash.clone(),
+                                                    from: node.tx.tx.from.clone(),
+                                                    to: node.tx.tx.to.clone(),
+                                                    amount: node.tx.tx.amount,
+                                                    nonce: node.tx.tx.nonce,
+                                                    timestamp: node.tx.tx.timestamp,
+                                                    signature: node.tx.signature.clone(),
+                                                    parents: node.tx.tx.parents.clone(),
+                                                    gas_price: node.tx.tx.gas_price.unwrap_or(0),
+                                                    memo: node.tx.tx.memo.clone(),
+                                                    references: node.tx.tx.references.clone(),
+                                                });
+                                            }
                                         }
                                     }
-                                    let dominated = node.checkpoint_height
-                                        .map(|h| h > from_checkpoint)
-                                        .unwrap_or(true);
-                                    if dominated {
-                                        tx_list.push(TransactionData {
-                                            hash: node.hash.clone(),
-                                            from: node.tx.tx.from.clone(),
-                                            to: node.tx.tx.to.clone(),
-                                            amount: node.tx.tx.amount,
-                                            nonce: node.tx.tx.nonce,
-                                            timestamp: node.tx.tx.timestamp,
-                                            signature: node.tx.signature.clone(),
-                                            parents: node.tx.tx.parents.clone(),
-                                            gas_price: node.tx.tx.gas_price.unwrap_or(0),
-                                            memo: node.tx.tx.memo.clone(),
-                                            references: node.tx.tx.references.clone(),
-                                        });
+                                    (heights, tx_list)
+                                };
+
+                                (
+                                    new_checkpoints,
+                                    tx_checkpoint_heights,
+                                    max_included_height,
+                                    all_validators,
+                                    txs,
+                                )
+                            };
+
+                            let delta_proofs = if new_checkpoints.is_empty() {
+                                vec![]
+                            } else {
+                                let inner = self.inner.read().await;
+                                let mut proofs_map: std::collections::HashMap<
+                                    String,
+                                    rinku_core::types::AccountStateProof,
+                                > = std::collections::HashMap::new();
+                                for cp in &new_checkpoints {
+                                    if let Some(cached) =
+                                        inner.recent_checkpoint_data.get(&cp.height)
+                                    {
+                                        for proof in &cached.precomputed_proofs {
+                                            proofs_map.insert(proof.address.clone(), proof.clone());
+                                        }
                                     }
                                 }
-                            }
-                            (heights, tx_list)
-                        };
+                                proofs_map.into_values().collect()
+                            };
 
-                        (
-                            new_checkpoints,
-                            tx_checkpoint_heights,
-                            max_included_height,
-                            all_validators,
-                            txs,
-                        )
-                    };
-
-                    let delta_proofs = if new_checkpoints.is_empty() {
-                        vec![]
-                    } else {
-                        let inner = self.inner.read().await;
-                        let mut proofs_map: std::collections::HashMap<
-                            String,
-                            rinku_core::types::AccountStateProof,
-                        > = std::collections::HashMap::new();
-                        for cp in &new_checkpoints {
-                            if let Some(cached) = inner.recent_checkpoint_data.get(&cp.height) {
-                                for proof in &cached.precomputed_proofs {
-                                    proofs_map.insert(proof.address.clone(), proof.clone());
-                                }
-                            }
-                        }
-                        proofs_map.into_values().collect()
-                    };
-
-                    let delta_ms = delta_start.elapsed().as_millis();
-                    let tx_count = txs.len();
-                    let cp_count = new_checkpoints.len();
-                    let response = SyncResponse::Delta(DeltaData {
-                        transactions: txs,
-                        new_checkpoints,
-                        from_checkpoint,
-                        to_checkpoint: max_included_height,
-                        tx_checkpoint_heights,
-                        validators,
-                        precomputed_proofs: delta_proofs,
-                    });
-                    info!("DELTA-FETCH response (STATE-LOCK): {} txs, {} checkpoints (from {} to {}) built in {}ms",
+                            let delta_ms = delta_start.elapsed().as_millis();
+                            let tx_count = txs.len();
+                            let cp_count = new_checkpoints.len();
+                            let response = SyncResponse::Delta(DeltaData {
+                                transactions: txs,
+                                new_checkpoints,
+                                from_checkpoint,
+                                to_checkpoint: max_included_height,
+                                tx_checkpoint_heights,
+                                validators,
+                                precomputed_proofs: delta_proofs,
+                            });
+                            info!("DELTA-FETCH response (STATE-LOCK): {} txs, {} checkpoints (from {} to {}) built in {}ms",
                         tx_count, cp_count, from_checkpoint, max_included_height, delta_ms);
-                    response
-                }
-                }
+                            response
+                        }
+                    }
                 }
             }
             SyncRequest::Transaction { hash } => {
@@ -2242,13 +2333,16 @@ impl GossipService {
                         if bf_height != current + 1 {
                             let mut buffer = self.checkpoint_buffer.lock().await;
                             if !buffer.contains_key(&bf_height) {
-                                buffer.insert(bf_height, crate::gossip::BufferedCheckpoint {
-                                    checkpoint: bf.checkpoint,
-                                    finalized_tx_hashes: bf.finalized_tx_hashes,
-                                    finalized_transactions: bf.finalized_transactions,
-                                    precomputed_proofs: bf.precomputed_proofs,
-                                    source: "backfill-push".to_string(),
-                                });
+                                buffer.insert(
+                                    bf_height,
+                                    crate::gossip::BufferedCheckpoint {
+                                        checkpoint: bf.checkpoint,
+                                        finalized_tx_hashes: bf.finalized_tx_hashes,
+                                        finalized_transactions: bf.finalized_transactions,
+                                        precomputed_proofs: bf.precomputed_proofs,
+                                        source: "backfill-push".to_string(),
+                                    },
+                                );
                             }
                             continue;
                         }
@@ -2270,7 +2364,9 @@ impl GossipService {
                 if backfill_applied > 0 {
                     info!(
                         "Backfill-push: applied {} sequential checkpoints (was h={}, now h={})",
-                        backfill_applied, local_height, self.state.get_checkpoint_height()
+                        backfill_applied,
+                        local_height,
+                        self.state.get_checkpoint_height()
                     );
                 }
                 let applied = self
@@ -2461,11 +2557,15 @@ impl GossipService {
                 let executed_pruned = old_executed_count - inner.fast_path_executed.len();
 
                 {
-                    let live_hashes: std::collections::HashSet<String> = inner.fast_path_pending.keys()
+                    let live_hashes: std::collections::HashSet<String> = inner
+                        .fast_path_pending
+                        .keys()
                         .chain(inner.fast_path_confirmed.keys())
                         .cloned()
                         .collect();
-                    inner.fast_path_tx_bodies.retain(|h, _| live_hashes.contains(h));
+                    inner
+                        .fast_path_tx_bodies
+                        .retain(|h, _| live_hashes.contains(h));
                 }
 
                 let old_pending_exec_count = inner.confirmed_pending_execution.len();
@@ -3017,7 +3117,15 @@ impl GossipService {
         precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
         source: &str,
     ) -> bool {
-        self.apply_single_checkpoint_inner(checkpoint, finalized_tx_hashes, finalized_transactions, precomputed_proofs, source, false).await
+        self.apply_single_checkpoint_inner(
+            checkpoint,
+            finalized_tx_hashes,
+            finalized_transactions,
+            precomputed_proofs,
+            source,
+            false,
+        )
+        .await
     }
 
     async fn apply_single_checkpoint_catching_up(
@@ -3028,7 +3136,96 @@ impl GossipService {
         precomputed_proofs: Vec<rinku_core::types::AccountStateProof>,
         source: &str,
     ) -> bool {
-        self.apply_single_checkpoint_inner(checkpoint, finalized_tx_hashes, finalized_transactions, precomputed_proofs, source, true).await
+        self.apply_single_checkpoint_inner(
+            checkpoint,
+            finalized_tx_hashes,
+            finalized_transactions,
+            precomputed_proofs,
+            source,
+            true,
+        )
+        .await
+    }
+
+    /// On failed checkpoint BLS verify: attribute offender and apply InvalidCheckpoint slash.
+    async fn apply_invalid_checkpoint_slash(
+        &self,
+        checkpoint: &Checkpoint,
+        sorted_validator_addresses: &[String],
+        reason: &str,
+    ) {
+        let Some(offender) = crate::slashing::attribute_invalid_checkpoint_offender(
+            checkpoint,
+            sorted_validator_addresses,
+        ) else {
+            warn!(
+                "Invalid checkpoint BLS at height {} but no attributable offender — reject only",
+                checkpoint.height
+            );
+            return;
+        };
+
+        let stake = if let Some(ref vi) = self.validator_identity {
+            let mut vi_guard = vi.write().await;
+            let stake = vi_guard
+                .get_validator(&offender)
+                .map(|v| v.effective_stake)
+                .unwrap_or(0);
+            if stake > 0 {
+                if let Err(e) = vi_guard.slash_validator(
+                    &offender,
+                    crate::slashing::SlashReason::InvalidCheckpoint.percent(),
+                ) {
+                    warn!(
+                        "Failed to slash stake for invalid checkpoint offender {}: {}",
+                        &offender[..16.min(offender.len())],
+                        e
+                    );
+                }
+            }
+            stake
+        } else {
+            0
+        };
+
+        let stake = if stake > 0 {
+            stake
+        } else {
+            let state = self.state.inner.read().await;
+            state
+                .validators
+                .get(&offender)
+                .map(|v| v.stake)
+                .unwrap_or(0)
+        };
+
+        if stake == 0 {
+            warn!(
+                "Invalid checkpoint BLS attributed to {} but stake unknown/zero — reject only",
+                &offender[..16.min(offender.len())]
+            );
+            return;
+        }
+
+        let mut slashing = self.state.slashing.write().await;
+        if let Some(event) = slashing.slash_invalid_checkpoint(
+            &offender,
+            stake,
+            checkpoint.height,
+            Some(format!(
+                "Invalid BLS aggregate on checkpoint {}: {}",
+                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                reason
+            )),
+        ) {
+            warn!(
+                "InvalidCheckpoint slash: {} for {} micro-RKU ({}%) at height {}",
+                &offender[..16.min(offender.len())],
+                event.amount,
+                event.percent_slashed,
+                checkpoint.height
+            );
+        }
     }
 
     async fn apply_single_checkpoint_inner(
@@ -3080,27 +3277,51 @@ impl GossipService {
                 .map(|(addr, v)| (addr.clone(), v.bls_public_key.clone(), v.effective_stake))
                 .collect();
             sorted_entries.sort_by(|a, b| a.0.cmp(&b.0));
+            let sorted_addrs: Vec<String> =
+                sorted_entries.iter().map(|(a, _, _)| a.clone()).collect();
             let bls_keys_and_stakes: Vec<(Vec<u8>, u64)> =
                 sorted_entries.into_iter().map(|(_, k, s)| (k, s)).collect();
             drop(vi_guard);
 
             if !bls_keys_and_stakes.is_empty() {
-                match crate::state::NodeState::verify_checkpoint_bls_signature_only(
+                let bls_result = crate::state::NodeState::verify_checkpoint_bls_signature_only(
                     &checkpoint,
                     &bls_keys_and_stakes,
-                ) {
-                    crate::state::checkpoints::BlsVerifyResult::ValidWithQuorum => {}
-                    crate::state::checkpoints::BlsVerifyResult::ValidNoQuorum { .. } => {}
-                    crate::state::checkpoints::BlsVerifyResult::NoSignature => {}
-                    crate::state::checkpoints::BlsVerifyResult::Invalid(reason) => {
-                        warn!(
-                            "BLS signature INVALID for checkpoint {} at height {} — rejecting: {}",
-                            &checkpoint.hash[..16.min(checkpoint.hash.len())],
-                            checkpoint.height,
-                            reason
-                        );
-                        return false;
+                );
+                if !bls_result.is_gossip_acceptable() {
+                    match &bls_result {
+                        crate::state::checkpoints::BlsVerifyResult::ValidNoQuorum {
+                            signer_stake,
+                            total_stake,
+                        } => {
+                            warn!(
+                                "BLS quorum NOT met for checkpoint {} at height {} (signer_stake={} / total_stake={}) — rejecting",
+                                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                checkpoint.height,
+                                signer_stake,
+                                total_stake
+                            );
+                        }
+                        crate::state::checkpoints::BlsVerifyResult::NoSignature => {
+                            warn!(
+                                "Checkpoint {} at height {} has no BLS signature — rejecting",
+                                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                checkpoint.height
+                            );
+                        }
+                        crate::state::checkpoints::BlsVerifyResult::Invalid(reason) => {
+                            warn!(
+                                "BLS signature INVALID for checkpoint {} at height {} — rejecting: {}",
+                                &checkpoint.hash[..16.min(checkpoint.hash.len())],
+                                checkpoint.height,
+                                reason
+                            );
+                            self.apply_invalid_checkpoint_slash(&checkpoint, &sorted_addrs, reason)
+                                .await;
+                        }
+                        crate::state::checkpoints::BlsVerifyResult::ValidWithQuorum => {}
                     }
+                    return false;
                 }
             }
         }
@@ -3157,7 +3378,6 @@ impl GossipService {
                         );
                     }
                 }
-
             }
 
             if added_from_leader > 0 || rejected_count > 0 {
@@ -3192,11 +3412,14 @@ impl GossipService {
                 checkpoint.height,
                 precomputed_proofs.len()
             );
-            let proof_result = self.state.apply_checkpoint_proof_verified(
-                checkpoint.clone(),
-                finalized_tx_hashes.clone(),
-                &precomputed_proofs,
-            ).await;
+            let proof_result = self
+                .state
+                .apply_checkpoint_proof_verified(
+                    checkpoint.clone(),
+                    finalized_tx_hashes.clone(),
+                    &precomputed_proofs,
+                )
+                .await;
             match proof_result {
                 Ok(count) => Ok(count),
                 Err(e) => {
@@ -3207,16 +3430,27 @@ impl GossipService {
                         e
                     );
                     if catching_up {
-                        self.state.apply_checkpoint_catching_up(checkpoint.clone(), finalized_tx_hashes).await
+                        self.state
+                            .apply_checkpoint_catching_up(checkpoint.clone(), finalized_tx_hashes)
+                            .await
                     } else {
-                        self.state.apply_checkpoint_with_finalized_hashes(checkpoint.clone(), finalized_tx_hashes).await
+                        self.state
+                            .apply_checkpoint_with_finalized_hashes(
+                                checkpoint.clone(),
+                                finalized_tx_hashes,
+                            )
+                            .await
                     }
                 }
             }
         } else if catching_up {
-            self.state.apply_checkpoint_catching_up(checkpoint.clone(), finalized_tx_hashes).await
+            self.state
+                .apply_checkpoint_catching_up(checkpoint.clone(), finalized_tx_hashes)
+                .await
         } else {
-            self.state.apply_checkpoint_with_finalized_hashes(checkpoint.clone(), finalized_tx_hashes).await
+            self.state
+                .apply_checkpoint_with_finalized_hashes(checkpoint.clone(), finalized_tx_hashes)
+                .await
         };
         let apply_ms = apply_start.elapsed().as_millis();
         match apply_result {
@@ -3238,6 +3472,12 @@ impl GossipService {
                         added_from_leader, finalized_transactions.len(), source
                     );
                 }
+
+                // Invariant: after applying a checkpoint our state root must equal
+                // the committed root. If not (e.g. the execution fallback replayed a
+                // divergent tx set), schedule a full snapshot resync instead of
+                // continuing on a forked state.
+                self.check_post_apply_consensus(&checkpoint).await;
 
                 let proofs_for_cache = precomputed_proofs.clone();
 
@@ -3386,7 +3626,11 @@ impl GossipService {
         }
     }
 
-    pub async fn cleanup_finalized_full(&self, finalized_hashes: &[String], checkpoint_height: u64) {
+    pub async fn cleanup_finalized_full(
+        &self,
+        finalized_hashes: &[String],
+        checkpoint_height: u64,
+    ) {
         let finalized_set: std::collections::HashSet<&String> = finalized_hashes.iter().collect();
         let mut inner = self.inner.write().await;
         let mut executed_cleaned = 0usize;
@@ -3443,7 +3687,11 @@ impl GossipService {
         *guard = None;
     }
 
-    pub async fn try_lock_proposer_vote(&self, height: u64, checkpoint_hash: &str) -> Result<(), String> {
+    pub async fn try_lock_proposer_vote(
+        &self,
+        height: u64,
+        checkpoint_hash: &str,
+    ) -> Result<(), String> {
         let mut vote_state = self.qcc_vote_lock.lock().await;
         if vote_state.0 == height && !vote_state.1.is_empty() && vote_state.1 != checkpoint_hash {
             return Err(format!(
@@ -3462,7 +3710,8 @@ impl GossipService {
             if !vote_state.1.is_empty() {
                 info!(
                     "VOTE-LOCK-CLEAR: clearing vote lock for height {} (was locked to {})",
-                    height, &vote_state.1[..16.min(vote_state.1.len())]
+                    height,
+                    &vote_state.1[..16.min(vote_state.1.len())]
                 );
             }
             *vote_state = (0, String::new());
@@ -3522,7 +3771,8 @@ impl GossipService {
                 if votes.contains_key(leader_addr) {
                     info!(
                         "Leader {} self-yielded at height {} — cancelling intent extension",
-                        &leader_addr[..16.min(leader_addr.len())], height
+                        &leader_addr[..16.min(leader_addr.len())],
+                        height
                     );
                     return false;
                 }
@@ -3642,7 +3892,7 @@ impl GossipService {
             let vc_msg = Self::view_change_signing_message(height, view, validator_address);
             match crate::bls::bls_sign(&vc_msg, &signer.bls_private_key) {
                 Ok(sig) => {
-                    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+                    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
                     Some(URL_SAFE_NO_PAD.encode(&sig))
                 }
                 Err(e) => {
@@ -3655,11 +3905,14 @@ impl GossipService {
         };
 
         let votes = inner.view_change_votes.entry(key).or_default();
-        votes.insert(validator_address.to_string(), rinku_core::types::ViewChangeVote {
-            validator_address: validator_address.to_string(),
-            validator_stake,
-            bls_signature: bls_sig.clone(),
-        });
+        votes.insert(
+            validator_address.to_string(),
+            rinku_core::types::ViewChangeVote {
+                validator_address: validator_address.to_string(),
+                validator_stake,
+                bls_signature: bls_sig.clone(),
+            },
+        );
         let cur = inner.current_view.entry(height).or_insert(0);
         if view > *cur {
             *cur = view;
@@ -3683,20 +3936,22 @@ impl GossipService {
         };
         info!(
             "Broadcasting ViewChange for h={} v={} reason={:?} (validator={}, stake={})",
-            height, view,
+            height,
+            view,
             reason,
             &validator_address[..16.min(validator_address.len())],
             validator_stake
         );
 
-        self.broadcast_leader_timeout(height, validator_address, validator_stake).await;
+        self.broadcast_leader_timeout(height, validator_address, validator_stake)
+            .await;
 
         #[cfg(feature = "p2p")]
         self.broadcast_via_p2p(&message).await;
     }
 
     fn view_change_signing_message(height: u64, view: u32, validator_address: &str) -> Vec<u8> {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(b"RINKU_VIEW_CHANGE_V1:");
         hasher.update(height.to_be_bytes());
@@ -3712,14 +3967,21 @@ impl GossipService {
         bls_signature: &str,
         bls_public_key_b64: &str,
     ) -> bool {
-        use base64::{Engine, engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}};
-        let sig_bytes = match URL_SAFE_NO_PAD.decode(bls_signature)
-            .or_else(|_| STANDARD.decode(bls_signature)) {
+        use base64::{
+            engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+            Engine,
+        };
+        let sig_bytes = match URL_SAFE_NO_PAD
+            .decode(bls_signature)
+            .or_else(|_| STANDARD.decode(bls_signature))
+        {
             Ok(b) => b,
             Err(_) => return false,
         };
-        let pk_bytes = match URL_SAFE_NO_PAD.decode(bls_public_key_b64)
-            .or_else(|_| STANDARD.decode(bls_public_key_b64)) {
+        let pk_bytes = match URL_SAFE_NO_PAD
+            .decode(bls_public_key_b64)
+            .or_else(|_| STANDARD.decode(bls_public_key_b64))
+        {
             Ok(b) => b,
             Err(_) => return false,
         };
@@ -3737,11 +3999,14 @@ impl GossipService {
     ) {
         let mut inner = self.inner.write().await;
         let votes = inner.view_change_votes.entry((height, view)).or_default();
-        votes.insert(validator_address.to_string(), rinku_core::types::ViewChangeVote {
-            validator_address: validator_address.to_string(),
-            validator_stake,
-            bls_signature,
-        });
+        votes.insert(
+            validator_address.to_string(),
+            rinku_core::types::ViewChangeVote {
+                validator_address: validator_address.to_string(),
+                validator_stake,
+                bls_signature,
+            },
+        );
         let cur = inner.current_view.entry(height).or_insert(0);
         if view > *cur {
             *cur = view;
@@ -3776,7 +4041,9 @@ impl GossipService {
     }
 
     pub async fn has_view_change_quorum(&self, height: u64, view: u32) -> bool {
-        self.get_view_change_certificate(height, view).await.is_some()
+        self.get_view_change_certificate(height, view)
+            .await
+            .is_some()
     }
 
     pub async fn get_current_view(&self, height: u64) -> u32 {
@@ -3800,20 +4067,28 @@ impl GossipService {
         let mut seen_validators = std::collections::HashSet::new();
         for vote in &cert.votes {
             if !seen_validators.insert(&vote.validator_address) {
-                tracing::warn!("ViewChangeCertificate has duplicate vote from {}", vote.validator_address);
+                tracing::warn!(
+                    "ViewChangeCertificate has duplicate vote from {}",
+                    vote.validator_address
+                );
                 return false;
             }
             if let Some(v) = validators.get(&vote.validator_address) {
                 if v.stake != vote.validator_stake {
                     tracing::warn!(
                         "ViewChangeCertificate stake mismatch for {}: cert={} state={}",
-                        vote.validator_address, vote.validator_stake, v.stake
+                        vote.validator_address,
+                        vote.validator_stake,
+                        v.stake
                     );
                     return false;
                 }
                 accumulated_stake += v.stake;
             } else {
-                tracing::warn!("ViewChangeCertificate vote from unknown validator {}", vote.validator_address);
+                tracing::warn!(
+                    "ViewChangeCertificate vote from unknown validator {}",
+                    vote.validator_address
+                );
                 return false;
             }
         }
@@ -3825,28 +4100,43 @@ impl GossipService {
         inner.recent_checkpoint_data.insert(height, data);
         const CHECKPOINT_CACHE_RETAIN: u64 = 50;
         if height > CHECKPOINT_CACHE_RETAIN {
-            inner.recent_checkpoint_data.retain(|h, _| *h > height - CHECKPOINT_CACHE_RETAIN);
+            inner
+                .recent_checkpoint_data
+                .retain(|h, _| *h > height - CHECKPOINT_CACHE_RETAIN);
         }
     }
 
-    pub async fn get_recent_checkpoints(&self, below_height: u64, max_count: usize) -> Vec<crate::network::BackfillCheckpoint> {
+    pub async fn get_recent_checkpoints(
+        &self,
+        below_height: u64,
+        max_count: usize,
+    ) -> Vec<crate::network::BackfillCheckpoint> {
         let inner = self.inner.read().await;
-        let mut heights: Vec<u64> = inner.recent_checkpoint_data.keys()
+        let mut heights: Vec<u64> = inner
+            .recent_checkpoint_data
+            .keys()
             .filter(|h| **h < below_height)
             .copied()
             .collect();
         heights.sort_unstable();
-        let start = if heights.len() > max_count { heights.len() - max_count } else { 0 };
-        heights[start..].iter().filter_map(|h| {
-            inner.recent_checkpoint_data.get(h).map(|cached| {
-                crate::network::BackfillCheckpoint {
-                    checkpoint: cached.checkpoint.clone(),
-                    finalized_tx_hashes: cached.finalized_tx_hashes.clone(),
-                    finalized_transactions: cached.finalized_transactions.clone(),
-                    precomputed_proofs: cached.precomputed_proofs.clone(),
-                }
+        let start = if heights.len() > max_count {
+            heights.len() - max_count
+        } else {
+            0
+        };
+        heights[start..]
+            .iter()
+            .filter_map(|h| {
+                inner.recent_checkpoint_data.get(h).map(|cached| {
+                    crate::network::BackfillCheckpoint {
+                        checkpoint: cached.checkpoint.clone(),
+                        finalized_tx_hashes: cached.finalized_tx_hashes.clone(),
+                        finalized_transactions: cached.finalized_transactions.clone(),
+                        precomputed_proofs: cached.precomputed_proofs.clone(),
+                    }
+                })
             })
-        }).collect()
+            .collect()
     }
 
     #[cfg(feature = "p2p")]
@@ -3863,7 +4153,8 @@ impl GossipService {
             let peer_ids = network_handle.get_connected_peer_ids().await;
             let peer_count = peer_ids.len();
             let cp_height = push_data.checkpoint.height;
-            let cp_hash_prefix = push_data.checkpoint.hash[..16.min(push_data.checkpoint.hash.len())].to_string();
+            let cp_hash_prefix =
+                push_data.checkpoint.hash[..16.min(push_data.checkpoint.hash.len())].to_string();
             let mut acked = 0usize;
             let mut failed_peers: Vec<String> = Vec::new();
 
@@ -3880,20 +4171,29 @@ impl GossipService {
             };
             let shared_push_data = std::sync::Arc::new(push_data);
             for peer_id in &peer_ids {
-                let request = crate::network::SyncRequest::CheckpointPush((*shared_push_data).clone());
+                let request =
+                    crate::network::SyncRequest::CheckpointPush((*shared_push_data).clone());
                 match network_handle.send_sync_request(peer_id, request).await {
                     Ok(rx) => {
                         match tokio::time::timeout(
                             std::time::Duration::from_millis(push_timeout_ms),
                             rx,
-                        ).await {
-                            Ok(Ok(crate::network::SyncResponse::CheckpointPushAck { accepted: true })) => {
+                        )
+                        .await
+                        {
+                            Ok(Ok(crate::network::SyncResponse::CheckpointPushAck {
+                                accepted: true,
+                            })) => {
                                 acked += 1;
                             }
-                            Ok(Ok(crate::network::SyncResponse::CheckpointPushAck { accepted: false })) => {
+                            Ok(Ok(crate::network::SyncResponse::CheckpointPushAck {
+                                accepted: false,
+                            })) => {
                                 warn!(
                                     "SYNC-PUSH: peer {} NACK'd checkpoint {} h={} — will retry",
-                                    &peer_id[..12.min(peer_id.len())], cp_hash_prefix, cp_height
+                                    &peer_id[..12.min(peer_id.len())],
+                                    cp_hash_prefix,
+                                    cp_height
                                 );
                                 failed_peers.push(peer_id.clone());
                             }
@@ -3933,7 +4233,12 @@ impl GossipService {
             if acked > 0 || !failed_peers.is_empty() {
                 info!(
                     "SYNC-PUSH: checkpoint {} h={} delivered to {}/{} peers (acked={}, failed={})",
-                    cp_hash_prefix, cp_height, acked, peer_count, acked, failed_peers.len()
+                    cp_hash_prefix,
+                    cp_height,
+                    acked,
+                    peer_count,
+                    acked,
+                    failed_peers.len()
                 );
             }
 
@@ -3951,7 +4256,9 @@ impl GossipService {
                     });
                 }
                 if inner.push_retry_queue.len() > MAX_RETRY_QUEUE_SIZE {
-                    inner.push_retry_queue.sort_by_key(|e| e.push_data.checkpoint.height);
+                    inner
+                        .push_retry_queue
+                        .sort_by_key(|e| e.push_data.checkpoint.height);
                     let excess = inner.push_retry_queue.len() - MAX_RETRY_QUEUE_SIZE;
                     let dropped: Vec<_> = inner.push_retry_queue.drain(..excess).collect();
                     if !dropped.is_empty() {
@@ -4013,7 +4320,9 @@ impl GossipService {
             }
 
             let cp_height = entry.push_data.checkpoint.height;
-            let cp_hash_prefix = entry.push_data.checkpoint.hash[..16.min(entry.push_data.checkpoint.hash.len())].to_string();
+            let cp_hash_prefix = entry.push_data.checkpoint.hash
+                [..16.min(entry.push_data.checkpoint.hash.len())]
+                .to_string();
             let request = crate::network::SyncRequest::CheckpointPush((*entry.push_data).clone());
 
             let retry_proof_count = entry.push_data.precomputed_proofs.len();
@@ -4027,25 +4336,33 @@ impl GossipService {
             } else {
                 1000
             };
-            let success = match network_handle.send_sync_request(&entry.peer_id, request).await {
-                Ok(rx) => {
-                    match tokio::time::timeout(
-                        std::time::Duration::from_millis(retry_timeout_ms),
-                        rx,
-                    ).await {
-                        Ok(Ok(crate::network::SyncResponse::CheckpointPushAck { accepted: true })) => {
-                            info!(
+            let success =
+                match network_handle
+                    .send_sync_request(&entry.peer_id, request)
+                    .await
+                {
+                    Ok(rx) => {
+                        match tokio::time::timeout(
+                            std::time::Duration::from_millis(retry_timeout_ms),
+                            rx,
+                        )
+                        .await
+                        {
+                            Ok(Ok(crate::network::SyncResponse::CheckpointPushAck {
+                                accepted: true,
+                            })) => {
+                                info!(
                                 "SYNC-PUSH-RETRY: peer {} ACK'd checkpoint {} h={} on attempt {}",
                                 &entry.peer_id[..12.min(entry.peer_id.len())],
                                 cp_hash_prefix, cp_height, entry.attempts + 1
                             );
-                            true
+                                true
+                            }
+                            _ => false,
                         }
-                        _ => false,
                     }
-                }
-                Err(_) => false,
-            };
+                    Err(_) => false,
+                };
 
             if !success {
                 entry.attempts += 1;
@@ -4053,7 +4370,10 @@ impl GossipService {
                 info!(
                     "SYNC-PUSH-RETRY: peer {} still failing for checkpoint {} h={} (attempt {}/{})",
                     &entry.peer_id[..12.min(entry.peer_id.len())],
-                    cp_hash_prefix, cp_height, entry.attempts, MAX_ATTEMPTS
+                    cp_hash_prefix,
+                    cp_height,
+                    entry.attempts,
+                    MAX_ATTEMPTS
                 );
                 requeue.push(entry);
             }
@@ -4065,7 +4385,9 @@ impl GossipService {
             let mut inner = self.inner.write().await;
             inner.push_retry_queue.extend(requeue);
             if inner.push_retry_queue.len() > MAX_RETRY_QUEUE_SIZE {
-                inner.push_retry_queue.sort_by_key(|e| e.push_data.checkpoint.height);
+                inner
+                    .push_retry_queue
+                    .sort_by_key(|e| e.push_data.checkpoint.height);
                 let excess = inner.push_retry_queue.len() - MAX_RETRY_QUEUE_SIZE;
                 inner.push_retry_queue.drain(..excess);
             }
@@ -4369,10 +4691,16 @@ impl GossipService {
         let mut tx_hashes: Vec<String> = Vec::with_capacity(batch_count);
 
         for tx in &batch_txs {
+            let public_key = self
+                .state
+                .get_account(&tx.tx.from)
+                .await
+                .and_then(|a| a.ecdsa_public_key);
             let message = GossipMessage::Transaction {
                 hash: tx.hash.clone(),
                 tx: tx.clone(),
                 sender_url: public_url.clone(),
+                public_key,
             };
 
             #[cfg(feature = "p2p")]
@@ -4446,6 +4774,30 @@ impl GossipService {
                     delta.to_checkpoint
                 );
 
+                let mut verifier =
+                    crate::sync_verification::SyncVerifier::new(self.sync_verify_strict);
+                if !verifier.verify_delta(&delta) {
+                    let detail = verifier.summary();
+                    let failures: Vec<String> = verifier
+                        .failures()
+                        .iter()
+                        .map(|(k, r)| format!("{k}: {r:?}"))
+                        .collect();
+                    warn!(
+                        "P2P delta rejected by SyncVerifier (strict={}): {} — {:?}",
+                        self.sync_verify_strict, detail, failures
+                    );
+                    return Err(anyhow::anyhow!(
+                        "P2P delta merkle verification failed: {}",
+                        detail
+                    ));
+                }
+                info!(
+                    "P2P delta SyncVerifier OK (strict={}): {}",
+                    self.sync_verify_strict,
+                    verifier.summary()
+                );
+
                 // ORDERING: First, apply all transactions before any checkpoints
                 // This ensures checkpoints have their referenced transactions
                 let mut tx_hashes_added = std::collections::HashSet::new();
@@ -4490,10 +4842,18 @@ impl GossipService {
                 let mut applied_heights: std::collections::HashSet<u64> =
                     std::collections::HashSet::new();
 
-                let proofs_by_height: std::collections::HashMap<u64, Vec<rinku_core::types::AccountStateProof>> = {
-                    let mut map: std::collections::HashMap<u64, Vec<rinku_core::types::AccountStateProof>> = std::collections::HashMap::new();
+                let proofs_by_height: std::collections::HashMap<
+                    u64,
+                    Vec<rinku_core::types::AccountStateProof>,
+                > = {
+                    let mut map: std::collections::HashMap<
+                        u64,
+                        Vec<rinku_core::types::AccountStateProof>,
+                    > = std::collections::HashMap::new();
                     for proof in &delta.precomputed_proofs {
-                        map.entry(proof.checkpoint_height).or_default().push(proof.clone());
+                        map.entry(proof.checkpoint_height)
+                            .or_default()
+                            .push(proof.clone());
                     }
                     map
                 };
@@ -4566,7 +4926,8 @@ impl GossipService {
                                         cp_data.height, missing_tx_count, cp_data.finalized_tx_hashes.len()
                                     );
                                 }
-                                self.remove_finalized_from_fast_path(&cp_data.finalized_tx_hashes).await;
+                                self.remove_finalized_from_fast_path(&cp_data.finalized_tx_hashes)
+                                    .await;
                                 applied_heights.insert(cp_data.height);
                                 info!(
                                     "Applied P2P delta sync checkpoint at height {} ({} txs finalized, {} missing)",
@@ -4651,6 +5012,107 @@ impl GossipService {
         Ok(result)
     }
 
+    /// Post-apply consensus invariant. After applying checkpoint `h`, our local
+    /// state root MUST equal the committed `checkpoint.state_root`. If it does
+    /// not, we have silently diverged — e.g. re-executed a different finalized
+    /// tx set via the execution fallback — and must not keep building on a
+    /// forked state. Recover by pulling a fresh full snapshot from a peer.
+    /// Rate-limited so a run of diverging checkpoints can't trigger a resync
+    /// storm.
+    async fn check_post_apply_consensus(&self, checkpoint: &Checkpoint) {
+        let expected = checkpoint.state_root.clone();
+        if expected.is_empty() {
+            return;
+        }
+        let local = self.state.current_state_root().await;
+        if local == expected {
+            return;
+        }
+
+        error!(
+            "CONSENSUS DIVERGENCE at h={}: local state_root {} != committed {} — scheduling full snapshot resync",
+            checkpoint.height,
+            &local[..16.min(local.len())],
+            &expected[..16.min(expected.len())],
+        );
+
+        const RESYNC_COOLDOWN_MS: u64 = 30_000;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let last = self
+            .divergence_resync_at_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if now_ms.saturating_sub(last) < RESYNC_COOLDOWN_MS {
+            return;
+        }
+        // Claim the cooldown window atomically so concurrent applies don't all
+        // kick off a resync.
+        if self
+            .divergence_resync_at_ms
+            .compare_exchange(
+                last,
+                now_ms,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            return;
+        }
+
+        #[cfg(feature = "p2p")]
+        {
+            let this = self.clone();
+            let height = checkpoint.height;
+            tokio::spawn(async move {
+                let peer_ids: Vec<String> = match &this.network_handle {
+                    Some(h) => {
+                        let mut ids = h.get_connected_validator_peer_ids().await;
+                        if ids.is_empty() {
+                            ids = h
+                                .get_connected_peers()
+                                .await
+                                .into_iter()
+                                .map(|p| p.peer_id)
+                                .collect();
+                        }
+                        ids
+                    }
+                    None => Vec::new(),
+                };
+                if peer_ids.is_empty() {
+                    warn!(
+                        "CONSENSUS DIVERGENCE resync at h={}: no connected peers to resync from",
+                        height
+                    );
+                    return;
+                }
+                for peer_id in peer_ids {
+                    match this.bootstrap_from_peer_p2p(&peer_id).await {
+                        Ok(()) => {
+                            info!(
+                                "CONSENSUS DIVERGENCE resync at h={}: recovered full snapshot from peer {}",
+                                height,
+                                &peer_id[..16.min(peer_id.len())]
+                            );
+                            return;
+                        }
+                        Err(e) => {
+                            warn!(
+                                "CONSENSUS DIVERGENCE resync at h={}: snapshot from peer {} failed: {}",
+                                height,
+                                &peer_id[..16.min(peer_id.len())],
+                                e
+                            );
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     /// P2P-based snapshot sync using libp2p request-response protocol
     #[cfg(feature = "p2p")]
     async fn bootstrap_from_peer_p2p(&self, peer_id: &str) -> Result<()> {
@@ -4675,7 +5137,30 @@ impl GossipService {
                     snapshot.recent_txs.len()
                 );
 
-                // Apply snapshot to state
+                let mut verifier =
+                    crate::sync_verification::SyncVerifier::new(self.sync_verify_strict);
+                if !verifier.verify_snapshot(&snapshot) {
+                    let detail = verifier.summary();
+                    let failures: Vec<String> = verifier
+                        .failures()
+                        .iter()
+                        .map(|(k, r)| format!("{k}: {r:?}"))
+                        .collect();
+                    warn!(
+                        "P2P snapshot rejected by SyncVerifier (strict={}): {} — {:?}",
+                        self.sync_verify_strict, detail, failures
+                    );
+                    return Err(anyhow::anyhow!(
+                        "P2P snapshot merkle verification failed: {}",
+                        detail
+                    ));
+                }
+                info!(
+                    "P2P snapshot SyncVerifier OK (strict={}): {}",
+                    self.sync_verify_strict,
+                    verifier.summary()
+                );
+
                 self.state.apply_p2p_snapshot(snapshot).await?;
 
                 info!("P2P snapshot sync complete");
@@ -4789,7 +5274,12 @@ impl GossipService {
         }
 
         match message {
-            GossipMessage::Transaction { hash, tx, .. } => {
+            GossipMessage::Transaction {
+                hash,
+                tx,
+                public_key,
+                ..
+            } => {
                 {
                     let inner = self.inner.read().await;
                     if let Some(&min_nonce) = inner.stale_nonce_cache.get(&tx.tx.from) {
@@ -4817,7 +5307,28 @@ impl GossipService {
                 };
 
                 if is_new {
-                    match self.state.add_transaction_from_gossip(tx.clone()).await {
+                    if crate::tx_auth::is_system_transaction(&tx) {
+                        let from = tx.tx.from.clone();
+                        let is_validator = self.state.is_validator(&from).await;
+                        if let Err(e) =
+                            crate::tx_auth::validate_gossip_system_transaction(&tx, |_| {
+                                is_validator
+                            })
+                        {
+                            debug!(
+                                "Rejecting gossiped system tx {}: {}",
+                                &hash[..16.min(hash.len())],
+                                e
+                            );
+                            return Ok(None);
+                        }
+                    }
+
+                    match self
+                        .state
+                        .add_transaction_from_gossip_authenticated(tx.clone(), public_key)
+                        .await
+                    {
                         Ok(TransactionResult::Accepted) => {}
                         Ok(TransactionResult::Buffered) => {
                             debug!(
@@ -5091,11 +5602,10 @@ impl GossipService {
                     if !inner.known_txs.contains(&hash) {
                         inner.known_txs.insert(hash.clone());
                         drop(inner);
-                        match self.state.add_transaction_from_gossip(tx).await {
-                            Ok(TransactionResult::Accepted) => {}
-                            Ok(TransactionResult::Buffered) => {
-                                debug!("Synced tx {} buffered (future nonce)", hash);
-                            }
+                        // Catch-up uses sync admit (tolerates historical system txs),
+                        // not gossip admit which rejects forged genesis/anchors.
+                        match self.state.add_transaction_from_sync(tx).await {
+                            Ok(()) => {}
                             Err(e) => {
                                 debug!("Failed to add synced tx {}: {}", hash, e);
                             }
@@ -5322,6 +5832,7 @@ impl GossipService {
                 sender_validator,
                 sender_stake,
                 timestamp_ms,
+                public_key,
                 ..
             } => {
                 {
@@ -5376,7 +5887,14 @@ impl GossipService {
                     let already_in_dag = self.state.has_transaction(&tx.hash).await;
 
                     if !already_in_dag {
-                        match self.state.add_transaction_from_gossip(tx.clone()).await {
+                        match self
+                            .state
+                            .add_transaction_from_gossip_authenticated(
+                                tx.clone(),
+                                public_key.clone(),
+                            )
+                            .await
+                        {
                             Ok(_) => {}
                             Err(e) => {
                                 let err_str = e.to_string();
@@ -5403,10 +5921,7 @@ impl GossipService {
                             timestamp_ms,
                             send_ack: true,
                         }) {
-                            warn!(
-                                "Fast-path vote channel full, dropped BroadcastVote: {}",
-                                e
-                            );
+                            warn!("Fast-path vote channel full, dropped BroadcastVote: {}", e);
                         }
                     }
                 } else {
@@ -5418,10 +5933,7 @@ impl GossipService {
                             timestamp_ms,
                             send_ack: true,
                         }) {
-                            warn!(
-                                "Fast-path vote channel full, dropped BroadcastVote: {}",
-                                e
-                            );
+                            warn!("Fast-path vote channel full, dropped BroadcastVote: {}", e);
                         }
                     }
                 }
@@ -5434,6 +5946,7 @@ impl GossipService {
                 validator_address,
                 validator_stake,
                 timestamp_ms,
+                bls_signature,
                 ..
             } => {
                 {
@@ -5449,6 +5962,7 @@ impl GossipService {
                         validator_address,
                         validator_stake,
                         timestamp_ms,
+                        bls_signature,
                     }) {
                         warn!("Fast-path vote channel full, dropped AckVote: {}", e);
                     }
@@ -5690,7 +6204,8 @@ impl GossipService {
                     warn!(
                         "Rejected ViewChange from non-validator {} for h={} v={}",
                         &validator_address[..16.min(validator_address.len())],
-                        height, view
+                        height,
+                        view
                     );
                     return Ok(None);
                 }
@@ -5699,11 +6214,18 @@ impl GossipService {
                 let canonical_stake = validator.stake;
 
                 if let (Some(ref sig), Some(ref pk)) = (&bls_signature, &validator.bls_public_key) {
-                    if !Self::verify_view_change_bls_signature(height, view, &validator_address, sig, pk) {
+                    if !Self::verify_view_change_bls_signature(
+                        height,
+                        view,
+                        &validator_address,
+                        sig,
+                        pk,
+                    ) {
                         warn!(
                             "Rejected ViewChange with INVALID BLS signature from {} for h={} v={}",
                             &validator_address[..16.min(validator_address.len())],
-                            height, view
+                            height,
+                            view
                         );
                         return Ok(None);
                     }
@@ -5723,16 +6245,19 @@ impl GossipService {
                 }
 
                 self.record_view_change_vote(
-                    height, view,
+                    height,
+                    view,
                     &validator_address,
                     canonical_stake,
                     bls_signature.clone(),
-                ).await;
+                )
+                .await;
 
                 let has_quorum = self.has_view_change_quorum(height, view).await;
                 info!(
                     "ViewChange vote for h={} v={} from {} (stake={}, quorum={})",
-                    height, view,
+                    height,
+                    view,
                     &validator_address[..16.min(validator_address.len())],
                     canonical_stake,
                     if has_quorum { "REACHED" } else { "pending" }
@@ -5740,16 +6265,21 @@ impl GossipService {
 
                 let should_echo = {
                     let inner = self.inner.read().await;
-                    !inner.view_change_sent.contains(&(height, view)) && our_addr.is_some() && our_stake > 0
+                    !inner.view_change_sent.contains(&(height, view))
+                        && our_addr.is_some()
+                        && our_stake > 0
                 };
 
                 if should_echo {
                     if let Some(ref addr) = our_addr {
                         self.broadcast_view_change(
-                            height, view,
-                            addr, our_stake,
+                            height,
+                            view,
+                            addr,
+                            our_stake,
                             rinku_core::types::ViewChangeReason::LeaderTimeout,
-                        ).await;
+                        )
+                        .await;
                     }
                 }
 
@@ -5793,7 +6323,9 @@ impl GossipService {
 
                 {
                     let mut vote_state = self.qcc_vote_lock.lock().await;
-                    if vote_state.0 >= height && !(vote_state.0 == height && vote_state.1 == checkpoint_hash) {
+                    if vote_state.0 >= height
+                        && !(vote_state.0 == height && vote_state.1 == checkpoint_hash)
+                    {
                         if vote_state.0 == height {
                             warn!(
                                 "EQUIVOCATION PREVENTED (gossip): Declining vote for checkpoint {} at height {} — already voted for {} at this height",
@@ -6234,10 +6766,16 @@ impl GossipService {
         if is_new {
             let tx_hash = tx.hash.clone();
             let public_url = std::env::var("PUBLIC_URL").ok();
+            let public_key = self
+                .state
+                .get_account(&tx.tx.from)
+                .await
+                .and_then(|a| a.ecdsa_public_key);
             let message = GossipMessage::Transaction {
                 hash: tx_hash.clone(),
                 tx,
                 sender_url: public_url,
+                public_key,
             };
             #[cfg(feature = "p2p")]
             self.broadcast_via_p2p(&message).await;
@@ -6272,7 +6810,6 @@ impl GossipService {
         inner.fast_path_executed.clone()
     }
 
-
     pub async fn broadcast_fast_path_transaction(
         &self,
         tx: SignedTransaction,
@@ -6293,6 +6830,16 @@ impl GossipService {
         if is_new {
             let tx_hash = tx.hash.clone();
             let public_url = std::env::var("PUBLIC_URL").ok();
+            // Include the sender's ECDSA key so peers can authenticate the tx on
+            // first sighting (fast-path bypassed the normal Transaction gossip path).
+            let public_key = if crate::tx_auth::is_system_transaction(&tx) {
+                None
+            } else {
+                self.state
+                    .get_account(&tx.tx.from)
+                    .await
+                    .and_then(|a| a.ecdsa_public_key)
+            };
             let timestamp_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -6323,11 +6870,14 @@ impl GossipService {
                     .iter()
                     .any(|a| a.validator_address == validator_address);
                 if !already_acked {
+                    let bls_signature = self.checkpoint_vote_signer.as_ref().and_then(|s| {
+                        crate::fast_path::sign_fast_path_ack(&tx_hash, &s.bls_private_key)
+                    });
                     finality.acks.push(rinku_core::types::FastPathAck {
                         tx_hash: tx_hash.clone(),
                         validator_address: validator_address.to_string(),
                         validator_stake,
-                        bls_signature: None,
+                        bls_signature,
                         timestamp_ms,
                     });
                     finality.total_stake_acked += validator_stake;
@@ -6347,6 +6897,7 @@ impl GossipService {
                 sender_stake: validator_stake,
                 timestamp_ms,
                 sender_url: public_url,
+                public_key,
             };
 
             #[cfg(feature = "p2p")]
@@ -6377,7 +6928,9 @@ impl GossipService {
         }
 
         let local_height = self.state.get_checkpoint_height();
-        let network_height = self.highest_seen_peer_height.load(std::sync::atomic::Ordering::Relaxed);
+        let network_height = self
+            .highest_seen_peer_height
+            .load(std::sync::atomic::Ordering::Relaxed);
         if network_height > 0 && local_height < network_height {
             let mut inner = self.inner.write().await;
             inner.last_batch_execution = std::time::Instant::now();
@@ -6449,7 +7002,9 @@ impl GossipService {
 
             if !deferred_hashes.is_empty() && executed_count > 0 {
                 let local_height = self.state.get_checkpoint_height();
-                let network_height = self.highest_seen_peer_height.load(std::sync::atomic::Ordering::Relaxed);
+                let network_height = self
+                    .highest_seen_peer_height
+                    .load(std::sync::atomic::Ordering::Relaxed);
                 let checkpoint_gap = network_height.saturating_sub(local_height);
 
                 if checkpoint_gap >= 2 {
@@ -6518,7 +7073,10 @@ impl GossipService {
         if executed_count > 0 || dropped_count > 0 {
             let (queue_depth, exec_set_size) = {
                 let inner = self.inner.read().await;
-                (inner.confirmed_pending_execution.len(), inner.fast_path_executed.len())
+                (
+                    inner.confirmed_pending_execution.len(),
+                    inner.fast_path_executed.len(),
+                )
             };
             let fast_path_pool_size = {
                 let state = self.state.inner.read().await;
@@ -6531,7 +7089,6 @@ impl GossipService {
             );
         }
     }
-
 
     pub async fn broadcast_conflict_resolution(
         &self,
@@ -6619,15 +7176,27 @@ impl GossipService {
         let inner = self.inner.read().await;
         let total_peers = inner.peers.len();
         let healthy = inner.peers.values().filter(|p| p.is_healthy).count();
-        let peer_details: Vec<String> = inner.peers.values().map(|p| {
-            let id_short = &p.node_id[..12.min(p.node_id.len())];
-            if p.consecutive_failures > 0 {
-                format!("{}:h={}(fails={})", id_short, p.checkpoint_height, p.consecutive_failures)
-            } else {
-                format!("{}:h={}", id_short, p.checkpoint_height)
-            }
-        }).collect();
-        format!("peers={}/{} [{}]", healthy, total_peers, peer_details.join(", "))
+        let peer_details: Vec<String> = inner
+            .peers
+            .values()
+            .map(|p| {
+                let id_short = &p.node_id[..12.min(p.node_id.len())];
+                if p.consecutive_failures > 0 {
+                    format!(
+                        "{}:h={}(fails={})",
+                        id_short, p.checkpoint_height, p.consecutive_failures
+                    )
+                } else {
+                    format!("{}:h={}", id_short, p.checkpoint_height)
+                }
+            })
+            .collect();
+        format!(
+            "peers={}/{} [{}]",
+            healthy,
+            total_peers,
+            peer_details.join(", ")
+        )
     }
 
     pub async fn record_peer_sync_failure(&self, peer_id_prefix: &str) {
@@ -6827,6 +7396,80 @@ impl GossipService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_signed_tx() -> rinku_core::types::SignedTransaction {
+        rinku_core::types::SignedTransaction {
+            tx: rinku_core::types::Transaction {
+                from: "alice".to_string(),
+                to: "bob".to_string(),
+                amount: 1_000_000,
+                nonce: 0,
+                timestamp: 1_700_000_000_000,
+                parents: vec![],
+                kind: None,
+                gas_limit: None,
+                gas_price: None,
+                data: None,
+                signature: Some("ecdsa-sig".to_string()),
+                memo: None,
+                references: None,
+            },
+            hash: "abc123".to_string(),
+            signature: "ecdsa-sig".to_string(),
+        }
+    }
+
+    // Regression: fast-path TxConfirmBroadcast must carry the sender's ECDSA
+    // public key so peers can authenticate a user tx on first sighting.
+    // Previously the field was absent and receivers rejected the tx with
+    // "publicKey required for authenticated transactions".
+    #[test]
+    fn test_tx_confirm_broadcast_round_trips_public_key() {
+        let msg = GossipMessage::TxConfirmBroadcast {
+            tx: sample_signed_tx(),
+            sender_validator: "validator-1".to_string(),
+            sender_stake: 100,
+            timestamp_ms: 42,
+            sender_url: Some("https://node.example".to_string()),
+            public_key: Some("0xdeadbeef".to_string()),
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let decoded: GossipMessage = serde_json::from_str(&json).expect("deserialize");
+
+        match decoded {
+            GossipMessage::TxConfirmBroadcast { public_key, .. } => {
+                assert_eq!(public_key.as_deref(), Some("0xdeadbeef"));
+            }
+            other => panic!("unexpected variant: {}", other.variant_name()),
+        }
+    }
+
+    // Backward compat: messages from older nodes lack the public_key field and
+    // must still deserialize (as None), rather than failing the whole message.
+    #[test]
+    fn test_tx_confirm_broadcast_legacy_without_public_key() {
+        let legacy = GossipMessage::TxConfirmBroadcast {
+            tx: sample_signed_tx(),
+            sender_validator: "validator-1".to_string(),
+            sender_stake: 100,
+            timestamp_ms: 42,
+            sender_url: None,
+            public_key: None,
+        };
+        let mut value = serde_json::to_value(&legacy).expect("to_value");
+        // Simulate an older peer that never serialized public_key at all.
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("public_key");
+        }
+        let decoded: GossipMessage = serde_json::from_value(value).expect("deserialize legacy");
+        match decoded {
+            GossipMessage::TxConfirmBroadcast { public_key, .. } => {
+                assert!(public_key.is_none());
+            }
+            other => panic!("unexpected variant: {}", other.variant_name()),
+        }
+    }
 
     #[test]
     fn test_bounded_hash_set_basic_operations() {

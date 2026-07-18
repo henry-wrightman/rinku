@@ -64,7 +64,7 @@ impl MerkleTree {
 
     pub fn from_hex_leaves(hex_leaves: &[String]) -> Result<Self, MerkleError> {
         let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(hex_leaves.len());
-        
+
         for hex_str in hex_leaves {
             let bytes = hex::decode(hex_str).map_err(|_| MerkleError::InvalidProof)?;
             if bytes.len() != 32 {
@@ -74,7 +74,7 @@ impl MerkleTree {
             arr.copy_from_slice(&bytes);
             leaves.push(arr);
         }
-        
+
         Self::new(leaves)
     }
 
@@ -225,8 +225,7 @@ impl MerkleTree {
 }
 
 pub fn verify_proof(proof: &MerkleProof) -> Result<bool, MerkleError> {
-    let mut current_hash =
-        hex::decode(&proof.leaf_hash).map_err(|_| MerkleError::InvalidProof)?;
+    let mut current_hash = hex::decode(&proof.leaf_hash).map_err(|_| MerkleError::InvalidProof)?;
 
     for (i, sibling_hex) in proof.siblings.iter().enumerate() {
         let sibling = hex::decode(sibling_hex).map_err(|_| MerkleError::InvalidProof)?;
@@ -285,14 +284,17 @@ pub fn verify_multiproof(proof: &MerkleMultiProof) -> Result<bool, MerkleError> 
     let mut size = proof.num_leaves;
     while size > 1 {
         layer_sizes.push(size);
-        size = (size + 1) / 2;
+        size = size.div_ceil(2);
     }
     layer_sizes.push(1);
 
     let num_layers = layer_sizes.len();
 
-    for layer_idx in 0..num_layers - 1 {
-        let layer_size = layer_sizes[layer_idx];
+    for (layer_idx, &layer_size) in layer_sizes
+        .iter()
+        .enumerate()
+        .take(num_layers.saturating_sub(1))
+    {
         let positions: Vec<usize> = known
             .keys()
             .filter(|(l, _)| *l == layer_idx)
@@ -336,7 +338,6 @@ pub fn verify_multiproof(proof: &MerkleMultiProof) -> Result<bool, MerkleError> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::sha256_hex;
 
     #[test]
     fn test_merkle_tree_single_leaf() {

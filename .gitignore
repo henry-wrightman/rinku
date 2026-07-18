@@ -27,6 +27,12 @@ packages/zk/build/
 packages/node/.rinku-data/
 .rinku-data/
 
+# Local 3-node harness state (keys, redb, logs) — never commit
+.test-genesis/
+.test-validator-1/
+.test-validator-2/
+.test-*/
+
 # Unecessary
 .cache/
 .npm-cache/

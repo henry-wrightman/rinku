@@ -5,48 +5,52 @@ impl NodeState {
         let state = self.inner.read().await;
         state.validators.values().cloned().collect()
     }
-    
+
     /// Check if an address is a registered validator
     pub async fn is_validator(&self, address: &str) -> bool {
         let state = self.inner.read().await;
         state.validators.contains_key(address)
     }
-    
+
     /// Get the stake amount for a validator
     pub async fn get_validator_stake(&self, address: &str) -> Option<u64> {
         let state = self.inner.read().await;
         state.validators.get(address).map(|v| v.stake)
     }
-    
+
     /// Get total validator stake for fast-path quorum calculation
     pub async fn get_total_validator_stake(&self) -> u64 {
         let state = self.inner.read().await;
         state.validators.values().map(|v| v.stake).sum()
     }
-    
+
     /// Get the validators as a HashMap for syncing to the ValidatorIdentityService
     pub async fn get_validators_map(&self) -> std::collections::HashMap<String, Validator> {
         let state = self.inner.read().await;
         state.validators.clone()
     }
-    
+
     /// Replace the validator registry with genesis validators for consensus verification.
     /// When `is_genesis_node` is true, also creates validator accounts with stake (genesis
     /// is the authoritative source of accounts). Validator nodes only update the registry
     /// and trust that accounts were inherited via PRE-SYNC from the genesis node.
-    pub async fn replace_validators_with_genesis(&self, genesis_validators: &[(String, Vec<u8>)], is_genesis_node: bool) {
+    pub async fn replace_validators_with_genesis(
+        &self,
+        genesis_validators: &[(String, Vec<u8>)],
+        is_genesis_node: bool,
+    ) {
         use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
-        
+
         let mut state = self.inner.write().await;
         let old_count = state.validators.len();
-        
+
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        
+
         let mut new_validators = std::collections::HashMap::new();
-        
+
         for (address, bls_public_key) in genesis_validators {
             let validator = Validator {
                 address: address.clone(),
@@ -56,7 +60,7 @@ impl NodeState {
                 missed_checkpoints: 0,
             };
             new_validators.insert(address.clone(), validator);
-            
+
             if is_genesis_node {
                 if !state.accounts.contains_key(address) {
                     let mut account = Account::new(address.clone(), now_secs);
@@ -64,7 +68,9 @@ impl NodeState {
                     state.accounts.insert(address.clone(), account);
                     info!(
                         "Genesis validator account created: {} (staked: {} µRKU / {} RKU)",
-                        &address[..16.min(address.len())], GENESIS_VALIDATOR_STAKE, GENESIS_VALIDATOR_STAKE / 100_000_000
+                        &address[..16.min(address.len())],
+                        GENESIS_VALIDATOR_STAKE,
+                        GENESIS_VALIDATOR_STAKE / 100_000_000
                     );
                 } else {
                     let account = state.accounts.get_mut(address).unwrap();
@@ -72,16 +78,17 @@ impl NodeState {
                         account.staked = GENESIS_VALIDATOR_STAKE;
                         info!(
                             "Genesis validator account updated staked amount: {} -> {} RKU",
-                            &address[..16.min(address.len())], GENESIS_VALIDATOR_STAKE / 100_000_000
+                            &address[..16.min(address.len())],
+                            GENESIS_VALIDATOR_STAKE / 100_000_000
                         );
                     }
                 }
             }
         }
-        
+
         let new_count = new_validators.len();
         state.validators = new_validators;
-        
+
         info!(
             "state.validators: REPLACED with genesis validators ({} -> {}), accounts_modified={}",
             old_count, new_count, is_genesis_node
@@ -97,12 +104,13 @@ impl NodeState {
     ) -> usize {
         let mut state = self.inner.write().await;
         let mut merged_count = 0;
-        
+
         for (addr, peer_validator) in peer_validators {
             match state.validators.get_mut(addr) {
                 Some(existing) => {
                     // Update BLS key if we don't have one but peer does
-                    if existing.bls_public_key.is_none() && peer_validator.bls_public_key.is_some() {
+                    if existing.bls_public_key.is_none() && peer_validator.bls_public_key.is_some()
+                    {
                         existing.bls_public_key = peer_validator.bls_public_key.clone();
                         merged_count += 1;
                         info!("Updated BLS key for validator {} from peer", addr);
@@ -114,13 +122,18 @@ impl NodeState {
                 }
                 None => {
                     // Add new validator from peer
-                    state.validators.insert(addr.clone(), peer_validator.clone());
+                    state
+                        .validators
+                        .insert(addr.clone(), peer_validator.clone());
                     merged_count += 1;
-                    info!("Added validator {} from peer (stake: {})", addr, peer_validator.stake);
+                    info!(
+                        "Added validator {} from peer (stake: {})",
+                        addr, peer_validator.stake
+                    );
                 }
             }
         }
-        
+
         merged_count
     }
 
@@ -138,8 +151,14 @@ impl NodeState {
         }
     }
 
-    pub async fn get_fast_path_cert(&self, hash: &str) -> Option<rinku_core::types::FastPathFinalizationCert> {
+    pub async fn get_fast_path_cert(
+        &self,
+        hash: &str,
+    ) -> Option<rinku_core::types::FastPathFinalizationCert> {
         let state = self.inner.read().await;
-        state.dag.get_node(hash).and_then(|n| n.fast_path_cert.clone())
+        state
+            .dag
+            .get_node(hash)
+            .and_then(|n| n.fast_path_cert.clone())
     }
 }

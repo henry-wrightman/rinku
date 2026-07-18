@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{ConnectInfo, Path, Query, State},
+    http::{HeaderValue, Method, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -11,11 +11,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 
 use crate::gossip::GossipService;
+use crate::http_rate_limit::HttpRateLimiters;
 use crate::network::CheckpointData;
 use crate::state::TransactionResult;
 use crate::sync_verification::build_account_merkle_root_sorted;
@@ -47,6 +48,62 @@ pub struct ApiState {
     pub node_state: NodeState,
     pub gossip_service: Option<Arc<GossipService>>,
     pub event_bus: Arc<crate::events::EventBus>,
+    pub rate_limits: Arc<HttpRateLimiters>,
+    pub faucet_enabled: bool,
+}
+
+fn client_key(addr: Option<ConnectInfo<SocketAddr>>) -> String {
+    addr.map(|ConnectInfo(a)| a.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn rate_limited_response(kind: &str, max: usize, window_secs: u64) -> axum::response::Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(serde_json::json!({
+            "error": format!(
+                "Rate limited ({kind}): max {max} requests per {window_secs}s"
+            ),
+            "success": false,
+        })),
+    )
+        .into_response()
+}
+
+fn build_read_cors() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::HEAD, Method::OPTIONS])
+        .allow_headers(Any)
+}
+
+fn build_write_cors(origins: &[String]) -> CorsLayer {
+    let allow_any = origins.iter().any(|o| o.trim() == "*");
+    let mut layer = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(Any);
+
+    if allow_any {
+        layer = layer.allow_origin(Any);
+    } else {
+        let parsed: Vec<HeaderValue> = origins
+            .iter()
+            .filter_map(|o| HeaderValue::from_str(o.trim()).ok())
+            .collect();
+        if parsed.is_empty() {
+            // No origins configured — deny browser cross-origin writes (non-browser clients unaffected).
+            layer = layer.allow_origin(AllowOrigin::list(Vec::<HeaderValue>::new()));
+        } else {
+            layer = layer.allow_origin(AllowOrigin::list(parsed));
+        }
+    }
+    layer
 }
 
 #[derive(Serialize)]
@@ -64,11 +121,17 @@ impl IntoResponse for ApiError {
 
 impl ApiError {
     fn not_found(message: impl Into<String>) -> Self {
-        Self { error: message.into(), code: 404 }
+        Self {
+            error: message.into(),
+            code: 404,
+        }
     }
-    
+
     fn bad_request(message: impl Into<String>) -> Self {
-        Self { error: message.into(), code: 400 }
+        Self {
+            error: message.into(),
+            code: 400,
+        }
     }
 }
 
@@ -155,6 +218,34 @@ struct TxInner {
 #[derive(Deserialize)]
 struct SubmitTxRequest {
     tx: TxInner,
+    #[serde(default, alias = "publicKey")]
+    public_key: Option<PublicKeyField>,
+}
+
+/// Accepts either a byte array (wallet) or hex string (explorer).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PublicKeyField {
+    Bytes(Vec<u8>),
+    Hex(String),
+}
+
+impl PublicKeyField {
+    fn to_hex(&self) -> Result<String, String> {
+        match self {
+            PublicKeyField::Bytes(b) => {
+                if b.is_empty() {
+                    return Err("empty publicKey".into());
+                }
+                Ok(hex::encode(b))
+            }
+            PublicKeyField::Hex(h) => {
+                let cleaned = h.trim().strip_prefix("0x").unwrap_or(h.trim());
+                hex::decode(cleaned).map_err(|_| "invalid publicKey hex".to_string())?;
+                Ok(cleaned.to_lowercase())
+            }
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -637,29 +728,32 @@ async fn get_sync_status(State(state): State<NodeState>) -> Json<SyncStatusRespo
 }
 
 async fn get_bootstrap_info(State(state): State<NodeState>) -> Json<BootstrapInfoResponse> {
-    let (peer_id, listen_addr, validator_address, bls_public_key) = state.get_bootstrap_info().await;
-    
+    let (peer_id, listen_addr, validator_address, bls_public_key) =
+        state.get_bootstrap_info().await;
+
     // Build bootstrap multiaddr for P2P_BOOTSTRAP_PEERS env var
     let bootstrap_multiaddr = match (&peer_id, &listen_addr) {
         (Some(pid), Some(addr)) => {
             // Parse listen_addr to extract port, use placeholder for external IP
-            let port = addr.split("/tcp/").nth(1).and_then(|s| s.split('/').next()).unwrap_or("4001");
+            let port = addr
+                .split("/tcp/")
+                .nth(1)
+                .and_then(|s| s.split('/').next())
+                .unwrap_or("4001");
             Some(format!("/ip4/<PUBLIC_IP>/tcp/{}/p2p/{}", port, pid))
         }
         _ => None,
     };
-    
+
     // Build GENESIS_VALIDATORS env var format: address:bls_base64url
     // Only include if both validator address and valid BLS key exist
     let genesis_validator_env = match (&validator_address, &bls_public_key) {
-        (Some(addr), Some(bls_key)) if !bls_key.is_empty() => {
-            Some(format!("{}:{}", addr, bls_key))
-        }
+        (Some(addr), Some(bls_key)) if !bls_key.is_empty() => Some(format!("{}:{}", addr, bls_key)),
         _ => None,
     };
-    
+
     let genesis_hash = state.get_genesis_hash().await;
-    
+
     Json(BootstrapInfoResponse {
         peer_id,
         listen_addr,
@@ -715,7 +809,11 @@ async fn post_slashing_evidence(
         timestamp: 0,
         processed: false,
     };
-    if !api_state.node_state.verify_slashing_evidence(&evidence).await {
+    if !api_state
+        .node_state
+        .verify_slashing_evidence(&evidence)
+        .await
+    {
         return Json(SubmitSlashingEvidenceResponse {
             success: false,
             accepted: false,
@@ -757,18 +855,25 @@ async fn post_bootstrap(
 ) -> Json<BootstrapResponse> {
     let from_checkpoint = req.from_checkpoint.unwrap_or(0);
     let limit = req.limit.unwrap_or(500).min(1000);
-    
-    info!("Bootstrap request: from_checkpoint={}, limit={}", from_checkpoint, limit);
+
+    info!(
+        "Bootstrap request: from_checkpoint={}, limit={}",
+        from_checkpoint, limit
+    );
 
     let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
     let total_available = all_txs.len();
     let checkpoint_height = state.get_checkpoint_height();
-    
+
     let transactions: Vec<_> = all_txs.into_iter().take(limit).collect();
     let has_more = total_available > limit;
-    
-    info!("Bootstrap response: {} txs (total={}, has_more={})", 
-        transactions.len(), total_available, has_more);
+
+    info!(
+        "Bootstrap response: {} txs (total={}, has_more={})",
+        transactions.len(),
+        total_available,
+        has_more
+    );
 
     Json(BootstrapResponse {
         transactions,
@@ -778,23 +883,32 @@ async fn post_bootstrap(
     })
 }
 
-async fn get_snapshot_sync(State(state): State<NodeState>) -> Result<Json<SnapshotSyncResponse>, (StatusCode, String)> {
+async fn get_snapshot_sync(
+    State(state): State<NodeState>,
+) -> Result<Json<SnapshotSyncResponse>, (StatusCode, String)> {
     // Concurrency limit to prevent API overload during sync storms
     let current = ACTIVE_SYNC_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     if current >= MAX_CONCURRENT_SYNC_REQUESTS {
         ACTIVE_SYNC_REQUESTS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        warn!("Sync request rejected: too many concurrent requests ({}/{})", current + 1, MAX_CONCURRENT_SYNC_REQUESTS);
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "Too many sync requests, try again later".to_string()));
+        warn!(
+            "Sync request rejected: too many concurrent requests ({}/{})",
+            current + 1,
+            MAX_CONCURRENT_SYNC_REQUESTS
+        );
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many sync requests, try again later".to_string(),
+        ));
     }
-    
+
     // Decrement on scope exit
     let _guard = SyncRequestGuard;
-    
+
     info!("Snapshot sync request received");
-    
+
     let snapshot = state.get_sync_snapshot().await;
     let checkpoint_height = state.get_checkpoint_height();
-    
+
     info!(
         "Snapshot sync response: {} accounts, {} validators, {} checkpoints, {} dag txs",
         snapshot.accounts.len(),
@@ -803,7 +917,8 @@ async fn get_snapshot_sync(State(state): State<NodeState>) -> Result<Json<Snapsh
         snapshot.dag_transactions.len()
     );
 
-    let mut account_data: Vec<crate::network::AccountData> = snapshot.accounts
+    let mut account_data: Vec<crate::network::AccountData> = snapshot
+        .accounts
         .iter()
         .map(|(address, account)| crate::network::AccountData {
             address: address.clone(),
@@ -856,11 +971,14 @@ async fn post_merge_accounts(
     State(state): State<NodeState>,
     Json(req): Json<MergeAccountsRequest>,
 ) -> Json<MergeAccountsResponse> {
-    info!("Merge accounts request: {} accounts from peer", req.accounts.len());
-    
+    info!(
+        "Merge accounts request: {} accounts from peer",
+        req.accounts.len()
+    );
+
     let (added, updated, balance_fixed) = state.merge_accounts_from_peer(req.accounts).await;
     let total = state.get_account_count().await;
-    
+
     Json(MergeAccountsResponse {
         added,
         updated,
@@ -879,12 +997,12 @@ async fn get_batch_transactions(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    
+
     info!("Batch transaction request for {} hashes", hashes.len());
-    
+
     let mut transactions = Vec::new();
     let mut missing = Vec::new();
-    
+
     for hash in &hashes {
         if let Some(tx) = state.get_transaction(hash).await {
             transactions.push(tx);
@@ -892,10 +1010,10 @@ async fn get_batch_transactions(
             missing.push(hash.clone());
         }
     }
-    
+
     let found = transactions.len();
     info!("Batch response: found={}, missing={}", found, missing.len());
-    
+
     Json(BatchTxResponse {
         transactions,
         found,
@@ -916,18 +1034,26 @@ async fn get_sync_transactions(
     let current = ACTIVE_SYNC_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     if current >= MAX_CONCURRENT_SYNC_REQUESTS {
         ACTIVE_SYNC_REQUESTS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        warn!("Delta sync request rejected: too many concurrent requests ({}/{})", current + 1, MAX_CONCURRENT_SYNC_REQUESTS);
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "Too many sync requests, try again later".to_string()));
+        warn!(
+            "Delta sync request rejected: too many concurrent requests ({}/{})",
+            current + 1,
+            MAX_CONCURRENT_SYNC_REQUESTS
+        );
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many sync requests, try again later".to_string(),
+        ));
     }
-    
+
     // Decrement on scope exit
     let _guard = SyncRequestGuard;
-    
+
     let from_checkpoint = query.from_checkpoint.unwrap_or(0);
     let (new_checkpoints, tx_checkpoint_heights, to_checkpoint) = {
         let state_guard = state.inner.read().await;
         let mut tx_checkpoint_heights = std::collections::HashMap::new();
-        let mut tx_count_by_checkpoint: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+        let mut tx_count_by_checkpoint: std::collections::HashMap<u64, u64> =
+            std::collections::HashMap::new();
         for node in state_guard.dag.get_all_nodes() {
             if let Some(height) = node.checkpoint_height {
                 tx_checkpoint_heights.insert(node.hash.clone(), height);
@@ -955,42 +1081,48 @@ async fn get_sync_transactions(
                 signer_bitmap: cp.signer_bitmap.clone(),
             })
             .collect();
-        let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        let to_checkpoint = state_guard
+            .checkpoints
+            .last()
+            .map(|cp| cp.height)
+            .unwrap_or(0);
         (new_checkpoints, tx_checkpoint_heights, to_checkpoint)
     };
-    
+
     // Get all transactions since the given checkpoint
     let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
-    
+
     let offset = query.offset.unwrap_or(0);
-    let limit = query.limit.unwrap_or(DEFAULT_SYNC_LIMIT).min(MAX_SYNC_LIMIT);
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_SYNC_LIMIT)
+        .min(MAX_SYNC_LIMIT);
     let total = all_txs.len();
-    
-    info!("Sync delta request: checkpoint={}, offset={}, limit={}", 
-          from_checkpoint, offset, limit);
-    
+
+    info!(
+        "Sync delta request: checkpoint={}, offset={}, limit={}",
+        from_checkpoint, offset, limit
+    );
+
     // Apply pagination
-    let transactions: Vec<_> = all_txs
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .collect();
-    
+    let transactions: Vec<_> = all_txs.into_iter().skip(offset).take(limit).collect();
+
     let returned = transactions.len();
     let has_more = offset + returned < total;
-    
+
     // Collect current nonces for all unique senders in these transactions (backwards compat)
     let mut account_nonces = std::collections::HashMap::new();
     // Collect FULL account states for authoritative sync (balance + stake + nonce)
     let mut account_states = std::collections::HashMap::new();
-    
+
     // Get all accounts involved in these transactions (both senders and receivers)
-    let mut involved_addresses: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut involved_addresses: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     for tx in &transactions {
         involved_addresses.insert(tx.tx.from.clone());
         involved_addresses.insert(tx.tx.to.clone());
     }
-    
+
     // Fetch full account state for each involved address
     for address in involved_addresses {
         if let Some(account) = state.get_account(&address).await {
@@ -998,19 +1130,25 @@ async fn get_sync_transactions(
             account_states.insert(address, account);
         }
     }
-    
-    info!("Returning {} of {} transactions with {} account states (offset={}, has_more={})", 
-          returned, total, account_states.len(), offset, has_more);
-    
+
+    info!(
+        "Returning {} of {} transactions with {} account states (offset={}, has_more={})",
+        returned,
+        total,
+        account_states.len(),
+        offset,
+        has_more
+    );
+
     let mut page_checkpoint_heights = std::collections::HashMap::new();
     for tx in &transactions {
         if let Some(height) = tx_checkpoint_heights.get(&tx.hash) {
             page_checkpoint_heights.insert(tx.hash.clone(), *height);
         }
     }
-    
+
     let validators = state.get_validators_map().await;
-    
+
     Ok(Json(SyncDeltaResponse {
         transactions,
         account_nonces,
@@ -1035,12 +1173,15 @@ async fn post_sync_delta(
     Json(req): Json<SyncDeltaRequest>,
 ) -> Result<Json<SyncDeltaResponse>, (StatusCode, String)> {
     let state = &api_state.node_state;
-    
+
     // First, import validators from the requester (bidirectional sync)
     if !req.validators.is_empty() {
         let merged_count = state.merge_validators_from_peer(&req.validators).await;
         if merged_count > 0 {
-            info!("Imported {} validators from delta sync requester", merged_count);
+            info!(
+                "Imported {} validators from delta sync requester",
+                merged_count
+            );
             // CRITICAL: Sync to ValidatorIdentityService for vote validation
             // Without this, votes will fail BLS key verification
             if let Some(ref gossip) = api_state.gossip_service {
@@ -1048,23 +1189,31 @@ async fn post_sync_delta(
             }
         }
     }
-    
+
     // Concurrency limit to prevent API overload during sync storms
     let current = ACTIVE_SYNC_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     if current >= MAX_CONCURRENT_SYNC_REQUESTS {
         ACTIVE_SYNC_REQUESTS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        warn!("Delta sync request rejected: too many concurrent requests ({}/{})", current + 1, MAX_CONCURRENT_SYNC_REQUESTS);
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "Too many sync requests, try again later".to_string()));
+        warn!(
+            "Delta sync request rejected: too many concurrent requests ({}/{})",
+            current + 1,
+            MAX_CONCURRENT_SYNC_REQUESTS
+        );
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many sync requests, try again later".to_string(),
+        ));
     }
-    
+
     // Decrement on scope exit
     let _guard = SyncRequestGuard;
-    
+
     let from_checkpoint = req.from_checkpoint.unwrap_or(0);
     let (new_checkpoints, tx_checkpoint_heights, to_checkpoint) = {
         let state_guard = state.inner.read().await;
         let mut tx_checkpoint_heights = std::collections::HashMap::new();
-        let mut tx_count_by_checkpoint: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+        let mut tx_count_by_checkpoint: std::collections::HashMap<u64, u64> =
+            std::collections::HashMap::new();
         for node in state_guard.dag.get_all_nodes() {
             if let Some(height) = node.checkpoint_height {
                 tx_checkpoint_heights.insert(node.hash.clone(), height);
@@ -1092,56 +1241,65 @@ async fn post_sync_delta(
                 signer_bitmap: cp.signer_bitmap.clone(),
             })
             .collect();
-        let to_checkpoint = state_guard.checkpoints.last().map(|cp| cp.height).unwrap_or(0);
+        let to_checkpoint = state_guard
+            .checkpoints
+            .last()
+            .map(|cp| cp.height)
+            .unwrap_or(0);
         (new_checkpoints, tx_checkpoint_heights, to_checkpoint)
     };
-    
+
     let all_txs = state.get_txs_since_checkpoint(from_checkpoint, &[]).await;
-    
+
     let offset = req.offset.unwrap_or(0);
     let limit = req.limit.unwrap_or(DEFAULT_SYNC_LIMIT).min(MAX_SYNC_LIMIT);
     let total = all_txs.len();
-    
-    info!("POST Sync delta request: checkpoint={}, offset={}, limit={}", 
-          from_checkpoint, offset, limit);
-    
-    let transactions: Vec<_> = all_txs
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .collect();
-    
+
+    info!(
+        "POST Sync delta request: checkpoint={}, offset={}, limit={}",
+        from_checkpoint, offset, limit
+    );
+
+    let transactions: Vec<_> = all_txs.into_iter().skip(offset).take(limit).collect();
+
     let returned = transactions.len();
     let has_more = offset + returned < total;
-    
+
     let mut account_nonces = std::collections::HashMap::new();
     let mut account_states = std::collections::HashMap::new();
-    
-    let mut involved_addresses: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let mut involved_addresses: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     for tx in &transactions {
         involved_addresses.insert(tx.tx.from.clone());
         involved_addresses.insert(tx.tx.to.clone());
     }
-    
+
     for address in involved_addresses {
         if let Some(account) = state.get_account(&address).await {
             account_nonces.insert(address.clone(), account.nonce);
             account_states.insert(address, account);
         }
     }
-    
-    info!("Returning {} of {} transactions with {} account states (offset={}, has_more={})", 
-          returned, total, account_states.len(), offset, has_more);
-    
+
+    info!(
+        "Returning {} of {} transactions with {} account states (offset={}, has_more={})",
+        returned,
+        total,
+        account_states.len(),
+        offset,
+        has_more
+    );
+
     let mut page_checkpoint_heights = std::collections::HashMap::new();
     for tx in &transactions {
         if let Some(height) = tx_checkpoint_heights.get(&tx.hash) {
             page_checkpoint_heights.insert(tx.hash.clone(), *height);
         }
     }
-    
+
     let validators = state.get_validators_map().await;
-    
+
     Ok(Json(SyncDeltaResponse {
         transactions,
         account_nonces,
@@ -1160,15 +1318,40 @@ async fn post_sync_delta(
 
 async fn handle_faucet_request(
     State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<FaucetRequest>,
 ) -> impl IntoResponse {
+    if !api_state.faucet_enabled {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Faucet is disabled on this node (set FAUCET_ENABLED=true to enable)"
+            })),
+        )
+            .into_response();
+    }
+
+    let key = client_key(addr);
+    if !api_state
+        .rate_limits
+        .general
+        .check_and_record(&format!("faucet:{key}"))
+    {
+        return rate_limited_response(
+            "faucet",
+            api_state.rate_limits.general.max(),
+            api_state.rate_limits.general.window_secs(),
+        );
+    }
+
     let address = req.address.trim().to_string();
-    
+
     if address.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": "Address required" })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     let now = std::time::SystemTime::now()
@@ -1183,10 +1366,11 @@ async fn handle_faucet_request(
                 let wait_time = (FAUCET_RATE_LIMIT_MS - (now - last_request)) / 1000;
                 return (
                     StatusCode::TOO_MANY_REQUESTS,
-                    Json(serde_json::json!({ 
-                        "error": format!("Rate limited. Try again in {} seconds", wait_time) 
+                    Json(serde_json::json!({
+                        "error": format!("Rate limited. Try again in {} seconds", wait_time)
                     })),
-                ).into_response();
+                )
+                    .into_response();
             }
         }
         rate_limit.insert(address.clone(), now);
@@ -1226,32 +1410,51 @@ async fn handle_faucet_request(
 
     let tx_json = serde_json::to_string(&tx.tx).unwrap_or_default();
     let hash = rinku_core::crypto::hash_transaction(&tx_json);
-    let tx = rinku_core::types::SignedTransaction { hash: hash.clone(), ..tx };
+    let tx = rinku_core::types::SignedTransaction {
+        hash: hash.clone(),
+        ..tx
+    };
 
-    match state.add_transaction(tx.clone()).await {
+    match state.add_local_system_transaction(tx.clone()).await {
         Ok(TransactionResult::Accepted) => {
-            api_state.event_bus.publish(crate::events::NodeEvent::NewTransaction {
-                hash: hash.clone(),
-                from: "faucet".to_string(),
-                to: address.clone(),
-                amount: from_micro_units(FAUCET_AMOUNT),
-                kind: None,
-            });
+            api_state
+                .event_bus
+                .publish(crate::events::NodeEvent::NewTransaction {
+                    hash: hash.clone(),
+                    from: "faucet".to_string(),
+                    to: address.clone(),
+                    amount: from_micro_units(FAUCET_AMOUNT),
+                    kind: None,
+                });
             // Broadcast via fast-path for sub-second finality
             if let Some(ref gossip) = api_state.gossip_service {
                 let (validator_addr, validator_stake) = state.get_validator_info().await;
                 if let (Some(addr), Some(_)) = (validator_addr, validator_stake) {
                     let stake = state.get_validator_stake(&addr).await.unwrap_or(0);
                     if stake > 0 {
-                        gossip.broadcast_fast_path_transaction(tx.clone(), &addr, stake).await;
-                        info!("Faucet tx {} to {} broadcast via FAST-PATH", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
+                        gossip
+                            .broadcast_fast_path_transaction(tx.clone(), &addr, stake)
+                            .await;
+                        info!(
+                            "Faucet tx {} to {} broadcast via FAST-PATH",
+                            &hash[..16.min(hash.len())],
+                            &address[..12.min(address.len())]
+                        );
                     } else {
                         gossip.broadcast_transaction(tx).await;
-                        info!("Faucet tx {} to {} broadcast to peers", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
+                        info!(
+                            "Faucet tx {} to {} broadcast to peers",
+                            &hash[..16.min(hash.len())],
+                            &address[..12.min(address.len())]
+                        );
                     }
                 } else {
                     gossip.broadcast_transaction(tx).await;
-                    info!("Faucet tx {} to {} broadcast to peers", &hash[..16.min(hash.len())], &address[..12.min(address.len())]);
+                    info!(
+                        "Faucet tx {} to {} broadcast to peers",
+                        &hash[..16.min(hash.len())],
+                        &address[..12.min(address.len())]
+                    );
                 }
             }
             (
@@ -1261,11 +1464,15 @@ async fn handle_faucet_request(
                     amount: from_micro_units(FAUCET_AMOUNT),
                     tx_hash: hash,
                 })),
-            ).into_response()
+            )
+                .into_response()
         }
         Ok(TransactionResult::Buffered) => {
             // Faucet transactions should never be buffered (controlled nonce)
-            warn!("Faucet tx {} unexpectedly buffered", &hash[..16.min(hash.len())]);
+            warn!(
+                "Faucet tx {} unexpectedly buffered",
+                &hash[..16.min(hash.len())]
+            );
             (
                 StatusCode::OK,
                 Json(serde_json::json!(FaucetResponse {
@@ -1273,12 +1480,14 @@ async fn handle_faucet_request(
                     amount: from_micro_units(FAUCET_AMOUNT),
                     tx_hash: hash,
                 })),
-            ).into_response()
+            )
+                .into_response()
         }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 
@@ -1292,6 +1501,7 @@ struct FaucetStatsResponse {
     current_balance: f64,
     total_distributed: f64,
     drop_amount: f64,
+    enabled: bool,
 }
 
 async fn get_faucet_stats(State(state): State<NodeState>) -> Json<FaucetStatsResponse> {
@@ -1299,12 +1509,12 @@ async fn get_faucet_stats(State(state): State<NodeState>) -> Json<FaucetStatsRes
         let rate_limit = FAUCET_RATE_LIMIT.lock().unwrap();
         rate_limit.len()
     };
-    
+
     let faucet_account = state.get_account("faucet").await;
     let current_balance = from_micro_units(faucet_account.map(|a| a.balance).unwrap_or(0));
     let genesis_allocation = 1_000_000.0;
     let total_distributed = genesis_allocation - current_balance;
-    
+
     Json(FaucetStatsResponse {
         rate_limit_entries,
         max_entries: 10000,
@@ -1313,6 +1523,7 @@ async fn get_faucet_stats(State(state): State<NodeState>) -> Json<FaucetStatsRes
         current_balance,
         total_distributed,
         drop_amount: from_micro_units(FAUCET_AMOUNT),
+        enabled: state.faucet_enabled(),
     })
 }
 
@@ -1382,8 +1593,11 @@ async fn get_account_transactions_with_fast_path(
     State(api_state): State<ApiState>,
     Path(address): Path<String>,
 ) -> Json<AccountTransactionsResponse> {
-    let txs = api_state.node_state.get_transactions_by_address(&address, 100).await;
-    
+    let txs = api_state
+        .node_state
+        .get_transactions_by_address(&address, 100)
+        .await;
+
     let transactions: Vec<AccountTransactionItem> = {
         let mut result = Vec::new();
         for (stx, finalized) in txs {
@@ -1392,8 +1606,8 @@ async fn get_account_transactions_with_fast_path(
             } else {
                 "received".to_string()
             };
-            
-            let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
+
+            let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) =
                 if let Some(gossip) = &api_state.gossip_service {
                     match gossip.get_fast_path_status(&stx.hash).await {
                         Some(fp) => {
@@ -1402,12 +1616,20 @@ async fn get_account_transactions_with_fast_path(
                                 rinku_core::types::FastPathStatus::Confirmed => "confirmed",
                                 rinku_core::types::FastPathStatus::Finalized => "finalized",
                             };
-                            (Some(status.to_string()), fp.confirmed_at_ms, fp.finality_time_ms())
+                            (
+                                Some(status.to_string()),
+                                fp.confirmed_at_ms,
+                                fp.finality_time_ms(),
+                            )
                         }
                         None => {
                             if finalized {
                                 (Some("finalized".to_string()), None, None)
-                            } else if gossip.get_all_fast_path_executed().await.contains(&stx.hash) {
+                            } else if gossip
+                                .get_all_fast_path_executed()
+                                .await
+                                .contains(&stx.hash)
+                            {
                                 (Some("confirmed".to_string()), None, None)
                             } else {
                                 (None, None, None)
@@ -1421,7 +1643,7 @@ async fn get_account_transactions_with_fast_path(
                         (None, None, None)
                     }
                 };
-            
+
             let lane_str = match stx.tx.classify_lane() {
                 rinku_core::types::TransactionLane::FastPath => "fast_path",
                 rinku_core::types::TransactionLane::Checkpoint => "checkpoint",
@@ -1444,9 +1666,9 @@ async fn get_account_transactions_with_fast_path(
         }
         result
     };
-    
+
     let total = transactions.len();
-    
+
     Json(AccountTransactionsResponse {
         address,
         transactions,
@@ -1458,7 +1680,7 @@ fn account_state_proof_to_vo(
     proof: &rinku_core::types::AccountStateProof,
     is_on_demand: bool,
 ) -> rinku_core::stateful_receipt::VerifiableObject {
-    use rinku_core::stateful_receipt::{VerifiableObject, ProofFreshness};
+    use rinku_core::stateful_receipt::{ProofFreshness, VerifiableObject};
 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1535,7 +1757,9 @@ async fn get_account_proof(
                 proof: None,
                 proof_url: None,
                 verified: None,
-                error: Some("No proof available - account may not have finalized transactions".to_string()),
+                error: Some(
+                    "No proof available - account may not have finalized transactions".to_string(),
+                ),
             }),
         )
             .into_response()
@@ -1597,19 +1821,37 @@ async fn get_transaction_receipt(
 ) -> impl IntoResponse {
     if let Some((tx, _weight)) = state.get_transaction_with_weight(&hash).await {
         let finalized = state.is_finalized(&hash).await;
-        
+
         let (checkpoint_height, checkpoint_hash, state_root) = if finalized {
             if let Some(cp_height) = state.get_tx_checkpoint_height(&hash).await {
                 if let Some(cp) = state.get_checkpoint_by_height(cp_height).await {
-                    (Some(cp.height), Some(cp.hash.clone()), Some(cp.state_root.clone()))
+                    (
+                        Some(cp.height),
+                        Some(cp.hash.clone()),
+                        Some(cp.state_root.clone()),
+                    )
                 } else {
                     let latest = state.get_latest_checkpoint().await;
-                    latest.map(|cp| (Some(cp.height), Some(cp.hash.clone()), Some(cp.state_root.clone())))
+                    latest
+                        .map(|cp| {
+                            (
+                                Some(cp.height),
+                                Some(cp.hash.clone()),
+                                Some(cp.state_root.clone()),
+                            )
+                        })
                         .unwrap_or((None, None, None))
                 }
             } else {
                 let latest = state.get_latest_checkpoint().await;
-                latest.map(|cp| (Some(cp.height), Some(cp.hash.clone()), Some(cp.state_root.clone())))
+                latest
+                    .map(|cp| {
+                        (
+                            Some(cp.height),
+                            Some(cp.hash.clone()),
+                            Some(cp.state_root.clone()),
+                        )
+                    })
                     .unwrap_or((None, None, None))
             }
         } else {
@@ -1650,38 +1892,85 @@ async fn get_transaction_receipt(
 
 async fn submit_transaction(
     State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
-    let tip_count = api_state.node_state.get_tip_count().await;
-    let inner = &req.tx;
-    
-    // Check if this is a system/validator transaction that bypasses degraded mode
-    let is_system_tx = inner.sig.starts_with("anchor-")
-        || inner.from == "faucet"
-        || inner.from == "genesis"
-        || matches!(inner.kind, Some(rinku_core::types::TransactionKind::Consolidation));
-    
-    // Check if sender is a validator (validators can submit during degraded mode)
-    let is_validator_tx = api_state.node_state.is_validator(&inner.from).await;
-    
-    // Hard backpressure: reject ALL transactions when tips exceed hard limit
-    if tip_count > MAX_TIPS_BACKPRESSURE {
-        warn!("Transaction rejected: DAG tips ({}) exceed hard backpressure threshold ({})", tip_count, MAX_TIPS_BACKPRESSURE);
+    let key = client_key(addr);
+    if !api_state.rate_limits.tx.check_and_record(&key) {
         return (
-            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::TOO_MANY_REQUESTS,
             Json(SubmitTxResponse {
                 success: false,
                 hash: String::new(),
-                error: Some(format!("System overloaded: {} tips pending. All transactions paused. Try again later.", tip_count)),
+                error: Some(format!(
+                    "Rate limited (tx): max {} requests per {}s",
+                    api_state.rate_limits.tx.max(),
+                    api_state.rate_limits.tx.window_secs()
+                )),
                 fast_path_eligible: None,
                 fast_path_status: None,
             }),
         );
     }
-    
-    // Graceful degradation: when tips > threshold, only allow validator/system transactions
-    if tip_count > DEGRADED_MODE_THRESHOLD && !is_system_tx && !is_validator_tx {
-        warn!("Transaction rejected: degraded mode active ({} tips), only validator txs allowed", tip_count);
+
+    let tip_count = api_state.node_state.get_tip_count().await;
+    let inner = &req.tx;
+
+    // External clients must not submit system txs via /api/tx (faucet/genesis/anchor).
+    let is_system_tx = inner.sig.starts_with("anchor-")
+        || inner.from == "faucet"
+        || inner.from == "genesis"
+        || matches!(
+            inner.kind,
+            Some(rinku_core::types::TransactionKind::Consolidation)
+        );
+    if is_system_tx {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(SubmitTxResponse {
+                success: false,
+                hash: String::new(),
+                error: Some(
+                    "System transactions cannot be submitted via /api/tx \
+                     (use /api/faucet/request for faucet)"
+                        .to_string(),
+                ),
+                fast_path_eligible: None,
+                fast_path_status: None,
+            }),
+        );
+    }
+
+    // Check if sender is a validator (validators can submit during degraded mode)
+    let is_validator_tx = api_state.node_state.is_validator(&inner.from).await;
+
+    // Hard backpressure: reject ALL transactions when tips exceed hard limit
+    if tip_count > MAX_TIPS_BACKPRESSURE {
+        warn!(
+            "Transaction rejected: DAG tips ({}) exceed hard backpressure threshold ({})",
+            tip_count, MAX_TIPS_BACKPRESSURE
+        );
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(SubmitTxResponse {
+                success: false,
+                hash: String::new(),
+                error: Some(format!(
+                    "System overloaded: {} tips pending. All transactions paused. Try again later.",
+                    tip_count
+                )),
+                fast_path_eligible: None,
+                fast_path_status: None,
+            }),
+        );
+    }
+
+    // Graceful degradation: when tips > threshold, only allow validator transactions
+    if tip_count > DEGRADED_MODE_THRESHOLD && !is_validator_tx {
+        warn!(
+            "Transaction rejected: degraded mode active ({} tips), only validator txs allowed",
+            tip_count
+        );
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(SubmitTxResponse {
@@ -1693,8 +1982,26 @@ async fn submit_transaction(
             }),
         );
     }
-    
+
     let inner = req.tx;
+    let provided_pubkey = match req.public_key {
+        Some(pk) => match pk.to_hex() {
+            Ok(h) => Some(h),
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(SubmitTxResponse {
+                        success: false,
+                        hash: String::new(),
+                        error: Some(e),
+                        fast_path_eligible: None,
+                        fast_path_status: None,
+                    }),
+                );
+            }
+        },
+        None => None,
+    };
     let tx = rinku_core::types::SignedTransaction {
         tx: rinku_core::types::Transaction {
             from: inner.from,
@@ -1716,31 +2023,49 @@ async fn submit_transaction(
     };
 
     let is_fast_path_eligible = tx.is_fast_path_eligible();
-    
-    match api_state.node_state.add_transaction(tx.clone()).await {
+
+    match api_state
+        .node_state
+        .add_transaction_authenticated(tx.clone(), provided_pubkey)
+        .await
+    {
         Ok(TransactionResult::Accepted) => {
-            api_state.event_bus.publish(crate::events::NodeEvent::NewTransaction {
-                hash: inner.hash.clone(),
-                from: tx.tx.from.clone(),
-                to: tx.tx.to.clone(),
-                amount: from_micro_units(tx.tx.amount),
-                kind: tx.tx.kind.as_ref().map(|k| format!("{:?}", k)),
-            });
+            api_state
+                .event_bus
+                .publish(crate::events::NodeEvent::NewTransaction {
+                    hash: inner.hash.clone(),
+                    from: tx.tx.from.clone(),
+                    to: tx.tx.to.clone(),
+                    amount: from_micro_units(tx.tx.amount),
+                    kind: tx.tx.kind.as_ref().map(|k| format!("{:?}", k)),
+                });
             // Broadcast to peers after successful local add
             if let Some(ref gossip) = api_state.gossip_service {
                 let (validator_addr, _) = api_state.node_state.get_validator_info().await;
                 let validator_stake = if let Some(ref addr) = validator_addr {
-                    api_state.node_state.get_validator_stake(addr).await.unwrap_or(0)
+                    api_state
+                        .node_state
+                        .get_validator_stake(addr)
+                        .await
+                        .unwrap_or(0)
                 } else {
                     0
                 };
-                
+
                 if let Some(addr) = validator_addr {
-                    gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
-                    info!("Transaction {} broadcast via fast-path protocol", &inner.hash[..16.min(inner.hash.len())]);
+                    gossip
+                        .broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake)
+                        .await;
+                    info!(
+                        "Transaction {} broadcast via fast-path protocol",
+                        &inner.hash[..16.min(inner.hash.len())]
+                    );
                 } else {
                     gossip.broadcast_transaction(tx).await;
-                    info!("Transaction {} broadcast to peers (no validator identity)", &inner.hash[..16.min(inner.hash.len())]);
+                    info!(
+                        "Transaction {} broadcast to peers (no validator identity)",
+                        &inner.hash[..16.min(inner.hash.len())]
+                    );
                 }
             }
             (
@@ -1750,13 +2075,20 @@ async fn submit_transaction(
                     hash: inner.hash,
                     error: None,
                     fast_path_eligible: Some(is_fast_path_eligible),
-                    fast_path_status: if is_fast_path_eligible { Some("pending".to_string()) } else { None },
+                    fast_path_status: if is_fast_path_eligible {
+                        Some("pending".to_string())
+                    } else {
+                        None
+                    },
                 }),
             )
         }
         Ok(TransactionResult::Buffered) => {
             // Transaction was buffered - still return success but don't broadcast yet
-            info!("Transaction {} buffered (future nonce)", &inner.hash[..16.min(inner.hash.len())]);
+            info!(
+                "Transaction {} buffered (future nonce)",
+                &inner.hash[..16.min(inner.hash.len())]
+            );
             (
                 StatusCode::OK,
                 Json(SubmitTxResponse {
@@ -1795,8 +2127,47 @@ struct FastPathTxResponse {
 
 async fn submit_fast_path_transaction(
     State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
+    let key = client_key(addr);
+    if !api_state.rate_limits.tx.check_and_record(&key) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(FastPathTxResponse {
+                success: false,
+                hash: String::new(),
+                fast_path_eligible: false,
+                fast_path_status: None,
+                estimated_finality_ms: None,
+                error: Some(format!(
+                    "Rate limited (tx): max {} requests per {}s",
+                    api_state.rate_limits.tx.max(),
+                    api_state.rate_limits.tx.window_secs()
+                )),
+            }),
+        );
+    }
+
+    let provided_pubkey = match req.public_key {
+        Some(pk) => match pk.to_hex() {
+            Ok(h) => Some(h),
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(FastPathTxResponse {
+                        success: false,
+                        hash: String::new(),
+                        fast_path_eligible: false,
+                        fast_path_status: None,
+                        estimated_finality_ms: None,
+                        error: Some(e),
+                    }),
+                );
+            }
+        },
+        None => None,
+    };
     let inner = req.tx;
     let tx = rinku_core::types::SignedTransaction {
         tx: rinku_core::types::Transaction {
@@ -1819,7 +2190,7 @@ async fn submit_fast_path_transaction(
     };
 
     let is_fast_path_eligible = tx.is_fast_path_eligible();
-    
+
     if !is_fast_path_eligible {
         return (
             StatusCode::BAD_REQUEST,
@@ -1829,33 +2200,46 @@ async fn submit_fast_path_transaction(
                 fast_path_eligible: false,
                 fast_path_status: None,
                 estimated_finality_ms: None,
-                error: Some("Transaction not eligible for fast-path (must be data-only with amount=0)".to_string()),
+                error: Some(
+                    "Transaction not eligible for fast-path (must be data-only with amount=0)"
+                        .to_string(),
+                ),
             }),
         );
     }
 
-    match api_state.node_state.add_transaction(tx.clone()).await {
+    match api_state
+        .node_state
+        .add_transaction_authenticated(tx.clone(), provided_pubkey)
+        .await
+    {
         Ok(TransactionResult::Accepted) | Ok(TransactionResult::Buffered) => {
             if let Some(ref gossip) = api_state.gossip_service {
                 let (validator_addr, _) = api_state.node_state.get_validator_info().await;
                 let validator_stake = if let Some(ref addr) = validator_addr {
-                    api_state.node_state.get_validator_stake(addr).await.unwrap_or(0)
+                    api_state
+                        .node_state
+                        .get_validator_stake(addr)
+                        .await
+                        .unwrap_or(0)
                 } else {
                     0
                 };
-                
+
                 if let Some(addr) = validator_addr {
-                    gossip.broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake).await;
+                    gossip
+                        .broadcast_fast_path_transaction(tx.clone(), &addr, validator_stake)
+                        .await;
                 } else {
                     gossip.broadcast_transaction(tx.clone()).await;
                 }
-                
+
                 info!(
                     "Fast-path tx {} submitted and broadcast",
                     &inner.hash[..16.min(inner.hash.len())]
                 );
             }
-            
+
             (
                 StatusCode::OK,
                 Json(FastPathTxResponse {
@@ -1918,12 +2302,16 @@ async fn get_fast_path_status(
                 }),
             );
         }
-        
+
         // Fallback: check fast-path executed set and DAG finalization
         let fp_executed = gossip.get_all_fast_path_executed().await.contains(&hash);
         let is_finalized = {
             let state = api_state.node_state.inner.read().await;
-            state.dag.get_node(&hash).map(|n| n.finalized).unwrap_or(false)
+            state
+                .dag
+                .get_node(&hash)
+                .map(|n| n.finalized)
+                .unwrap_or(false)
         };
         let derived_status = if is_finalized {
             "finalized"
@@ -1945,17 +2333,25 @@ async fn get_fast_path_status(
             }),
         );
     }
-    
+
     // No gossip service - derive from DAG state only
     let is_finalized = {
         let state = api_state.node_state.inner.read().await;
-        state.dag.get_node(&hash).map(|n| n.finalized).unwrap_or(false)
+        state
+            .dag
+            .get_node(&hash)
+            .map(|n| n.finalized)
+            .unwrap_or(false)
     };
     (
         StatusCode::OK,
         Json(FastPathStatusResponse {
             hash,
-            status: if is_finalized { "finalized".to_string() } else { "pending".to_string() },
+            status: if is_finalized {
+                "finalized".to_string()
+            } else {
+                "pending".to_string()
+            },
             aggregated_stake: 0.0,
             quorum_threshold: 0.0,
             quorum_percent: 0,
@@ -1967,90 +2363,128 @@ async fn get_fast_path_status(
 
 async fn submit_batch_transaction(
     State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<BatchSubmitTxRequest>,
 ) -> Result<Json<BatchSubmitTxResponse>, (StatusCode, String)> {
+    let key = client_key(addr);
+    if !api_state.rate_limits.tx.check_and_record(&key) {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            format!(
+                "Rate limited (tx): max {} requests per {}s",
+                api_state.rate_limits.tx.max(),
+                api_state.rate_limits.tx.window_secs()
+            ),
+        ));
+    }
+
     let tip_count = api_state.node_state.get_tip_count().await;
-    
+
     // Hard backpressure: reject ALL batch transactions when tips exceed hard limit
     if tip_count > MAX_TIPS_BACKPRESSURE {
-        warn!("Batch transaction rejected: DAG tips ({}) exceed hard backpressure threshold ({})", tip_count, MAX_TIPS_BACKPRESSURE);
+        warn!(
+            "Batch transaction rejected: DAG tips ({}) exceed hard backpressure threshold ({})",
+            tip_count, MAX_TIPS_BACKPRESSURE
+        );
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            format!("System overloaded: {} tips pending. All transactions paused. Try again later.", tip_count)
+            format!(
+                "System overloaded: {} tips pending. All transactions paused. Try again later.",
+                tip_count
+            ),
         ));
     }
-    
+
     // Graceful degradation: batch transactions are typically from regular users, reject in degraded mode
     if tip_count > DEGRADED_MODE_THRESHOLD {
-        warn!("Batch transaction rejected: degraded mode active ({} tips)", tip_count);
+        warn!(
+            "Batch transaction rejected: degraded mode active ({} tips)",
+            tip_count
+        );
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            format!("Network congested: {} tips pending. Batch submissions paused. Try again in 30s.", tip_count)
+            format!(
+                "Network congested: {} tips pending. Batch submissions paused. Try again in 30s.",
+                tip_count
+            ),
         ));
     }
-    
+
     let total = req.transactions.len();
 
     // Pre-convert all transactions outside of any locks
-    let txs: Vec<rinku_core::types::SignedTransaction> = req.transactions
-        .into_iter()
-        .map(|item| {
-            let inner = item.tx;
-            rinku_core::types::SignedTransaction {
-                tx: rinku_core::types::Transaction {
-                    from: inner.from,
-                    to: inner.to,
-                    amount: to_micro_units(inner.amount),
-                    nonce: inner.nonce,
-                    timestamp: inner.ts,
-                    parents: inner.parents,
-                    kind: inner.kind,
-                    gas_limit: None,
-                    gas_price: Some(to_micro_units(inner.fee)),
-                    data: inner.data,
-                    signature: Some(inner.sig.clone()),
-                    memo: inner.memo,
-                    references: inner.references,
-                },
-                hash: inner.hash,
-                signature: inner.sig,
+    let mut successful = 0usize;
+    let mut failed = 0usize;
+    let mut txs_for_broadcast = Vec::new();
+
+    for item in req.transactions {
+        let pubkey = item.public_key.as_ref().map(|b| hex::encode(b));
+        let inner = item.tx;
+        let tx = rinku_core::types::SignedTransaction {
+            tx: rinku_core::types::Transaction {
+                from: inner.from,
+                to: inner.to,
+                amount: to_micro_units(inner.amount),
+                nonce: inner.nonce,
+                timestamp: inner.ts,
+                parents: inner.parents,
+                kind: inner.kind,
+                gas_limit: None,
+                gas_price: Some(to_micro_units(inner.fee)),
+                data: inner.data,
+                signature: Some(inner.sig.clone()),
+                memo: inner.memo,
+                references: inner.references,
+            },
+            hash: inner.hash,
+            signature: inner.sig,
+        };
+
+        match api_state
+            .node_state
+            .add_transaction_authenticated(tx.clone(), pubkey)
+            .await
+        {
+            Ok(_) => {
+                successful += 1;
+                txs_for_broadcast.push(tx);
             }
-        })
-        .collect();
-
-    // Clone txs for broadcasting after successful add
-    let txs_for_broadcast = txs.clone();
-
-    // Use optimized batch method - single lock acquisition
-    let results = api_state.node_state.add_transactions_batch(txs).await;
-    let successful = results.iter().filter(|r| r.is_ok()).count();
-    let failed = results.len() - successful;
+            Err(_) => {
+                failed += 1;
+            }
+        }
+    }
 
     if let Some(ref gossip) = api_state.gossip_service {
         let (validator_addr, _) = api_state.node_state.get_validator_info().await;
         let validator_stake = if let Some(ref addr) = validator_addr {
-            api_state.node_state.get_validator_stake(addr).await.unwrap_or(0)
+            api_state
+                .node_state
+                .get_validator_stake(addr)
+                .await
+                .unwrap_or(0)
         } else {
             0
         };
 
-        for (i, result) in results.iter().enumerate() {
-            if result.is_ok() {
-                if let Some(tx) = txs_for_broadcast.get(i) {
-                    if let Some(ref addr) = validator_addr {
-                        if validator_stake > 0 {
-                            gossip.broadcast_fast_path_transaction(tx.clone(), addr, validator_stake).await;
-                        } else {
-                            gossip.broadcast_transaction(tx.clone()).await;
-                        }
-                    } else {
-                        gossip.broadcast_transaction(tx.clone()).await;
-                    }
+        for tx in &txs_for_broadcast {
+            if let Some(ref addr) = validator_addr {
+                if validator_stake > 0 {
+                    gossip
+                        .broadcast_fast_path_transaction(tx.clone(), addr, validator_stake)
+                        .await;
+                } else {
+                    gossip.broadcast_transaction(tx.clone()).await;
                 }
+            } else {
+                gossip.broadcast_transaction(tx.clone()).await;
             }
         }
         if successful > 0 {
-            info!("Broadcast {} transactions to peers via fast-path", successful);
+            info!(
+                "Broadcast {} transactions to peers via fast-path",
+                successful
+            );
         }
     }
 
@@ -2082,15 +2516,15 @@ async fn get_dag(
     let state = &api_state.node_state;
     let page = query.page.unwrap_or(0);
     let limit = query.limit.unwrap_or(50).min(200); // Default 50, max 200 per page
-    
+
     // Use paginated method - much more efficient for large DAGs
     let (nodes_data, _total, has_more) = state.get_dag_nodes_paginated(page, limit).await;
-    
+
     // Collect all hashes for batch fast-path lookup
     let hashes: Vec<String> = nodes_data.iter().map(|n| n.hash.clone()).collect();
-    
+
     // Batch lookup fast-path status for all transactions
-    let fast_path_statuses: std::collections::HashMap<String, rinku_core::types::FastPathFinality> = 
+    let fast_path_statuses: std::collections::HashMap<String, rinku_core::types::FastPathFinality> =
         if let Some(ref gossip) = api_state.gossip_service {
             let mut statuses = std::collections::HashMap::new();
             for hash in &hashes {
@@ -2102,15 +2536,15 @@ async fn get_dag(
         } else {
             std::collections::HashMap::new()
         };
-    
+
     // Get fast-path executed set for fallback status derivation
-    let fp_executed: std::collections::HashSet<String> = 
+    let fp_executed: std::collections::HashSet<String> =
         if let Some(ref gossip) = api_state.gossip_service {
             gossip.get_all_fast_path_executed().await
         } else {
             std::collections::HashSet::new()
         };
-    
+
     // Batch lookup trust scores from weight_trie
     let trust_scores: std::collections::HashMap<String, (u8, u32)> = {
         let inner = state.inner.read().await;
@@ -2118,20 +2552,25 @@ async fn get_dag(
         if let Some(ref weight_trie) = inner.weight_trie {
             for hash in &hashes {
                 if let Some(weight) = weight_trie.get_weight(hash) {
-                    scores.insert(hash.clone(), (weight.trust_score(), weight.attestation_count));
+                    scores.insert(
+                        hash.clone(),
+                        (weight.trust_score(), weight.attestation_count),
+                    );
                 }
             }
         }
         scores
     };
-    
+
     let nodes: Vec<DagNodeResponse> = nodes_data
         .into_iter()
         .map(|n| {
             // Use /tx/h/{hash} format for explorer hash-based routing
             let url = format!("/tx/h/{}", &n.hash);
             // Normalize parents to /tx/h/{hash} format for explorer traversal
-            let parents: Vec<String> = n.parents.iter()
+            let parents: Vec<String> = n
+                .parents
+                .iter()
                 .map(|p| {
                     let h = if p.starts_with("rinku://tx/h/") {
                         p.strip_prefix("rinku://tx/h/").unwrap_or(p)
@@ -2145,10 +2584,10 @@ async fn get_dag(
                     format!("/tx/h/{}", h)
                 })
                 .collect();
-            
+
             // Get fast-path status for this transaction
             // Priority: gossip tracking > finalized flag > fast-path executed set > pending
-            let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
+            let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) =
                 if let Some(finality) = fast_path_statuses.get(&n.hash) {
                     (
                         Some(format!("{:?}", finality.status).to_lowercase()),
@@ -2162,12 +2601,13 @@ async fn get_dag(
                 } else {
                     (Some("pending".to_string()), None, None)
                 };
-            
+
             // Get trust score and attestation count
-            let (trust_score, attestation_count) = trust_scores.get(&n.hash)
+            let (trust_score, attestation_count) = trust_scores
+                .get(&n.hash)
                 .map(|(score, count)| (Some(*score), Some(*count)))
                 .unwrap_or((None, None));
-            
+
             let lane = if let Some(ref k) = n.kind {
                 match k {
                     rinku_core::types::TransactionKind::Contract => "checkpoint",
@@ -2200,10 +2640,7 @@ async fn get_dag(
             }
         })
         .collect();
-    Json(DagResponse {
-        has_more,
-        nodes,
-    })
+    Json(DagResponse { has_more, nodes })
 }
 
 async fn get_accounts(State(state): State<NodeState>) -> Json<AccountsResponse> {
@@ -2265,9 +2702,7 @@ async fn post_partition_merge(
     State(api_state): State<ApiState>,
     axum::extract::Json(body): axum::extract::Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
-    let fork_point = body.get("fork_point")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let fork_point = body.get("fork_point").and_then(|v| v.as_u64()).unwrap_or(0);
 
     if let Some(ref gossip) = api_state.gossip_service {
         gossip.send_merge_payload(fork_point).await;
@@ -2292,7 +2727,10 @@ async fn post_partition_budget(
         return Json(serde_json::json!({"status": "error", "message": "address is required"}));
     }
 
-    let budget = body.get("budget").and_then(|v| v.as_f64()).map(|b| rinku_core::types::to_micro_units(b));
+    let budget = body
+        .get("budget")
+        .and_then(|v| v.as_f64())
+        .map(|b| rinku_core::types::to_micro_units(b));
 
     if state.set_partition_budget(address, budget).await {
         Json(serde_json::json!({
@@ -2311,13 +2749,13 @@ async fn post_partition_budget(
 async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsResponse> {
     // Use combined stats query - single lock acquisition for main state
     let stats = state.get_dashboard_stats().await;
-    
+
     // Get rewards info with separate lock (could be combined later)
     let rewards = state.rewards.read().await;
     let total_stake = rewards.get_total_staked();
     let validators = rewards.get_active_validators().len();
     drop(rewards);
-    
+
     // Finality ratio based on total transactions (not just current DAG nodes)
     // This accounts for pruned finalized nodes correctly
     let total_txs = stats.total_transactions as u64;
@@ -2329,7 +2767,7 @@ async fn get_network_stats(State(state): State<NodeState>) -> Json<NetworkStatsR
     } else {
         1.0 // No transactions = 100% finalized (nothing pending)
     };
-    
+
     let elapsed_secs = state.get_elapsed_seconds();
     let (tps, tps_short, tps_long) = state.get_dynamic_tps().await;
     Json(NetworkStatsResponse {
@@ -2379,9 +2817,9 @@ async fn get_finality_metrics(State(api_state): State<ApiState>) -> Json<Finalit
     let state = &api_state.node_state;
     let total_transactions = state.get_total_transactions().await as usize;
     let (finalized_count, pending_count) = state.get_finalized_stats().await;
-    let (avg_ms, median_ms, p95_ms, last_checkpoint_age_ms, checkpoints_per_min) = 
+    let (avg_ms, median_ms, p95_ms, last_checkpoint_age_ms, checkpoints_per_min) =
         state.get_finality_timing().await;
-    
+
     // Use total_transactions as denominator (not dag_nodes which shrinks after pruning)
     // finality_rate = (total - pending) / total
     let finality_rate = if total_transactions > 0 {
@@ -2390,15 +2828,19 @@ async fn get_finality_metrics(State(api_state): State<ApiState>) -> Json<Finalit
     } else {
         1.0 // No transactions = 100% finalized
     };
-    let tx_throughput = if total_transactions > 0 { (total_transactions as f64) / 60.0 } else { 0.0 };
-    
+    let tx_throughput = if total_transactions > 0 {
+        (total_transactions as f64) / 60.0
+    } else {
+        0.0
+    };
+
     // Get fast-path confirmation stats if available
     let avg_confirmation_ms = if let Some(ref gossip) = api_state.gossip_service {
         gossip.get_fast_path_stats().await.avg_confirmation_ms
     } else {
         None
     };
-    
+
     Json(FinalityMetricsResponse {
         avg_time_to_finality: avg_ms,
         median_time_to_finality: median_ms,
@@ -2454,13 +2896,16 @@ async fn get_transaction(
     let state = &api_state.node_state;
     // Debug: log lookup attempt
     tracing::debug!("Looking up transaction hash: {}", hash);
-    
+
     // Get transaction with weight from DAG node
     if let Some((tx, weight)) = state.get_transaction_with_weight(&hash).await {
         tracing::debug!("Found transaction {} in DAG", hash);
         let finalized = state.is_finalized(&hash).await;
         // Normalize parents to /tx/h/{hash} format for explorer navigation
-        let tip_urls: Vec<String> = tx.tx.parents.iter()
+        let tip_urls: Vec<String> = tx
+            .tx
+            .parents
+            .iter()
             .map(|p| {
                 let h = if p.starts_with("rinku://tx/h/") {
                     p.strip_prefix("rinku://tx/h/").unwrap_or(p)
@@ -2474,12 +2919,16 @@ async fn get_transaction(
                 format!("/tx/h/{}", h)
             })
             .collect();
-        
+
         // Query fast-path status from GossipService
-        let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
+        let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) =
             if let Some(ref gossip) = api_state.gossip_service {
                 if let Some(fp) = gossip.get_fast_path_status(&hash).await {
-                    let _is_confirmed = matches!(fp.status, rinku_core::types::FastPathStatus::Confirmed | rinku_core::types::FastPathStatus::Finalized);
+                    let _is_confirmed = matches!(
+                        fp.status,
+                        rinku_core::types::FastPathStatus::Confirmed
+                            | rinku_core::types::FastPathStatus::Finalized
+                    );
                     let status = match fp.status {
                         rinku_core::types::FastPathStatus::Confirmed => "confirmed",
                         rinku_core::types::FastPathStatus::Finalized => "finalized",
@@ -2494,7 +2943,7 @@ async fn get_transaction(
             } else {
                 (None, None, None)
             };
-        
+
         let redacted_data = tx.tx.data.clone();
 
         let lane_str = match tx.tx.classify_lane() {
@@ -2526,8 +2975,15 @@ async fn get_transaction(
     } else {
         // Debug: log lookup failure with DAG stats
         let (dag_size, _, _) = state.get_dag_stats().await;
-        tracing::warn!("Transaction {} not found in DAG (DAG size: {})", hash, dag_size);
-        Err(ApiError::not_found(format!("Transaction {} not found (may have been pruned after finalization)", hash)))
+        tracing::warn!(
+            "Transaction {} not found in DAG (DAG size: {})",
+            hash,
+            dag_size
+        );
+        Err(ApiError::not_found(format!(
+            "Transaction {} not found (may have been pruned after finalization)",
+            hash
+        )))
     }
 }
 
@@ -2544,20 +3000,47 @@ async fn get_transaction_replies(
     Path(hash): Path<String>,
 ) -> Result<Json<ThreadResponse>, ApiError> {
     let state = &api_state.node_state;
-    
+
     // Collect reply data from DAG first, then release lock before async gossip calls
-    let reply_data: Vec<(String, String, String, f64, f64, u64, u64, Vec<String>, bool, f64, Option<String>, Option<Vec<String>>, String, Option<rinku_core::types::TransactionKind>, Option<String>)> = {
+    let reply_data: Vec<(
+        String,
+        String,
+        String,
+        f64,
+        f64,
+        u64,
+        u64,
+        Vec<String>,
+        bool,
+        f64,
+        Option<String>,
+        Option<Vec<String>>,
+        String,
+        Option<rinku_core::types::TransactionKind>,
+        Option<String>,
+    )> = {
         let inner = state.inner.read().await;
         let all_txs = inner.dag.all_transactions();
-        
-        all_txs.iter()
-            .filter(|tx| tx.tx.references.as_ref().map_or(false, |refs| refs.contains(&hash)))
+
+        all_txs
+            .iter()
+            .filter(|tx| {
+                tx.tx
+                    .references
+                    .as_ref()
+                    .map_or(false, |refs| refs.contains(&hash))
+            })
             .map(|tx| {
-                let (finalized, weight) = inner.dag.get_node(&tx.hash)
+                let (finalized, weight) = inner
+                    .dag
+                    .get_node(&tx.hash)
                     .map(|n| (n.finalized, n.weight))
                     .unwrap_or((false, 1.0));
-                
-                let tip_urls: Vec<String> = tx.tx.parents.iter()
+
+                let tip_urls: Vec<String> = tx
+                    .tx
+                    .parents
+                    .iter()
                     .map(|p| {
                         let h = if p.starts_with("rinku://tx/h/") {
                             p.strip_prefix("rinku://tx/h/").unwrap_or(p)
@@ -2571,7 +3054,7 @@ async fn get_transaction_replies(
                         format!("/tx/h/{}", h)
                     })
                     .collect();
-                
+
                 (
                     tx.hash.clone(),
                     tx.tx.from.clone(),
@@ -2593,10 +3076,10 @@ async fn get_transaction_replies(
             .collect()
     };
     // Lock released here
-    
+
     // Batch lookup fast-path status for all replies (after releasing DAG lock)
     let reply_hashes: Vec<String> = reply_data.iter().map(|d| d.0.clone()).collect();
-    let fast_path_statuses: std::collections::HashMap<String, rinku_core::types::FastPathFinality> = 
+    let fast_path_statuses: std::collections::HashMap<String, rinku_core::types::FastPathFinality> =
         if let Some(ref gossip) = api_state.gossip_service {
             let mut statuses = std::collections::HashMap::new();
             for h in &reply_hashes {
@@ -2608,35 +3091,12 @@ async fn get_transaction_replies(
         } else {
             std::collections::HashMap::new()
         };
-    
-    let mut replies: Vec<TransactionResponse> = reply_data.into_iter()
-        .map(|(tx_hash, from, to, amount, fee, nonce, ts, tip_urls, finalized, weight, memo, references, sig, kind, data)| {
-            let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) = 
-                if let Some(fp) = fast_path_statuses.get(&tx_hash) {
-                    let status = match fp.status {
-                        rinku_core::types::FastPathStatus::Confirmed => "confirmed",
-                        rinku_core::types::FastPathStatus::Finalized => "finalized",
-                        rinku_core::types::FastPathStatus::Pending => "pending",
-                    };
-                    let confirmed_at = fp.confirmed_at_ms;
-                    let finality_ms = fp.finality_time_ms();
-                    (Some(status.to_string()), confirmed_at, finality_ms)
-                } else {
-                    (None, None, None)
-                };
 
-            let redacted_data = data;
-            
-            let lane_str = if let Some(ref k) = kind {
-                match k {
-                    rinku_core::types::TransactionKind::Contract => "checkpoint",
-                    _ => "fast_path",
-                }
-            } else {
-                "fast_path"
-            };
-            TransactionResponse {
-                hash: tx_hash.clone(),
+    let mut replies: Vec<TransactionResponse> = reply_data
+        .into_iter()
+        .map(
+            |(
+                tx_hash,
                 from,
                 to,
                 amount,
@@ -2646,23 +3106,65 @@ async fn get_transaction_replies(
                 tip_urls,
                 finalized,
                 weight,
-                url: format!("/tx/h/{}", tx_hash),
-                sig,
-                kind,
-                data: redacted_data,
                 memo,
                 references,
-                fast_path_status,
-                fast_path_confirmed_at_ms,
-                fast_path_finality_ms,
-                lane: lane_str.to_string(),
-            }
-        })
+                sig,
+                kind,
+                data,
+            )| {
+                let (fast_path_status, fast_path_confirmed_at_ms, fast_path_finality_ms) =
+                    if let Some(fp) = fast_path_statuses.get(&tx_hash) {
+                        let status = match fp.status {
+                            rinku_core::types::FastPathStatus::Confirmed => "confirmed",
+                            rinku_core::types::FastPathStatus::Finalized => "finalized",
+                            rinku_core::types::FastPathStatus::Pending => "pending",
+                        };
+                        let confirmed_at = fp.confirmed_at_ms;
+                        let finality_ms = fp.finality_time_ms();
+                        (Some(status.to_string()), confirmed_at, finality_ms)
+                    } else {
+                        (None, None, None)
+                    };
+
+                let redacted_data = data;
+
+                let lane_str = if let Some(ref k) = kind {
+                    match k {
+                        rinku_core::types::TransactionKind::Contract => "checkpoint",
+                        _ => "fast_path",
+                    }
+                } else {
+                    "fast_path"
+                };
+                TransactionResponse {
+                    hash: tx_hash.clone(),
+                    from,
+                    to,
+                    amount,
+                    fee,
+                    nonce,
+                    ts,
+                    tip_urls,
+                    finalized,
+                    weight,
+                    url: format!("/tx/h/{}", tx_hash),
+                    sig,
+                    kind,
+                    data: redacted_data,
+                    memo,
+                    references,
+                    fast_path_status,
+                    fast_path_confirmed_at_ms,
+                    fast_path_finality_ms,
+                    lane: lane_str.to_string(),
+                }
+            },
+        )
         .collect();
-    
+
     replies.sort_by(|a, b| a.ts.cmp(&b.ts));
     let total_replies = replies.len();
-    
+
     Ok(Json(ThreadResponse {
         parent_hash: hash,
         replies,
@@ -2674,16 +3176,19 @@ async fn get_self_provable_tx(
     State(state): State<NodeState>,
     Path(hash): Path<String>,
 ) -> Result<Json<SelfProvableTransactionResponse>, ApiError> {
-    let tx = state
-        .get_transaction(&hash)
-        .await
-        .ok_or_else(|| ApiError::not_found(format!("Transaction {} not found (may have been pruned)", hash)))?;
+    let tx = state.get_transaction(&hash).await.ok_or_else(|| {
+        ApiError::not_found(format!(
+            "Transaction {} not found (may have been pruned)",
+            hash
+        ))
+    })?;
 
     let (finalized, checkpoint_height) = state.get_finalization_info(&hash).await;
 
     let (merkle_proof, merkle_index, checkpoint_data, proof_url) = if finalized {
         if let Some(cp_height) = checkpoint_height {
-            if let Some((proof, index, checkpoint)) = state.get_merkle_proof(&hash, cp_height).await {
+            if let Some((proof, index, checkpoint)) = state.get_merkle_proof(&hash, cp_height).await
+            {
                 let cp_data = CheckpointProofData {
                     height: checkpoint.height,
                     hash: checkpoint.hash.clone(),
@@ -2772,17 +3277,24 @@ async fn get_staking(State(state): State<NodeState>) -> Json<StakingResponse> {
     let rewards = state.rewards.read().await;
     let total_staked = rewards.get_total_staked();
     let active_validators = rewards.get_active_validators();
-    
-    let stakers: Vec<StakerInfo> = active_validators.iter().map(|v| StakerInfo {
-        staker: v.staker.clone(),
-        amount: from_micro_units(v.amount),
-        staked_at: v.staked_at,
-    }).collect();
-    
+
+    let stakers: Vec<StakerInfo> = active_validators
+        .iter()
+        .map(|v| StakerInfo {
+            staker: v.staker.clone(),
+            amount: from_micro_units(v.amount),
+            staked_at: v.staked_at,
+        })
+        .collect();
+
     let mut top_stakers = stakers.clone();
-    top_stakers.sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap_or(std::cmp::Ordering::Equal));
+    top_stakers.sort_by(|a, b| {
+        b.amount
+            .partial_cmp(&a.amount)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     top_stakers.truncate(10);
-    
+
     Json(StakingResponse {
         total_staked: from_micro_units(total_staked),
         validators: stakers,
@@ -2817,13 +3329,13 @@ async fn get_tokenomics_supply(State(state): State<NodeState>) -> Json<Tokenomic
     let total_supply = state.get_total_supply().await;
     let checkpoint_height = state.get_checkpoint_height();
     let (_, gas_burned, _, _) = state.get_gas_stats().await;
-    
+
     // Get actual emission stats from emission service
     let (emission_total_emitted, _) = state.get_emission_stats().await;
-    
+
     let max_supply = 30_000_000.0;
     let genesis_allocation = 6_000_000.0;
-    
+
     // total_emitted = RKU emitted through checkpoint rewards (from emission service)
     // total_burned = gas fees burned (deflationary pressure)
     Json(TokenomicsSupplyResponse {
@@ -2884,7 +3396,7 @@ async fn get_tokenomics_emission(State(state): State<NodeState>) -> Json<Emissio
     let checkpoint_height = state.get_checkpoint_height();
     let emission = state.emission.read().await;
     let stats = emission.get_stats(checkpoint_height);
-    
+
     let halving_interval: u64 = 3_150_000;
     let mut schedule = Vec::new();
     let mut reward = 12.5;
@@ -2896,7 +3408,7 @@ async fn get_tokenomics_emission(State(state): State<NodeState>) -> Json<Emissio
         });
         reward /= 2.0;
     }
-    
+
     Json(EmissionResponse {
         current_epoch: stats.halving_epoch,
         current_reward: from_micro_units(stats.current_reward),
@@ -2955,7 +3467,7 @@ async fn get_tokenomics_slashing(State(state): State<NodeState>) -> Json<Slashin
     let slashing = state.slashing.read().await;
     let events = slashing.get_slash_events(100);
     let queue = slashing.get_unbonding_queue();
-    
+
     let slash_events: Vec<SlashEventResponse> = events
         .iter()
         .map(|e| SlashEventResponse {
@@ -2968,7 +3480,7 @@ async fn get_tokenomics_slashing(State(state): State<NodeState>) -> Json<Slashin
             timestamp: e.timestamp,
         })
         .collect();
-    
+
     let unbonding_queue: Vec<UnbondingEntryResponse> = queue
         .iter()
         .map(|e| UnbondingEntryResponse {
@@ -2979,7 +3491,7 @@ async fn get_tokenomics_slashing(State(state): State<NodeState>) -> Json<Slashin
             slashable: e.slashable,
         })
         .collect();
-    
+
     Json(SlashingResponse {
         config: SlashingConfigResponse {
             double_sign_percent: 15.0,
@@ -3014,7 +3526,8 @@ struct CheckpointInfo {
 
 async fn get_checkpoints(State(state): State<NodeState>) -> Json<CheckpointsResponse> {
     let inner = state.inner.read().await;
-    let checkpoints: Vec<CheckpointInfo> = inner.checkpoints
+    let checkpoints: Vec<CheckpointInfo> = inner
+        .checkpoints
         .iter()
         .rev()
         .take(20)
@@ -3026,14 +3539,11 @@ async fn get_checkpoints(State(state): State<NodeState>) -> Json<CheckpointsResp
             validators: cp.validator_signatures.len(),
         })
         .collect();
-    
+
     let total = inner.checkpoints.len();
     drop(inner);
-    
-    Json(CheckpointsResponse {
-        total,
-        checkpoints,
-    })
+
+    Json(CheckpointsResponse { total, checkpoints })
 }
 
 async fn get_checkpoints_latest(State(state): State<NodeState>) -> Json<CheckpointInfo> {
@@ -3091,12 +3601,15 @@ async fn get_checkpoint_by_height(
     Path(height): Path<u64>,
 ) -> Result<Json<rinku_core::types::Checkpoint>, ApiError> {
     let inner = state.inner.read().await;
-    
+
     // Find checkpoint at the requested height
     if let Some(cp) = inner.checkpoints.iter().find(|c| c.height == height) {
         Ok(Json(cp.clone()))
     } else {
-        Err(ApiError::not_found(format!("Checkpoint at height {} not found", height)))
+        Err(ApiError::not_found(format!(
+            "Checkpoint at height {} not found",
+            height
+        )))
     }
 }
 
@@ -3136,9 +3649,7 @@ struct PeersResponse {
     peer_count: usize,
 }
 
-async fn get_gossip_stats(
-    State(api_state): State<ApiState>,
-) -> Json<GossipStatsResponse> {
+async fn get_gossip_stats(State(api_state): State<ApiState>) -> Json<GossipStatsResponse> {
     if let Some(ref gossip_service) = api_state.gossip_service {
         let stats = gossip_service.get_stats().await;
         let peer_count = gossip_service.get_peer_count().await;
@@ -3158,16 +3669,22 @@ async fn get_gossip_stats(
     }
 }
 
-async fn get_peers(
-    State(api_state): State<ApiState>,
-) -> Json<PeersResponse> {
+async fn get_peers(State(api_state): State<ApiState>) -> Json<PeersResponse> {
     if let Some(ref gossip_service) = api_state.gossip_service {
         let p2p_peers = gossip_service.get_p2p_peers().await;
         let http_peers = gossip_service.get_http_peers().await;
         let peer_count = p2p_peers.len();
-        Json(PeersResponse { peers: p2p_peers, http_peers, peer_count })
+        Json(PeersResponse {
+            peers: p2p_peers,
+            http_peers,
+            peer_count,
+        })
     } else {
-        Json(PeersResponse { peers: Vec::new(), http_peers: Vec::new(), peer_count: 0 })
+        Json(PeersResponse {
+            peers: Vec::new(),
+            http_peers: Vec::new(),
+            peer_count: 0,
+        })
     }
 }
 
@@ -3218,34 +3735,49 @@ async fn verify_proof_endpoint(
     State(state): State<NodeState>,
     Json(req): Json<VerifyProofRequest>,
 ) -> impl IntoResponse {
-    use crate::proofs::{decode_vo, verify_vo, decode_self_contained_proof, verify_self_contained_proof, decode_account_state_proof, verify_account_state_proof_detailed};
-    
+    use crate::proofs::{
+        decode_account_state_proof, decode_self_contained_proof, decode_vo,
+        verify_account_state_proof_detailed, verify_self_contained_proof, verify_vo,
+    };
+
     let proof_url = req.proof_url.trim();
     let current_checkpoint_height = state.get_checkpoint_height() as u64;
-    
+
     if proof_url.starts_with("rinku://vo/") {
         match decode_vo(proof_url) {
             Ok(vo) => {
                 let result = verify_vo(&vo);
-                let mut freshness_json = serde_json::to_value(&result.freshness).unwrap_or(serde_json::json!(null));
+                let mut freshness_json =
+                    serde_json::to_value(&result.freshness).unwrap_or(serde_json::json!(null));
                 if let Some(obj) = freshness_json.as_object_mut() {
-                    obj.insert("currentChainTip".to_string(), serde_json::json!(current_checkpoint_height));
+                    obj.insert(
+                        "currentChainTip".to_string(),
+                        serde_json::json!(current_checkpoint_height),
+                    );
                 }
-                return (StatusCode::OK, Json(serde_json::json!({
-                    "proofType": result.object_type,
-                    "valid": result.valid,
-                    "errors": result.errors,
-                    "checkpointHeight": result.checkpoint_height,
-                    "freshness": freshness_json,
-                    "details": result.details,
-                }))).into_response();
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "proofType": result.object_type,
+                        "valid": result.valid,
+                        "errors": result.errors,
+                        "checkpointHeight": result.checkpoint_height,
+                        "freshness": freshness_json,
+                        "details": result.details,
+                    })),
+                )
+                    .into_response();
             }
             Err(e) => {
-                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                    "proofType": "unknown",
-                    "valid": false,
-                    "error": format!("Failed to decode VerifiableObject: {}", e)
-                }))).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "proofType": "unknown",
+                        "valid": false,
+                        "error": format!("Failed to decode VerifiableObject: {}", e)
+                    })),
+                )
+                    .into_response();
             }
         }
     }
@@ -3255,59 +3787,79 @@ async fn verify_proof_endpoint(
             Ok(proof) => {
                 let vo = account_state_proof_to_vo(&proof, false);
                 let result = verify_vo(&vo);
-                let mut freshness_json = serde_json::to_value(&result.freshness).unwrap_or(serde_json::json!(null));
+                let mut freshness_json =
+                    serde_json::to_value(&result.freshness).unwrap_or(serde_json::json!(null));
                 if let Some(obj) = freshness_json.as_object_mut() {
-                    obj.insert("currentChainTip".to_string(), serde_json::json!(current_checkpoint_height));
+                    obj.insert(
+                        "currentChainTip".to_string(),
+                        serde_json::json!(current_checkpoint_height),
+                    );
                 }
-                return (StatusCode::OK, Json(serde_json::json!({
-                    "proofType": result.object_type,
-                    "valid": result.valid,
-                    "errors": result.errors,
-                    "checkpointHeight": result.checkpoint_height,
-                    "freshness": freshness_json,
-                    "details": result.details,
-                }))).into_response();
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "proofType": result.object_type,
+                        "valid": result.valid,
+                        "errors": result.errors,
+                        "checkpointHeight": result.checkpoint_height,
+                        "freshness": freshness_json,
+                        "details": result.details,
+                    })),
+                )
+                    .into_response();
             }
             Err(e) => {
-                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                    "proofType": "account_state",
-                    "valid": false,
-                    "error": format!("Failed to decode account state proof: {}", e)
-                }))).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "proofType": "account_state",
+                        "valid": false,
+                        "error": format!("Failed to decode account state proof: {}", e)
+                    })),
+                )
+                    .into_response();
             }
         }
     }
-    
+
     if proof_url.starts_with("rinku://sp/") {
         match decode_self_contained_proof(proof_url) {
             Ok(proof) => {
                 let result = verify_self_contained_proof(&proof);
-                return (StatusCode::OK, Json(serde_json::json!({
-                    "proofType": "transaction",
-                    "valid": result.valid,
-                    "errors": result.errors,
-                    "txHash": result.tx_hash,
-                    "txFrom": proof.tx_from,
-                    "txTo": proof.tx_to,
-                    "txAmount": proof.tx_amount,
-                    "txNonce": proof.tx_nonce,
-                    "txTimestamp": proof.tx_timestamp,
-                    "checkpointHeight": result.checkpoint_height,
-                    "checkpointId": proof.checkpoint_id,
-                    "merkleVerified": result.merkle_verified,
-                    "blsVerified": result.bls_verified,
-                    "validatorSetVerified": result.validator_set_verified,
-                    "signerWeight": result.computed_signer_weight,
-                    "totalWeight": result.total_weight,
-                    "signerCount": result.signer_count,
-                }))).into_response();
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "proofType": "transaction",
+                        "valid": result.valid,
+                        "errors": result.errors,
+                        "txHash": result.tx_hash,
+                        "txFrom": proof.tx_from,
+                        "txTo": proof.tx_to,
+                        "txAmount": proof.tx_amount,
+                        "txNonce": proof.tx_nonce,
+                        "txTimestamp": proof.tx_timestamp,
+                        "checkpointHeight": result.checkpoint_height,
+                        "checkpointId": proof.checkpoint_id,
+                        "merkleVerified": result.merkle_verified,
+                        "blsVerified": result.bls_verified,
+                        "validatorSetVerified": result.validator_set_verified,
+                        "signerWeight": result.computed_signer_weight,
+                        "totalWeight": result.total_weight,
+                        "signerCount": result.signer_count,
+                    })),
+                )
+                    .into_response();
             }
             Err(e) => {
-                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                    "proofType": "transaction",
-                    "valid": false,
-                    "error": format!("Failed to decode proof: {}", e)
-                }))).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "proofType": "transaction",
+                        "valid": false,
+                        "error": format!("Failed to decode proof: {}", e)
+                    })),
+                )
+                    .into_response();
             }
         }
     }
@@ -3323,11 +3875,10 @@ async fn generate_transaction_proof(
     Path(hash): Path<String>,
 ) -> Result<Json<TransactionProofResponse>, ApiError> {
     use crate::proofs::{
-        create_vo_url, build_merkle_sum_tree, get_merkle_sum_proof,
-        MerkleSumLeaf,
+        build_merkle_sum_tree, create_vo_url, get_merkle_sum_proof, MerkleSumLeaf,
     };
-    use rinku_core::stateful_receipt::{VerifiableObject, ProofFreshness};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use rinku_core::stateful_receipt::{ProofFreshness, VerifiableObject};
 
     let tx = state
         .get_transaction(&hash)
@@ -3361,19 +3912,23 @@ async fn generate_transaction_proof(
         }
     };
 
-    let (merkle_proof, merkle_index, checkpoint) = match state.get_merkle_proof(&hash, cp_height).await {
-        Some(data) => data,
-        None => {
-            return Ok(Json(TransactionProofResponse {
-                tx_hash: hash,
-                finalized: true,
-                proof_url: None,
-                proof_size_bytes: None,
-                qr_viable: None,
-                error: Some("Could not generate merkle proof (transaction may have been pruned)".to_string()),
-            }));
-        }
-    };
+    let (merkle_proof, merkle_index, checkpoint) =
+        match state.get_merkle_proof(&hash, cp_height).await {
+            Some(data) => data,
+            None => {
+                return Ok(Json(TransactionProofResponse {
+                    tx_hash: hash,
+                    finalized: true,
+                    proof_url: None,
+                    proof_size_bytes: None,
+                    qr_viable: None,
+                    error: Some(
+                        "Could not generate merkle proof (transaction may have been pruned)"
+                            .to_string(),
+                    ),
+                }));
+            }
+        };
 
     let fast_path_cert_data = state.get_fast_path_cert(&hash).await;
 
@@ -3383,14 +3938,12 @@ async fn generate_transaction_proof(
             .iter()
             .filter(|sig| sig.bls_public_key.is_some())
             .enumerate()
-            .map(|(i, sig)| {
-                MerkleSumLeaf {
-                    index: i,
-                    address: sig.validator.clone(),
-                    bls_public_key: sig.bls_public_key.clone().unwrap_or_default(),
-                    weight_units: sig.weight,
-                    weight: from_micro_units(sig.weight),
-                }
+            .map(|(i, sig)| MerkleSumLeaf {
+                index: i,
+                address: sig.validator.clone(),
+                bls_public_key: sig.bls_public_key.clone().unwrap_or_default(),
+                weight_units: sig.weight,
+                weight: from_micro_units(sig.weight),
             })
             .collect();
         let indices: Vec<usize> = (0..leaves.len()).collect();
@@ -3420,12 +3973,7 @@ async fn generate_transaction_proof(
         .unwrap_or_default()
         .as_millis() as u64;
 
-    let freshness = ProofFreshness::new(
-        checkpoint.height,
-        now_ms,
-        checkpoint.height,
-        None,
-    );
+    let freshness = ProofFreshness::new(checkpoint.height, now_ms, checkpoint.height, None);
 
     let vo = VerifiableObject::TxFinality {
         tx_hash: tx.hash.clone(),
@@ -3445,7 +3993,8 @@ async fn generate_transaction_proof(
         merkle_proof,
         merkle_index,
         bls_aggregated_sig: checkpoint.aggregated_signature.clone().unwrap_or_default(),
-        bls_signer_bitmap: checkpoint.signer_bitmap
+        bls_signer_bitmap: checkpoint
+            .signer_bitmap
             .as_ref()
             .map(|b| URL_SAFE_NO_PAD.encode(b))
             .unwrap_or_default(),
@@ -3507,33 +4056,42 @@ async fn generate_batch_proof(
     use rinku_core::stateful_receipt::{CheckpointFinality, VerifiableObject};
 
     if req.tx_hashes.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(BatchProofResponse {
-            success: false,
-            proof: None,
-            tx_count: 0,
-            error: Some("tx_hashes must not be empty".to_string()),
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(BatchProofResponse {
+                success: false,
+                proof: None,
+                tx_count: 0,
+                error: Some("tx_hashes must not be empty".to_string()),
+            }),
+        );
     }
 
     if req.tx_hashes.len() > 500 {
-        return (StatusCode::BAD_REQUEST, Json(BatchProofResponse {
-            success: false,
-            proof: None,
-            tx_count: 0,
-            error: Some("Maximum 500 transactions per batch proof".to_string()),
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(BatchProofResponse {
+                success: false,
+                proof: None,
+                tx_count: 0,
+                error: Some("Maximum 500 transactions per batch proof".to_string()),
+            }),
+        );
     }
 
     let mut checkpoint_height: Option<u64> = None;
     for hash in &req.tx_hashes {
         let (finalized, cp_h) = state.get_finalization_info(hash).await;
         if !finalized {
-            return (StatusCode::BAD_REQUEST, Json(BatchProofResponse {
-                success: false,
-                proof: None,
-                tx_count: 0,
-                error: Some(format!("Transaction {} is not yet finalized", hash)),
-            }));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(BatchProofResponse {
+                    success: false,
+                    proof: None,
+                    tx_count: 0,
+                    error: Some(format!("Transaction {} is not yet finalized", hash)),
+                }),
+            );
         }
         match (checkpoint_height, cp_h) {
             (None, Some(h)) => checkpoint_height = Some(h),
@@ -3555,24 +4113,33 @@ async fn generate_batch_proof(
     let cp_height = match checkpoint_height {
         Some(h) => h,
         None => {
-            return (StatusCode::BAD_REQUEST, Json(BatchProofResponse {
-                success: false,
-                proof: None,
-                tx_count: 0,
-                error: Some("Could not determine checkpoint height".to_string()),
-            }));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(BatchProofResponse {
+                    success: false,
+                    proof: None,
+                    tx_count: 0,
+                    error: Some("Could not determine checkpoint height".to_string()),
+                }),
+            );
         }
     };
 
     let checkpoint = match state.get_checkpoint_by_height(cp_height).await {
         Some(cp) => cp,
         None => {
-            return (StatusCode::NOT_FOUND, Json(BatchProofResponse {
-                success: false,
-                proof: None,
-                tx_count: 0,
-                error: Some(format!("Checkpoint {} not found (may have been pruned)", cp_height)),
-            }));
+            return (
+                StatusCode::NOT_FOUND,
+                Json(BatchProofResponse {
+                    success: false,
+                    proof: None,
+                    tx_count: 0,
+                    error: Some(format!(
+                        "Checkpoint {} not found (may have been pruned)",
+                        cp_height
+                    )),
+                }),
+            );
         }
     };
 
@@ -3581,23 +4148,29 @@ async fn generate_batch_proof(
         h.sort();
         h
     } else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(BatchProofResponse {
-            success: false,
-            proof: None,
-            tx_count: 0,
-            error: Some("Checkpoint has no finalized tx hashes".to_string()),
-        }));
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(BatchProofResponse {
+                success: false,
+                proof: None,
+                tx_count: 0,
+                error: Some("Checkpoint has no finalized tx hashes".to_string()),
+            }),
+        );
     };
 
     let tree = match MerkleTree::from_hex_leaves(&finalized_hashes) {
         Ok(t) => t,
         Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(BatchProofResponse {
-                success: false,
-                proof: None,
-                tx_count: 0,
-                error: Some(format!("Failed to build merkle tree: {}", e)),
-            }));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(BatchProofResponse {
+                    success: false,
+                    proof: None,
+                    tx_count: 0,
+                    error: Some(format!("Failed to build merkle tree: {}", e)),
+                }),
+            );
         }
     };
 
@@ -3606,12 +4179,18 @@ async fn generate_batch_proof(
         match finalized_hashes.iter().position(|h| h == hash) {
             Some(idx) => leaf_indices.push(idx),
             None => {
-                return (StatusCode::BAD_REQUEST, Json(BatchProofResponse {
-                    success: false,
-                    proof: None,
-                    tx_count: 0,
-                    error: Some(format!("Transaction {} not found in checkpoint {}", hash, cp_height)),
-                }));
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(BatchProofResponse {
+                        success: false,
+                        proof: None,
+                        tx_count: 0,
+                        error: Some(format!(
+                            "Transaction {} not found in checkpoint {}",
+                            hash, cp_height
+                        )),
+                    }),
+                );
             }
         }
     }
@@ -3619,12 +4198,15 @@ async fn generate_batch_proof(
     let multiproof = match tree.get_multiproof(&leaf_indices) {
         Ok(mp) => mp,
         Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(BatchProofResponse {
-                success: false,
-                proof: None,
-                tx_count: 0,
-                error: Some(format!("Failed to generate multiproof: {}", e)),
-            }));
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(BatchProofResponse {
+                    success: false,
+                    proof: None,
+                    tx_count: 0,
+                    error: Some(format!("Failed to generate multiproof: {}", e)),
+                }),
+            );
         }
     };
 
@@ -3659,12 +4241,15 @@ async fn generate_batch_proof(
         freshness: Some(freshness),
     };
 
-    (StatusCode::OK, Json(BatchProofResponse {
-        success: true,
-        proof: Some(vo),
-        tx_count: req.tx_hashes.len(),
-        error: None,
-    }))
+    (
+        StatusCode::OK,
+        Json(BatchProofResponse {
+            success: true,
+            proof: Some(vo),
+            tx_count: req.tx_hashes.len(),
+            error: None,
+        }),
+    )
 }
 
 #[derive(Deserialize)]
@@ -3691,32 +4276,41 @@ async fn generate_state_witness(
     use rinku_core::stateful_receipt::{StateWitnessEntry, VerifiableObject};
 
     if req.keys.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(StateWitnessResponse {
-            success: false,
-            witness: None,
-            key_count: 0,
-            error: Some("keys must not be empty".to_string()),
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(StateWitnessResponse {
+                success: false,
+                witness: None,
+                key_count: 0,
+                error: Some("keys must not be empty".to_string()),
+            }),
+        );
     }
 
     if req.keys.len() > 100 {
-        return (StatusCode::BAD_REQUEST, Json(StateWitnessResponse {
-            success: false,
-            witness: None,
-            key_count: 0,
-            error: Some("Maximum 100 keys per state witness".to_string()),
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(StateWitnessResponse {
+                success: false,
+                witness: None,
+                key_count: 0,
+                error: Some("Maximum 100 keys per state witness".to_string()),
+            }),
+        );
     }
 
     let checkpoint = match state.get_latest_checkpoint().await {
         Some(cp) => cp,
         None => {
-            return (StatusCode::BAD_REQUEST, Json(StateWitnessResponse {
-                success: false,
-                witness: None,
-                key_count: 0,
-                error: Some("No checkpoint available yet".to_string()),
-            }));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(StateWitnessResponse {
+                    success: false,
+                    witness: None,
+                    key_count: 0,
+                    error: Some("No checkpoint available yet".to_string()),
+                }),
+            );
         }
     };
 
@@ -3724,8 +4318,12 @@ async fn generate_state_witness(
 
     for key in &req.keys {
         let trie_key = crate::sparse_merkle_trie::hash_contract_key(&req.contract_id, key);
-        let value = state.get_contract_storage_value(&req.contract_id, key).await;
-        let proof = state.get_contract_storage_proof(&req.contract_id, key).await;
+        let value = state
+            .get_contract_storage_value(&req.contract_id, key)
+            .await;
+        let proof = state
+            .get_contract_storage_proof(&req.contract_id, key)
+            .await;
 
         let (proof_key_hex, proof_siblings) = match proof {
             Some(p) => {
@@ -3733,9 +4331,7 @@ async fn generate_state_witness(
                 let siblings: Vec<String> = p.siblings.iter().map(hex::encode).collect();
                 (key_hex, siblings)
             }
-            None => {
-                (hex::encode(trie_key), vec![])
-            }
+            None => (hex::encode(trie_key), vec![]),
         };
 
         entries.push(StateWitnessEntry {
@@ -3770,12 +4366,15 @@ async fn generate_state_witness(
         freshness: Some(freshness),
     };
 
-    (StatusCode::OK, Json(StateWitnessResponse {
-        success: true,
-        witness: Some(vo),
-        key_count: req.keys.len(),
-        error: None,
-    }))
+    (
+        StatusCode::OK,
+        Json(StateWitnessResponse {
+            success: true,
+            witness: Some(vo),
+            key_count: req.keys.len(),
+            error: None,
+        }),
+    )
 }
 
 #[derive(Serialize)]
@@ -3795,7 +4394,7 @@ async fn get_rewards_address(
 ) -> Json<RewardsAddressResponse> {
     let rewards = state.rewards.read().await;
     let summary = rewards.get_rewards_summary(&address);
-    
+
     Json(RewardsAddressResponse {
         address: summary.address,
         tip_rewards: from_micro_units(summary.tip_rewards),
@@ -3821,18 +4420,19 @@ struct StakeReconcileChange {
     new_staked: f64,
 }
 
-async fn post_reconcile_stakes(
-    State(state): State<NodeState>,
-) -> Json<ReconcileStakesResponse> {
+async fn post_reconcile_stakes(State(state): State<NodeState>) -> Json<ReconcileStakesResponse> {
     let (count, changes) = state.reconcile_stakes().await;
-    
+
     Json(ReconcileStakesResponse {
         reconciled_count: count,
-        changes: changes.into_iter().map(|(addr, old, new)| StakeReconcileChange {
-            address: addr,
-            old_staked: from_micro_units(old),
-            new_staked: from_micro_units(new),
-        }).collect(),
+        changes: changes
+            .into_iter()
+            .map(|(addr, old, new)| StakeReconcileChange {
+                address: addr,
+                old_staked: from_micro_units(old),
+                new_staked: from_micro_units(new),
+            })
+            .collect(),
     })
 }
 
@@ -3855,7 +4455,7 @@ async fn get_staking_address(
     let rewards = state.rewards.read().await;
     let status = rewards.get_staking_status(&address);
     let is_validator = state.is_validator(&address).await;
-    
+
     Json(StakingAddressResponse {
         address: status.address,
         staked_amount: from_micro_units(status.position.as_ref().map(|p| p.amount).unwrap_or(0)),
@@ -3874,9 +4474,7 @@ struct ContractListResponse {
     count: usize,
 }
 
-async fn get_contracts(
-    State(state): State<NodeState>,
-) -> Json<ContractListResponse> {
+async fn get_contracts(State(state): State<NodeState>) -> Json<ContractListResponse> {
     let contracts = state.get_all_contracts().await;
     let count = contracts.len();
     Json(ContractListResponse { contracts, count })
@@ -3914,9 +4512,28 @@ struct DeployContractResponse {
 }
 
 async fn deploy_contract(
-    State(_state): State<NodeState>,
+    State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Json(req): Json<DeployContractRequest>,
 ) -> impl IntoResponse {
+    let key = client_key(addr);
+    if !api_state.rate_limits.contract.check_and_record(&key) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(DeployContractResponse {
+                success: false,
+                contract_id: String::new(),
+                deploy_url: String::new(),
+                error: Some(format!(
+                    "Rate limited (contract): max {} requests per {}s",
+                    api_state.rate_limits.contract.max(),
+                    api_state.rate_limits.contract.window_secs()
+                )),
+            }),
+        )
+            .into_response();
+    }
+
     const MAX_WASM_SIZE: usize = 2 * 1024 * 1024;
 
     if req.creator.is_empty() {
@@ -3928,7 +4545,8 @@ async fn deploy_contract(
                 deploy_url: String::new(),
                 error: Some("Creator address is required".to_string()),
             }),
-        );
+        )
+            .into_response();
     }
 
     let wasm_bytes_len = req.wasm_base64.len() * 3 / 4;
@@ -3939,9 +4557,13 @@ async fn deploy_contract(
                 success: false,
                 contract_id: String::new(),
                 deploy_url: String::new(),
-                error: Some(format!("WASM binary too large: {} bytes (max {})", wasm_bytes_len, MAX_WASM_SIZE)),
+                error: Some(format!(
+                    "WASM binary too large: {} bytes (max {})",
+                    wasm_bytes_len, MAX_WASM_SIZE
+                )),
             }),
-        );
+        )
+            .into_response();
     }
 
     use base64::Engine as _;
@@ -3959,7 +4581,8 @@ async fn deploy_contract(
                 deploy_url: String::new(),
                 error: Some("Invalid WASM binary (bad magic bytes or base64 encoding)".to_string()),
             }),
-        );
+        )
+            .into_response();
     }
 
     let nonce = req.nonce.unwrap_or_else(|| {
@@ -3971,7 +4594,10 @@ async fn deploy_contract(
     let contract_id = crate::contracts::create_contract_id(&req.creator, nonce);
     let deploy_url = format!("rinku://contract/{}", contract_id);
 
-    info!("Contract deploy preview: {} (submit as signed transaction to finalize)", contract_id);
+    info!(
+        "Contract deploy preview: {} (submit as signed transaction to finalize)",
+        contract_id
+    );
     (
         StatusCode::OK,
         Json(DeployContractResponse {
@@ -3981,6 +4607,7 @@ async fn deploy_contract(
             error: None,
         }),
     )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -4017,10 +4644,37 @@ struct CallContractResponse {
 }
 
 async fn call_contract(
-    State(state): State<NodeState>,
+    State(api_state): State<ApiState>,
+    addr: Option<ConnectInfo<SocketAddr>>,
     Path(contract_id): Path<String>,
     Json(req): Json<CallContractRequest>,
 ) -> impl IntoResponse {
+    let key = client_key(addr);
+    if !api_state.rate_limits.contract.check_and_record(&key) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(CallContractResponse {
+                success: false,
+                gas_used: 0,
+                estimated_fee: None,
+                error: Some(format!(
+                    "Rate limited (contract): max {} requests per {}s",
+                    api_state.rate_limits.contract.max(),
+                    api_state.rate_limits.contract.window_secs()
+                )),
+                error_message: None,
+                logs: vec![],
+                events: vec![],
+                state_diff: None,
+                return_data: None,
+                new_state: None,
+                new_state_hash: None,
+                new_height: None,
+            }),
+        );
+    }
+
+    let state = &api_state.node_state;
     let contract = match state.get_contract(&contract_id).await {
         Some(c) => c,
         None => {
@@ -4057,8 +4711,11 @@ async fn call_contract(
     );
 
     let base_fee = from_micro_units(current_gas_price);
-    let additional_gas = result.gas_used.saturating_sub(crate::wasm_runtime::BASE_TX_GAS);
-    let execution_fee = (additional_gas as f64 / crate::wasm_runtime::BASE_TX_GAS as f64) * base_fee;
+    let additional_gas = result
+        .gas_used
+        .saturating_sub(crate::wasm_runtime::BASE_TX_GAS);
+    let execution_fee =
+        (additional_gas as f64 / crate::wasm_runtime::BASE_TX_GAS as f64) * base_fee;
     let total_estimated_fee = base_fee + execution_fee;
 
     if result.success {
@@ -4139,8 +4796,8 @@ async fn get_version(State(state): State<NodeState>) -> Json<VersionResponse> {
 }
 
 async fn get_metrics(State(state): State<NodeState>) -> String {
-    use sysinfo::{System, Pid};
-    
+    use sysinfo::{Pid, System};
+
     let (dag_nodes, tips, accounts) = state.get_dag_stats().await;
     let checkpoint_height = state.get_checkpoint_height();
     let gas_price = state.get_gas_price().await;
@@ -4152,23 +4809,24 @@ async fn get_metrics(State(state): State<NodeState>) -> String {
     let total_supply = state.get_total_supply().await;
     let total_transactions = state.get_total_transactions().await;
     let (finalized, unfinalized) = state.get_finalized_stats().await;
-    
+
     let mut sys = System::new_all();
     sys.refresh_all();
-    
+
     let pid = Pid::from_u32(std::process::id());
-    let (process_memory_bytes, process_cpu_percent, process_threads) = 
+    let (process_memory_bytes, process_cpu_percent, process_threads) =
         if let Some(process) = sys.process(pid) {
             (process.memory(), process.cpu_usage(), 0u64)
         } else {
             (0, 0.0, 0)
         };
-    
+
     let total_memory = sys.total_memory();
     let used_memory = sys.used_memory();
     let cpu_count = sys.cpus().len();
-    let global_cpu_percent: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32;
-    
+    let global_cpu_percent: f32 =
+        sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32;
+
     let uptime_seconds = state.get_uptime_seconds().await;
 
     format!(
@@ -4308,32 +4966,37 @@ async fn post_weight_vote(
     Path(hash): Path<String>,
     Json(payload): Json<WeightVoteRequest>,
 ) -> impl IntoResponse {
-    use rinku_core::types::{WeightVote, PendingWeightVote};
-    
+    use rinku_core::types::{PendingWeightVote, WeightVote};
+
     let state = &api_state.node_state;
-    
-    info!("Received vote request for tx {}: vote={}, validator={:?}", 
-        hash, payload.vote, payload.validator_pubkey);
-    
+
+    info!(
+        "Received vote request for tx {}: vote={}, validator={:?}",
+        hash, payload.vote, payload.validator_pubkey
+    );
+
     let vote = match payload.vote.to_lowercase().as_str() {
         "boost" => WeightVote::Boost,
         "suppress" => WeightVote::Suppress,
         "neutral" => WeightVote::Neutral,
         _ => {
-            return (StatusCode::BAD_REQUEST, Json(WeightVoteResponse {
-                success: false,
-                tx_hash: hash,
-                vote: payload.vote,
-                message: "Invalid vote type. Use 'boost', 'suppress', or 'neutral'".to_string(),
-            }));
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(WeightVoteResponse {
+                    success: false,
+                    tx_hash: hash,
+                    vote: payload.vote,
+                    message: "Invalid vote type. Use 'boost', 'suppress', or 'neutral'".to_string(),
+                }),
+            );
         }
     };
-    
+
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    
+
     let validator_pubkey = match payload.validator_pubkey.clone() {
         Some(pk) => pk,
         None => {
@@ -4341,10 +5004,10 @@ async fn post_weight_vote(
             inner.node_validator_address.clone().unwrap_or_default()
         }
     };
-    
+
     let vote_str = payload.vote.to_lowercase();
     let bls_sig = payload.bls_signature.clone();
-    
+
     let pending_vote = PendingWeightVote {
         tx_hash: hash.clone(),
         validator_pubkey: validator_pubkey.clone(),
@@ -4352,41 +5015,50 @@ async fn post_weight_vote(
         timestamp_ms: now_ms,
         bls_signature: bls_sig.clone(),
     };
-    
+
     {
         let mut inner = state.inner.write().await;
         if let Some(ref mut wt) = inner.weight_trie {
             wt.add_vote(pending_vote.clone());
-            info!("Vote registered for tx {}: vote={:?}, validator={}", 
-                hash, pending_vote.vote, pending_vote.validator_pubkey);
+            info!(
+                "Vote registered for tx {}: vote={:?}, validator={}",
+                hash, pending_vote.vote, pending_vote.validator_pubkey
+            );
         } else {
-            warn!("Weight trie not available - vote not registered for tx {}", hash);
-            return (StatusCode::SERVICE_UNAVAILABLE, Json(WeightVoteResponse {
-                success: false,
-                tx_hash: hash,
-                vote: payload.vote,
-                message: "Weight attestation system not enabled on this node".to_string(),
-            }));
+            warn!(
+                "Weight trie not available - vote not registered for tx {}",
+                hash
+            );
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(WeightVoteResponse {
+                    success: false,
+                    tx_hash: hash,
+                    vote: payload.vote,
+                    message: "Weight attestation system not enabled on this node".to_string(),
+                }),
+            );
         }
     }
-    
+
     // Broadcast vote to peers so all nodes have it for checkpoint aggregation
     if let Some(ref gossip_service) = api_state.gossip_service {
-        gossip_service.broadcast_weight_vote(
-            hash.clone(),
-            validator_pubkey,
-            vote_str,
-            now_ms,
-            bls_sig,
-        ).await;
+        gossip_service
+            .broadcast_weight_vote(hash.clone(), validator_pubkey, vote_str, now_ms, bls_sig)
+            .await;
     }
-    
-    (StatusCode::OK, Json(WeightVoteResponse {
-        success: true,
-        tx_hash: hash,
-        vote: payload.vote,
-        message: "Vote registered and broadcast to network. Will be aggregated at next checkpoint.".to_string(),
-    }))
+
+    (
+        StatusCode::OK,
+        Json(WeightVoteResponse {
+            success: true,
+            tx_hash: hash,
+            vote: payload.vote,
+            message:
+                "Vote registered and broadcast to network. Will be aggregated at next checkpoint."
+                    .to_string(),
+        }),
+    )
 }
 
 async fn get_weight_proof(
@@ -4394,55 +5066,71 @@ async fn get_weight_proof(
     Path(hash): Path<String>,
 ) -> impl IntoResponse {
     let inner = state.inner.read().await;
-    
+
     let weight_trie = match &inner.weight_trie {
         Some(wt) => wt.clone(),
         None => {
-            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                "error": "Weight attestation system not enabled"
-            }))).into_response();
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": "Weight attestation system not enabled"
+                })),
+            )
+                .into_response();
         }
     };
-    
+
     let weight = match weight_trie.get_weight(&hash) {
         Some(w) => w.clone(),
         None => {
-            return (StatusCode::OK, Json(WeightProofResponse {
-                tx_hash: hash,
-                aggregated_weight: rinku_core::types::AggregatedWeight::default(),
-                trust_score: 50,
-                boost_ratio: 0.0,
-                suppress_ratio: 0.0,
-                checkpoint_height: inner.checkpoints.last().map(|c| c.height),
-                weight_trie_root: String::new(),
-                merkle_proof: vec![],
-                merkle_index: 0,
-            })).into_response();
+            return (
+                StatusCode::OK,
+                Json(WeightProofResponse {
+                    tx_hash: hash,
+                    aggregated_weight: rinku_core::types::AggregatedWeight::default(),
+                    trust_score: 50,
+                    boost_ratio: 0.0,
+                    suppress_ratio: 0.0,
+                    checkpoint_height: inner.checkpoints.last().map(|c| c.height),
+                    weight_trie_root: String::new(),
+                    merkle_proof: vec![],
+                    merkle_index: 0,
+                }),
+            )
+                .into_response();
         }
     };
-    
+
     let mut wt = weight_trie.clone();
-    let (proof, index, _leaf) = wt.generate_proof(&hash).unwrap_or((vec![], 0, rinku_core::types::WeightTrieLeaf {
-        tx_hash: hash.clone(),
-        boost_stake_micro: 0,
-        suppress_stake_micro: 0,
-        neutral_stake_micro: 0,
-        total_network_stake_micro: 0,
-        attestation_count: 0,
-    }));
+    let (proof, index, _leaf) = wt.generate_proof(&hash).unwrap_or((
+        vec![],
+        0,
+        rinku_core::types::WeightTrieLeaf {
+            tx_hash: hash.clone(),
+            boost_stake_micro: 0,
+            suppress_stake_micro: 0,
+            neutral_stake_micro: 0,
+            total_network_stake_micro: 0,
+            attestation_count: 0,
+        },
+    ));
     let root = wt.compute_root();
-    
-    (StatusCode::OK, Json(WeightProofResponse {
-        tx_hash: hash,
-        trust_score: weight.trust_score(),
-        boost_ratio: weight.boost_ratio(),
-        suppress_ratio: weight.suppress_ratio(),
-        aggregated_weight: weight,
-        checkpoint_height: inner.checkpoints.last().map(|c| c.height),
-        weight_trie_root: root,
-        merkle_proof: proof,
-        merkle_index: index,
-    })).into_response()
+
+    (
+        StatusCode::OK,
+        Json(WeightProofResponse {
+            tx_hash: hash,
+            trust_score: weight.trust_score(),
+            boost_ratio: weight.boost_ratio(),
+            suppress_ratio: weight.suppress_ratio(),
+            aggregated_weight: weight,
+            checkpoint_height: inner.checkpoints.last().map(|c| c.height),
+            weight_trie_root: root,
+            merkle_proof: proof,
+            merkle_index: index,
+        }),
+    )
+        .into_response()
 }
 
 async fn get_tx_weight(
@@ -4450,11 +5138,13 @@ async fn get_tx_weight(
     Path(hash): Path<String>,
 ) -> impl IntoResponse {
     let inner = state.inner.read().await;
-    
-    let weight = inner.weight_trie.as_ref()
+
+    let weight = inner
+        .weight_trie
+        .as_ref()
         .and_then(|wt| wt.get_weight(&hash).cloned())
         .unwrap_or_default();
-    
+
     Json(serde_json::json!({
         "tx_hash": hash,
         "trust_score": weight.trust_score(),
@@ -4474,42 +5164,68 @@ pub async fn start_api_server(
     static_dir: Option<PathBuf>,
     event_bus: Arc<crate::events::EventBus>,
 ) -> anyhow::Result<JoinHandle<()>> {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let (tx_max, contract_max, general_max) = state.rate_limit_config();
+    let rate_limits = Arc::new(HttpRateLimiters::from_config(
+        tx_max,
+        contract_max,
+        general_max,
+    ));
+    let faucet_enabled = state.faucet_enabled();
+    let cors_origins = state.cors_allow_origins().to_vec();
+
+    let read_cors = build_read_cors();
+    let write_cors = build_write_cors(&cors_origins);
+
+    info!(
+        "HTTP abuse controls: tx={}/min contract={}/min general={}/min faucet_enabled={} write_cors={:?}",
+        tx_max, contract_max, general_max, faucet_enabled, cors_origins
+    );
 
     let api_state = ApiState {
         node_state: state.clone(),
         gossip_service,
         event_bus: event_bus.clone(),
+        rate_limits,
+        faucet_enabled,
     };
 
-    let ws_state = crate::websocket::WsState { event_bus: event_bus.clone() };
+    let ws_state = crate::websocket::WsState {
+        event_bus: event_bus.clone(),
+    };
     let ws_routes = Router::new()
         .route("/api/ws", get(crate::websocket::ws_handler))
         .with_state(ws_state);
 
-    // Routes that need ApiState (gossip + transaction submission + faucet for broadcasting)
-    let gossip_routes = Router::new()
-        .route("/api/gossip/stats", get(get_gossip_stats))
-        .route("/api/peers", get(get_peers))
+    // Write routes: tightened CORS + rate-limited handlers
+    let write_routes = Router::new()
         .route("/api/slashing/evidence", post(post_slashing_evidence))
         .route("/api/tx", post(submit_transaction))
         .route("/api/tx/fast", post(submit_fast_path_transaction))
-        .route("/api/tx/fast/:hash", get(get_fast_path_status))
         .route("/api/tx/batch", post(submit_batch_transaction))
         .route("/api/request", post(handle_faucet_request))
         .route("/api/faucet/request", post(handle_faucet_request))
         .route("/api/sync/delta", post(post_sync_delta))
+        .route("/api/tx/:hash/vote", post(post_weight_vote))
+        .route("/api/partition/merge", post(post_partition_merge))
+        .route("/api/contracts/deploy", post(deploy_contract))
+        .route("/api/contracts/:contract_id/call", post(call_contract))
+        .layer(write_cors)
+        .with_state(api_state.clone());
+
+    // Read-ish gossip/API routes that still need ApiState (open CORS)
+    let gossip_read_routes = Router::new()
+        .route("/api/gossip/stats", get(get_gossip_stats))
+        .route("/api/peers", get(get_peers))
+        .route("/api/tx/fast/:hash", get(get_fast_path_status))
         .route("/api/dag", get(get_dag))
         .route("/api/tx/:hash", get(get_transaction))
         .route("/api/tx/:hash/replies", get(get_transaction_replies))
-        .route("/api/account/:address/transactions", get(get_account_transactions_with_fast_path))
+        .route(
+            "/api/account/:address/transactions",
+            get(get_account_transactions_with_fast_path),
+        )
         .route("/api/finality/metrics", get(get_finality_metrics))
-        .route("/api/tx/:hash/vote", post(post_weight_vote))
-        .route("/api/partition/merge", post(post_partition_merge))
-        .layer(cors.clone())
+        .layer(read_cors.clone())
         .with_state(api_state);
 
     // Routes that use NodeState
@@ -4522,7 +5238,10 @@ pub async fn start_api_server(
         .route("/api/tipUrls", get(get_tip_urls))
         .route("/api/account/:address", get(get_account))
         .route("/api/account/:address/proof", get(get_account_proof))
-        .route("/api/account/:address/proof/current", get(get_account_proof_current))
+        .route(
+            "/api/account/:address/proof/current",
+            get(get_account_proof_current),
+        )
         .route("/api/tx/:hash/receipt", get(get_transaction_receipt))
         .route("/api/txp/:hash", get(get_self_provable_tx))
         .route("/api/tx/:hash/proof", get(generate_transaction_proof))
@@ -4542,9 +5261,7 @@ pub async fn start_api_server(
         .route("/api/staking", get(get_staking))
         .route("/api/staking/:address", get(get_staking_address))
         .route("/api/contracts", get(get_contracts))
-        .route("/api/contracts/deploy", post(deploy_contract))
         .route("/api/contracts/:contract_id", get(get_contract))
-        .route("/api/contracts/:contract_id/call", post(call_contract))
         .route("/api/tokenomics/supply", get(get_tokenomics_supply))
         .route("/api/tokenomics/emission", get(get_tokenomics_emission))
         .route("/api/tokenomics/slashing", get(get_tokenomics_slashing))
@@ -4566,13 +5283,19 @@ pub async fn start_api_server(
         .route("/api/proof/batch", post(generate_batch_proof))
         .route("/api/state/witness", post(generate_state_witness))
         .route("/api/chain/tip", get(get_chain_tip))
-        .route("/api/tip-consolidator/stats", get(get_tip_consolidator_stats))
+        .route(
+            "/api/tip-consolidator/stats",
+            get(get_tip_consolidator_stats),
+        )
         .route("/metrics", get(get_metrics))
-        .layer(cors.clone())
+        .layer(read_cors)
         .with_state(state);
 
     // Merge all routers
-    let api_routes = ws_routes.merge(gossip_routes).merge(node_routes);
+    let api_routes = ws_routes
+        .merge(write_routes)
+        .merge(gossip_read_routes)
+        .merge(node_routes);
 
     // Root health check handler for API-only mode
     async fn root_health() -> impl IntoResponse {
@@ -4582,12 +5305,18 @@ pub async fn start_api_server(
     let app = if let Some(static_path) = static_dir {
         if static_path.exists() {
             let index_path = static_path.join("index.html");
-            let serve_dir = ServeDir::new(&static_path)
-                .not_found_service(ServeFile::new(&index_path));
-            info!("Serving static files from {:?} with SPA routing fallback to {:?}", static_path, index_path);
+            let serve_dir =
+                ServeDir::new(&static_path).not_found_service(ServeFile::new(&index_path));
+            info!(
+                "Serving static files from {:?} with SPA routing fallback to {:?}",
+                static_path, index_path
+            );
             api_routes.fallback_service(serve_dir)
         } else {
-            info!("Static directory {:?} not found, API-only mode with root health check", static_path);
+            info!(
+                "Static directory {:?} not found, API-only mode with root health check",
+                static_path
+            );
             api_routes.route("/", get(root_health))
         }
     } else {
@@ -4601,7 +5330,12 @@ pub async fn start_api_server(
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     let handle = tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service()).await.unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
 
     Ok(handle)

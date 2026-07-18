@@ -3,7 +3,9 @@ use crate::types::{ContractError, ContractResult, EventData};
 
 pub fn get_balance(address: &str) -> f64 {
     let micro = host::get_balance_micro(address);
-    if micro < 0 { return 0.0; }
+    if micro < 0 {
+        return 0.0;
+    }
     micro as f64 / 1_000_000.0
 }
 
@@ -13,7 +15,9 @@ pub fn get_balance_micro(address: &str) -> i64 {
 
 pub fn get_staked(address: &str) -> f64 {
     let micro = host::get_staked_micro(address);
-    if micro < 0 { return 0.0; }
+    if micro < 0 {
+        return 0.0;
+    }
     micro as f64 / 1_000_000.0
 }
 
@@ -33,7 +37,9 @@ pub fn transfer(to: &str, amount: f64) -> ContractResult {
 pub fn transfer_from(from: &str, to: &str, amount: f64) -> ContractResult {
     let amount_micro = (amount * 1_000_000.0) as i64;
     if amount_micro <= 0 {
-        return Err(ContractError::invalid_input("Transfer amount must be positive"));
+        return Err(ContractError::invalid_input(
+            "Transfer amount must be positive",
+        ));
     }
 
     let result = host::raw_transfer(from, to, amount_micro);
@@ -43,7 +49,10 @@ pub fn transfer_from(from: &str, to: &str, amount: f64) -> ContractResult {
         -3 => Err(ContractError::unauthorized()),
         -4 => Err(ContractError::insufficient_balance()),
         -5 => Err(ContractError::internal("Too many transfers in one call")),
-        _ => Err(ContractError::internal(format!("Transfer failed: {}", result))),
+        _ => Err(ContractError::internal(format!(
+            "Transfer failed: {}",
+            result
+        ))),
     }
 }
 
@@ -74,10 +83,10 @@ pub fn set_return_json(value: &serde_json::Value) {
 
 pub fn sha256(data: &[u8]) -> Vec<u8> {
     let ptr = host::sha256_raw(data);
-    if ptr < 0 { return Vec::new(); }
-    unsafe {
-        core::slice::from_raw_parts(ptr as *const u8, 32).to_vec()
+    if ptr < 0 {
+        return Vec::new();
     }
+    unsafe { core::slice::from_raw_parts(ptr as *const u8, 32).to_vec() }
 }
 
 pub fn require(condition: bool, msg: &str) -> ContractResult {

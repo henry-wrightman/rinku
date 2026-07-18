@@ -76,7 +76,7 @@ impl MerkleProof {
     pub fn verify(&self) -> bool {
         let default_hashes = compute_default_hashes();
         let path = key_to_path(&self.key);
-        
+
         let mut current_hash = match &self.value {
             Some(v) => hash_bytes(v),
             None => EMPTY_HASH,
@@ -100,8 +100,7 @@ impl MerkleProof {
     }
 
     pub fn encoded_size(&self) -> usize {
-        32 + self.value.as_ref().map_or(0, |v| v.len()) + 
-        self.siblings.len() * 32 + 32
+        32 + self.value.as_ref().map_or(0, |v| v.len()) + self.siblings.len() * 32 + 32
     }
 }
 
@@ -119,7 +118,9 @@ impl SparseMultiProof {
             return false;
         }
         let paths: Vec<Vec<bool>> = self.keys.iter().map(|k| key_to_path(k)).collect();
-        let leaf_hashes: Vec<[u8; 32]> = self.values.iter()
+        let leaf_hashes: Vec<[u8; 32]> = self
+            .values
+            .iter()
             .map(|v| match v {
                 Some(data) => hash_bytes(data),
                 None => EMPTY_HASH,
@@ -161,28 +162,58 @@ impl SparseMultiProof {
         }
 
         if left_keys.is_empty() {
-            let left_hash = if *helper_idx < helper_nodes.len() && helper_nodes[*helper_idx].1 == depth {
-                let h = helper_nodes[*helper_idx].0;
-                *helper_idx += 1;
-                h
-            } else {
-                return EMPTY_HASH;
-            };
-            let right_hash = Self::verify_recursive(helper_nodes, &right_keys, paths, leaf_hashes, depth + 1, helper_idx);
+            let left_hash =
+                if *helper_idx < helper_nodes.len() && helper_nodes[*helper_idx].1 == depth {
+                    let h = helper_nodes[*helper_idx].0;
+                    *helper_idx += 1;
+                    h
+                } else {
+                    return EMPTY_HASH;
+                };
+            let right_hash = Self::verify_recursive(
+                helper_nodes,
+                &right_keys,
+                paths,
+                leaf_hashes,
+                depth + 1,
+                helper_idx,
+            );
             hash_pair(&left_hash, &right_hash)
         } else if right_keys.is_empty() {
-            let right_hash = if *helper_idx < helper_nodes.len() && helper_nodes[*helper_idx].1 == depth {
-                let h = helper_nodes[*helper_idx].0;
-                *helper_idx += 1;
-                h
-            } else {
-                return EMPTY_HASH;
-            };
-            let left_hash = Self::verify_recursive(helper_nodes, &left_keys, paths, leaf_hashes, depth + 1, helper_idx);
+            let right_hash =
+                if *helper_idx < helper_nodes.len() && helper_nodes[*helper_idx].1 == depth {
+                    let h = helper_nodes[*helper_idx].0;
+                    *helper_idx += 1;
+                    h
+                } else {
+                    return EMPTY_HASH;
+                };
+            let left_hash = Self::verify_recursive(
+                helper_nodes,
+                &left_keys,
+                paths,
+                leaf_hashes,
+                depth + 1,
+                helper_idx,
+            );
             hash_pair(&left_hash, &right_hash)
         } else {
-            let left_hash = Self::verify_recursive(helper_nodes, &left_keys, paths, leaf_hashes, depth + 1, helper_idx);
-            let right_hash = Self::verify_recursive(helper_nodes, &right_keys, paths, leaf_hashes, depth + 1, helper_idx);
+            let left_hash = Self::verify_recursive(
+                helper_nodes,
+                &left_keys,
+                paths,
+                leaf_hashes,
+                depth + 1,
+                helper_idx,
+            );
+            let right_hash = Self::verify_recursive(
+                helper_nodes,
+                &right_keys,
+                paths,
+                leaf_hashes,
+                depth + 1,
+                helper_idx,
+            );
             hash_pair(&left_hash, &right_hash)
         }
     }
@@ -254,24 +285,27 @@ impl SparseMerkleTrie {
         Ok(node.and_then(|n| n.value))
     }
 
-    pub fn set(&mut self, key: &[u8; 32], value: Vec<u8>, storage: Option<&RedbStorage>) -> Result<[u8; 32]> {
+    pub fn set(
+        &mut self,
+        key: &[u8; 32],
+        value: Vec<u8>,
+        storage: Option<&RedbStorage>,
+    ) -> Result<[u8; 32]> {
         let path = key_to_path(key);
         let leaf_hash = hash_bytes(&value);
-        
-        let new_root = self.set_recursive(
-            self.root_hash,
-            &path,
-            0,
-            leaf_hash,
-            Some(value),
-            storage,
-        )?;
+
+        let new_root =
+            self.set_recursive(self.root_hash, &path, 0, leaf_hash, Some(value), storage)?;
 
         self.root_hash = new_root;
         Ok(new_root)
     }
 
-    pub fn batch_set(&mut self, entries: &[([u8; 32], Vec<u8>)], storage: Option<&RedbStorage>) -> Result<[u8; 32]> {
+    pub fn batch_set(
+        &mut self,
+        entries: &[([u8; 32], Vec<u8>)],
+        storage: Option<&RedbStorage>,
+    ) -> Result<[u8; 32]> {
         for (key, value) in entries {
             self.set(key, value.clone(), storage)?;
         }
@@ -307,9 +341,14 @@ impl SparseMerkleTrie {
         }
 
         let (left, right) = if current_hash == self.default_hashes[depth] {
-            (self.default_hashes[depth + 1], self.default_hashes[depth + 1])
+            (
+                self.default_hashes[depth + 1],
+                self.default_hashes[depth + 1],
+            )
         } else {
-            let node = self.get_node(&current_hash, storage)?.unwrap_or_else(TrieNode::empty);
+            let node = self
+                .get_node(&current_hash, storage)?
+                .unwrap_or_else(TrieNode::empty);
             (
                 node.left.unwrap_or(self.default_hashes[depth + 1]),
                 node.right.unwrap_or(self.default_hashes[depth + 1]),
@@ -317,7 +356,8 @@ impl SparseMerkleTrie {
         };
 
         let (new_left, new_right) = if path[depth] {
-            let new_right = self.set_recursive(right, path, depth + 1, leaf_hash, value, storage)?;
+            let new_right =
+                self.set_recursive(right, path, depth + 1, leaf_hash, value, storage)?;
             (left, new_right)
         } else {
             let new_left = self.set_recursive(left, path, depth + 1, leaf_hash, value, storage)?;
@@ -357,7 +397,9 @@ impl SparseMerkleTrie {
             return Ok(self.default_hashes[depth]);
         }
 
-        let node = self.get_node(&current_hash, storage)?.unwrap_or_else(TrieNode::empty);
+        let node = self
+            .get_node(&current_hash, storage)?
+            .unwrap_or_else(TrieNode::empty);
         let left = node.left.unwrap_or(self.default_hashes[depth + 1]);
         let right = node.right.unwrap_or(self.default_hashes[depth + 1]);
 
@@ -369,7 +411,8 @@ impl SparseMerkleTrie {
             (new_left, right)
         };
 
-        if new_left == self.default_hashes[depth + 1] && new_right == self.default_hashes[depth + 1] {
+        if new_left == self.default_hashes[depth + 1] && new_right == self.default_hashes[depth + 1]
+        {
             return Ok(self.default_hashes[depth]);
         }
 
@@ -413,7 +456,6 @@ impl SparseMerkleTrie {
                         siblings.push(right);
                         current_hash = left;
                     }
-
                 }
                 None => {
                     for remaining in depth..TREE_DEPTH {
@@ -442,7 +484,11 @@ impl SparseMerkleTrie {
         })
     }
 
-    pub fn prove_multi(&self, keys: &[[u8; 32]], storage: Option<&RedbStorage>) -> Result<SparseMultiProof> {
+    pub fn prove_multi(
+        &self,
+        keys: &[[u8; 32]],
+        storage: Option<&RedbStorage>,
+    ) -> Result<SparseMultiProof> {
         let paths: Vec<Vec<bool>> = keys.iter().map(|k| key_to_path(k)).collect();
         let mut values = vec![None; keys.len()];
         let mut helper_nodes: Vec<([u8; 32], usize)> = Vec::new();
@@ -488,9 +534,14 @@ impl SparseMerkleTrie {
         }
 
         let (left_hash, right_hash) = if current_hash == self.default_hashes[depth] {
-            (self.default_hashes[depth + 1], self.default_hashes[depth + 1])
+            (
+                self.default_hashes[depth + 1],
+                self.default_hashes[depth + 1],
+            )
         } else {
-            let node = self.get_node(&current_hash, storage)?.unwrap_or_else(TrieNode::empty);
+            let node = self
+                .get_node(&current_hash, storage)?
+                .unwrap_or_else(TrieNode::empty);
             (
                 node.left.unwrap_or(self.default_hashes[depth + 1]),
                 node.right.unwrap_or(self.default_hashes[depth + 1]),
@@ -509,13 +560,45 @@ impl SparseMerkleTrie {
 
         if left_keys.is_empty() {
             helper_nodes.push((left_hash, depth));
-            self.prove_multi_recursive(right_hash, &right_keys, paths, depth + 1, values, helper_nodes, storage)?;
+            self.prove_multi_recursive(
+                right_hash,
+                &right_keys,
+                paths,
+                depth + 1,
+                values,
+                helper_nodes,
+                storage,
+            )?;
         } else if right_keys.is_empty() {
             helper_nodes.push((right_hash, depth));
-            self.prove_multi_recursive(left_hash, &left_keys, paths, depth + 1, values, helper_nodes, storage)?;
+            self.prove_multi_recursive(
+                left_hash,
+                &left_keys,
+                paths,
+                depth + 1,
+                values,
+                helper_nodes,
+                storage,
+            )?;
         } else {
-            self.prove_multi_recursive(left_hash, &left_keys, paths, depth + 1, values, helper_nodes, storage)?;
-            self.prove_multi_recursive(right_hash, &right_keys, paths, depth + 1, values, helper_nodes, storage)?;
+            self.prove_multi_recursive(
+                left_hash,
+                &left_keys,
+                paths,
+                depth + 1,
+                values,
+                helper_nodes,
+                storage,
+            )?;
+            self.prove_multi_recursive(
+                right_hash,
+                &right_keys,
+                paths,
+                depth + 1,
+                values,
+                helper_nodes,
+                storage,
+            )?;
         }
 
         Ok(())
@@ -602,9 +685,9 @@ mod tests {
 
         let initial_root = trie.root();
         trie.set(&key, value.clone(), None).unwrap();
-        
+
         assert_ne!(trie.root(), initial_root);
-        
+
         let retrieved = trie.get(&key, None).unwrap();
         assert_eq!(retrieved, Some(value));
     }

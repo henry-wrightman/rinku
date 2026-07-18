@@ -27,9 +27,11 @@ pub fn compress_da_payload(data: &[u8]) -> Result<Vec<u8>> {
     use std::io::Write;
 
     let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
-    encoder.write_all(data)
+    encoder
+        .write_all(data)
         .map_err(|e| anyhow!("DA compression failed: {}", e))?;
-    encoder.finish()
+    encoder
+        .finish()
         .map_err(|e| anyhow!("DA compression finalize failed: {}", e))
 }
 
@@ -42,20 +44,26 @@ pub fn decompress_da_payload(data: &[u8], uncompressed_size: usize) -> Result<Ve
     if uncompressed_size == 0 || uncompressed_size > MAX_UNCOMPRESSED_SIZE {
         return Err(anyhow!(
             "invalid uncompressed_size: {} (max {})",
-            uncompressed_size, MAX_UNCOMPRESSED_SIZE
+            uncompressed_size,
+            MAX_UNCOMPRESSED_SIZE
         ));
     }
 
-    let read_limit = uncompressed_size.saturating_mul(2).min(MAX_UNCOMPRESSED_SIZE);
+    let read_limit = uncompressed_size
+        .saturating_mul(2)
+        .min(MAX_UNCOMPRESSED_SIZE);
     let decoder = DeflateDecoder::new(data);
     let mut result = Vec::with_capacity(uncompressed_size.min(MAX_UNCOMPRESSED_SIZE));
-    decoder.take(read_limit as u64).read_to_end(&mut result)
+    decoder
+        .take(read_limit as u64)
+        .read_to_end(&mut result)
         .map_err(|e| anyhow!("DA decompression failed: {}", e))?;
 
     if result.len() != uncompressed_size {
         return Err(anyhow!(
             "DA decompression size mismatch: expected {} bytes, got {}",
-            uncompressed_size, result.len()
+            uncompressed_size,
+            result.len()
         ));
     }
 
