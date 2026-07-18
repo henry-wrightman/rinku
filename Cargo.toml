@@ -17,7 +17,7 @@ repository = "https://github.com/rinku-ledger/rinku"
 
 [workspace.dependencies]
 # Pin base64ct to avoid edition2024 requirement (for older Rust toolchains)
-base64ct = "=1.7.3"
+base64ct = "=1.8.3"
 
 # Crypto
 p256 = { version = "0.13", features = ["ecdsa", "serde"] }
