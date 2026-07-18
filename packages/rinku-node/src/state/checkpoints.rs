@@ -771,8 +771,8 @@ impl NodeState {
         }
 
         let lock_start = std::time::Instant::now();
-        let mut incremental_changed: usize = 0;
-        let mut incremental_pruned: usize = 0;
+        let incremental_changed: usize;
+        let incremental_pruned: usize;
         {
             let mut state = self.inner.write().await;
             let lock_ms = lock_start.elapsed().as_millis();
@@ -1571,9 +1571,11 @@ mod proof_verified_tests {
     }
 
     async fn fresh_state(dir: &std::path::Path) -> NodeState {
-        let mut config = NodeConfig::default();
-        config.data_dir = dir.to_string_lossy().to_string();
-        config.is_genesis_node = true;
+        let config = NodeConfig {
+            data_dir: dir.to_string_lossy().to_string(),
+            is_genesis_node: true,
+            ..NodeConfig::default()
+        };
         NodeState::new(config).await.expect("build test NodeState")
     }
 
