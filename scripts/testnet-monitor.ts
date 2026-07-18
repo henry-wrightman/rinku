@@ -66,6 +66,8 @@ interface CheckpointRecord {
   firstSeen: number;
   seenBy: string[];
   forkAlerted: boolean;
+  consensusLogged: boolean;
+  confirmScheduled: boolean;
 }
 
 const trackers: NodeTracker[] = [];
@@ -82,6 +84,10 @@ const STALL_THRESHOLD_MS = 30_000;
 const MAX_CHECKPOINT_INDEX = 2000;
 const MAX_MERKLE_CACHE = 500;
 const MAX_FORK_ALERTS = 500;
+// A node's reported merkle root for a height can differ transiently while a
+// reorg settles. Only alert on a fork if the divergence is still present after
+// re-fetching every node once, this many ms later.
+const FORK_CONFIRM_MS = 2_500;
 
 function emit(record: Record<string, unknown>) {
   const line = JSON.stringify({ ...record, _ts: Date.now() });
@@ -350,6 +356,8 @@ async function fetchCheckpointMerkle(tracker: NodeTracker, height: number) {
         firstSeen: Date.now(),
         seenBy: [],
         forkAlerted: false,
+        consensusLogged: false,
+        confirmScheduled: false,
       };
       checkpointIndex.set(height, record);
 
@@ -372,9 +380,29 @@ async function fetchCheckpointMerkle(tracker: NodeTracker, height: number) {
       seenBy: record.seenBy,
     });
 
-    if (record.merkleRoots.size >= 2) {
+    // Only evaluate consensus once every node has reported a root for this
+    // height. Alerting as soon as any 2 nodes disagree produced false forks:
+    // reads race with reorg settling, and a third (agreeing) value arrives a
+    // moment later. Requiring all N — plus a confirm re-fetch below — makes the
+    // signal reflect real, persistent divergence.
+    if (record.merkleRoots.size === trackers.length && !record.forkAlerted) {
       const uniqueRoots = [...new Set(record.merkleRoots.values())];
-      if (uniqueRoots.length > 1 && !record.forkAlerted) {
+      if (uniqueRoots.length === 1) {
+        if (!record.consensusLogged) {
+          record.consensusLogged = true;
+          log(
+            `  h=${height} CONSENSUS OK — all ${trackers.length} nodes agree: ${uniqueRoots[0]?.slice(0, 16)}...`
+          );
+        }
+      } else if (!record.confirmScheduled) {
+        // Divergent on this snapshot — re-fetch all nodes once and re-check
+        // before alerting, to filter out transient reorg-settle mismatches.
+        record.confirmScheduled = true;
+        setTimeout(() => {
+          for (const t of trackers) void fetchCheckpointMerkle(t, height);
+        }, FORK_CONFIRM_MS);
+      } else {
+        // Still divergent after the confirm re-fetch — this is a real fork.
         record.forkAlerted = true;
         logAlert(
           `FORK at height ${height}! Roots: ${[...record.merkleRoots.entries()]
@@ -393,10 +421,6 @@ async function fetchCheckpointMerkle(tracker: NodeTracker, height: number) {
           height,
           roots: Object.fromEntries(record.merkleRoots),
         });
-      } else if (uniqueRoots.length === 1 && record.seenBy.length === trackers.length) {
-        log(
-          `  h=${height} CONSENSUS OK — all ${trackers.length} nodes agree: ${uniqueRoots[0]?.slice(0, 16)}...`
-        );
       }
     }
   } catch {}

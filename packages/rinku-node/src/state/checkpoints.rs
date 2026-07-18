@@ -236,6 +236,13 @@ impl NodeState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Current local state-trie root (hex). Used to assert the post-apply
+    /// consensus invariant: after applying checkpoint h, our state root MUST
+    /// equal the committed `checkpoint.state_root`.
+    pub async fn current_state_root(&self) -> String {
+        self.inner.read().await.state_trie.root_hex()
+    }
+
     /// Get the checkpoint height at which a transaction was finalized
     pub async fn get_tx_checkpoint_height(&self, tx_hash: &str) -> Option<u64> {
         let state = self.inner.read().await;
@@ -796,11 +803,7 @@ impl NodeState {
             let accounts_backup: std::collections::HashMap<String, rinku_core::types::Account> =
                 state.accounts.clone();
 
-            let mut proof_addrs: std::collections::HashSet<String> =
-                std::collections::HashSet::with_capacity(verified_accounts.len());
-
             for (addr, balance, nonce, staked) in &verified_accounts {
-                proof_addrs.insert(addr.clone());
                 if let Some(acc) = state.accounts.get_mut(addr) {
                     acc.balance = *balance;
                     acc.nonce = *nonce;
@@ -828,35 +831,19 @@ impl NodeState {
                 }
             }
 
-            let mut pruned_addrs: Vec<String> = Vec::new();
-            let pre_prune_count = state.accounts.len();
-            {
-                let proof_ref = &proof_addrs;
-                pruned_addrs = state
-                    .accounts
-                    .keys()
-                    .filter(|addr| !proof_ref.contains(*addr))
-                    .cloned()
-                    .collect();
-            }
-            for addr in &pruned_addrs {
-                state.accounts.remove(addr);
-            }
-            let pruned = pruned_addrs.len();
-            if pruned > 0 {
-                tracing::warn!(
-                    "PROOF-VERIFIED PRUNE: removed {} local-only accounts not in proof set at h={} ({} -> {} accounts)",
-                    pruned, height, pre_prune_count, state.accounts.len()
-                );
-            }
-
-            use crate::sparse_merkle_trie::hash_account_key;
-
-            for addr in &pruned_addrs {
-                let key = hash_account_key(addr);
-                let _ = state.state_trie.delete(&key, None);
-            }
-
+            // IMPORTANT: do NOT prune accounts merely because they are absent from
+            // this checkpoint's proof set. The leader only emits proofs for accounts
+            // *changed* by the checkpoint's txs (a delta, see
+            // state/proofs.rs::compute_state_root_and_proofs — proof_addresses =
+            // sim_changed_addrs). Accounts absent from the delta are UNCHANGED, not
+            // removed. Previously this path deleted every local account not in the
+            // delta (e.g. "7 -> 2 accounts"), producing a garbage state root, a
+            // forced rollback, and — under bursty catch-up — cross-node divergence.
+            //
+            // Genuine account removal (zero-balance GC) is handled by the full
+            // execution apply path; if an account really should be gone, the
+            // incremental root below will mismatch and we fall back to a full
+            // rebuild, then to re-execution. The root check is the safety guard.
             let mut changed_addrs: Vec<String> = Vec::new();
             for (addr, balance, nonce, staked) in &verified_accounts {
                 let changed = match accounts_backup.get(addr) {
@@ -871,31 +858,29 @@ impl NodeState {
             }
 
             incremental_changed = changed_addrs.len();
-            incremental_pruned = pruned;
+            incremental_pruned = 0;
 
             state.update_state_trie_accounts(&changed_addrs);
 
             let local_root = state.state_trie.root_hex();
             if local_root != expected_state_root {
                 tracing::warn!(
-                    "PROOF-VERIFIED INCREMENTAL MISMATCH at h={}: local {} != expected {} ({} changed, {} pruned) — falling back to full rebuild",
+                    "PROOF-VERIFIED INCREMENTAL MISMATCH at h={}: local {} != expected {} ({} changed) — falling back to full rebuild",
                     height,
                     &local_root[..16.min(local_root.len())],
                     &expected_state_root[..16.min(expected_state_root.len())],
                     changed_addrs.len(),
-                    pruned
                 );
 
                 state.state_trie = StateInner::build_state_trie_from_accounts(&state.accounts);
                 let rebuild_root = state.state_trie.root_hex();
                 if rebuild_root != expected_state_root {
                     tracing::error!(
-                        "PROOF-VERIFIED ROOT MISMATCH at h={}: rebuilt trie root {} != checkpoint state_root {} ({} accounts, {} pruned) — rolling back",
+                        "PROOF-VERIFIED ROOT MISMATCH at h={}: rebuilt trie root {} != checkpoint state_root {} ({} accounts) — rolling back",
                         height,
                         &rebuild_root[..16.min(rebuild_root.len())],
                         &expected_state_root[..16.min(expected_state_root.len())],
                         state.accounts.len(),
-                        pruned
                     );
                     state.accounts = accounts_backup;
                     state.state_trie = StateInner::build_state_trie_from_accounts(&state.accounts);
@@ -913,8 +898,8 @@ impl NodeState {
                 );
             } else {
                 tracing::info!(
-                    "PROOF-VERIFIED INCREMENTAL OK at h={}: root matched ({} changed, {} pruned, {} total accounts)",
-                    height, changed_addrs.len(), pruned, state.accounts.len()
+                    "PROOF-VERIFIED INCREMENTAL OK at h={}: root matched ({} changed, {} total accounts)",
+                    height, changed_addrs.len(), state.accounts.len()
                 );
             }
 
@@ -1534,5 +1519,145 @@ impl NodeState {
             .checkpoints
             .last()
             .map(|c| c.hash.chars().take(16).collect())
+    }
+}
+
+#[cfg(test)]
+mod proof_verified_tests {
+    use super::*;
+    use crate::config::NodeConfig;
+
+    fn acct(addr: &str, bal: u64, nonce: u64, staked: u64) -> rinku_core::types::Account {
+        rinku_core::types::Account {
+            address: addr.to_string(),
+            balance: bal,
+            nonce,
+            first_seen: 0,
+            staked,
+            unbonding: 0,
+            unbonding_release: None,
+            latest_balance_proof: None,
+            partition_violations: 0,
+            reputation_penalty: 0.0,
+            penalty_decay_checkpoint: None,
+            partition_budget: None,
+            partition_budget_spent: 0,
+            ecdsa_public_key: None,
+        }
+    }
+
+    fn checkpoint_for(height: u64, state_root: &str) -> rinku_core::types::Checkpoint {
+        rinku_core::types::Checkpoint {
+            height,
+            hash: format!("test-cp-{height}"),
+            previous_hash: None,
+            tx_merkle_root: String::new(),
+            state_root: state_root.to_string(),
+            receipt_root: String::new(),
+            tip_count: 0,
+            timestamp: 1_700_000_000_000,
+            validator_signatures: Vec::new(),
+            aggregated_signature: None,
+            signer_bitmap: None,
+            finalized_tx_hashes: Vec::new(),
+            weight_trie_root: String::new(),
+            provisional: false,
+            partition_epoch: None,
+            visible_stake_pct: None,
+            merge_report_hash: None,
+            view_change_certificate: None,
+            view: 0,
+        }
+    }
+
+    async fn fresh_state(dir: &std::path::Path) -> NodeState {
+        let mut config = NodeConfig::default();
+        config.data_dir = dir.to_string_lossy().to_string();
+        config.is_genesis_node = true;
+        NodeState::new(config).await.expect("build test NodeState")
+    }
+
+    /// Overwrite the account set and rebuild the trie deterministically so the
+    /// test controls the exact state (independent of what genesis seeded).
+    async fn seed_accounts(state: &NodeState, accts: &[rinku_core::types::Account]) {
+        let mut inner = state.inner.write().await;
+        inner.accounts.clear();
+        for a in accts {
+            inner.accounts.insert(a.address.clone(), a.clone());
+        }
+        inner.state_trie = StateInner::build_state_trie_from_accounts(&inner.accounts);
+    }
+
+    /// Regression for the checkpoint fork bug: `apply_checkpoint_proof_verified`
+    /// must NOT prune accounts that are simply absent from the (delta) proof set.
+    /// The leader only emits proofs for accounts changed by the checkpoint, so a
+    /// 2-of-7 proof set previously caused the follower to delete the 5 untouched
+    /// accounts ("7 -> 2 accounts"), mismatch the committed root, and roll back —
+    /// diverging from the rest of the network.
+    #[tokio::test]
+    async fn proof_verified_apply_preserves_untouched_accounts() {
+        let leader_dir = tempfile::tempdir().unwrap();
+        let follower_dir = tempfile::tempdir().unwrap();
+
+        let base = vec![
+            acct("a", 100, 1, 0),
+            acct("b", 200, 2, 0),
+            acct("c", 300, 3, 0),
+            acct("d", 400, 4, 0),
+            acct("e", 500, 5, 0),
+            acct("f", 600, 6, 0),
+            acct("g", 700, 7, 0),
+        ];
+
+        // Follower holds all 7 accounts at their original values.
+        let follower = fresh_state(follower_dir.path()).await;
+        seed_accounts(&follower, &base).await;
+
+        // Leader holds the same 7 accounts but with `a` and `b` changed — the
+        // delta this checkpoint commits. Its root is the committed state_root.
+        let mut updated = base.clone();
+        updated[0] = acct("a", 150, 2, 0);
+        updated[1] = acct("b", 250, 3, 0);
+        let leader = fresh_state(leader_dir.path()).await;
+        seed_accounts(&leader, &updated).await;
+        let expected_root = leader.current_state_root().await;
+
+        // Delta proof set: proofs ONLY for the two changed accounts.
+        let height = follower.get_checkpoint_height() + 1;
+        let checkpoint = checkpoint_for(height, &expected_root);
+        let proof_a = leader
+            .generate_account_state_proof("a", &checkpoint, "")
+            .await
+            .expect("proof a");
+        let proof_b = leader
+            .generate_account_state_proof("b", &checkpoint, "")
+            .await
+            .expect("proof b");
+
+        let res = follower
+            .apply_checkpoint_proof_verified(checkpoint, vec![], &[proof_a, proof_b])
+            .await;
+        assert!(res.is_ok(), "proof-verified apply failed: {:?}", res.err());
+
+        {
+            let inner = follower.inner.read().await;
+            assert_eq!(
+                inner.accounts.len(),
+                7,
+                "untouched accounts were pruned (regression)"
+            );
+            assert_eq!(inner.accounts.get("a").unwrap().balance, 150);
+            assert_eq!(inner.accounts.get("b").unwrap().balance, 250);
+            // Untouched accounts must retain their original values.
+            assert_eq!(inner.accounts.get("c").unwrap().balance, 300);
+            assert_eq!(inner.accounts.get("g").unwrap().balance, 700);
+        }
+
+        // Follower must land exactly on the committed root — no divergence.
+        assert_eq!(
+            follower.current_state_root().await,
+            expected_root,
+            "follower state root diverged from committed checkpoint root"
+        );
     }
 }

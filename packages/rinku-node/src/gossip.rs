@@ -408,6 +408,10 @@ pub enum GossipMessage {
         timestamp_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sender_url: Option<String>,
+        /// ECDSA public key (hex) of the tx sender, so peers can authenticate
+        /// the tx on first sighting. Absent for system txs (faucet/consolidation).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        public_key: Option<String>,
     },
     TxConfirmAck {
         tx_hash: String,
@@ -715,6 +719,10 @@ pub struct GossipService {
     qcc_vote_tx: Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Sender<QccGossipVote>>>>,
     highest_seen_peer_height: Arc<std::sync::atomic::AtomicU64>,
     qcc_vote_lock: Arc<tokio::sync::Mutex<(u64, String)>>,
+    /// Unix-ms timestamp of the last divergence-triggered full snapshot resync.
+    /// Used to rate-limit resyncs when the local state root diverges from a
+    /// committed checkpoint (see check_post_apply_consensus).
+    divergence_resync_at_ms: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Clone for GossipService {
@@ -750,6 +758,7 @@ impl Clone for GossipService {
             qcc_vote_tx: self.qcc_vote_tx.clone(),
             highest_seen_peer_height: self.highest_seen_peer_height.clone(),
             qcc_vote_lock: self.qcc_vote_lock.clone(),
+            divergence_resync_at_ms: self.divergence_resync_at_ms.clone(),
         }
     }
 }
@@ -856,6 +865,7 @@ impl GossipService {
             qcc_vote_tx: Arc::new(tokio::sync::Mutex::new(None)),
             highest_seen_peer_height: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             qcc_vote_lock: Arc::new(tokio::sync::Mutex::new((0u64, String::new()))),
+            divergence_resync_at_ms: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -3463,6 +3473,12 @@ impl GossipService {
                     );
                 }
 
+                // Invariant: after applying a checkpoint our state root must equal
+                // the committed root. If not (e.g. the execution fallback replayed a
+                // divergent tx set), schedule a full snapshot resync instead of
+                // continuing on a forked state.
+                self.check_post_apply_consensus(&checkpoint).await;
+
                 let proofs_for_cache = precomputed_proofs.clone();
 
                 if !precomputed_proofs.is_empty() {
@@ -4996,6 +5012,107 @@ impl GossipService {
         Ok(result)
     }
 
+    /// Post-apply consensus invariant. After applying checkpoint `h`, our local
+    /// state root MUST equal the committed `checkpoint.state_root`. If it does
+    /// not, we have silently diverged — e.g. re-executed a different finalized
+    /// tx set via the execution fallback — and must not keep building on a
+    /// forked state. Recover by pulling a fresh full snapshot from a peer.
+    /// Rate-limited so a run of diverging checkpoints can't trigger a resync
+    /// storm.
+    async fn check_post_apply_consensus(&self, checkpoint: &Checkpoint) {
+        let expected = checkpoint.state_root.clone();
+        if expected.is_empty() {
+            return;
+        }
+        let local = self.state.current_state_root().await;
+        if local == expected {
+            return;
+        }
+
+        error!(
+            "CONSENSUS DIVERGENCE at h={}: local state_root {} != committed {} — scheduling full snapshot resync",
+            checkpoint.height,
+            &local[..16.min(local.len())],
+            &expected[..16.min(expected.len())],
+        );
+
+        const RESYNC_COOLDOWN_MS: u64 = 30_000;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let last = self
+            .divergence_resync_at_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if now_ms.saturating_sub(last) < RESYNC_COOLDOWN_MS {
+            return;
+        }
+        // Claim the cooldown window atomically so concurrent applies don't all
+        // kick off a resync.
+        if self
+            .divergence_resync_at_ms
+            .compare_exchange(
+                last,
+                now_ms,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            return;
+        }
+
+        #[cfg(feature = "p2p")]
+        {
+            let this = self.clone();
+            let height = checkpoint.height;
+            tokio::spawn(async move {
+                let peer_ids: Vec<String> = match &this.network_handle {
+                    Some(h) => {
+                        let mut ids = h.get_connected_validator_peer_ids().await;
+                        if ids.is_empty() {
+                            ids = h
+                                .get_connected_peers()
+                                .await
+                                .into_iter()
+                                .map(|p| p.peer_id)
+                                .collect();
+                        }
+                        ids
+                    }
+                    None => Vec::new(),
+                };
+                if peer_ids.is_empty() {
+                    warn!(
+                        "CONSENSUS DIVERGENCE resync at h={}: no connected peers to resync from",
+                        height
+                    );
+                    return;
+                }
+                for peer_id in peer_ids {
+                    match this.bootstrap_from_peer_p2p(&peer_id).await {
+                        Ok(()) => {
+                            info!(
+                                "CONSENSUS DIVERGENCE resync at h={}: recovered full snapshot from peer {}",
+                                height,
+                                &peer_id[..16.min(peer_id.len())]
+                            );
+                            return;
+                        }
+                        Err(e) => {
+                            warn!(
+                                "CONSENSUS DIVERGENCE resync at h={}: snapshot from peer {} failed: {}",
+                                height,
+                                &peer_id[..16.min(peer_id.len())],
+                                e
+                            );
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     /// P2P-based snapshot sync using libp2p request-response protocol
     #[cfg(feature = "p2p")]
     async fn bootstrap_from_peer_p2p(&self, peer_id: &str) -> Result<()> {
@@ -5715,6 +5832,7 @@ impl GossipService {
                 sender_validator,
                 sender_stake,
                 timestamp_ms,
+                public_key,
                 ..
             } => {
                 {
@@ -5769,7 +5887,14 @@ impl GossipService {
                     let already_in_dag = self.state.has_transaction(&tx.hash).await;
 
                     if !already_in_dag {
-                        match self.state.add_transaction_from_gossip(tx.clone()).await {
+                        match self
+                            .state
+                            .add_transaction_from_gossip_authenticated(
+                                tx.clone(),
+                                public_key.clone(),
+                            )
+                            .await
+                        {
                             Ok(_) => {}
                             Err(e) => {
                                 let err_str = e.to_string();
@@ -6705,6 +6830,16 @@ impl GossipService {
         if is_new {
             let tx_hash = tx.hash.clone();
             let public_url = std::env::var("PUBLIC_URL").ok();
+            // Include the sender's ECDSA key so peers can authenticate the tx on
+            // first sighting (fast-path bypassed the normal Transaction gossip path).
+            let public_key = if crate::tx_auth::is_system_transaction(&tx) {
+                None
+            } else {
+                self.state
+                    .get_account(&tx.tx.from)
+                    .await
+                    .and_then(|a| a.ecdsa_public_key)
+            };
             let timestamp_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -6762,6 +6897,7 @@ impl GossipService {
                 sender_stake: validator_stake,
                 timestamp_ms,
                 sender_url: public_url,
+                public_key,
             };
 
             #[cfg(feature = "p2p")]
@@ -7260,6 +7396,80 @@ impl GossipService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_signed_tx() -> rinku_core::types::SignedTransaction {
+        rinku_core::types::SignedTransaction {
+            tx: rinku_core::types::Transaction {
+                from: "alice".to_string(),
+                to: "bob".to_string(),
+                amount: 1_000_000,
+                nonce: 0,
+                timestamp: 1_700_000_000_000,
+                parents: vec![],
+                kind: None,
+                gas_limit: None,
+                gas_price: None,
+                data: None,
+                signature: Some("ecdsa-sig".to_string()),
+                memo: None,
+                references: None,
+            },
+            hash: "abc123".to_string(),
+            signature: "ecdsa-sig".to_string(),
+        }
+    }
+
+    // Regression: fast-path TxConfirmBroadcast must carry the sender's ECDSA
+    // public key so peers can authenticate a user tx on first sighting.
+    // Previously the field was absent and receivers rejected the tx with
+    // "publicKey required for authenticated transactions".
+    #[test]
+    fn test_tx_confirm_broadcast_round_trips_public_key() {
+        let msg = GossipMessage::TxConfirmBroadcast {
+            tx: sample_signed_tx(),
+            sender_validator: "validator-1".to_string(),
+            sender_stake: 100,
+            timestamp_ms: 42,
+            sender_url: Some("https://node.example".to_string()),
+            public_key: Some("0xdeadbeef".to_string()),
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let decoded: GossipMessage = serde_json::from_str(&json).expect("deserialize");
+
+        match decoded {
+            GossipMessage::TxConfirmBroadcast { public_key, .. } => {
+                assert_eq!(public_key.as_deref(), Some("0xdeadbeef"));
+            }
+            other => panic!("unexpected variant: {}", other.variant_name()),
+        }
+    }
+
+    // Backward compat: messages from older nodes lack the public_key field and
+    // must still deserialize (as None), rather than failing the whole message.
+    #[test]
+    fn test_tx_confirm_broadcast_legacy_without_public_key() {
+        let legacy = GossipMessage::TxConfirmBroadcast {
+            tx: sample_signed_tx(),
+            sender_validator: "validator-1".to_string(),
+            sender_stake: 100,
+            timestamp_ms: 42,
+            sender_url: None,
+            public_key: None,
+        };
+        let mut value = serde_json::to_value(&legacy).expect("to_value");
+        // Simulate an older peer that never serialized public_key at all.
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("public_key");
+        }
+        let decoded: GossipMessage = serde_json::from_value(value).expect("deserialize legacy");
+        match decoded {
+            GossipMessage::TxConfirmBroadcast { public_key, .. } => {
+                assert!(public_key.is_none());
+            }
+            other => panic!("unexpected variant: {}", other.variant_name()),
+        }
+    }
 
     #[test]
     fn test_bounded_hash_set_basic_operations() {
