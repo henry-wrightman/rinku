@@ -19,7 +19,7 @@ jobs:
       - name: Run tarpaulin
         run: cargo tarpaulin --workspace --out Lcov --output-dir coverage/rust --exclude rinku-contract-sdk
       - name: Upload Rust coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: coverage/rust/lcov.info
           flags: rust
@@ -40,7 +40,7 @@ jobs:
       - name: Run core tests with coverage
         run: npm run test:coverage -w @rinku/core
       - name: Upload Node coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: packages/core/coverage/lcov.info
           flags: node
