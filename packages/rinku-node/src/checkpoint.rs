@@ -1927,15 +1927,7 @@ impl CheckpointService {
             .process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized)
             .await;
 
-        {
-            let state = self.state.inner.read().await;
-            let mut rewards = self.state.rewards.write().await;
-            for (addr, account) in &state.accounts {
-                if account.staked > 0 {
-                    rewards.sync_stake_amount(addr, account.staked);
-                }
-            }
-        }
+        self.state.reconcile_rewards_stakes_from_accounts().await;
 
         self.state
             .process_batch_reward_infos(&contract_lane_txs, &batch_result.executed_hashes)

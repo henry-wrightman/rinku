@@ -637,15 +637,7 @@ impl NodeState {
         self.process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized)
             .await;
 
-        {
-            let state = self.inner.read().await;
-            let mut rewards = self.rewards.write().await;
-            for (addr, account) in &state.accounts {
-                if account.staked > 0 {
-                    rewards.sync_stake_amount(addr, account.staked);
-                }
-            }
-        }
+        self.reconcile_rewards_stakes_from_accounts().await;
 
         if has_special && finalized_count > 0 {
             let mut state = self.inner.write().await;
@@ -966,15 +958,7 @@ impl NodeState {
             self.record_finalized_batch(finalized_count as u64).await;
         }
 
-        {
-            let state = self.inner.read().await;
-            let mut rewards = self.rewards.write().await;
-            for (addr, account) in &state.accounts {
-                if account.staked > 0 {
-                    rewards.sync_stake_amount(addr, account.staked);
-                }
-            }
-        }
+        self.reconcile_rewards_stakes_from_accounts().await;
 
         {
             let mut wal = self.wal.lock().await;
@@ -1390,15 +1374,7 @@ impl NodeState {
         self.process_batch_special_txs_with_skip(&all_special_txs, &fast_path_already_finalized)
             .await;
 
-        {
-            let state = self.inner.read().await;
-            let mut rewards = self.rewards.write().await;
-            for (addr, account) in &state.accounts {
-                if account.staked > 0 {
-                    rewards.sync_stake_amount(addr, account.staked);
-                }
-            }
-        }
+        self.reconcile_rewards_stakes_from_accounts().await;
 
         if has_special && missing_tx_count == 0 {
             let mut state = self.inner.write().await;

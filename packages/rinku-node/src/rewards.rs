@@ -415,7 +415,22 @@ impl RewardsService {
         }
     }
 
+    /// Align `rewards.stakes` with the canonical `account.staked` value.
+    ///
+    /// `canonical_amount == 0` removes the rewards entry entirely so ghost
+    /// stakes cannot linger after account state has already been cleared
+    /// (previously we only synced when account.staked > 0, leaving orphans).
     pub fn sync_stake_amount(&mut self, staker: &str, canonical_amount: u64) {
+        if canonical_amount == 0 {
+            if self.stakes.remove(staker).is_some() {
+                tracing::info!(
+                    "STAKE SYNC REMOVE: {} rewards.stakes cleared (canonical account.staked=0)",
+                    &staker[..16.min(staker.len())]
+                );
+            }
+            return;
+        }
+
         if let Some(existing) = self.stakes.get_mut(staker) {
             if existing.amount != canonical_amount {
                 tracing::info!(
@@ -426,7 +441,7 @@ impl RewardsService {
                 );
                 existing.amount = canonical_amount;
             }
-        } else if canonical_amount > 0 {
+        } else {
             tracing::info!(
                 "STAKE SYNC CREATE: {} creating rewards.stakes entry with amount {} (canonical account.staked, no prior entry)",
                 &staker[..16.min(staker.len())],
@@ -846,7 +861,7 @@ impl RewardsService {
         }
     }
 
-    fn add_pending_reward(&mut self, address: &str, amount: u64) {
+    pub(crate) fn add_pending_reward(&mut self, address: &str, amount: u64) {
         let pending = self.pending_rewards.entry(address.to_string()).or_insert(0);
         *pending += amount;
     }
@@ -1148,6 +1163,63 @@ mod tests {
 
         let unstake_result = service.unstake("validator1");
         assert!(unstake_result.is_err());
+    }
+
+    #[test]
+    fn sync_stake_amount_zero_removes_entry() {
+        let mut service = RewardsService::new(RewardConfig::default());
+        service.stake("user", to_micro_units(199.0), "tx1").unwrap();
+        assert!(service.get_stake("user").is_some());
+        assert_eq!(service.get_total_staked(), to_micro_units(199.0));
+
+        service.sync_stake_amount("user", 0);
+        assert!(
+            service.get_stake("user").is_none(),
+            "canonical account.staked=0 must remove rewards.stakes entry"
+        );
+        assert_eq!(service.get_total_staked(), 0);
+        assert_eq!(service.get_active_validators().len(), 0);
+    }
+
+    #[test]
+    fn sync_stake_amount_zero_is_noop_when_absent() {
+        let mut service = RewardsService::new(RewardConfig::default());
+        service.sync_stake_amount("nobody", 0);
+        assert_eq!(service.get_total_staked(), 0);
+    }
+
+    #[test]
+    fn sync_stake_amount_updates_and_creates() {
+        let mut service = RewardsService::new(RewardConfig::default());
+        service.stake("user", to_micro_units(100.0), "tx1").unwrap();
+        service.sync_stake_amount("user", to_micro_units(250.0));
+        assert_eq!(
+            service.get_stake("user").unwrap().amount,
+            to_micro_units(250.0)
+        );
+
+        service.sync_stake_amount("other", to_micro_units(100.0));
+        assert_eq!(
+            service.get_stake("other").unwrap().amount,
+            to_micro_units(100.0)
+        );
+        assert_eq!(service.get_total_staked(), to_micro_units(350.0));
+    }
+
+    #[test]
+    fn pending_rewards_survive_stake_removal() {
+        let mut service = RewardsService::new(RewardConfig::default());
+        service.stake("user", to_micro_units(200.0), "tx1").unwrap();
+        service.add_pending_reward("user", to_micro_units(11.0));
+        assert!(service.get_pending_rewards("user") > 0);
+
+        service.sync_stake_amount("user", 0);
+        assert!(service.get_stake("user").is_none());
+        assert_eq!(
+            service.get_pending_rewards("user"),
+            to_micro_units(11.0),
+            "pending rewards must not be wiped when stake entry is removed"
+        );
     }
 
     #[test]
