@@ -454,29 +454,13 @@ async fn main() -> Result<()> {
         let genesis_addresses: std::collections::HashSet<String> =
             genesis_seed.iter().map(|(a, _)| a.clone()).collect();
 
+        // Register genesis validators in RewardsService if missing.
+        // Do NOT blanket-remove non-genesis stakes — that confiscated user /
+        // delegator stakes on every genesis restart. Ghost redeploy validators
+        // are handled by reconcile_stakes_after_genesis_replace below.
         {
             use crate::validator_identity::GENESIS_VALIDATOR_STAKE;
             let mut rewards = state.rewards.write().await;
-            if config.is_genesis_node {
-                let existing_stakes: Vec<String> = rewards
-                    .get_all_stakes()
-                    .iter()
-                    .map(|s| s.staker.clone())
-                    .collect();
-                let mut removed = 0;
-                for staker in &existing_stakes {
-                    if !genesis_addresses.contains(staker) {
-                        rewards.remove_stake(staker);
-                        removed += 1;
-                    }
-                }
-                if removed > 0 {
-                    info!(
-                        "Removed {} stale stake(s) from rewards service (not in genesis set)",
-                        removed
-                    );
-                }
-            }
             let mut registered = 0;
             for (address, _) in &genesis_seed {
                 if rewards.get_stake(address).is_none() {
@@ -572,11 +556,13 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        // Clean up ghost accounts on ALL nodes (not just genesis)
-        state.cleanup_stale_accounts(&genesis_addresses).await;
+        // Preserve user stakes; only clear redeploy-ghost validators (+ empty accounts).
+        state
+            .reconcile_stakes_after_genesis_replace(&genesis_addresses)
+            .await;
     } else {
         let empty_set = std::collections::HashSet::new();
-        state.cleanup_stale_accounts(&empty_set).await;
+        state.cleanup_empty_ghost_accounts(&empty_set).await;
     }
 
     // Sync stakes to accounts AFTER genesis validator replacement
