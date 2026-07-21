@@ -20,7 +20,7 @@ repository = "https://github.com/rinku-ledger/rinku"
 base64ct = "=1.8.3"
 
 # Crypto
-p256 = { version = "0.13", features = ["ecdsa", "serde"] }
+p256 = { version = "0.14", features = ["ecdsa", "serde"] }
 sha2 = "0.10"
 bls12_381 = "0.8"
 blst = "0.3"
