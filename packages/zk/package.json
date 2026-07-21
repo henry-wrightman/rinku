@@ -18,7 +18,7 @@
     "circomlibjs": "^0.1.7",
     "snarkjs": "^0.7.5",
     "ffjavascript": "^0.3.1",
-    "pako": "^2.1.0"
+    "pako": "^3.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
